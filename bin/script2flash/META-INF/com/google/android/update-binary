@@ -7,12 +7,28 @@ ui_print() { echo -e "ui_print $1\nui_print" > $OUTFD; }
 if [ -d /tmp/maianh ];then rm -r /tmp/maianh ; fi
 mkdir -p /tmp/maianh/bin
 unzip "$ZIP" META-INF/bin/* -d /tmp/maianh
-unzip "$ZIP" META-INF/Data/A -d /tmp/maianh
-unzip "$ZIP" META-INF/Data/CNAME -d /tmp/maianh
+mv /tmp/maianh/META-INF/bin/* /tmp/maianh/bin
+unzip "$ZIP" META-INF/Data/Structure -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/DeviceCode -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/DeviceName -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/AndroidVer -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/Region -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/RomBased -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/Version -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/Types -d /tmp/maianh
+unzip "$ZIP" META-INF/Data/Chip -d /tmp/maianh
 chmod -R 0777 /tmp/maianh
+structure=$(cat '/tmp/maianh/META-INF/Data/Structure')
+codename=$(cat '/tmp/maianh/META-INF/Data/DeviceCode')
+name=$(cat '/tmp/maianh/META-INF/Data/DeviceName')
+android=$(cat '/tmp/maianh/META-INF/Data/AndroidVer')
+region=$(cat '/tmp/maianh/META-INF/Data/Region')
+based=$(cat '/tmp/maianh/META-INF/Data/RomBased')
+version=$(cat '/tmp/maianh/META-INF/Data/Version')
+Types=$(cat '/tmp/maianh/META-INF/Data/Types')
+Chip=$(cat '/tmp/maianh/META-INF/Data/Chip')
 partitionPath="/dev/block/bootdevice/by-name"
-structure=$(cat '/tmp/maianh/META-INF/Data/A')
-codename=$(cat '/tmp/maianh/META-INF/Data/CNAME')
+
 export PATH=/tmp/maianh/bin:$PATH
 
 ui_print "> Check infomation... "
@@ -27,6 +43,16 @@ if [ "$device" != "$codename" ]; then
    echo "Device is not $codename! Device is: $device"
    exit 1
 fi
+
+ui_print "------------------------------------------------"
+ui_print "Device Name: $name"
+ui_print "Codename: $codename"
+ui_print "Android: $android"
+ui_print "Based: $based"
+ui_print "Region: $region"
+ui_print "Version: $version"
+ui_print "------------------------------------------------"
+ui_print " "
 
 ui_print "> Starting Installing... "
 ui_print " "
@@ -52,10 +78,10 @@ done
 
 ui_print "----- Flashing super -----"
 
-for superFile in $(7zz l "$ZIP" | grep super | grep -o "/.*" ); do
-	partition=${superFile%%.*}
+for zstFile in $(7zz l "$ZIP" | grep -o "[a-z]*.img.zst"); do
+	partition=${zstFile%%.*}
 	ui_print "> Flashing ${partition} "
-	unzip -p "$ZIP" "super/super.img" > "${partitionPath}/super"
+	7zz x -so "$ZIP" "${zstFile}" | zstd -c -d > "${partitionPath}/${partition}" 
 done
 
 rm -rf /data/dalvik-cache/arm/*
