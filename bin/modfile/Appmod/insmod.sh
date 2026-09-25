@@ -4,7 +4,7 @@ rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt)
 
 if [[ $rom_os == "OS3" ]]; then
 mods "Starting Apply OS3 Custom Mods File..."
-TARGET_DIR="$work_dir/bin/modfile/OS3"
+TARGET_DIR="$work_dir/bin/modfile/Appmod"
 noexecute=( "insmod" )
 
 find "$TARGET_DIR" -type f -name "*.sh" | while read -r script; do
