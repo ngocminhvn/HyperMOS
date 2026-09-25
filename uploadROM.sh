@@ -2,6 +2,18 @@ work_dir=$(pwd)
 source $work_dir/functions.sh
 RCLONE_CONFIG_1DRIVE="$work_dir/rclone.conf"
 
+if [ -z "$RCLONE_TOKEN_PATH" ]; then
+    echo "Lỗi: Không tìm thấy biến môi trường RCLONE_TOKEN_PATH!"
+    exit 1
+fi
+
+echo "Đang tải rclone.conf từ Secret URL..."
+curl -sL "$RCLONE_TOKEN_PATH" -o "$RCLONE_CONFIG_1DRIVE"
+
+if [ ! -s "$RCLONE_CONFIG_1DRIVE" ]; then
+    echo "Lỗi: Không thể tải rclone.conf!"
+    exit 1
+fi
 # Cấu hình Google Drive 
 GDRIVE_REMOTE="github"
 GDRIVE_FOLDER="HyperOS_ROM" 
