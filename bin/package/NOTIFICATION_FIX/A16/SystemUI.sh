@@ -36,12 +36,13 @@ find_and_replace() {
     )
 
     for file in "${files[@]}"; do
-        file_path=$(find "$base_dir" -name "$file")
-        if [[ -n $file_path ]]; then
-            if grep -q "$search" "$file_path"; then
-                sed -i "s|$search|$replace|g" "$file_path"
+        find "$base_dir" -name "$file" | while read -r file_path; do
+            if [[ -n "$file_path" ]]; then
+                if grep -q "$search" "$file_path"; then
+                    sed -i "s|$search|$replace|g" "$file_path"
+                fi
             fi
-        fi
+        done
     done
 } 
 

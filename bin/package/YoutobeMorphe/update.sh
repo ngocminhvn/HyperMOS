@@ -109,6 +109,7 @@ if [[ -f "$Morphe_ZIP" ]]; then
     
     # Dọn dẹp sau khi build xong
     rm -rf "$TMP_Morphe"
+    echo "YouTube Morphe integration completed successfully."
 else
     error "Morphe_module.zip not found, integration failed."
     exit 1

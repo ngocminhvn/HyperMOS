@@ -10,4 +10,5 @@ bash $target_dir/KouseiPatcher/update.sh
 bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh
 bash $target_dir/RefreshRate/1hz.sh
 bash $target_dir/ResetProp/update.sh
+bash $target_dir/YoutobeMorphe/update.sh
 mods "Add Package Done"
