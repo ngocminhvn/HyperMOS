@@ -614,6 +614,30 @@ def post_telegram(url: str, payload: dict):
     return response, data
 
 
+def telegram_error(response, data):
+    """Trả về lỗi Telegram rõ ràng nhưng không làm lộ Bot Token."""
+    error_code = data.get("error_code", response.status_code) if isinstance(data, dict) else response.status_code
+    description = data.get("description", "") if isinstance(data, dict) else ""
+    if not description:
+        description = response.text.strip() or "Không có mô tả từ Telegram"
+    return f"HTTP {response.status_code}, error_code={error_code}, description={description}"
+
+
+def send_telegram_message(base_url, payload, action="sendMessage"):
+    """Gửi message và trả về (success, response, data), không raise lỗi HTTP."""
+    try:
+        response, data = post_telegram(f"{base_url}/{action}", payload)
+    except Exception as exc:
+        print(f"Telegram {action} thất bại: {type(exc).__name__}: {exc}")
+        return False, None, {}
+
+    if not response.ok:
+        print(f"Telegram {action} thất bại: {telegram_error(response, data)}")
+        return False, response, data
+
+    return True, response, data
+
+
 def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id=None, build_id="Không rõ", builder_name="", builder_id=""):
     status = normalize_status(status)
     message = compose_message(status, repo_name, rom_link, build_id, builder_name)
@@ -626,34 +650,57 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
         "disable_web_page_preview": True,
     }
 
+    # ============================================================
+    # 1. GỬI/CẬP NHẬT THÔNG BÁO CHANNEL
+    #    Lỗi channel không được phép chặn phần gửi riêng cho builder.
+    # ============================================================
     try:
         if msg_id:
             edit_payload = dict(payload)
             edit_payload["message_id"] = msg_id
-            response, data = post_telegram(f"{base_url}/editMessageText", edit_payload)
-            if not response.ok:
-                description = str(data.get("description", response.text))
+            ok, response, data = send_telegram_message(
+                base_url, edit_payload, "editMessageText"
+            )
+
+            if ok:
+                print("Đã cập nhật thông báo Telegram.")
+            else:
+                description = str(data.get("description", "")) if isinstance(data, dict) else ""
                 if "message is not modified" in description.lower():
                     print("Thông báo Telegram không thay đổi; bỏ qua cập nhật.")
                 else:
-                    print(f"Không thể sửa thông báo Telegram cũ; sẽ gửi thông báo mới. Lý do: {description}")
-                    response, data = post_telegram(f"{base_url}/sendMessage", payload)
-                    response.raise_for_status()
-                    new_msg_id = data.get("result", {}).get("message_id")
-                    if new_msg_id:
-                        save_env("TELEGRAM_MSG_ID", str(new_msg_id))
-            else:
-                print("Đã cập nhật thông báo Telegram.")
+                    print("Không thể sửa thông báo Telegram cũ; thử gửi thông báo mới...")
+                    send_ok, _, send_data = send_telegram_message(
+                        base_url, payload, "sendMessage"
+                    )
+                    if send_ok:
+                        new_msg_id = send_data.get("result", {}).get("message_id")
+                        if new_msg_id:
+                            save_env("TELEGRAM_MSG_ID", str(new_msg_id))
+                            print(f"Đã lưu TELEGRAM_MSG_ID={new_msg_id} vào GITHUB_ENV.")
+                        print("Đã gửi thông báo Telegram mới.")
+                    else:
+                        print("Không thể gửi thông báo Telegram mới; tiếp tục xử lý Builder ID.")
         else:
-            response, data = post_telegram(f"{base_url}/sendMessage", payload)
-            response.raise_for_status()
-            new_msg_id = data.get("result", {}).get("message_id")
-            if new_msg_id:
-                save_env("TELEGRAM_MSG_ID", str(new_msg_id))
-                print(f"Đã lưu TELEGRAM_MSG_ID={new_msg_id} vào GITHUB_ENV.")
-            print("Đã gửi thông báo Telegram.")
+            ok, _, data = send_telegram_message(base_url, payload, "sendMessage")
+            if ok:
+                new_msg_id = data.get("result", {}).get("message_id")
+                if new_msg_id:
+                    save_env("TELEGRAM_MSG_ID", str(new_msg_id))
+                    print(f"Đã lưu TELEGRAM_MSG_ID={new_msg_id} vào GITHUB_ENV.")
+                print("Đã gửi thông báo Telegram.")
+            else:
+                print("Không thể gửi thông báo channel; vẫn tiếp tục gửi riêng cho Builder ID.")
+    except Exception as exc:
+        # Tuyệt đối không để lỗi channel làm mất phần PM builder.
+        print(f"Lỗi xử lý thông báo channel Telegram: {type(exc).__name__}: {exc}")
 
-        if status in FINAL_STATUSES and builder_id:
+    # ============================================================
+    # 2. GỬI TIN NHẮN RIÊNG CHO BUILDER
+    #    Tách hoàn toàn khỏi channel để channel_id sai vẫn PM được.
+    # ============================================================
+    if status in FINAL_STATUSES and builder_id:
+        try:
             pm_title = {
                 "success": "YÊU CẦU BUILD ROM CỦA BẠN ĐÃ HOÀN TẤT",
                 "fail": "YÊU CẦU BUILD ROM CỦA BẠN BỊ LỖI",
@@ -669,24 +716,37 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
             pm_text = "\n".join(pm_lines)
             if len(pm_text) > 3900:
                 pm_text = pm_text[:3800] + "\n...\n(Nội dung đã được rút gọn.)"
+
             pm_payload = {
                 "chat_id": builder_id,
                 "text": pm_text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             }
-            pm_response, pm_data = post_telegram(f"{base_url}/sendMessage", pm_payload)
-            if pm_response.ok:
+
+            pm_ok, _, _ = send_telegram_message(base_url, pm_payload, "sendMessage")
+            if pm_ok:
                 print(f"Đã gửi tin nhắn riêng cho người dùng {builder_id}.")
             else:
-                print(f"Không thể gửi tin nhắn riêng cho người dùng {builder_id}: {pm_data or pm_response.text}")
+                print(
+                    f"Không thể gửi tin nhắn riêng cho Builder ID {builder_id}. "
+                    "Nếu đây là Telegram user ID, hãy kiểm tra người dùng đã mở bot và bấm Start chưa."
+                )
 
+            # Chỉ thử gửi log lỗi khi PM được xử lý; nếu Builder ID sai,
+            # send_error_log_document cũng sẽ báo lỗi riêng và không làm workflow crash.
             if status == "fail" and os.environ.get("TELEGRAM_ERROR_LOG_SENT") != "1":
-                if send_error_log_document(base_url, builder_id, status, repo_name, build_id):
-                    os.environ["TELEGRAM_ERROR_LOG_SENT"] = "1"
-                    save_env("TELEGRAM_ERROR_LOG_SENT", "1")
-    except Exception as exc:
-        print(f"Lỗi khi gửi/cập nhật thông báo Telegram: {exc}")
+                try:
+                    if send_error_log_document(base_url, builder_id, status, repo_name, build_id):
+                        os.environ["TELEGRAM_ERROR_LOG_SENT"] = "1"
+                        save_env("TELEGRAM_ERROR_LOG_SENT", "1")
+                except Exception as exc:
+                    print(f"Không thể gửi log lỗi riêng cho Builder ID {builder_id}: {type(exc).__name__}: {exc}")
+        except Exception as exc:
+            # Lỗi PM cũng không được làm hỏng workflow/build.
+            print(f"Lỗi xử lý tin nhắn riêng Telegram: {type(exc).__name__}: {exc}")
+    elif status in FINAL_STATUSES:
+        print("Không có Builder ID; bỏ qua tin nhắn riêng Telegram.")
 
 
 if __name__ == "__main__":
