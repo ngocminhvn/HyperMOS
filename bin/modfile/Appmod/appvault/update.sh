@@ -10,10 +10,10 @@ isSTOCKVault=$(find "$MAIN_FOLDER" -type d \( -name "MIUIGlobalMinusScreenWidget
 if [[ $androidVER == "16" ]]; then
     rm -rf $isSTOCKVault
     mkdir -p $work_dir/build/baserom/images/product/priv-app/MIUIPersonalAssistant
-    cp -rf $work_dir/bin/modfile/OS3/appvault/MIUIPersonalAssistant/*.apk $work_dir/build/baserom/images/product/priv-app/MIUIPersonalAssistant/
+    cp -rf $work_dir/bin/modfile/Appmod/appvault/MIUIPersonalAssistant/*.apk $work_dir/build/baserom/images/product/priv-app/MIUIPersonalAssistant/
     mkdir -p $work_dir/build/baserom/images/product/priv-app/MIUIPersonalAssistant/lib/arm64
     unzip -q -j "$work_dir/build/baserom/images/product/priv-app/MIUIPersonalAssistant/"*.apk "lib/arm64-v8a/*" -d "$work_dir/build/baserom/images/product/priv-app/MIUIPersonalAssistant/lib/arm64/" 2>/dev/null || true
-    cp -rf $work_dir/bin/modfile/OS3/appvault/permissions/privapp_whitelist_com.miui.personalassistant.xml $work_dir/build/baserom/images/product/etc/permissions/
+    cp -rf $work_dir/bin/modfile/Appmod/appvault/permissions/privapp_whitelist_com.miui.personalassistant.xml $work_dir/build/baserom/images/product/etc/permissions/
     mods "Modify Appvault Done"
 else
     echo "Lỗi quá trình mod Appvault"

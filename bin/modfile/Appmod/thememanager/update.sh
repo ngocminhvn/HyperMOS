@@ -10,7 +10,7 @@ isOriginThemeMng=$(find "$MAIN_FOLDER" -type d \( -name "MIUIThemeManager" -o -n
 if [[ $rom_os == "OS3" ]] ;then
   rm -rf $isOriginThemeMng
   mkdir -p $work_dir/build/baserom/images/product/priv-app/MIUIThemeManager
-  cp -rf $work_dir/bin/modfile/OS3/thememanager/MIUIThemeManager/* $work_dir/build/baserom/images/product/priv-app/MIUIThemeManager
-  cp -rf $work_dir/bin/modfile/OS3/thememanager/permissions/privapp_whitelist_com.android.thememanager.xml $work_dir/build/baserom/images/product/etc/permissions/
+  cp -rf $work_dir/bin/modfile/Appmod/thememanager/MIUIThemeManager/* $work_dir/build/baserom/images/product/priv-app/MIUIThemeManager
+  cp -rf $work_dir/bin/modfile/Appmod/thememanager/permissions/privapp_whitelist_com.android.thememanager.xml $work_dir/build/baserom/images/product/etc/permissions/
   mods "Modify ThemeManager Done"
 fi

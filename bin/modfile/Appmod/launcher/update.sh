@@ -14,15 +14,15 @@ else
   if [[ $rom_os == "OS3" ]]; then 
     rm -rf $isOriginHome
     mkdir -p $work_dir/build/baserom/images/product/priv-app/MiuiHome
-    cp -rf $work_dir/bin/modfile/OS3/launcher/MiuiHome/MiuiHome.apk $work_dir/build/baserom/images/product/priv-app/MiuiHome/
+    cp -rf $work_dir/bin/modfile/Appmod/launcher/MiuiHome/MiuiHome.apk $work_dir/build/baserom/images/product/priv-app/MiuiHome/
     mkdir -p $work_dir/build/baserom/images/product/priv-app/MiuiHome/lib/arm64
     unzip -q -j "$work_dir/build/baserom/images/product/priv-app/MiuiHome/MiuiHome.apk" "lib/arm64-v8a/*" -d "$work_dir/build/baserom/images/product/priv-app/MiuiHome/lib/arm64/" 2>/dev/null || true
     mkdir -p $work_dir/build/baserom/images/product/priv-app/XiaomiEUExt
-    cp -rf $work_dir/bin/modfile/OS3/launcher/XiaomiEUExt/XiaomiEUExt.apk $work_dir/build/baserom/images/product/priv-app/XiaomiEUExt/
-    cp -rf $work_dir/bin/modfile/OS3/launcher/permissions/privapp_whitelist_eu.xiaomi.ext.xml $work_dir/build/baserom/images/product/etc/permissions/
-    cp -rf $work_dir/bin/modfile/OS3/launcher/permissions/privapp_whitelist_com.miui.home.xml $work_dir/build/baserom/images/product/etc/permissions/
+    cp -rf $work_dir/bin/modfile/Appmod/launcher/XiaomiEUExt/XiaomiEUExt.apk $work_dir/build/baserom/images/product/priv-app/XiaomiEUExt/
+    cp -rf $work_dir/bin/modfile/Appmod/launcher/permissions/privapp_whitelist_eu.xiaomi.ext.xml $work_dir/build/baserom/images/product/etc/permissions/
+    cp -rf $work_dir/bin/modfile/Appmod/launcher/permissions/privapp_whitelist_com.miui.home.xml $work_dir/build/baserom/images/product/etc/permissions/
     mkdir -p $work_dir/build/baserom/images/product/overlay
-    cp -rf $work_dir/bin/modfile/OS3/launcher/product/overlay/MiuiHomeLauncherResOverlay.apk $work_dir/build/baserom/images/product/overlay/
+    cp -rf $work_dir/bin/modfile/Appmod/launcher/product/overlay/MiuiHomeLauncherResOverlay.apk $work_dir/build/baserom/images/product/overlay/
     mods "Modify Home Done"
   else
     echo "Lỗi quá trình mod Home"

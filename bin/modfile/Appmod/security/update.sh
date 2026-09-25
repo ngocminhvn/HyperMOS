@@ -11,8 +11,8 @@ isOriginSECU=$(find "$MAIN_FOLDER" -type d \( -name "MIUISecurityCenter" -o -nam
 if [[ $rom_os == "OS3" ]]; then
   rm -rf $isOriginSECU
   mkdir -p $work_dir/build/baserom/images/product/priv-app/MIUISecurityCenter
-  cp -rf $work_dir/bin/modfile/OS3/security/permissions/privapp_whitelist_com.miui.securitycenter.xml $work_dir/build/baserom/images/product/etc/permissions/
-  cp -rf $work_dir/bin/modfile/OS3/security/MIUISecurityCenter/* $work_dir/build/baserom/images/product/priv-app/MIUISecurityCenter
+  cp -rf $work_dir/bin/modfile/Appmod/security/permissions/privapp_whitelist_com.miui.securitycenter.xml $work_dir/build/baserom/images/product/etc/permissions/
+  cp -rf $work_dir/bin/modfile/Appmod/security/MIUISecurityCenter/* $work_dir/build/baserom/images/product/priv-app/MIUISecurityCenter
   mods "Modify Secu Done"
 else
   echo "Lỗi quá trình mod SecurityCenter"

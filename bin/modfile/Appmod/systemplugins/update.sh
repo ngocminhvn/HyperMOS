@@ -8,5 +8,5 @@ MIUISystemUIPluginDIR=$(find "$MAIN_FOLDER" -type d -name "MIUISystemUIPlugin")
 
 if [[ $rom_os == "OS3" ]];then
     rm -rf $MIUISystemUIPluginDIR/*.apk
-    cp -rf $WORK_DIR/bin/modfile/OS3/systemplugins/MIUISystemUIPlugin.apk $MIUISystemUIPluginDIR
+    cp -rf $WORK_DIR/bin/modfile/Appmod/systemplugins/MIUISystemUIPlugin.apk $MIUISystemUIPluginDIR
 fi
