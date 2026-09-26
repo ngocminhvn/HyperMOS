@@ -74,7 +74,7 @@ pushd out/${os_type}_${device_code}_${base_rom_code}/ || exit
 zip -r ${os_type}_${device_code}_${base_rom_code}.zip ./*
 mv ${os_type}_${device_code}_${base_rom_code}.zip ../
 popd || exit
-current_date=$(date +"%d%m%y")
+current_date=$(date +"%d%m%y_%H%M")
 mv out/${os_type}_${device_code}_${base_rom_code}.zip out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip
 repack "Build completed"    
 repack "Output: "
