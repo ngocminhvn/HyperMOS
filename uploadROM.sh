@@ -22,7 +22,6 @@ base_rom_code=$(cat $work_dir/bin/ddevice/base_rom_code.txt)
 rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt)
 device_code=$(cat $work_dir/bin/ddevice/device_code.txt)
 baserom_type=$(cat $work_dir/bin/ddevice/romtype.txt)
-device_f=$(cat $work_dir/bin/ddevice/device_f.txt)
 
 
 if [[ $(git branch --show-current) == "beta" ]]; then
@@ -61,12 +60,8 @@ mv -f $work_dir/build/baserom/images/super.img.zst $work_dir/out/${os_type}_${de
 # Move all remaining images (boot, init_boot, vendor_boot, recovery, cust, etc.)
 mv -f $work_dir/build/baserom/images/*.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/ 2>/dev/null || true
 
-# generate dynamic script
-cp -rf $work_dir/bin/script2flash/META-INF $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
-cp -rf $work_dir/bin/script2flash/*.bat $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
-cp -rf $work_dir/bin/script2flash/*.sh $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
-cp -rf $work_dir/bin/script2flash/cust.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/
-echo $device_f > $work_dir/out/${os_type}_${device_code}_${base_rom_code}/META-INF/Data/DeviceCode
+cp -rf $work_dir/bin/script2flash/cust.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/ 2>/dev/null || true
+cp -rf $work_dir/bin/script2flash/*.install $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
 repack "Done"
 
 
