@@ -64,9 +64,9 @@ mods "Add ROM Information To HyperOS"
   $repS $tar4 $p1
 
   mods "Updating build.prop"
-  echo "ro.nothings.version=NothingsOS $myversion | $final_version" >> $my
-  echo "ro.nothings.osversion=${simposcode}.${build_date}" >> $my
-  echo "ro.nothings.simposcode=By NothingsVN $myversion" >> $my
+  # echo "ro.nothings.version=NothingsOS $myversion | $final_version" >> $my
+  # echo "ro.nothings.osversion=${simposcode}.${build_date}" >> $my
+  # echo "ro.nothings.simposcode=By NothingsVN $myversion" >> $my
 
   mods "Rebuild..."
   Settings=$(basename $isSettings)
