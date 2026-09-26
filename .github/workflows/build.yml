@@ -111,94 +111,94 @@ jobs:
           echo "[STEP] Upload ROM to cloud" | tee -a build_action.log
           sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
 
-      - name: Split Large File
-        id: split
-        shell: bash
-        run: |
-          FILE=$(find out -maxdepth 1 -name "*.zip" | head -n1)
+      # - name: Split Large File
+      #   id: split
+      #   shell: bash
+      #   run: |
+      #     FILE=$(find out -maxdepth 1 -name "*.zip" | head -n1)
 
-          if [ -z "$FILE" ]; then
-          echo "No ROM zip found!"
-          exit 1
-          fi
+      #     if [ -z "$FILE" ]; then
+      #     echo "No ROM zip found!"
+      #     exit 1
+      #     fi
 
-          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+      #     echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
-          SIZE=$(stat -c%s "$FILE")
-          LIMIT=$((9 * 1024 * 1024 * 1024))
+      #     SIZE=$(stat -c%s "$FILE")
+      #     LIMIT=$((9 * 1024 * 1024 * 1024))
 
-          if [ "$SIZE" -gt "$LIMIT" ]; then
-          echo "Splitting ROM..."
-          7z a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE"
-          echo "split=true" >> "$GITHUB_OUTPUT"
-          else
-          echo "split=false" >> "$GITHUB_OUTPUT"
-          fi
+      #     if [ "$SIZE" -gt "$LIMIT" ]; then
+      #     echo "Splitting ROM..."
+      #     7z a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE"
+      #     echo "split=true" >> "$GITHUB_OUTPUT"
+      #     else
+      #     echo "split=false" >> "$GITHUB_OUTPUT"
+      #     fi
 
-      - name: Upload to Pixeldrain
-        id: pd
-        shell: bash
-        env:
-          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
-        run: |
-          FILE="${{ steps.split.outputs.file }}"
+      # - name: Upload to Pixeldrain
+      #   id: pd
+      #   shell: bash
+      #   env:
+      #     PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+      #   run: |
+      #     FILE="${{ steps.split.outputs.file }}"
 
-          if [[ "${{ steps.split.outputs.split }}" == "true" ]]; then
-          LINKS=""
-          COUNT=1
+      #     if [[ "${{ steps.split.outputs.split }}" == "true" ]]; then
+      #     LINKS=""
+      #     COUNT=1
 
-          for PART in "${FILE}.7z".*; do
-          [ -e "$PART" ] || continue
+      #     for PART in "${FILE}.7z".*; do
+      #     [ -e "$PART" ] || continue
 
-          echo "Uploading $PART"
+      #     echo "Uploading $PART"
 
-          RESPONSE=$(curl -s \
-          -u ":$PD_API_KEY" \
-          -F "file=@${PART}" \
-          https://pixeldrain.com/api/file)
+      #     RESPONSE=$(curl -s \
+      #     -u ":$PD_API_KEY" \
+      #     -F "file=@${PART}" \
+      #     https://pixeldrain.com/api/file)
 
-          ID=$(echo "$RESPONSE" | jq -r '.id')
+      #     ID=$(echo "$RESPONSE" | jq -r '.id')
 
-          if [[ -z "$ID" || "$ID" == "null" ]]; then
-          echo "Upload failed for $PART. Response:"
-          echo "$RESPONSE"
-          exit 1
-          fi
+      #     if [[ -z "$ID" || "$ID" == "null" ]]; then
+      #     echo "Upload failed for $PART. Response:"
+      #     echo "$RESPONSE"
+      #     exit 1
+      #     fi
 
-          URL="https://pixeldrain.com/u/$ID"
+      #     URL="https://pixeldrain.com/u/$ID"
 
-          if [[ -z "$LINKS" ]]; then
-          LINKS="<a href='$URL'>Part $COUNT</a>"
-          else
-          LINKS="$LINKS | <a href='$URL'>Part $COUNT</a>"
-          fi
+      #     if [[ -z "$LINKS" ]]; then
+      #     LINKS="<a href='$URL'>Part $COUNT</a>"
+      #     else
+      #     LINKS="$LINKS | <a href='$URL'>Part $COUNT</a>"
+      #     fi
 
-          COUNT=$((COUNT + 1))
-          done
-          else
-          echo "Uploading $FILE"
+      #     COUNT=$((COUNT + 1))
+      #     done
+      #     else
+      #     echo "Uploading $FILE"
 
-          RESPONSE=$(curl -s \
-          -u ":$PD_API_KEY" \
-          -F "file=@${FILE}" \
-          https://pixeldrain.com/api/file)
+      #     RESPONSE=$(curl -s \
+      #     -u ":$PD_API_KEY" \
+      #     -F "file=@${FILE}" \
+      #     https://pixeldrain.com/api/file)
 
-          ID=$(echo "$RESPONSE" | jq -r '.id')
+      #     ID=$(echo "$RESPONSE" | jq -r '.id')
 
-          if [[ -z "$ID" || "$ID" == "null" ]]; then
-          echo "Upload failed. Response:"
-          echo "$RESPONSE"
-          exit 1
-          fi
+      #     if [[ -z "$ID" || "$ID" == "null" ]]; then
+      #     echo "Upload failed. Response:"
+      #     echo "$RESPONSE"
+      #     exit 1
+      #     fi
 
-          LINKS="<a href='https://pixeldrain.com/u/$ID'>Download</a>"
-          fi
+      #     LINKS="<a href='https://pixeldrain.com/u/$ID'>Download</a>"
+      #     fi
 
-          echo "links=$LINKS" >> "$GITHUB_OUTPUT"
+      #     echo "links=$LINKS" >> "$GITHUB_OUTPUT"
 
-          # =======================================================
-          # CẬP NHẬT TRẠNG THÁI JSON SANG MY-ASSETS (FIX LỖI MẤT NHÁY LINK)
-          # =======================================================
+      #     # =======================================================
+      #     # CẬP NHẬT TRẠNG THÁI JSON SANG MY-ASSETS (FIX LỖI MẤT NHÁY LINK)
+      #     # =======================================================
 
       - name: Send success notification
         if: success()
