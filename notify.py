@@ -708,7 +708,10 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
             }[status]
             pm_lines = [f"<b>{escape(pm_title)}</b>", "", message]
             if status == "success":
-                pm_lines.extend(["", "<b>Tải ROM:</b> <a href=\"https://nothingsvn.vercel.app/\">nothingsvn.vercel.app</a>"])
+                gdrive_link = read_file_if_exists("bin/ddevice/rom_link.txt")
+                if not gdrive_link:
+                    gdrive_link = "https://google.com"
+                pm_lines.extend(["", "<b>Tải ROM:</b> <a href=\"{gdrive_link}\">Link</a>"])
             elif status == "fail":
                 pm_lines.extend(["", "<b>Log lỗi:</b> file .txt sẽ được gửi riêng ngay sau tin nhắn này nếu tìm thấy log."])
             else:

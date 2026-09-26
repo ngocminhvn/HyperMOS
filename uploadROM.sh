@@ -19,9 +19,7 @@ GDRIVE_FOLDER="HyperOS_ROM"
 
 os_type=$(cat $work_dir/bin/ddevice/os_type.txt)
 base_rom_code=$(cat $work_dir/bin/ddevice/base_rom_code.txt)
-androidVER=$(cat $work_dir/bin/ddevice/androidver.txt)
 rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt)
-regionTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
 device_code=$(cat $work_dir/bin/ddevice/device_code.txt)
 baserom_type=$(cat $work_dir/bin/ddevice/romtype.txt)
 device_f=$(cat $work_dir/bin/ddevice/device_f.txt)
@@ -81,10 +79,10 @@ current_date=$(date +"%d%m%y")
 mv out/${os_type}_${device_code}_${base_rom_code}.zip out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip
 repack "Build completed"    
 repack "Output: "
-repack "$(pwd)/out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip"
+repack "$(pwd)/out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip"
 upload "Uploading"
-output_file="out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip"
-echo "${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip" > $work_dir/bin/ddevice/output_zip.txt
+output_file="out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip"
+echo "${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip" > $work_dir/bin/ddevice/output_zip.txt
 
 # Đặt tên thư mục upload trên Drive trùng với hệ điều hành
 uploaddir=$true_os
