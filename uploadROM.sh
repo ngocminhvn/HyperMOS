@@ -1,23 +1,20 @@
 work_dir=$(pwd)
 source $work_dir/functions.sh
-RCLONE_CONFIG_1DRIVE="$work_dir/rclone.conf"
-
+RCLONE_CONFIG_GDRIVE="$work_dir/rclone.conf"
 if [ -z "$RCLONE_TOKEN_PATH" ]; then
     echo "Lỗi: Không tìm thấy biến môi trường RCLONE_TOKEN_PATH!"
     exit 1
 fi
 
 echo "Đang tải rclone.conf từ Secret URL..."
-curl -sL "$RCLONE_TOKEN_PATH" -o "$RCLONE_CONFIG_1DRIVE"
+curl -sL "$RCLONE_TOKEN_PATH" -o "$RCLONE_CONFIG_GDRIVE"
 
-if [ ! -s "$RCLONE_CONFIG_1DRIVE" ]; then
+if [ ! -s "$RCLONE_CONFIG_GDRIVE" ]; then
     echo "Lỗi: Không thể tải rclone.conf!"
     exit 1
 fi
-# Cấu hình Google Drive 
 GDRIVE_REMOTE="github"
 GDRIVE_FOLDER="HyperOS_ROM" 
-
 os_type=$(cat $work_dir/bin/ddevice/os_type.txt)
 base_rom_code=$(cat $work_dir/bin/ddevice/base_rom_code.txt)
 androidVER=$(cat $work_dir/bin/ddevice/androidver.txt)
@@ -27,6 +24,7 @@ device_code=$(cat $work_dir/bin/ddevice/device_code.txt)
 baserom_type=$(cat $work_dir/bin/ddevice/romtype.txt)
 device_f=$(cat $work_dir/bin/ddevice/device_f.txt)
 
+
 if [[ $(git branch --show-current) == "beta" ]]; then
     polyxver="$(cat Version)"
 	status="Development"
@@ -35,64 +33,49 @@ else
 	status="Official"
 fi
 
-# ========================================================
-# LOGIC NHẬN DIỆN HỆ ĐIỀU HÀNH CHUẨN XÁC 100%
-if [[ "$base_rom_code" == OS* ]]; then
-    true_os="HyperOS"
+if [[ $rom_os == "MIUI" ]];then
+    os_type="MIUI"
 else
-    true_os="MIUI"
+    os_type="HyperOS"
 fi
 
-# Ép tên hệ điều hành để xuất file
-os_type=$true_os
-# ========================================================
-
-repack "Compressing super.img"
-zstd --rm $work_dir/build/baserom/images/super.img -o $work_dir/build/baserom/images/super.img.zst > /dev/null 2>&1
-
 repack "Generating flashing script"
-mkdir -p $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/
+if [[ ${baserom_type} == 'payload' ]]; then
+    mkdir -p $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/
+    mkdir -p $work_dir/out/${os_type}_${device_code}_${base_rom_code}/super/
+	mv -f $work_dir/build/baserom/images/super.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/super/
+    mv -f $work_dir/build/baserom/images/*.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/
+elif [[ ${baserom_type} == 'br' ]]; then
+    mkdir -p $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/
+    mv -f $work_dir/build/baserom/firmware-update/* $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/
+    mv -f $work_dir/build/baserom/images/super.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/super/
+fi
 
-# Remove firmware images (user requested)
-rm -f $work_dir/build/baserom/images/{abl,xbl,xbl_config,xbl_ramdump,tz,hyp,devcfg,keymaster,qupfw,uefisecapp,modem,dsp,bluetooth,cpucp,shrm,logo,featenabler,cmnlib,cmnlib64,tzdev,storsec,aop,multiimgoem,imagefv,apdp,msadp}.img 2>/dev/null || true
-rm -f $work_dir/build/baserom/images/firmware* 2>/dev/null || true
-
-# Move compressed super
-mv -f $work_dir/build/baserom/images/super.img.zst $work_dir/out/${os_type}_${device_code}_${base_rom_code}/ 2>/dev/null || true
-
-# Move all remaining images (boot, init_boot, vendor_boot, recovery, cust, etc.)
-mv -f $work_dir/build/baserom/images/*.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/ 2>/dev/null || true
-
-# generate dynamic script
-cp -rf $work_dir/bin/script2flash/META-INF $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
-cp -rf $work_dir/bin/script2flash/*.bat $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
-cp -rf $work_dir/bin/script2flash/*.sh $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
-cp -rf $work_dir/bin/script2flash/cust.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/
-echo $device_f > $work_dir/out/${os_type}_${device_code}_${base_rom_code}/META-INF/Data/DeviceCode
-repack "Done"
-
+cp -rf $work_dir/bin/script2flash/cust.img $work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/ 2>/dev/null || true
+cp -rf $work_dir/bin/script2flash/*.install $work_dir/out/${os_type}_${device_code}_${base_rom_code}/
 
 find out/${os_type}_${device_code}_${base_rom_code} |xargs touch
 pushd out/${os_type}_${device_code}_${base_rom_code}/ || exit
 zip -r ${os_type}_${device_code}_${base_rom_code}.zip ./*
 mv ${os_type}_${device_code}_${base_rom_code}.zip ../
 popd || exit
-current_date=$(date +"%d%m%y")
-mv out/${os_type}_${device_code}_${base_rom_code}.zip out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip
+hash=$(md5sum out/${os_type}_${device_code}_${base_rom_code}.zip |head -c 5)
+mv out/${os_type}_${device_code}_${base_rom_code}.zip out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip
 repack "Build completed"    
 repack "Output: "
-repack "$(pwd)/out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip"
+repack "$(pwd)/out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip"
 upload "Uploading"
-output_file="out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip"
-echo "${os_type}_${polyxver}_${device_code}_${base_rom_code}_${current_date}_${status}.zip" > $work_dir/bin/ddevice/output_zip.txt
+output_file="out/${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip"
+echo "${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip" > $work_dir/bin/ddevice/output_zip.txt
 
-# Đặt tên thư mục upload trên Drive trùng với hệ điều hành
-uploaddir=$true_os
+if [[ $rom_os == "MIUI" ]];then
+    uploaddir="MIUI"
+else
+    uploaddir="HyperOS"
+fi
 
-# Upload thẳng lên Google Drive (Đã tối ưu rclone chống kẹt 100%)
-upload "Uploading to Google Drive..."
 
-rclone -v --config="$RCLONE_CONFIG_1DRIVE" copy "$output_file" "$GDRIVE_REMOTE:$GDRIVE_FOLDER/${uploaddir}/${polyxver}/${device_code}/" \
+rclone -v --config="$RCLONE_CONFIG_GDRIVE" copy "$output_file" "$GDRIVE_REMOTE:$GDRIVE_FOLDER/${uploaddir}/${polyxver}/${device_code}/" \
     --drive-chunk-size 128M \
     --tpslimit 4 \
     --retries 3 \
@@ -102,7 +85,7 @@ rclone -v --config="$RCLONE_CONFIG_1DRIVE" copy "$output_file" "$GDRIVE_REMOTE:$
     exit 1
 }
 remote_file_path="$GDRIVE_REMOTE:$GDRIVE_FOLDER/${uploaddir}/${polyxver}/${device_code}/$(basename "$output_file")"
-share_link=$(rclone --config="$RCLONE_CONFIG_1DRIVE" link "$remote_file_path")
+share_link=$(rclone --config="$RCLONE_CONFIG_GDRIVE" link "$remote_file_path")
 mkdir -p bin/ddevice
 echo "$share_link" > bin/ddevice/rom_link.txt
 
@@ -111,4 +94,3 @@ rm -rf $work_dir/out
 rm -rf $work_dir/build
 
 upload "Build ${os_type}_${polyxver} for ${device_code} successfull!"
-
