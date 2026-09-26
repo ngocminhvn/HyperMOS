@@ -104,8 +104,8 @@ mkdir -p bin/ddevice
 echo "$share_link" > bin/ddevice/rom_link.txt
 
 upload "Clean Workflow.."
-rm -rf $work_dir/out
-rm -rf $work_dir/build
+# rm -rf $work_dir/out
+# rm -rf $work_dir/build
 
 upload "Build ${os_type}_${polyxver} for ${device_code} successfull!"
 
