@@ -14,8 +14,4 @@ if [[ $rom_os == "OS3" ]]; then
   cp -rf $work_dir/bin/modfile/Appmod/security/permissions/privapp_whitelist_com.miui.securitycenter.xml $work_dir/build/baserom/images/product/etc/permissions/
   cp -rf $work_dir/bin/modfile/Appmod/security/MIUISecurityCenter/* $work_dir/build/baserom/images/product/priv-app/MIUISecurityCenter
   mods "Modify Secu Done"
-else
-  echo "Lỗi quá trình mod SecurityCenter"
-  exit 1
 fi
-
