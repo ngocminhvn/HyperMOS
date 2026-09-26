@@ -92,15 +92,6 @@ jobs:
           echo "[STEP] Pack ROM" | tee -a build_action.log
           sudo bash packROM.sh 2>&1 | tee -a build_action.log
 
-      - name: Set up Rclone
-        env:
-          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
-        run: |
-          set -e
-          set -o pipefail
-          echo "[STEP] Set up Rclone" | tee -a build_action.log
-          sudo -E bash uploadROM.sh setup "${{ secrets.GH_TOKEN }}" "${{ secrets.GH_REPO }}" "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log          
-      
       - name: Upload ROM to cloud
         env:
           RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
