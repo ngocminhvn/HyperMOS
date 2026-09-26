@@ -72,10 +72,24 @@ for /f %%i in ('dir /b images') do (
 		!fastboot! flash preloader1 !url! >nul 2>nul 
 		!fastboot! flash preloader2 !url! >nul 2>nul 
 	) else if !fqlx! == AB ( 
-		!fastboot! flash !par!_a !url!
-		!fastboot! flash !par!_b !url!
+		if "!par!" == "vbmeta" (
+			!fastboot! --disable-verity --disable-verification flash !par!_a !url!
+			!fastboot! --disable-verity --disable-verification flash !par!_b !url!
+		) else if "!par!" == "vbmeta_system" (
+			!fastboot! --disable-verity --disable-verification flash !par!_a !url!
+			!fastboot! --disable-verity --disable-verification flash !par!_b !url!
+		) else (
+			!fastboot! flash !par!_a !url!
+			!fastboot! flash !par!_b !url!
+		)
 	) else ( 
-		!fastboot! flash !par! !url!
+		if "!par!" == "vbmeta" (
+			!fastboot! --disable-verity --disable-verification flash !par! !url!
+		) else if "!par!" == "vbmeta_system" (
+			!fastboot! --disable-verity --disable-verification flash !par! !url!
+		) else (
+			!fastboot! flash !par! !url!
+		)
 	)
 )
 

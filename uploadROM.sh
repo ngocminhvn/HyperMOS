@@ -22,7 +22,7 @@ base_rom_code=$(cat $work_dir/bin/ddevice/base_rom_code.txt)
 rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt)
 device_code=$(cat $work_dir/bin/ddevice/device_code.txt)
 baserom_type=$(cat $work_dir/bin/ddevice/romtype.txt)
-
+device_f=$(cat $work_dir/bin/ddevice/device_f.txt)
 
 if [[ $(git branch --show-current) == "beta" ]]; then
     polyxver="$(cat Version)"
