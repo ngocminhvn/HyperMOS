@@ -13,67 +13,21 @@ mkdir -p $work_dir/apk_temp
 isPowerKeeperDIR=$(find "$MAIN_FOLDER" -type d -name "PowerKeeper")
 isPowerKeeper=$(find "$MAIN_FOLDER" -type f -name "PowerKeeper.apk")
 $APKEDITOR d -t raw -f -no-dex-debug -i $isPowerKeeper -o $work_dir/apk_temp/isPowerKeeper.apk.out >/dev/null 2>&1
-FOLDER="$work_dir/apk_temp/isPowerKeeper.apk.out"
-find_and_replace() {
-    local search=$1
-    local replace=$2
-    local base_dir=$FOLDER
-    local files=(
-        "BatteryLifeChecker.smali"
-        "ProcCpuinfoManager.smali"
-        "ProcCpuTimeInStateManager.smali"
-        "ProcScreenPowerManager.smali"
-        "CloudUpdateHideMode.smali"
-        "CloudUpdateReceiver.smali"
-        "LocalUpdateUtils.smali"
-        "DeviceIdleController\$1.smali"
-        "DeviceIdleController\$2.smali"
-        "CustomerPowerCheck.smali"
-        "UsageAppTracker.smali"
-        "ThermalLogUploader.smali"
-        "ThermalManager.smali"
-        "MilletConfig.smali"
-        "PeGameController.smali"
-        "PowerCheckerCloudPolicy.smali"
-        "DebugLabelSetting.smali"
-        "DisplayFrameSetting.smali"
-        "PadSleepModeController.smali"
-        "PadSleepModeController\$SleepHandler.smali"
-        "PhoneSleepModeController.smali"
-        "PhoneSleepModeController\$SleepHandler.smali"
-        "ThermalIECHandler.smali"
-        "BaseEvent.smali"
-        "TrackerManager\$PrivacyPolicy.smali"
-        "PSUtils.smali"
-        "UnionPowerConfig.smali"
-        "ExtraVideoScenarioUtils.smali"
-        "GmsObserver.smali"
-        "Utils.smali"
-        "PowerKeeperApplication.smali"
-        "MIUIUtils.smali"
-        "Network.smali"
-        "DeviceUtil.smali"
-        "XMPushService.smali"
-        "PaymentManager.smali"
-        "ExtraNetwork.smali"
-        "ThemeManagerHelper.smali"
-        "HostManager.smali"
-        "YellowPageUtils.smali"
-        "MiuiCellularIconVM\$special\$\$inlined\$combine\$1\$3.smali"
-        "MiuiMobileIconBinder\$bind\$1\$1\$10.smali"
-        "MiuiMobileIconBinder\$bind\$1\$1.smali"
-    )
-    for file in "${files[@]}"; do
-        file_path=$(find "$base_dir" -name "$file")
-        if [[ -n $file_path ]]; then
-            if grep -q "$search" "$file_path"; then
-                sed -i "s|$search|$replace|g" "$file_path"
-            fi
-        fi
-    done
-} 
+Smali1=$(find "$work_dir/apk_temp/isPowerKeeper.apk.out" -type f -name MilletConfig.smali)
+Smali2=$(find "$work_dir/apk_temp/isPowerKeeper.apk.out" -type f -name GmsObserver.smali)
+tar1="$work_dir/bin/package/NOTIFICATION_FIX/A15/patch/gms.ini"
 
-find_and_replace "Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z" "Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z"
+if [[ -n "$Smali1" && -f "$Smali1" ]]; then
+    sed -i 's/Lmiui\/os\/Build;->IS_INTERNATIONAL_BUILD:Z/Lmiui\/os\/Build;->IS_MIUI:Z/g' "$Smali1"
+else
+    echo "Warning: MilletConfig.smali not found, skipping sed."
+fi
+
+if [[ -n "$Smali2" && -f "$Smali2" ]]; then
+    $repS "$tar1" "$Smali2"
+else
+    echo "Warning: GmsObserver.smali not found, skipping repS."
+fi
 
 #Finishing
 PowerKeeper=$(basename $isPowerKeeper)
