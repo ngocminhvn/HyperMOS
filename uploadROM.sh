@@ -1,6 +1,6 @@
 work_dir=$(pwd)
 source $work_dir/functions.sh
-RCLONE_CONFIG_1DRIVE="$work_dir/rclone.conf"
+RCLONE_CONFIG_GDRIVE="$work_dir/rclone.conf"
 
 if [ -z "$RCLONE_TOKEN_PATH" ]; then
     echo "Lỗi: Không tìm thấy biến môi trường RCLONE_TOKEN_PATH!"
