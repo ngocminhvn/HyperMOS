@@ -1,7 +1,17 @@
 work_dir=$(pwd)
 source $work_dir/functions.sh
+if [ -z "$RCLONE_TOKEN_PATH" ]; then
+    echo "Error: RCLONE_TOKEN_PATH is not set!"
+    exit 1
+fi
+echo "Loading rclone.conf from RCLONE_TOKEN_PATH..."
+curl -sL "$RCLONE_TOKEN_PATH" -o "$RCLONE_CONFIG_GDRIVE"
+if [ ! -s "$RCLONE_CONFIG_GDRIVE" ]; then
+    echo "Error: Cannot download rclone.conf!"
+    exit 1
+fi
 RCLONE_CONFIG_1DRIVE="$work_dir/rclone.conf"
-ONEDRIVE_REMOTE="nothings-toolbuild"
+ONEDRIVE_REMOTE="github"
 os_type=$(cat $work_dir/bin/ddevice/os_type.txt)
 base_rom_code=$(cat $work_dir/bin/ddevice/base_rom_code.txt)
 androidVER=$(cat $work_dir/bin/ddevice/androidver.txt)
