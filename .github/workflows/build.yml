@@ -20,22 +20,6 @@ on:
         options:
           - drive
           - pixeldrain
-      youtube_morphe:
-        description: 'Integrate YouTube Morphe'
-        required: true
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
-      morphe_channel:
-        description: 'Morphe patches channel'
-        required: true
-        default: 'latest'
-        type: choice
-        options:
-          - latest
-          - stable
 
 jobs:
   Initialize:
@@ -102,9 +86,6 @@ jobs:
       - name: Build ROM
         env:
           INPUT_URL: ${{ inputs.input_url }}
-          YOUTUBE_MORPHE: ${{ inputs.youtube_morphe }}
-          MORPHE_PATCH_CHANNEL: ${{ inputs.morphe_channel }}
-          MORPHE_GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           set -e
           set -o pipefail
