@@ -584,7 +584,14 @@ def compose_message(status, repo_name, rom_link, build_id, builder_name):
         add_field(lines, "Lý do", reason, code=True)
         lines.append("• <b>Chi tiết:</b> xem Build log trên GitHub Actions.")
     elif status == "success":
-        lines.append("• <b>Kết quả:</b> build hoàn tất, kiểm tra file output hoặc link tải.")
+        lines.append("• <b>Kết quả:</b> build hoàn tất thành công.")
+        download_url = (
+            os.environ.get("NOTIFY_DOWNLOAD_URL")
+            or os.environ.get("RCLONE_DOWNLOAD_URL")
+            or read_file_if_exists("bin/ddevice/download_url.txt")
+        )
+        if is_available(download_url):
+            add_link(lines, "Link tải", download_url, "Tải ROM")
     else:
         lines.append(f"• <b>Tóm tắt:</b> {escape(status_desc)}")
 
@@ -661,7 +668,15 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
             }[status]
             pm_lines = [f"<b>{escape(pm_title)}</b>", "", message]
             if status == "success":
-                pm_lines.extend(["", "<b>Tải ROM:</b> <a href=\"https://nothingsvn.vercel.app/\">nothingsvn.vercel.app</a>"])
+                download_url = (
+                    os.environ.get("NOTIFY_DOWNLOAD_URL")
+                    or os.environ.get("RCLONE_DOWNLOAD_URL")
+                    or read_file_if_exists("bin/ddevice/download_url.txt")
+                )
+                if is_available(download_url):
+                    pm_lines.extend(["", f"<b>Tải ROM:</b> <a href=\"{escape(download_url)}\">Nhấn vào đây để tải</a>"])
+                else:
+                    pm_lines.extend(["", "<b>Tải ROM:</b> chưa tạo được link tải công khai."])
             elif status == "fail":
                 pm_lines.extend(["", "<b>Log lỗi:</b> file .txt sẽ được gửi riêng ngay sau tin nhắn này nếu tìm thấy log."])
             else:
