@@ -8,6 +8,11 @@ noexecute=( "insfile" )
 find "$TARGET_DIR" -type f -name "*.sh" | while read -r script; do
     base="$(basename "$script" .sh)"
 
+    # YouTubeMorphe must run last so GMS/Google integration cannot overwrite it.
+    if [[ "$script" == */YouTubeMorphe/update.sh ]]; then
+        continue
+    fi
+
     skip=false
     for ex in "${noexecute[@]}"; do
         if [[ "$base" == "$ex" ]]; then
@@ -20,3 +25,9 @@ find "$TARGET_DIR" -type f -name "*.sh" | while read -r script; do
         bash "$script"
     fi
 done
+
+MORPHE_SCRIPT="$TARGET_DIR/YouTubeMorphe/update.sh"
+if [[ -f "$MORPHE_SCRIPT" ]]; then
+    mods "Applying YouTube Morphe last..."
+    bash "$MORPHE_SCRIPT"
+fi
