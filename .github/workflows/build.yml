@@ -1,0 +1,293 @@
+name: NothingsVN Xiaomi ROM Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_url:
+        description: 'URL of the ROM to build'
+        required: true
+      builder_name:
+        description: 'Builder name'
+        required: false
+      builder_id:
+        description: 'Builder ID'
+        required: false
+
+jobs:
+  Initialize:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          swap-size-mb: 1024
+          root-reserve-mb: 512
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      - name: Clean unused files and applications
+        run: |
+          docker rmi `docker images -q` || true
+          sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/sudo apt/sources.list.d || true
+          sudo apt -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell mysql* php* || true
+          sudo apt -y autoremove --purge || true
+          sudo apt -y autoclean || true
+          sudo apt clean || true
+
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+      - name: Send start notification
+        run: |
+          pip install requests
+          python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+
+      - name: Set timezone
+        run: |
+          echo "Setting Vietnam timezone"
+          sudo timedatectl set-timezone Asia/Ho_Chi_Minh
+
+      - name: Install OpenJDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install tools
+        run: |
+          set -e
+          set -o pipefail
+          echo "[STEP] Install tools" | tee -a build_action.log
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test 2>&1 | tee -a build_action.log
+          sudo apt-get update 2>&1 | tee -a build_action.log
+          sudo apt purge device-tree-compiler 2>&1 | tee -a build_action.log
+          sudo apt-get install -y aria2 jq rclone sshpass lz4 python-is-python3 wget python3 lz4 xz-utils zlib1g-dev gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip erofs-utils unzip p7zip-full zipalign zstd bc android-sdk-libsparse-utils xmlstarlet 2>&1 | tee -a build_action.log
+          sudo pip3 install ConfigObj 2>&1 | tee -a build_action.log
+          sudo pip3 install telebot 2>&1 | tee -a build_action.log
+          sudo pip3 install setuptools 2>&1 | tee -a build_action.log
+          sudo pip3 install google-auth lz4 google-auth-oauthlib google-auth-httplib2 google-api-python-client 2>&1 | tee -a build_action.log
+
+      - name: Grant file permissions
+        run: |
+          sudo chmod 777 -R *
+
+      - name: Build ROM
+        env:
+          INPUT_URL: ${{ inputs.input_url }}
+        run: |
+          set -e
+          set -o pipefail
+          echo "[STEP] Build ROM" | tee -a build_action.log
+          sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
+
+      - name: Pack ROM
+        run: |
+          set -e
+          set -o pipefail
+          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+          echo "[STEP] Pack ROM" | tee -a build_action.log
+          sudo bash packROM.sh 2>&1 | tee -a build_action.log
+
+      - name: Set up Rclone
+        run: |
+          set -e
+          set -o pipefail
+          echo "[STEP] Set up Rclone" | tee -a build_action.log
+          sudo -E bash uploadROM.sh setup "${{ secrets.GH_TOKEN }}" "${{ secrets.GH_REPO }}" "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
+
+      - name: Upload ROM to cloud
+        run: |
+          set -e
+          set -o pipefail
+          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+          echo "[STEP] Upload ROM to cloud" | tee -a build_action.log
+          sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
+
+      - name: Split Large File
+        id: split
+        shell: bash
+        run: |
+          FILE=$(find out -maxdepth 1 -name "*.zip" | head -n1)
+
+          if [ -z "$FILE" ]; then
+          echo "No ROM zip found!"
+          exit 1
+          fi
+
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
+          SIZE=$(stat -c%s "$FILE")
+          LIMIT=$((9 * 1024 * 1024 * 1024))
+
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+          echo "Splitting ROM..."
+          7z a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE"
+          echo "split=true" >> "$GITHUB_OUTPUT"
+          else
+          echo "split=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to Pixeldrain
+        id: pd
+        shell: bash
+        env:
+          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          FILE="${{ steps.split.outputs.file }}"
+
+          if [[ "${{ steps.split.outputs.split }}" == "true" ]]; then
+          LINKS=""
+          COUNT=1
+
+          for PART in "${FILE}.7z".*; do
+          [ -e "$PART" ] || continue
+
+          echo "Uploading $PART"
+
+          RESPONSE=$(curl -s \
+          -u ":$PD_API_KEY" \
+          -F "file=@${PART}" \
+          https://pixeldrain.com/api/file)
+
+          ID=$(echo "$RESPONSE" | jq -r '.id')
+
+          if [[ -z "$ID" || "$ID" == "null" ]]; then
+          echo "Upload failed for $PART. Response:"
+          echo "$RESPONSE"
+          exit 1
+          fi
+
+          URL="https://pixeldrain.com/u/$ID"
+
+          if [[ -z "$LINKS" ]]; then
+          LINKS="<a href='$URL'>Part $COUNT</a>"
+          else
+          LINKS="$LINKS | <a href='$URL'>Part $COUNT</a>"
+          fi
+
+          COUNT=$((COUNT + 1))
+          done
+          else
+          echo "Uploading $FILE"
+
+          RESPONSE=$(curl -s \
+          -u ":$PD_API_KEY" \
+          -F "file=@${FILE}" \
+          https://pixeldrain.com/api/file)
+
+          ID=$(echo "$RESPONSE" | jq -r '.id')
+
+          if [[ -z "$ID" || "$ID" == "null" ]]; then
+          echo "Upload failed. Response:"
+          echo "$RESPONSE"
+          exit 1
+          fi
+
+          LINKS="<a href='https://pixeldrain.com/u/$ID'>Download</a>"
+          fi
+
+          echo "links=$LINKS" >> "$GITHUB_OUTPUT"
+
+          # =======================================================
+          # CẬP NHẬT TRẠNG THÁI JSON SANG MY-ASSETS (FIX LỖI MẤT NHÁY LINK)
+          # =======================================================
+
+      - name: Update Status to My-Assets
+        if: always()
+        run: |
+          git clone https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/BEACHEADVN/My-Assets.git my-assets
+          cd my-assets
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          mkdir -p ROM/repo
+
+          # 1. Tự động nhận diện luồng dựa trên URL
+          FILENAME="latest-stocktoolbuild.md"
+          URL_LOWER=$(echo "${{ inputs.input_url }}" | tr '[:upper:]' '[:lower:]')
+          if [[ "$URL_LOWER" == *"cn"* || "$URL_LOWER" == *"china"* ]]; then
+          FILENAME="latest-stocktoolbuild-china.md"
+          elif [[ "$URL_LOWER" == *"eea"* || "$URL_LOWER" == *"eu"* || "$URL_LOWER" == *"europe"* ]]; then
+          FILENAME="latest-stocktoolbuild-europe.md"
+          fi
+
+          # 2. Cắt mã commit ngắn (7 ký tự)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          # 3. Xác định trạng thái hiện tại của Job
+          JOB_STATUS="${{ job.status }}"
+
+          # 4. Lấy ROM_NAME an toàn
+          ROM_NAME="Unknown"
+          if [ -d "../out" ]; then
+          ROM_NAME=$(find ../out -maxdepth 1 -name "*.zip" -exec basename {} \; | head -n1 || echo "Unknown")
+          fi
+          : "${ROM_NAME:=Unknown}"
+
+          # 5. Xử lý dữ liệu đầu ra và trích xuất Link sạch
+          IS_SPLIT="false"
+          PD_URL=""
+
+          if [[ "$JOB_STATUS" == "success" ]]; then
+          IS_SPLIT="${{ steps.split.outputs.split }}"
+
+          # Trích xuất duy nhất link URL sạch từ HTML
+          RAW_LINKS='${{ steps.pd.outputs.links }}'
+          PD_URL=$(echo "$RAW_LINKS" | grep -oP 'https?://[^\s">]+' | head -n1)
+          fi
+
+          # 6. Tạo file Markdown render chuẩn giao diện web GitHub (Bấm vào link chuyển hướng ngay)
+          echo "# 📦 Build Status" > "ROM/repo/$FILENAME"
+          echo "" >> "ROM/repo/$FILENAME"
+          echo "- **Tên ROM:** \`$ROM_NAME\`" >> "ROM/repo/$FILENAME"
+          echo "- **Trạng thái:** \`$JOB_STATUS\`" >> "ROM/repo/$FILENAME"
+          echo "- **Commit:** \`$SHORT_SHA\`" >> "ROM/repo/$FILENAME"
+          echo "- **Link rom gốc:** [Click vào đây để tải ROM gốc](${{ inputs.input_url }})" >> "ROM/repo/$FILENAME"
+          echo "" >> "ROM/repo/$FILENAME"
+          echo "### ⬇️ Pixeldrain Download" >> "ROM/repo/$FILENAME"
+          echo "- **Cắt file:** \`$IS_SPLIT\`" >> "ROM/repo/$FILENAME"
+          if [ -n "$PD_URL" ]; then
+          echo "- **Link tải:** [$PD_URL]($PD_URL)" >> "ROM/repo/$FILENAME"
+          else
+          echo "- **Link tải:** N/A" >> "ROM/repo/$FILENAME"
+          fi
+
+          # 7. Commit và đẩy lên với vòng lặp Rebase
+          git add "ROM/repo/$FILENAME"
+          if ! git diff --cached --quiet; then
+          git commit -m "Update build status: $JOB_STATUS ($SHORT_SHA - $FILENAME)"
+
+          for i in {1..5}; do
+          git pull --rebase origin main && git push origin main && break
+          echo "Tranh chấp luồng push, đang thử lại sau 3 giây..."
+          sleep 3
+          done
+          fi
+
+      - name: Send success notification
+        if: success()
+        env:
+          NOTIFY_WORKFLOW_CONCLUSION: success
+        run: |
+          python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+
+      - name: Send failure notification
+        if: failure()
+        env:
+          NOTIFY_WORKFLOW_CONCLUSION: failure
+          NOTIFY_ERROR_LOG: build_action.log
+        run: |
+          python notify.py fail "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+
+      - name: Send cancellation notification
+        if: cancelled()
+        env:
+          NOTIFY_WORKFLOW_CONCLUSION: cancelled
+          NOTIFY_ERROR_LOG: build_action.log
+          NOTIFY_ERROR_REASON: Workflow run was cancelled before completion.
+        run: |
+          python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
