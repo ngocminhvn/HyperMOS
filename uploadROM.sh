@@ -82,6 +82,7 @@ fi
 
 cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/" 2>/dev/null || true
 cp -rf "$work_dir/bin/script2flash/"*.install "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/"
+cp -f "$work_dir/bin/script2flash/FLASH.bat" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/FLASH.bat"
 
 find "out/${os_type}_${device_code}_${base_rom_code}" -exec touch {} +
 pushd "out/${os_type}_${device_code}_${base_rom_code}/" || exit 1
