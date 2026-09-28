@@ -44,17 +44,6 @@ if [ "${1:-}" = "setup" ]; then
     exit 0
 fi
 
-if [ ! -s "$RCLONE_CONFIG_GDRIVE" ]; then
-    echo "[ERROR] - Missing rclone config: $RCLONE_CONFIG_GDRIVE"
-    echo "Run uploadROM.sh setup first."
-    exit 1
-fi
-
-if ! command -v rclone >/dev/null 2>&1; then
-    echo "[ERROR] - rclone is not installed"
-    exit 1
-fi
-
 os_type=$(cat "$work_dir/bin/ddevice/os_type.txt")
 base_rom_code=$(cat "$work_dir/bin/ddevice/base_rom_code.txt")
 androidVER=$(cat "$work_dir/bin/ddevice/androidver.txt")
@@ -116,6 +105,31 @@ if [[ $rom_os == "MIUI" ]]; then
     uploaddir="MIUI"
 else
     uploaddir="HyperOS"
+fi
+
+UPLOAD_METHOD="${UPLOAD_METHOD:-drive}"
+echo "[UPLOAD] Method: $UPLOAD_METHOD"
+
+if [ "$UPLOAD_METHOD" = "pixeldrain" ]; then
+    upload "ROM package is ready for Pixeldrain upload"
+    echo "$output_file" > "$work_dir/bin/ddevice/output_file.txt"
+    upload "Build ${os_type}_${polyxver} for ${device_code} packaged successfully!"
+    exit 0
+fi
+
+if [ "$UPLOAD_METHOD" != "drive" ]; then
+    upload "Error: unsupported UPLOAD_METHOD=$UPLOAD_METHOD"
+    exit 1
+fi
+
+if [ ! -s "$RCLONE_CONFIG_GDRIVE" ]; then
+    upload "Error: missing rclone config: $RCLONE_CONFIG_GDRIVE"
+    exit 1
+fi
+
+if ! command -v rclone >/dev/null 2>&1; then
+    upload "Error: rclone is not installed"
+    exit 1
 fi
 
 # Upload to Google Drive directly with rclone.
