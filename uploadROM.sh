@@ -84,6 +84,15 @@ cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_
 cp -rf "$work_dir/bin/script2flash/"*.install "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/"
 cp -f "$work_dir/bin/script2flash/FLASH.bat" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/FLASH.bat"
 
+# Bundle Windows fastboot runtime so the extracted ROM can be flashed immediately.
+if [ -d "$work_dir/bin/script2flash/META-INF" ]; then
+    cp -a "$work_dir/bin/script2flash/META-INF" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/META-INF"
+fi
+
+if [ ! -f "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/META-INF/fastboot.exe" ]; then
+    echo "[WARN] META-INF/fastboot.exe is missing from output package"
+fi
+
 find "out/${os_type}_${device_code}_${base_rom_code}" -exec touch {} +
 pushd "out/${os_type}_${device_code}_${base_rom_code}/" || exit 1
 zip -r "${os_type}_${device_code}_${base_rom_code}.zip" ./*
