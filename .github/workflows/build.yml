@@ -83,6 +83,14 @@ jobs:
         run: |
           sudo chmod 777 -R *
 
+      - name: Validate Rclone config
+        if: ${{ inputs.upload_method == 'drive' }}
+        run: |
+          set -e
+          set -o pipefail
+          echo "[STEP] Validate Rclone config" | tee -a build_action.log
+          sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
+
       - name: Build ROM
         env:
           INPUT_URL: ${{ inputs.input_url }}
@@ -99,14 +107,6 @@ jobs:
           python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
           echo "[STEP] Pack ROM" | tee -a build_action.log
           sudo bash packROM.sh 2>&1 | tee -a build_action.log
-
-      - name: Set up Rclone
-        if: ${{ inputs.upload_method == 'drive' }}
-        run: |
-          set -e
-          set -o pipefail
-          echo "[STEP] Set up Rclone" | tee -a build_action.log
-          sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
 
       - name: Prepare ROM and selected upload
         env:
