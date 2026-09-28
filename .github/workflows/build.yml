@@ -97,7 +97,7 @@ jobs:
           set -e
           set -o pipefail
           echo "[STEP] Set up Rclone" | tee -a build_action.log
-          sudo -E bash uploadROM.sh setup "${{ secrets.GH_TOKEN }}" "${{ secrets.GH_REPO }}" "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
+          sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
 
       - name: Upload ROM to cloud
         run: |
@@ -272,7 +272,17 @@ jobs:
         if: success()
         env:
           NOTIFY_WORKFLOW_CONCLUSION: success
+          NOTIFY_DOWNLOAD_URL: ${{ env.RCLONE_DOWNLOAD_URL }}
         run: |
+          DOWNLOAD_URL="${RCLONE_DOWNLOAD_URL:-}"
+          if [ -z "$DOWNLOAD_URL" ]; then
+            RAW_LINKS='${{ steps.pd.outputs.links }}'
+            DOWNLOAD_URL=$(echo "$RAW_LINKS" | grep -oP 'https?://[^\s">]+' | head -n1 || true)
+          fi
+          if [ -n "$DOWNLOAD_URL" ]; then
+            echo "NOTIFY_DOWNLOAD_URL=$DOWNLOAD_URL" >> "$GITHUB_ENV"
+            export NOTIFY_DOWNLOAD_URL="$DOWNLOAD_URL"
+          fi
           python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
 
       - name: Send failure notification
