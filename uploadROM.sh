@@ -5,23 +5,29 @@ source "$work_dir/functions.sh"
 
 RCLONE_CONFIG_GDRIVE="$work_dir/rclone.conf"
 
-# Setup rclone config from private GitHub repository.
-# Usage: uploadROM.sh setup <GH_TOKEN> <GH_REPO> <RCLONE_TOKEN_PATH>
+# Setup rclone config from a direct URL.
+# Usage: uploadROM.sh setup <RCLONE_TOKEN_PATH>
+# Example: https://ngocminhvn.github.io/rclone.conf
 if [ "${1:-}" = "setup" ]; then
-    if [ -z "${2:-}" ] || [ -z "${3:-}" ] || [ -z "${4:-}" ]; then
-        echo "[ERROR] - Usage: $0 setup <GH_TOKEN> <GH_REPO> <RCLONE_TOKEN_PATH>"
+    RCLONE_TOKEN_PATH="${2:-${RCLONE_TOKEN_PATH:-}}"
+
+    if [ -z "$RCLONE_TOKEN_PATH" ]; then
+        echo "[ERROR] - RCLONE_TOKEN_PATH URL is missing"
         exit 1
     fi
 
-    GH_TOKEN="$2"
-    GH_REPO="$3"
-    RCLONE_TOKEN_PATH="$4"
+    case "$RCLONE_TOKEN_PATH" in
+        http://*|https://*) ;;
+        *)
+            echo "[ERROR] - RCLONE_TOKEN_PATH must be a direct http(s) URL"
+            exit 1
+            ;;
+    esac
 
-    echo "Downloading rclone config from ${GH_REPO}/${RCLONE_TOKEN_PATH}..."
+    echo "Downloading rclone config from RCLONE_TOKEN_PATH..."
     curl --fail --silent --show-error --location \
-        -H "Authorization: token ${GH_TOKEN}" \
-        -H "Accept: application/vnd.github.v3.raw" \
-        "https://api.github.com/repos/${GH_REPO}/contents/${RCLONE_TOKEN_PATH}" \
+        --retry 5 --retry-delay 2 --retry-all-errors \
+        "$RCLONE_TOKEN_PATH" \
         -o "$RCLONE_CONFIG_GDRIVE"
 
     if [ ! -s "$RCLONE_CONFIG_GDRIVE" ]; then
@@ -127,16 +133,43 @@ upload "Uploading to Google Drive with rclone..."
 echo "[RCLONE] Remote: ${RCLONE_REMOTE}"
 echo "[RCLONE] Destination: ${remote_path}"
 
-if ! rclone copy "$output_file" "$remote_path" \
+RCLONE_EXTRA_ARGS=()
+remote_type="$(rclone config show "$RCLONE_REMOTE" --config="$RCLONE_CONFIG_GDRIVE" 2>/dev/null | awk -F' = ' '/^type = / {print $2; exit}')"
+
+# Optimized for a single large ROM archive (~8 GiB).
+# Google Drive benefits from a larger resumable-upload chunk; one transfer avoids
+# wasting RAM/connections when only one output ZIP is being uploaded.
+if [ "$remote_type" = "drive" ]; then
+    RCLONE_EXTRA_ARGS+=(--drive-chunk-size=256M)
+fi
+
+if ! rclone copyto "$output_file" "${remote_path}${final_name}" \
     --config="$RCLONE_CONFIG_GDRIVE" \
     --progress \
     --stats=10s \
-    --transfers=4 \
-    --checkers=8 \
-    --retries=5 \
-    --low-level-retries=10; then
+    --stats-one-line \
+    --transfers=1 \
+    --checkers=4 \
+    --buffer-size=128M \
+    --retries=8 \
+    --retries-sleep=10s \
+    --low-level-retries=20 \
+    --timeout=10m \
+    --contimeout=30s \
+    "${RCLONE_EXTRA_ARGS[@]}"; then
     upload "Error uploading file to Google Drive with rclone"
     exit 1
+fi
+
+download_url=""
+if download_url="$(rclone link "${remote_path}${final_name}" --config="$RCLONE_CONFIG_GDRIVE" 2>/dev/null)" && [ -n "$download_url" ]; then
+    echo "$download_url" > "$work_dir/bin/ddevice/download_url.txt"
+    echo "[RCLONE] Download URL: $download_url"
+    if [ -n "${GITHUB_ENV:-}" ]; then
+        echo "RCLONE_DOWNLOAD_URL=$download_url" >> "$GITHUB_ENV"
+    fi
+else
+    echo "[RCLONE] Remote does not provide a public link; Telegram will use the workflow fallback link."
 fi
 
 upload "Upload to Google Drive completed"
