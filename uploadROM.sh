@@ -89,8 +89,26 @@ zip -r "${os_type}_${device_code}_${base_rom_code}.zip" ./*
 mv "${os_type}_${device_code}_${base_rom_code}.zip" ../
 popd || exit 1
 
-hash=$(md5sum "out/${os_type}_${device_code}_${base_rom_code}.zip" | head -c 5)
-final_name="${os_type}_${polyxver}_${device_code}_${base_rom_code}_${hash}_${status}.zip"
+# Build output filename:
+# ROM_HAOTIAN_OS3.0.309.0.WOBCNXM_EU290926.zip
+device_name="$(echo "$device_f" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9_-')"
+
+case "$regionTYPE" in
+    EEAGlobal|EEA|EU) region_short="EU" ;;
+    INGlobal|IN)      region_short="IN" ;;
+    IDGlobal|ID)      region_short="ID" ;;
+    RUGlobal|RU)      region_short="RU" ;;
+    TWGlobal|TW)      region_short="TW" ;;
+    TRGlobal|TR)      region_short="TR" ;;
+    JPGlobal|JP)      region_short="JP" ;;
+    Global|GLOBAL)    region_short="GLOBAL" ;;
+    China|CN)         region_short="CN" ;;
+    *)                region_short="$(echo "$regionTYPE" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')" ;;
+esac
+
+build_date="$(date +%d%m%y)"
+final_name="ROM_${device_name}_${base_rom_code}_${region_short}${build_date}.zip"
+
 mv "out/${os_type}_${device_code}_${base_rom_code}.zip" "out/${final_name}"
 
 repack "Build completed"
