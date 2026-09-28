@@ -12,6 +12,14 @@ on:
       builder_id:
         description: 'Builder ID'
         required: false
+      upload_method:
+        description: 'Upload ROM to'
+        required: true
+        default: 'drive'
+        type: choice
+        options:
+          - drive
+          - pixeldrain
 
 jobs:
   Initialize:
@@ -93,21 +101,25 @@ jobs:
           sudo bash packROM.sh 2>&1 | tee -a build_action.log
 
       - name: Set up Rclone
+        if: ${{ inputs.upload_method == 'drive' }}
         run: |
           set -e
           set -o pipefail
           echo "[STEP] Set up Rclone" | tee -a build_action.log
           sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
 
-      - name: Upload ROM to cloud
+      - name: Prepare ROM and selected upload
+        env:
+          UPLOAD_METHOD: ${{ inputs.upload_method }}
         run: |
           set -e
           set -o pipefail
           python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
-          echo "[STEP] Upload ROM to cloud" | tee -a build_action.log
+          echo "[STEP] Upload method: ${UPLOAD_METHOD}" | tee -a build_action.log
           sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
 
       - name: Split Large File
+        if: ${{ inputs.upload_method == 'pixeldrain' }}
         id: split
         shell: bash
         run: |
@@ -132,6 +144,7 @@ jobs:
           fi
 
       - name: Upload to Pixeldrain
+        if: ${{ inputs.upload_method == 'pixeldrain' }}
         id: pd
         shell: bash
         env:
@@ -228,30 +241,36 @@ jobs:
           fi
           : "${ROM_NAME:=Unknown}"
 
-          # 5. Xử lý dữ liệu đầu ra và trích xuất Link sạch
+          # 5. Lấy link theo phương thức upload đã chọn
+          UPLOAD_METHOD="${{ inputs.upload_method }}"
           IS_SPLIT="false"
-          PD_URL=""
+          DOWNLOAD_URL=""
 
           if [[ "$JOB_STATUS" == "success" ]]; then
+          if [[ "$UPLOAD_METHOD" == "drive" ]]; then
+          DOWNLOAD_URL="${RCLONE_DOWNLOAD_URL:-}"
+          else
           IS_SPLIT="${{ steps.split.outputs.split }}"
-
-          # Trích xuất duy nhất link URL sạch từ HTML
           RAW_LINKS='${{ steps.pd.outputs.links }}'
-          PD_URL=$(echo "$RAW_LINKS" | grep -oP 'https?://[^\s">]+' | head -n1)
+          DOWNLOAD_URL=$(echo "$RAW_LINKS" | grep -oP 'https?://[^\s">]+' | head -n1 || true)
+          fi
           fi
 
-          # 6. Tạo file Markdown render chuẩn giao diện web GitHub (Bấm vào link chuyển hướng ngay)
+          # 6. Tạo file Markdown theo đúng dịch vụ upload đã chọn
           echo "# 📦 Build Status" > "ROM/repo/$FILENAME"
           echo "" >> "ROM/repo/$FILENAME"
           echo "- **Tên ROM:** \`$ROM_NAME\`" >> "ROM/repo/$FILENAME"
           echo "- **Trạng thái:** \`$JOB_STATUS\`" >> "ROM/repo/$FILENAME"
           echo "- **Commit:** \`$SHORT_SHA\`" >> "ROM/repo/$FILENAME"
+          echo "- **Upload:** \`$UPLOAD_METHOD\`" >> "ROM/repo/$FILENAME"
           echo "- **Link rom gốc:** [Click vào đây để tải ROM gốc](${{ inputs.input_url }})" >> "ROM/repo/$FILENAME"
           echo "" >> "ROM/repo/$FILENAME"
-          echo "### ⬇️ Pixeldrain Download" >> "ROM/repo/$FILENAME"
+          echo "### ⬇️ Download" >> "ROM/repo/$FILENAME"
+          if [[ "$UPLOAD_METHOD" == "pixeldrain" ]]; then
           echo "- **Cắt file:** \`$IS_SPLIT\`" >> "ROM/repo/$FILENAME"
-          if [ -n "$PD_URL" ]; then
-          echo "- **Link tải:** [$PD_URL]($PD_URL)" >> "ROM/repo/$FILENAME"
+          fi
+          if [ -n "$DOWNLOAD_URL" ]; then
+          echo "- **Link tải:** [$DOWNLOAD_URL]($DOWNLOAD_URL)" >> "ROM/repo/$FILENAME"
           else
           echo "- **Link tải:** N/A" >> "ROM/repo/$FILENAME"
           fi
@@ -272,10 +291,12 @@ jobs:
         if: success()
         env:
           NOTIFY_WORKFLOW_CONCLUSION: success
-          NOTIFY_DOWNLOAD_URL: ${{ env.RCLONE_DOWNLOAD_URL }}
+          NOTIFY_UPLOAD_METHOD: ${{ inputs.upload_method }}
         run: |
-          DOWNLOAD_URL="${RCLONE_DOWNLOAD_URL:-}"
-          if [ -z "$DOWNLOAD_URL" ]; then
+          DOWNLOAD_URL=""
+          if [ "${{ inputs.upload_method }}" = "drive" ]; then
+            DOWNLOAD_URL="${RCLONE_DOWNLOAD_URL:-}"
+          else
             RAW_LINKS='${{ steps.pd.outputs.links }}'
             DOWNLOAD_URL=$(echo "$RAW_LINKS" | grep -oP 'https?://[^\s">]+' | head -n1 || true)
           fi
