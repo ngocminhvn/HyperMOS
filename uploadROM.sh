@@ -16,15 +16,19 @@ if [ "${1:-}" = "setup" ]; then
         exit 1
     fi
 
+    # Accept both a full URL and a hostname/path from GitHub Secrets.
+    # Example accepted values:
+    #   https://ngocminhvn.github.io/rclone.conf
+    #   ngocminhvn.github.io/rclone.conf
+    RCLONE_TOKEN_PATH="$(printf '%s' "$RCLONE_TOKEN_PATH" | xargs)"
+
     case "$RCLONE_TOKEN_PATH" in
         http://*|https://*) ;;
-        *)
-            echo "[ERROR] - RCLONE_TOKEN_PATH must be a direct http(s) URL"
-            exit 1
-            ;;
+        //*) RCLONE_TOKEN_PATH="https:${RCLONE_TOKEN_PATH}" ;;
+        *)   RCLONE_TOKEN_PATH="https://${RCLONE_TOKEN_PATH}" ;;
     esac
 
-    echo "Downloading rclone config from RCLONE_TOKEN_PATH..."
+    echo "Downloading rclone config from: $RCLONE_TOKEN_PATH"
     curl --fail --silent --show-error --location \
         --retry 5 --retry-delay 2 --retry-all-errors \
         "$RCLONE_TOKEN_PATH" \
