@@ -134,6 +134,14 @@ def param_physical_index(body: str, param_count: int, p_index: int) -> int:
     return count - param_count + p_index
 
 
+def register_physical_index(body: str, reg: str, param_count: int) -> int:
+    if reg.startswith("v"):
+        return int(reg[1:])
+    if reg.startswith("p"):
+        return param_physical_index(body, param_count, int(reg[1:]))
+    raise PatchError(f"unsupported register name: {reg}")
+
+
 def code_insertion_offset(body: str) -> int:
     lines = body.splitlines(keepends=True)
     in_annotation = False
@@ -318,8 +326,8 @@ def patch_chain(text: str) -> str:
             raise PatchError(
                 f"{SIG_CHAIN}: last certificate array {arr} does not match returned {ret.group('reg')}"
             )
-        num = int(arr[1:])
-        call = invoke_one(arr, num, target)
+        physical = register_physical_index(body, arr, 2)
+        call = invoke_one(arr, physical, target)
         newline = "\r\n" if "\r\n" in ret.group(0) else "\n"
         inject = (
             f"{ret.group('indent')}{call}{newline}"
