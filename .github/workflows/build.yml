@@ -12,6 +12,15 @@ on:
       builder_id:
         description: 'Builder ID'
         required: false
+      kaorios:
+        description: 'Kaorios Toolbox framework'
+        required: true
+        default: 'disabled'
+        type: choice
+        options:
+          - disabled
+          - a16
+          - a17
       upload_method:
         description: 'Upload ROM to'
         required: true
@@ -94,6 +103,7 @@ jobs:
       - name: Build ROM
         env:
           INPUT_URL: ${{ inputs.input_url }}
+          KAORIOS_OPTION: ${{ inputs.kaorios }}
         run: |
           set -e
           set -o pipefail
