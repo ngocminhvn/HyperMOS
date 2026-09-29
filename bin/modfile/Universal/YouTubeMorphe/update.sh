@@ -11,13 +11,6 @@ YT_MORPHE_DIR="$work_dir/bin/modfile/Universal/YouTubeMorphe"
 Morphe_ZIP="$YT_MORPHE_DIR/YTMorphe_module.zip"
 TMP_Morphe="$YT_MORPHE_DIR/Morphe_tmp"
 
-# Khai báo đường dẫn đến công cụ trong thư mục bin/apktool
-APKTOOL_JAR="$work_dir/bin/apktool/apktool.jar"
-APKSIGNER_JAR="$work_dir/bin/apktool/apksigner.jar"
-
-# Cấu hình versionCode muốn thay đổi (Bạn hãy sửa con số này)
-NEW_VERSION_CODE="2147483647" 
-
 # Tìm đúng root của phân vùng product sau khi ROM được extract.
 # Payload ROM của Xiaomi thường nằm trực tiếp ở images/product/.
 ROM_PRODUCT_DIR=""
@@ -80,28 +73,26 @@ if [[ -f "$Morphe_ZIP" ]]; then
         YT_DIR="$ROM_PRODUCT_DIR/app/YouTube"
         mkdir -p "$YT_DIR"
 
+        # Keep the exact APK set produced by j-hc/Morphe.
+        # Do NOT decode/rebuild resources: recent YouTube APKs contain MCC
+        # qualifiers such as values-mcc1001 that older aapt/apktool rejects.
         cp -rf "$TMP_Morphe/stock/"*.apk "$YT_DIR/"
+        cp -f "$TMP_Morphe/base.apk" "$YT_DIR/base.apk"
 
-        info "Decompiling base.apk using apktool..."
-        java -jar "$APKTOOL_JAR" d "$TMP_Morphe/base.apk" -o "$TMP_Morphe/base_decoded" -f
+        # Sanity-check the patched base before repacking product.img.
+        if ! aapt dump badging "$YT_DIR/base.apk" 2>/dev/null | head -n1 | grep -q "package: name='com.google.android.youtube'"; then
+            error "Morphe base.apk is not a valid com.google.android.youtube package."
+            exit 1
+        fi
 
-        info "Modifying versionCode in AndroidManifest.xml..."
-        sed -i -E 's/android:versionCode="[0-9]+"/android:versionCode="'"$NEW_VERSION_CODE"'"/g' "$TMP_Morphe/base_decoded/AndroidManifest.xml"
+        MORPHE_VERSION=$(aapt dump badging "$YT_DIR/base.apk" 2>/dev/null | head -n1 | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+        info "Using upstream Morphe APK directly (version: ${MORPHE_VERSION:-unknown})."
 
-        info "Recompiling modified APK..."
-        java -jar "$APKTOOL_JAR" b "$TMP_Morphe/base_decoded" -o "$TMP_Morphe/base_rebuilt.apk"
-
-        info "Generating temporary keystore and signing APK..."
-        KEYSTORE="$TMP_Morphe/temp.keystore"
-        keytool -genkey -v -keystore "$KEYSTORE" -alias tempalias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=Android, O=Android, C=US" >/dev/null 2>&1
-        java -jar "$APKSIGNER_JAR" sign --ks "$KEYSTORE" --ks-pass pass:password "$TMP_Morphe/base_rebuilt.apk"
-
-        cp -rf "$TMP_Morphe/base_rebuilt.apk" "$YT_DIR/base.apk"
-
+        # Extract native libraries from the matching stock base.
         mkdir -p "$YT_DIR/lib/arm64"
         unzip -q -j "$TMP_Morphe/stock/base.apk" "lib/arm64-v8a/*" -d "$YT_DIR/lib/arm64/" 2>/dev/null || true
 
-        info "YouTube Morphe integrated into $YT_DIR with updated versionCode."
+        info "YouTube Morphe integrated into $YT_DIR without apktool rebuild or re-signing."
     else
         error "Invalid Morphe module structure (missing base.apk or stock/ folder)"
         exit 1
