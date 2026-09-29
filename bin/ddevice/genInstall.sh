@@ -121,10 +121,21 @@ call :wait_fastboot 90
 if errorlevel 1 goto :fail
 
 set "DEVICE="
-for /f "tokens=2 delims=: " %%D in ('"%FASTBOOT%" getvar product 2^>^&1 ^| findstr /i /b /c:"product:"') do set "DEVICE=%%D"
+set "FB_PRODUCT=%TEMP%\xm_fastboot_product_%RANDOM%_%RANDOM%.txt"
+"%FASTBOOT%" getvar product >"!FB_PRODUCT!" 2>&1
+for /f "usebackq delims=" %%L in ("!FB_PRODUCT!") do (
+    set "LINE=%%L"
+    set "LINE=!LINE:(bootloader) =!"
+    for /f "tokens=1,* delims=:" %%A in ("!LINE!") do (
+        if /I "%%A"=="product" set "DEVICE=%%B"
+    )
+)
+del /q "!FB_PRODUCT!" >nul 2>&1
+if defined DEVICE for /f "tokens=* delims= " %%D in ("!DEVICE!") do set "DEVICE=%%D"
 
 if not defined DEVICE (
     echo [ERROR] Could not read device codename.
+    echo [INFO] Try running: "%FASTBOOT%" getvar product
     goto :fail
 )
 
@@ -211,8 +222,12 @@ if not exist "!IMG!" (
 echo [FLASH] !PART! ^<- !IMG!
 
 rem Query whether this partition is slotted. If yes, flash both A and B.
-"%FASTBOOT%" getvar has-slot:!PART! 2>&1 | findstr /i /c:"yes" >nul
-if not errorlevel 1 (
+set "FB_SLOT=%TEMP%\xm_fastboot_slot_%RANDOM%_%RANDOM%.txt"
+"%FASTBOOT%" getvar has-slot:!PART! >"!FB_SLOT!" 2>&1
+findstr /i /c:"yes" "!FB_SLOT!" >nul
+set "IS_SLOTTED=!ERRORLEVEL!"
+del /q "!FB_SLOT!" >nul 2>&1
+if "!IS_SLOTTED!"=="0" (
     "%FASTBOOT%" flash !PART!_a "!IMG!"
     if errorlevel 1 exit /b 1
     "%FASTBOOT%" flash !PART!_b "!IMG!"
@@ -227,11 +242,18 @@ exit /b 0
 :wait_fastboot
 set /a WAIT_LEFT=%~1
 :wait_fastboot_loop
-for /f "tokens=1" %%D in ('"%FASTBOOT%" devices 2^>nul') do (
-    if not "%%D"=="" exit /b 0
+set "FB_DEVICES=%TEMP%\xm_fastboot_devices_%RANDOM%_%RANDOM%.txt"
+"%FASTBOOT%" devices >"!FB_DEVICES!" 2>nul
+for /f "usebackq tokens=1" %%D in ("!FB_DEVICES!") do (
+    if not "%%D"=="" (
+        del /q "!FB_DEVICES!" >nul 2>&1
+        exit /b 0
+    )
 )
+del /q "!FB_DEVICES!" >nul 2>&1
 if !WAIT_LEFT! LEQ 0 (
     echo [ERROR] Fastboot device timeout.
+    echo [INFO] Fastboot used: "%FASTBOOT%"
     exit /b 1
 )
 set /a WAIT_LEFT-=2
