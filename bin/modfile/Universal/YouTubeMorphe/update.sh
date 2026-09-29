@@ -30,13 +30,11 @@ if [[ -z "$ROM_PRODUCT_DIR" ]]; then
     exit 1
 fi
 
-info "Product partition root: $ROM_PRODUCT_DIR"
 
 # ==========================================
 # Tự động tìm và tải YTMorphe_module.zip
 # ==========================================
 mkdir -p "$YT_MORPHE_DIR"
-mods "Fetching the latest YouTube module from j-hc/revanced-magisk-module..."
 
 # Lấy danh sách các bản releases gần đây, lọc link có chứa "youtube-morphe-module" và ".zip", lấy kết quả mới nhất
 LATEST_URL=$(curl -fsSL --retry 4 --retry-delay 3 \
@@ -44,17 +42,14 @@ LATEST_URL=$(curl -fsSL --retry 4 --retry-delay 3 \
     | jq -r '[.[].assets[]? | select(.name | test("^youtube-morphe-module-.*\\.zip$"; "i")) | .browser_download_url][0] // empty')
 
 if [[ -n "$LATEST_URL" ]]; then
-    info "Found matching release: $LATEST_URL"
-    info "Downloading..."
     rm -f "$Morphe_ZIP"
-    curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 -o "$Morphe_ZIP" "$LATEST_URL"
+    curl -fsSL --retry 4 --retry-delay 3 --connect-timeout 30 -o "$Morphe_ZIP" "$LATEST_URL"
 else
     error "Could not find any recent release containing the YouTube Morphe module."
     exit 1 
 fi
 # ==========================================
 
-mods "Integrating YouTube Morphe..."
 
 if [[ -f "$Morphe_ZIP" ]]; then
     rm -rf "$TMP_Morphe"
@@ -85,20 +80,18 @@ if [[ -f "$Morphe_ZIP" ]]; then
             exit 1
         fi
 
-        MORPHE_VERSION=$(aapt dump badging "$YT_DIR/base.apk" 2>/dev/null | head -n1 | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
-        info "Using upstream Morphe APK directly (version: ${MORPHE_VERSION:-unknown})."
 
         # Extract native libraries from the matching stock base.
         mkdir -p "$YT_DIR/lib/arm64"
         unzip -q -j "$TMP_Morphe/stock/base.apk" "lib/arm64-v8a/*" -d "$YT_DIR/lib/arm64/" 2>/dev/null || true
 
-        info "YouTube Morphe integrated into $YT_DIR without apktool rebuild or re-signing."
     else
         error "Invalid Morphe module structure (missing base.apk or stock/ folder)"
         exit 1
     fi
 
     rm -rf "$TMP_Morphe"
+    echo "[SUCCESS] YouTube Morphe integrated successfully"
 else
     error "Morphe_module.zip not found, integration failed."
     exit 1
