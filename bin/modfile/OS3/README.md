@@ -1,15 +1,22 @@
 # OS3 Mods Center integration
 
-This directory integrates pinned Mods Center releases into HyperOS 3 ROM images during the build.
+This directory integrates Mods Center releases into HyperOS 3 ROM images during the build.
 
-Pinned packages:
-- HyperOS Theme Manager V7
-- HyperOS App Vault V4.5
-- HyperOS Security Center V7
-- ColorOS Control Center V3
+Packages:
+- HyperOS Theme Manager
+- HyperOS App Vault
+- HyperOS Security Center
+- ColorOS Control Center
 
-The build downloads the release ZIPs, validates their SHA-256 hashes, extracts only the module system tree, removes matching stock app directories, and copies files into the unpacked ROM partitions.
+Each build resolves the repository's GitHub `/releases/latest` endpoint, selects the uploaded ZIP asset, downloads it, and verifies GitHub's SHA-256 asset digest when one is provided.
 
-Magisk/KernelSU runtime scripts such as service.sh, post-fs-data.sh, customize.sh and system.prop are not executed or imported.
+The integration copies the complete Magisk module `system/` tree into the unpacked ROM. This means files such as:
+- `product/etc/permissions/*.xml`
+- `priv-app/<app>/lib/arm64/*.so` and other native libraries
+- `system_ext`, `vendor`, `odm`, overlays, and other module-owned system files
 
-The OS3 loader is only invoked when rom_os.txt contains OS3. Package/framework patching still runs afterwards through the existing HyperMOS patchpackage.sh flow.
+are preserved automatically when they exist in the latest module.
+
+Magisk/KernelSU runtime scripts such as `service.sh`, `post-fs-data.sh`, `customize.sh` and `system.prop` are not executed or imported.
+
+The OS3 loader only runs when `rom_os.txt` contains `OS3`. Package/framework patching still runs afterwards through the existing HyperMOS `patchpackage.sh` flow.

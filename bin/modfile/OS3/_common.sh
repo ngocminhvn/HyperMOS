@@ -16,21 +16,94 @@ modscenter_remove_stock_dirs() {
     done
 }
 
-modscenter_download() {
-    local label="$1"
-    local url="$2"
-    local sha256="$3"
-    local archive="$4"
+modscenter_resolve_latest() {
+    local repo="$1"
 
+    python3 - "$repo" <<'PY'
+import json
+import sys
+import urllib.request
+
+repo = sys.argv[1]
+api = f"https://api.github.com/repos/{repo}/releases/latest"
+req = urllib.request.Request(api, headers={
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "HyperMOS-OS3-ModsCenter"
+})
+
+with urllib.request.urlopen(req, timeout=30) as r:
+    data = json.load(r)
+
+assets = [
+    a for a in data.get("assets", [])
+    if str(a.get("name", "")).lower().endswith(".zip")
+]
+
+if not assets:
+    raise SystemExit("No ZIP release asset found")
+
+asset = assets[0]
+tag = str(data.get("tag_name", "latest"))
+url = str(asset.get("browser_download_url", ""))
+digest = str(asset.get("digest") or "")
+name = str(asset.get("name") or "module.zip")
+
+if not url:
+    raise SystemExit("Release asset has no download URL")
+
+if digest.startswith("sha256:"):
+    digest = digest.split(":", 1)[1]
+else:
+    digest = ""
+
+print(tag)
+print(url)
+print(digest)
+print(name)
+PY
+}
+
+modscenter_download_latest() {
+    local label="$1"
+    local repo="$2"
+
+    local meta tag url sha256 asset_name archive safe_tag
+    if ! meta=$(modscenter_resolve_latest "$repo"); then
+        error "$label: cannot resolve latest GitHub release"
+        return 1
+    fi
+
+    mapfile -t release_meta <<< "$meta"
+    tag="${release_meta[0]:-}"
+    url="${release_meta[1]:-}"
+    sha256="${release_meta[2]:-}"
+    asset_name="${release_meta[3]:-module.zip}"
+
+    if [[ -z "$tag" || -z "$url" ]]; then
+        error "$label: invalid latest release metadata"
+        return 1
+    fi
+
+    safe_tag=$(printf '%s' "$tag" | tr -cd 'A-Za-z0-9._-')
+    archive="$OS3_MOD_CACHE/${repo//\//_}-${safe_tag}.zip"
     mkdir -p "$OS3_MOD_CACHE"
 
-    if [[ -s "$archive" ]] && printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >/dev/null 2>&1; then
-        mods "$label: use cached archive"
-        return 0
+    if [[ -s "$archive" ]]; then
+        if [[ -n "$sha256" ]]; then
+            if printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >/dev/null 2>&1; then
+                mods "$label: latest $tag (cached)"
+                printf '%s\n' "$archive"
+                return 0
+            fi
+        else
+            mods "$label: latest $tag (cached, no upstream digest)"
+            printf '%s\n' "$archive"
+            return 0
+        fi
     fi
 
     rm -f "$archive"
-    mods "$label: downloading pinned release"
+    mods "$label: latest release $tag -> $asset_name"
 
     if ! aria2c -q --allow-overwrite=true --auto-file-renaming=false --file-allocation=none -x8 -s8 \
         -d "$(dirname "$archive")" -o "$(basename "$archive")" "$url"; then
@@ -38,12 +111,18 @@ modscenter_download() {
         return 1
     fi
 
-    if ! printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >/dev/null 2>&1; then
-        rm -f "$archive"
-        error "$label: SHA256 mismatch"
-        return 1
+    if [[ -n "$sha256" ]]; then
+        if ! printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >/dev/null 2>&1; then
+            rm -f "$archive"
+            error "$label: SHA256 mismatch for $tag"
+            return 1
+        fi
+        mods "$label: SHA256 verified"
+    else
+        mods "$label: warning - latest asset has no SHA256 digest from GitHub"
     fi
 
+    printf '%s\n' "$archive"
     return 0
 }
 
@@ -85,17 +164,14 @@ modscenter_copy_system_tree() {
 
 modscenter_apply_module() {
     local label="$1"
-    local url="$2"
-    local sha256="$3"
-    local archive_name="$4"
-    local expected_apk="$5"
-    shift 5
+    local repo="$2"
+    local expected_apk="$3"
+    shift 3
 
-    local archive="$OS3_MOD_CACHE/$archive_name"
-    local extract_dir="$OS3_MOD_CACHE/${archive_name%.zip}"
-    local module_prop module_root system_root apk
+    local archive extract_dir module_prop module_root system_root apk
 
-    modscenter_download "$label" "$url" "$sha256" "$archive" || return 1
+    archive=$(modscenter_download_latest "$label" "$repo") || return 1
+    extract_dir="$OS3_MOD_CACHE/extract-${repo##*/}"
 
     rm -rf "$extract_dir"
     mkdir -p "$extract_dir"
@@ -116,13 +192,18 @@ modscenter_apply_module() {
     apk=$(find "$system_root" -type f -iname "$expected_apk" -print -quit 2>/dev/null)
 
     if [[ -z "$apk" ]]; then
-        error "$label: expected APK '$expected_apk' not found in module"
+        error "$label: expected APK '$expected_apk' not found in latest module"
         rm -rf "$extract_dir"
         return 1
     fi
 
     mods "$label: source APK $(basename "$apk")"
 
+    # Copy the whole module system tree. This preserves:
+    # - product/etc/permissions/*.xml
+    # - priv-app/<app>/lib/arm*/*.so
+    # - system_ext/vendor/odm files
+    # - overlays and other module-owned system files
     modscenter_remove_stock_dirs "$@"
     modscenter_copy_system_tree "$label" "$system_root" || {
         rm -rf "$extract_dir"
@@ -130,6 +211,6 @@ modscenter_apply_module() {
     }
 
     rm -rf "$extract_dir"
-    mods "$label: integrated"
+    mods "$label: integrated with full system tree"
     return 0
 }
