@@ -59,7 +59,7 @@ mods "Done"
 FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
 SYS_TARGET="$work_dir/build/baserom/images/system/system/fonts"
 PROD_TARGET="$work_dir/build/baserom/images/product/fonts"
-PRIMARY_FONT="$FONT_SOURCE/SFPro.ttf"
+PRIMARY_FONT="$FONT_SOURCE/SF-Pro.ttf"
 
 copy_primary_font_from_list() {
     local list_file="$1"
@@ -85,9 +85,9 @@ apply_sfpro() {
     copy_primary_font_from_list "$FONT_SOURCE/product_fonts.list" "$PROD_TARGET" || failed=1
 
     if [ "$failed" -eq 0 ]; then
-        mods "Font SFPro: OK"
+        mods "Font SF Pro: OK"
     else
-        mods "Font SFPro: ERROR"
+        mods "Font SF Pro: ERROR"
         return 1
     fi
 }
