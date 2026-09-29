@@ -54,35 +54,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@main
 
-      - name: Prepare SF Pro font
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        shell: bash
-        run: |
-          FONT_DIR="./bin/modfile/UpdateFile/Fonts/HyperOS"
-          FONT_FILE="$FONT_DIR/SF-Pro.ttf"
-          mkdir -p "$FONT_DIR"
-
-          if [ ! -f "$FONT_FILE" ]; then
-            rm -rf /tmp/hypermos-assets
-            gh repo clone BEACHEADVN/My-Assets /tmp/hypermos-assets -- --depth 1 >/dev/null 2>&1 || {
-              echo "Font SF Pro: ERROR"
-              exit 1
-            }
-            cp "/tmp/hypermos-assets/ROM/font/SF-Pro.ttf" "$FONT_FILE" >/dev/null 2>&1 || {
-              echo "Font SF Pro: ERROR"
-              rm -rf /tmp/hypermos-assets
-              exit 1
-            }
-            rm -rf /tmp/hypermos-assets
-          fi
-
-          [ -s "$FONT_FILE" ] || {
-            echo "Font SF Pro: ERROR"
-            exit 1
-          }
-          echo "Font SF Pro: OK"
-
       - name: Send start notification
         run: |
           pip install requests
