@@ -1,0 +1,61 @@
+name: Publish Morphe standalone APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/morphe-standalone-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve latest standalone YouTube Morphe APK
+        id: morphe
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JSON="$(curl -fsSL --retry 4 --retry-delay 3             'https://api.github.com/repos/j-hc/revanced-magisk-module/releases?per_page=30')"
+
+          URL="$(printf '%s' "$JSON" | jq -r             '[.[].assets[]? | select(.name | test("^youtube-morphe-v.*-all\\.apk$"; "i"))][0].browser_download_url // empty')"
+
+          NAME="$(printf '%s' "$JSON" | jq -r             '[.[].assets[]? | select(.name | test("^youtube-morphe-v.*-all\\.apk$"; "i"))][0].name // empty')"
+
+          if [ -z "$URL" ] || [ -z "$NAME" ]; then
+            echo "Could not find a standalone YouTube Morphe APK."
+            exit 1
+          fi
+
+          mkdir -p out
+          curl -fsSL --retry 4 --retry-delay 3 --connect-timeout 30             -o "out/$NAME" "$URL"
+
+          test -s "out/$NAME"
+          sha256sum "out/$NAME" | tee out/SHA256SUMS.txt
+
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Morphe-standalone-APK
+          path: |
+            out/*.apk
+            out/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh release delete morphe-standalone-latest --cleanup-tag -y || true
+          gh release create morphe-standalone-latest             "out/${{ steps.morphe.outputs.name }}"             out/SHA256SUMS.txt             --prerelease             --title "Morphe standalone APK"             --notes "Standalone non-root YouTube Morphe APK from upstream j-hc. This build is the complete single-APK variant intended for direct installation and uses Morphe's non-root package/GmsCore integration rather than impersonating the Google-signed com.google.android.youtube package."
