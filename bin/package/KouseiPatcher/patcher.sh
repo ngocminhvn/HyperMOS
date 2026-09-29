@@ -88,12 +88,12 @@ find_owner_dex() {
     done
     shopt -u nullglob
 
-    if (( \${#matches[@]} != 1 )); then
-        echo "Expected exactly one owner DEX for $descriptor; found \${#matches[@]}" >&2
+    if (( ${#matches[@]} != 1 )); then
+        echo "Expected exactly one owner DEX for $descriptor; found ${#matches[@]}" >&2
         return 1
     fi
 
-    basename "\${matches[0]}"
+    basename "${matches[0]}"
 }
 
 contains_name() {
@@ -116,9 +116,9 @@ collect_and_disassemble() {
 
     mkdir -p "$smali_root"
 
-    for desc in "\${descriptors[@]}"; do
+    for desc in "${descriptors[@]}"; do
         owner=$(find_owner_dex "$unpacked" "$desc")
-        if ! contains_name "$owner" "\${MODIFIED_DEXES[@]}"; then
+        if ! contains_name "$owner" "${MODIFIED_DEXES[@]}"; then
             MODIFIED_DEXES+=("$owner")
             echo "Kaorios target $desc -> $owner"
             run_baksmali "$unpacked/$owner" "$smali_root/$owner.out"
@@ -134,7 +134,7 @@ reassemble_modified() {
 
     mkdir -p "$rebuilt_root"
 
-    for dex in "\${MODIFIED_DEXES[@]}"; do
+    for dex in "${MODIFIED_DEXES[@]}"; do
         run_smali "$smali_root/$dex.out" "$rebuilt_root/$dex"
         mv -f "$rebuilt_root/$dex" "$unpacked/$dex"
     done
@@ -164,7 +164,7 @@ verify_driver_dex() {
     fi
 
     local sig
-    for sig in "\${required[@]}"; do
+    for sig in "${required[@]}"; do
         if ! grep -Fq -- "$sig" "$hook"; then
             echo "Kaorios classes.dex missing required hook: $sig"
             exit 1
@@ -194,7 +194,7 @@ append_driver_dex() {
         if [[ "$base" == "classes.dex" ]]; then
             num=1
         elif [[ "$base" =~ ^classes([0-9]+)\.dex$ ]]; then
-            num="\${BASH_REMATCH[1]}"
+            num="${BASH_REMATCH[1]}"
         else
             continue
         fi
@@ -206,7 +206,7 @@ append_driver_dex() {
     if (( next == 1 )); then
         name="classes.dex"
     else
-        name="classes\${next}.dex"
+        name="classes${next}.dex"
     fi
 
     cp -f "$driver_dex" "$unpacked/$name"
@@ -221,7 +221,7 @@ verify_reassembled_framework() {
     rm -rf "$verify_root"
     mkdir -p "$verify_root"
 
-    for dex in "\${MODIFIED_DEXES[@]}"; do
+    for dex in "${MODIFIED_DEXES[@]}"; do
         run_baksmali "$unpacked/$dex" "$verify_root/$dex.out"
     done
 
@@ -245,7 +245,7 @@ verify_reassembled_services() {
     rm -rf "$verify_root"
     mkdir -p "$verify_root"
 
-    for dex in "\${MODIFIED_DEXES[@]}"; do
+    for dex in "${MODIFIED_DEXES[@]}"; do
         run_baksmali "$unpacked/$dex" "$verify_root/$dex.out"
     done
 
@@ -278,8 +278,8 @@ pack_jar() {
     local unpacked="$1"
     local output="$2"
     local name="$3"
-    local candidate="$temp_root/\${name}.candidate.jar"
-    local aligned="$temp_root/\${name}.aligned.jar"
+    local candidate="$temp_root/${name}.candidate.jar"
+    local aligned="$temp_root/${name}.aligned.jar"
 
     rm -f "$candidate" "$aligned"
     (
@@ -319,7 +319,7 @@ patch_framework() {
         )
     fi
 
-    collect_and_disassemble "$unpacked" "$smali_root" "\${descriptors[@]}"
+    collect_and_disassemble "$unpacked" "$smali_root" "${descriptors[@]}"
 
     python3 "$toolbox_py" "$smali_root" --framework
 
@@ -332,7 +332,7 @@ patch_framework() {
     append_driver_dex "$unpacked"
     pack_jar "$unpacked" "$jar" "framework"
 
-    echo "framework.jar: rebuilt only owner DEXes: \${MODIFIED_DEXES[*]}"
+    echo "framework.jar: rebuilt only owner DEXes: ${MODIFIED_DEXES[*]}"
 }
 
 patch_services() {
@@ -351,7 +351,7 @@ patch_services() {
         "Lcom/android/server/SystemServer;"
     )
 
-    collect_and_disassemble "$unpacked" "$smali_root" "\${descriptors[@]}"
+    collect_and_disassemble "$unpacked" "$smali_root" "${descriptors[@]}"
 
     if (( sdkLevel >= 37 )); then
         python3 "$a17_patch_py" "$smali_root" --services
@@ -363,7 +363,7 @@ patch_services() {
     verify_reassembled_services "$unpacked"
     pack_jar "$unpacked" "$jar" "services"
 
-    echo "services.jar: rebuilt only owner DEXes: \${MODIFIED_DEXES[*]}"
+    echo "services.jar: rebuilt only owner DEXes: ${MODIFIED_DEXES[*]}"
 }
 
 echo "Kaorios surgical patch mode: SDK $sdkLevel"
