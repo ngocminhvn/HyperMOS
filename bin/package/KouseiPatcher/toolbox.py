@@ -1,324 +1,359 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
 import os
 import re
 import sys
-from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
 
 
-@dataclass
-class Patch:
-    smali_class: str
-    method: str
-    position: str
-    anchor: str
-    lines_to_add: list[str]
-    anchor_is_directive: bool = False
-    anchor_is_substring: bool = False
+HOOK = "Landroid/security/kaorios/KaoriosHook;"
+
+SIG_INSTR_STATIC = "newApplication(Ljava/lang/Class;Landroid/content/Context;)Landroid/app/Application;"
+SIG_INSTR_INSTANCE = "newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;"
+SIG_FEATURE = "hasSystemFeature(Ljava/lang/String;I)Z"
+SIG_KEYPAIR = "generateKeyPair()Ljava/security/KeyPair;"
+SIG_CHAIN = "engineGetCertificateChain(Ljava/lang/String;)[Ljava/security/cert/Certificate;"
+SIG_DEV = "getStringForUser(Landroid/content/ContentResolver;Ljava/lang/String;I)Ljava/lang/String;"
+SIG_SYSTEMSERVER = "run()V"
+
+TARGETS = {
+    "instrumentation": "android/app/Instrumentation.smali",
+    "package_manager": "android/app/ApplicationPackageManager.smali",
+    "keypair": "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali",
+    "keystore": "android/security/keystore2/AndroidKeyStoreSpi.smali",
+    "settings": "android/provider/Settings$NameValueCache.smali",
+    "system_server": "com/android/server/SystemServer.smali",
+}
 
 
-PATCHES: list[Patch] = [
-    Patch(
-        smali_class="android/app/Instrumentation.smali",
-        method="newApplication(Ljava/lang/Class;Landroid/content/Context;)Landroid/app/Application;",
-        position="above",
-        anchor="return-object",
-        anchor_is_substring=True,
-        lines_to_add=[
-            "invoke-static {p1}, Landroid/security/kaorios/KaoriosHook;->initContext(Landroid/content/Context;)V",
-        ],
-    ),
-    Patch(
-        smali_class="android/app/Instrumentation.smali",
-        method="newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;",
-        position="above",
-        anchor="return-object",
-        anchor_is_substring=True,
-        lines_to_add=[
-            "invoke-static {p3}, Landroid/security/kaorios/KaoriosHook;->initContext(Landroid/content/Context;)V",
-        ],
-    ),
-    Patch(
-        smali_class="android/app/ApplicationPackageManager.smali",
-        method="hasSystemFeature(Ljava/lang/String;I)Z",
-        position="below",
-        anchor=".locals",
-        anchor_is_directive=True,
-        lines_to_add=[
-            "invoke-static {p1, p2}, Landroid/security/kaorios/KaoriosHook;->hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;",
-            "move-result-object v0",
-            "if-eqz v0, :cond_kaorios",
-            "invoke-virtual {v0}, Ljava/lang/Boolean;->booleanValue()Z",
-            "move-result v0",
-            "return v0",
-            ":cond_kaorios",
-        ],
-    ),
-    Patch(
-        smali_class="android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali",
-        method="generateKeyPair()Ljava/security/KeyPair;",
-        position="replace",
-        anchor=".locals",
-        anchor_is_directive=True,
-        lines_to_add=[
-            ".locals 15",
-            "invoke-static {p0}, Landroid/security/kaorios/KaoriosHook;->initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;",
-            "move-result-object v14",
-            "if-eqz v14, :cond_kaorios",
-            "return-object v14",
-            ":cond_kaorios",
-        ],
-    ),
-    Patch(
-        smali_class="android/security/keystore2/AndroidKeyStoreSpi.smali",
-        method="engineGetCertificateChain(Ljava/lang/String;)[Ljava/security/cert/Certificate;",
-        position="below",
-        anchor="aput-object v2, v3, v4",
-        anchor_is_substring=True,
-        lines_to_add=[
-            "invoke-static {v3}, Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;",
-            "move-result-object v3",
-        ],
-    ),
-]
-
-SERVICES_PATCH = Patch(
-    smali_class="com/android/server/SystemServer.smali",
-    method="run()V",
-    position="above",
-    anchor="Lcom/android/server/SystemServer;->startOtherServices(Lcom/android/server/utils/TimingsTraceAndSlog;)V",
-    anchor_is_substring=True,
-    lines_to_add=[
-        "invoke-static {}, Landroid/security/kaorios/KaoriosHook;->initSystemServer()V",
-    ],
-)
+class PatchError(RuntimeError):
+    pass
 
 
-GUARD_COMMENT = "# [kaorios-patched]"
+def read_text(path: Path) -> str:
+    return path.read_bytes().decode("utf-8")
 
 
-def find_smali_file(base_dir: str, smali_class: str) -> Optional[str]:
-    target = os.path.normpath(smali_class)
-    for root, _dirs, files in os.walk(base_dir):
-        for fname in files:
-            full = os.path.join(root, fname)
-            normalized = os.path.normpath(full)
-            if normalized.endswith(target):
-                return full
-    return None
+def write_text(path: Path, text: str) -> None:
+    path.write_bytes(text.encode("utf-8"))
 
 
-def indent_of(line: str) -> str:
-    return line[: len(line) - len(line.lstrip())]
+def find_one(root: Path, relative_path: str) -> Path:
+    rel = Path(relative_path)
+    matches = [p for p in root.rglob(rel.name) if str(p).replace("\\", "/").endswith(relative_path)]
+    if len(matches) != 1:
+        raise PatchError(f"expected exactly one {relative_path}; found {len(matches)}")
+    return matches[0]
 
 
-def method_signature_matches(line: str, method_sig: str) -> bool:
-    stripped = line.strip()
-    if not stripped.startswith(".method"):
-        return False
-    return method_sig in stripped
+def method_span(text: str, signature: str) -> tuple[int, int]:
+    rx = re.compile(
+        r"(?m)^\.method[^\r\n]*" + re.escape(signature) + r"[^\r\n]*(?:\r?\n|$)"
+    )
+    matches = list(rx.finditer(text))
+    if len(matches) != 1:
+        raise PatchError(f"expected exactly one method {signature}; found {len(matches)}")
+
+    end = re.search(
+        r"(?m)^[ \t]*\.end method[ \t]*(?:\r?\n|$)",
+        text[matches[0].end():],
+    )
+    if end is None:
+        raise PatchError(f"unterminated method {signature}")
+
+    return matches[0].start(), matches[0].end() + end.end()
 
 
-def apply_patch(patch: Patch, base_dir: str) -> bool:
-    filepath = find_smali_file(base_dir, patch.smali_class)
-    if not filepath:
-        return False
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        original_lines = f.readlines()
-
-    for ln in original_lines:
-        if GUARD_COMMENT in ln:
-            first_add = patch.lines_to_add[0].strip()
-            content = "".join(original_lines)
-            if first_add in content:
-                return True
-            break
-
-    in_target_method = False
-    method_depth = 0
-    anchor_stripped = patch.anchor.strip()
-    inserted = False
-    new_lines: list[str] = []
-
-    i = 0
-    while i < len(original_lines):
-        line = original_lines[i]
-        stripped = line.strip()
-
-        if stripped.startswith(".method") and not in_target_method:
-            if method_signature_matches(stripped, patch.method):
-                in_target_method = True
-                method_depth = 1
-                new_lines.append(line)
-                i += 1
-                continue
-
-        if in_target_method:
-            if stripped.startswith(".method"):
-                method_depth += 1
-            elif stripped.startswith(".end method"):
-                method_depth -= 1
-                if method_depth == 0:
-                    in_target_method = False
-
-            if not inserted:
-                match = False
-                if patch.anchor_is_directive:
-                    match = stripped.startswith(anchor_stripped)
-                    if not match and anchor_stripped == ".locals":
-                        match = stripped.startswith(".registers")
-                elif patch.anchor_is_substring:
-                    match = anchor_stripped in stripped
-                else:
-                    match = stripped == anchor_stripped
-
-                if match:
-                    base_indent = indent_of(line)
-                    inject = [f"{base_indent}{l}\n" for l in patch.lines_to_add]
-                    inject[0] = inject[0].rstrip("\n") + "  " + GUARD_COMMENT + "\n"
-
-                    if patch.position == "above":
-                        new_lines.extend(inject)
-                        new_lines.append(line)
-                    elif patch.position == "replace":
-                        new_lines.extend(inject)
-                    else:
-                        new_lines.append(line)
-                        new_lines.extend(inject)
-
-                    inserted = True
-                    i += 1
-                    continue
-
-        new_lines.append(line)
-        i += 1
-
-    if not inserted:
-        return False
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
-
-    return True
+def method_body(text: str, signature: str) -> str:
+    start, end = method_span(text, signature)
+    return text[start:end]
 
 
+def replace_method(text: str, signature: str, new_method: str) -> str:
+    start, end = method_span(text, signature)
+    return text[:start] + new_method + text[end:]
 
-DEV_STATUS_METHOD = "getStringForUser(Landroid/content/ContentResolver;Ljava/lang/String;I)Ljava/lang/String;"
-DEV_STATUS_HOOK = "Landroid/security/kaorios/KaoriosHook;->shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z"
 
-
-def _unique_label(base: str, body: str) -> str:
+def unique_label(base: str, body: str) -> str:
     label = base
-    idx = 1
+    n = 1
     while re.search(rf"(?m)^\s*{re.escape(label)}\s*$", body):
-        label = f"{base}_{idx}"
-        idx += 1
+        label = f"{base}_{n}"
+        n += 1
     return label
 
 
-def _canonicalize_param_aliases(body: str, registers: int, param_count: int) -> str:
-    """Convert physical vN parameter aliases to stable pN aliases before growing registers."""
-    first_param = registers - param_count
+def directive_info(body: str) -> tuple[str, int, re.Match[str]]:
+    m = re.search(r"(?m)^(?P<indent>[ \t]*)\.(?P<kind>locals|registers)[ \t]+(?P<num>\d+)[^\r\n]*(?:\r?\n|$)", body)
+    if not m:
+        raise PatchError("method has no .locals/.registers directive")
+    return m.group("kind"), int(m.group("num")), m
+
+
+def canonicalize_param_aliases(body: str, registers: int, param_count: int) -> str:
+    first_param_v = registers - param_count
+    if first_param_v < 0:
+        raise PatchError(f".registers {registers} smaller than parameter width {param_count}")
     for p_idx in range(param_count - 1, -1, -1):
-        v_idx = first_param + p_idx
-        body = re.sub(rf"(?<![A-Za-z0-9_])v{v_idx}(?![0-9])", f"p{p_idx}", body)
+        body = re.sub(
+            rf"(?<![A-Za-z0-9_])v{first_param_v + p_idx}(?![0-9])",
+            f"p{p_idx}",
+            body,
+        )
     return body
 
 
-def _instruction_insertion_offset(body: str) -> int:
-    """Insert after .locals/.registers, .param and method annotations."""
+def grow_one_local(body: str, param_count: int) -> tuple[str, str, int]:
+    kind, count, m = directive_info(body)
+    newline = "\r\n" if "\r\n" in body else "\n"
+
+    if kind == "locals":
+        scratch_num = count
+        replacement = f"{m.group('indent')}.locals {count + 1}{newline}"
+        body = body[:m.start()] + replacement + body[m.end():]
+        return body, f"v{scratch_num}", scratch_num
+
+    old_registers = count
+    old_locals = old_registers - param_count
+    if old_locals < 0:
+        raise PatchError(f".registers {old_registers} smaller than parameter width {param_count}")
+
+    body = canonicalize_param_aliases(body, old_registers, param_count)
+    _, _, m2 = directive_info(body)
+    replacement = f"{m2.group('indent')}.locals {old_locals + 1}{newline}"
+    body = body[:m2.start()] + replacement + body[m2.end():]
+    return body, f"v{old_locals}", old_locals
+
+
+def param_physical_index(body: str, param_count: int, p_index: int) -> int:
+    kind, count, _ = directive_info(body)
+    if kind == "locals":
+        return count + p_index
+    return count - param_count + p_index
+
+
+def code_insertion_offset(body: str) -> int:
     lines = body.splitlines(keepends=True)
     in_annotation = False
-    insert_after = 0
+    last_header = 0
 
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
+        s = line.strip()
+        if not s:
             continue
-        if stripped.startswith(".method"):
-            insert_after = i + 1
+        if s.startswith(".method"):
+            last_header = i + 1
             continue
-        if stripped.startswith(".locals") or stripped.startswith(".registers"):
-            insert_after = i + 1
+        if s.startswith(".locals") or s.startswith(".registers") or s.startswith(".param"):
+            last_header = i + 1
             continue
-        if stripped.startswith(".param"):
-            insert_after = i + 1
-            continue
-        if stripped.startswith(".annotation"):
+        if s.startswith(".annotation"):
             in_annotation = True
-            insert_after = i + 1
+            last_header = i + 1
             continue
         if in_annotation:
-            insert_after = i + 1
-            if stripped.startswith(".end annotation"):
+            last_header = i + 1
+            if s.startswith(".end annotation"):
                 in_annotation = False
             continue
         break
 
-    return sum(len(lines[i]) for i in range(insert_after))
+    return sum(len(lines[i]) for i in range(last_header))
 
 
-def patch_dev_status(base_dir: str) -> bool:
-    """Patch Settings$NameValueCache to hide Developer Options / ADB state per caller."""
-    filepath = find_smali_file(base_dir, "android/provider/Settings$NameValueCache.smali")
-    if not filepath:
-        print("Settings$NameValueCache.smali not found")
-        return False
+def invoke_one(reg: str, physical: int, target: str, opcode: str = "invoke-static") -> str:
+    if physical > 15:
+        return f"{opcode}/range {{{reg} .. {reg}}}, {target}"
+    return f"{opcode} {{{reg}}}, {target}"
 
-    with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
 
-    method_re = re.compile(
-        r"(?ms)^\.method[^\r\n]*\s"
-        + re.escape(DEV_STATUS_METHOD)
-        + r"[^\r\n]*(?:\r?\n).*?^\.end method[ \t]*(?:\r?\n|$)"
-    )
-    matches = list(method_re.finditer(content))
-    if len(matches) != 1:
-        print(f"Expected exactly one {DEV_STATUS_METHOD}; found {len(matches)}")
-        return False
+def patch_instrumentation(text: str) -> str:
+    configs = [
+        (SIG_INSTR_STATIC, "p1", 2),
+        (SIG_INSTR_INSTANCE, "p3", 4),
+    ]
 
-    method = matches[0].group(0)
-    hook_count = method.count(DEV_STATUS_HOOK)
-    if hook_count == 1:
-        return True
-    if hook_count > 1:
-        print(f"Developer/ADB hide hook duplicated: {hook_count}")
-        return False
+    for signature, context_reg, param_count in configs:
+        body = method_body(text, signature)
+        hook_target = HOOK + "->initContext(Landroid/content/Context;)V"
+        return_matches = list(re.finditer(r"(?m)^(?P<indent>[ \t]*)return-object\s+[vp]\d+[ \t]*(?:\r?\n|$)", body))
+        if not return_matches:
+            raise PatchError(f"{signature}: return-object not found")
 
-    newline = "\r\n" if "\r\n" in method else "\n"
-    locals_match = re.search(r"(?m)^(?P<indent>[ \t]*)\.locals[ \t]+(?P<num>\d+)[^\r\n]*(?:\r?\n|$)", method)
-    registers_match = re.search(r"(?m)^(?P<indent>[ \t]*)\.registers[ \t]+(?P<num>\d+)[^\r\n]*(?:\r?\n|$)", method)
+        hook_count = body.count(hook_target)
+        if hook_count == len(return_matches):
+            continue
+        if hook_count != 0:
+            raise PatchError(f"{signature}: partial/duplicate initContext hooks ({hook_count})")
 
-    if locals_match:
-        old_locals = int(locals_match.group("num"))
-        scratch = f"v{old_locals}"
-        new_directive = f"{locals_match.group('indent')}.locals {old_locals + 1}{newline}"
-        method = method[:locals_match.start()] + new_directive + method[locals_match.end():]
-    elif registers_match:
-        old_registers = int(registers_match.group("num"))
-        param_count = 4  # p0=this, p1=ContentResolver, p2=name, p3=userId
-        old_locals = old_registers - param_count
-        if old_locals < 0:
-            print(f"Invalid .registers {old_registers} in {DEV_STATUS_METHOD}")
-            return False
-        method = _canonicalize_param_aliases(method, old_registers, param_count)
-        # Re-find after alias normalization to preserve offsets.
-        registers_match = re.search(r"(?m)^(?P<indent>[ \t]*)\.registers[ \t]+(?P<num>\d+)[^\r\n]*(?:\r?\n|$)", method)
-        scratch = f"v{old_locals}"
-        new_directive = f"{registers_match.group('indent')}.locals {old_locals + 1}{newline}"
-        method = method[:registers_match.start()] + new_directive + method[registers_match.end():]
+        physical = param_physical_index(body, param_count, int(context_reg[1:]))
+        call = invoke_one(context_reg, physical, hook_target)
+
+        patched = body
+        for m in reversed(return_matches):
+            newline = "\r\n" if "\r\n" in m.group(0) else "\n"
+            inject = f"{m.group('indent')}{call}{newline}{newline}"
+            patched = patched[:m.start()] + inject + patched[m.start():]
+
+        text = replace_method(text, signature, patched)
+
+    return text
+
+
+def verify_instrumentation(text: str) -> None:
+    for signature in (SIG_INSTR_STATIC, SIG_INSTR_INSTANCE):
+        body = method_body(text, signature)
+        returns = len(re.findall(r"(?m)^[ \t]*return-object\s+[vp]\d+", body))
+        hooks = body.count(HOOK + "->initContext(Landroid/content/Context;)V")
+        if returns < 1 or hooks != returns:
+            raise PatchError(f"{signature}: expected {returns} initContext hooks, found {hooks}")
+
+
+def patch_feature(text: str) -> str:
+    body = method_body(text, SIG_FEATURE)
+    target = HOOK + "->hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;"
+    count = body.count(target)
+    if count == 1:
+        return text
+    if count != 0:
+        raise PatchError(f"{SIG_FEATURE}: duplicate hasSystemFeature hook")
+
+    body, scratch, scratch_num = grow_one_local(body, 3)
+    label = unique_label(":cond_kaorios_feature_stock", body)
+    p1_phys = param_physical_index(body, 3, 1)
+    p2_phys = param_physical_index(body, 3, 2)
+
+    if p1_phys > 15 or p2_phys > 15:
+        call = f"invoke-static/range {{p1 .. p2}}, {target}"
     else:
-        print(f"No .locals/.registers in {DEV_STATUS_METHOD}")
-        return False
+        call = f"invoke-static {{p1, p2}}, {target}"
 
-    label = _unique_label(":cond_kaorios_dev_stock", method)
+    bool_target = "Ljava/lang/Boolean;->booleanValue()Z"
+    if scratch_num > 15:
+        bool_call = f"invoke-virtual/range {{{scratch} .. {scratch}}}, {bool_target}"
+    else:
+        bool_call = f"invoke-virtual {{{scratch}}}, {bool_target}"
+
+    newline = "\r\n" if "\r\n" in body else "\n"
+    inject = (
+        f"    {call}{newline}"
+        f"    move-result-object {scratch}{newline}"
+        f"    if-eqz {scratch}, {label}{newline}"
+        f"    {bool_call}{newline}"
+        f"    move-result {scratch}{newline}"
+        f"    return {scratch}{newline}"
+        f"{newline}"
+        f"    {label}{newline}"
+    )
+    off = code_insertion_offset(body)
+    body = body[:off] + inject + body[off:]
+    return replace_method(text, SIG_FEATURE, body)
+
+
+def verify_feature(text: str) -> None:
+    body = method_body(text, SIG_FEATURE)
+    count = body.count(HOOK + "->hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;")
+    if count != 1:
+        raise PatchError(f"{SIG_FEATURE}: expected one hasSystemFeature hook, found {count}")
+
+
+def patch_keypair(text: str) -> str:
+    body = method_body(text, SIG_KEYPAIR)
+    target = HOOK + "->initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;"
+    count = body.count(target)
+    if count == 1:
+        return text
+    if count != 0:
+        raise PatchError(f"{SIG_KEYPAIR}: duplicate keypair hook")
+
+    body, scratch, _ = grow_one_local(body, 1)
+    label = unique_label(":cond_kaorios_gen_stock", body)
+    p0_phys = param_physical_index(body, 1, 0)
+    call = invoke_one("p0", p0_phys, target)
+
+    newline = "\r\n" if "\r\n" in body else "\n"
+    inject = (
+        f"    {call}{newline}"
+        f"    move-result-object {scratch}{newline}"
+        f"    if-eqz {scratch}, {label}{newline}"
+        f"    return-object {scratch}{newline}"
+        f"{newline}"
+        f"    {label}{newline}"
+    )
+    off = code_insertion_offset(body)
+    body = body[:off] + inject + body[off:]
+    return replace_method(text, SIG_KEYPAIR, body)
+
+
+def verify_keypair(text: str) -> None:
+    body = method_body(text, SIG_KEYPAIR)
+    count = body.count(HOOK + "->initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;")
+    if count != 1:
+        raise PatchError(f"{SIG_KEYPAIR}: expected one keypair hook, found {count}")
+
+
+def patch_chain(text: str) -> str:
+    body = method_body(text, SIG_CHAIN)
+    target = HOOK + "->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;"
+    return_matches = list(re.finditer(r"(?m)^(?P<indent>[ \t]*)return-object\s+(?P<reg>[vp]\d+)[ \t]*(?:\r?\n|$)", body))
+    if not return_matches:
+        raise PatchError(f"{SIG_CHAIN}: no return-object")
+
+    count = body.count(target)
+    if count == len(return_matches):
+        return text
+    if count != 0:
+        raise PatchError(f"{SIG_CHAIN}: partial/duplicate certificate hooks ({count})")
+
+    patched = body
+    for ret in reversed(return_matches):
+        prefix = patched[:ret.start()]
+        aputs = list(re.finditer(r"aput-object\s+[vp]\d+,\s*(?P<arr>[vp]\d+),\s*[vp]\d+", prefix))
+        if not aputs:
+            raise PatchError(f"{SIG_CHAIN}: no aput-object before return {ret.group('reg')}")
+        arr = aputs[-1].group("arr")
+        if arr != ret.group("reg"):
+            raise PatchError(
+                f"{SIG_CHAIN}: last certificate array {arr} does not match returned {ret.group('reg')}"
+            )
+        num = int(arr[1:])
+        call = invoke_one(arr, num, target)
+        newline = "\r\n" if "\r\n" in ret.group(0) else "\n"
+        inject = (
+            f"{ret.group('indent')}{call}{newline}"
+            f"{ret.group('indent')}move-result-object {arr}{newline}"
+        )
+        patched = patched[:ret.start()] + inject + patched[ret.start():]
+
+    return replace_method(text, SIG_CHAIN, patched)
+
+
+def verify_chain(text: str) -> None:
+    body = method_body(text, SIG_CHAIN)
+    returns = len(re.findall(r"(?m)^[ \t]*return-object\s+[vp]\d+", body))
+    hooks = body.count(HOOK + "->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;")
+    if returns < 1 or hooks != returns:
+        raise PatchError(f"{SIG_CHAIN}: expected {returns} certificate hooks, found {hooks}")
+
+
+def patch_dev_status(text: str) -> str:
+    body = method_body(text, SIG_DEV)
+    target = HOOK + "->shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z"
+    count = body.count(target)
+    if count == 1:
+        return text
+    if count != 0:
+        raise PatchError(f"{SIG_DEV}: duplicate dev/ADB hook")
+
+    body, scratch, _ = grow_one_local(body, 4)
+    label = unique_label(":cond_kaorios_dev_stock", body)
+    newline = "\r\n" if "\r\n" in body else "\n"
+
     inject = (
         f"    if-eqz p2, {label}{newline}"
-        f"    invoke-static/range {{p1 .. p3}}, {DEV_STATUS_HOOK}{newline}"
+        f"    invoke-static/range {{p1 .. p3}}, {target}{newline}"
         f"    move-result {scratch}{newline}"
         f"    if-eqz {scratch}, {label}{newline}"
         f"    const-string {scratch}, \"0\"{newline}"
@@ -326,50 +361,131 @@ def patch_dev_status(base_dir: str) -> bool:
         f"{newline}"
         f"    {label}{newline}"
     )
-
-    offset = _instruction_insertion_offset(method)
-    patched_method = method[:offset] + inject + method[offset:]
-
-    if patched_method.count(DEV_STATUS_HOOK) != 1:
-        print("Developer/ADB hide hook verification failed")
-        return False
-
-    patched_content = content[:matches[0].start()] + patched_method + content[matches[0].end():]
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(patched_content)
-
-    print("Patched Settings$NameValueCache: hide Developer Options / ADB status")
-    return True
+    off = code_insertion_offset(body)
+    body = body[:off] + inject + body[off:]
+    return replace_method(text, SIG_DEV, body)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Kaorios smali patcher")
-    parser.add_argument("base_dir", help="Thư mục chứa smali")
-    parser.add_argument("--services", action="store_true", help="Patch SystemServer (Android 13-16)")
-    parser.add_argument("--dev-only", action="store_true", help="Chỉ patch ẩn Developer Options / ADB")
+def verify_dev_status(text: str) -> None:
+    body = method_body(text, SIG_DEV)
+    count = body.count(HOOK + "->shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z")
+    if count != 1:
+        raise PatchError(f"{SIG_DEV}: expected one dev/ADB hook, found {count}")
+
+
+def patch_system_server(text: str) -> str:
+    body = method_body(text, SIG_SYSTEMSERVER)
+    target = HOOK + "->initSystemServer()V"
+    count = body.count(target)
+    if count == 1:
+        return text
+    if count != 0:
+        raise PatchError("SystemServer.run(): duplicate initSystemServer hook")
+
+    anchor_rx = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)invoke-[^\r\n]*"
+        r"Lcom/android/server/SystemServer;->startOtherServices"
+        r"\(Lcom/android/server/utils/TimingsTraceAndSlog;\)V[ \t]*(?:\r?\n|$)"
+    )
+    matches = list(anchor_rx.finditer(body))
+    if len(matches) != 1:
+        raise PatchError(f"SystemServer.run(): expected one startOtherServices anchor, found {len(matches)}")
+
+    m = matches[0]
+    newline = "\r\n" if "\r\n" in m.group(0) else "\n"
+    inject = f"{m.group('indent')}invoke-static {{}}, {target}{newline}{newline}"
+    body = body[:m.start()] + inject + body[m.start():]
+    return replace_method(text, SIG_SYSTEMSERVER, body)
+
+
+def verify_system_server(text: str) -> None:
+    body = method_body(text, SIG_SYSTEMSERVER)
+    target = HOOK + "->initSystemServer()V"
+    if body.count(target) != 1:
+        raise PatchError("SystemServer.run(): initSystemServer hook count must be 1")
+
+    hook_pos = body.find(target)
+    anchor_pos = body.find(
+        "Lcom/android/server/SystemServer;->startOtherServices(Lcom/android/server/utils/TimingsTraceAndSlog;)V"
+    )
+    if anchor_pos < 0 or hook_pos < 0 or hook_pos > anchor_pos:
+        raise PatchError("SystemServer.run(): initSystemServer must precede startOtherServices")
+
+
+def patch_framework(root: Path) -> None:
+    files = {
+        key: find_one(root, TARGETS[key])
+        for key in ("instrumentation", "package_manager", "keypair", "keystore", "settings")
+    }
+
+    transforms = {
+        "instrumentation": patch_instrumentation,
+        "package_manager": patch_feature,
+        "keypair": patch_keypair,
+        "keystore": patch_chain,
+        "settings": patch_dev_status,
+    }
+
+    for key, path in files.items():
+        original = read_text(path)
+        patched = transforms[key](original)
+        write_text(path, patched)
+
+    verify_framework(root)
+
+
+def verify_framework(root: Path) -> None:
+    checks = [
+        ("instrumentation", verify_instrumentation),
+        ("package_manager", verify_feature),
+        ("keypair", verify_keypair),
+        ("keystore", verify_chain),
+        ("settings", verify_dev_status),
+    ]
+    for key, checker in checks:
+        path = find_one(root, TARGETS[key])
+        checker(read_text(path))
+    print("Kaorios framework verifier: PASS")
+
+
+def patch_services(root: Path) -> None:
+    path = find_one(root, TARGETS["system_server"])
+    write_text(path, patch_system_server(read_text(path)))
+    verify_services(root)
+
+
+def verify_services(root: Path) -> None:
+    path = find_one(root, TARGETS["system_server"])
+    verify_system_server(read_text(path))
+    print("Kaorios services verifier: PASS")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="HyperMOS Kaorios A13-A16 surgical smali patcher")
+    parser.add_argument("root", type=Path, help="Root containing disassembled owner DEX directories")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--framework", action="store_true")
+    group.add_argument("--services", action="store_true")
+    group.add_argument("--verify-framework", action="store_true")
+    group.add_argument("--verify-services", action="store_true")
     args = parser.parse_args()
 
-    if not os.path.isdir(args.base_dir):
-        sys.exit(1)
+    if not args.root.is_dir():
+        raise PatchError(f"directory does not exist: {args.root}")
 
-    if args.dev_only:
-        if not patch_dev_status(args.base_dir):
-            sys.exit(1)
-        return
-
-    patches = list(PATCHES)
-    if args.services:
-        patches.append(SERVICES_PATCH)
-
-    for patch in patches:
-        if not apply_patch(patch, args.base_dir):
-            print(f"Patch failed: {patch.smali_class} :: {patch.method}")
-            sys.exit(1)
-
-    if not args.services:
-        if not patch_dev_status(args.base_dir):
-            sys.exit(1)
+    if args.framework:
+        patch_framework(args.root)
+    elif args.services:
+        patch_services(args.root)
+    elif args.verify_framework:
+        verify_framework(args.root)
+    else:
+        verify_services(args.root)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print(f"Kaorios patch failed: {exc}", file=sys.stderr)
+        sys.exit(1)
