@@ -64,161 +64,49 @@ fi
 mods "Integrating YouTube Morphe..."
 
 if [[ -f "$Morphe_ZIP" ]]; then
-    # Dọn dẹp thư mục tạm cũ nếu có
-    rm -rf "$TMP_Morphe" && mkdir -p "$TMP_Morphe"
-    
-    # Kiểm tra ZIP trước khi giải nén. Module j-hc root phải có base.apk và stock/base.apk.
-    if ! unzip -l "$Morphe_ZIP" | grep -qE '(^|[[:space:]])base\.apk
-    if [[ -f "$TMP_Morphe/base.apk" && -d "$TMP_Morphe/stock" ]]; then
-         YT_DIR="$ROM_PRODUCT_DIR/app/YouTube"
-         mkdir -p "$YT_DIR"
-         
-         # 1. Copy toàn bộ file gốc từ thư mục stock
-         cp -rf "$TMP_Morphe/stock/"*.apk "$YT_DIR/"
-         
-         # ==========================================
-         # BẮT ĐẦU QUY TRÌNH CHỈNH SỬA VÀ KÝ APK
-         # ==========================================
-         info "Decompiling base.apk using apktool..."
-         java -jar "$APKTOOL_JAR" d "$TMP_Morphe/base.apk" -o "$TMP_Morphe/base_decoded" -f
-         
-         info "Modifying versionCode in AndroidManifest.xml..."
-         # Sử dụng sed để thay thế chuỗi versionCode cũ bằng giá trị mới
-         sed -i -E 's/android:versionCode="[0-9]+"/android:versionCode="'"$NEW_VERSION_CODE"'"/g' "$TMP_Morphe/base_decoded/AndroidManifest.xml"
-         
-         info "Recompiling modified APK..."
-         java -jar "$APKTOOL_JAR" b "$TMP_Morphe/base_decoded" -o "$TMP_Morphe/base_rebuilt.apk"
-         
-         info "Generating temporary keystore and signing APK..."
-         KEYSTORE="$TMP_Morphe/temp.keystore"
-         # Tạo một keystore tạm thời bằng keytool để phục vụ cho apksigner
-         keytool -genkey -v -keystore "$KEYSTORE" -alias tempalias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=Android, O=Android, C=US" >/dev/null 2>&1
-         
-         # Ký APK bằng apksigner
-         java -jar "$APKSIGNER_JAR" sign --ks "$KEYSTORE" --ks-pass pass:password "$TMP_Morphe/base_rebuilt.apk"
-         # ==========================================
-         
-         # 2. Ghi đè file base_rebuilt.apk (đã sửa mã và ký) vào thư mục đích
-         cp -rf "$TMP_Morphe/base_rebuilt.apk" "$YT_DIR/base.apk"
-         
-         # 3. Trích xuất native libs từ app gốc (arm64-v8a)
-         mkdir -p "$YT_DIR/lib/arm64"
-         unzip -q -j "$TMP_Morphe/stock/base.apk" "lib/arm64-v8a/*" -d "$YT_DIR/lib/arm64/" 2>/dev/null || true
-         
-         info "YouTube Morphe integrated into $YT_DIR with updated versionCode."
-    else
-         error "Invalid Morphe module structure (missing base.apk or stock/ folder)"
-         exit 1 
-    fi
-    
-    # Dọn dẹp sau khi build xong
     rm -rf "$TMP_Morphe"
-else
-    error "Morphe_module.zip not found, integration failed."
-    exit 1
-fi
- || \
-       ! unzip -l "$Morphe_ZIP" | grep -qE 'stock/base\.apk
-    if [[ -f "$TMP_Morphe/base.apk" && -d "$TMP_Morphe/stock" ]]; then
-         YT_DIR="$ROM_PRODUCT_DIR/app/YouTube"
-         mkdir -p "$YT_DIR"
-         
-         # 1. Copy toàn bộ file gốc từ thư mục stock
-         cp -rf "$TMP_Morphe/stock/"*.apk "$YT_DIR/"
-         
-         # ==========================================
-         # BẮT ĐẦU QUY TRÌNH CHỈNH SỬA VÀ KÝ APK
-         # ==========================================
-         info "Decompiling base.apk using apktool..."
-         java -jar "$APKTOOL_JAR" d "$TMP_Morphe/base.apk" -o "$TMP_Morphe/base_decoded" -f
-         
-         info "Modifying versionCode in AndroidManifest.xml..."
-         # Sử dụng sed để thay thế chuỗi versionCode cũ bằng giá trị mới
-         sed -i -E 's/android:versionCode="[0-9]+"/android:versionCode="'"$NEW_VERSION_CODE"'"/g' "$TMP_Morphe/base_decoded/AndroidManifest.xml"
-         
-         info "Recompiling modified APK..."
-         java -jar "$APKTOOL_JAR" b "$TMP_Morphe/base_decoded" -o "$TMP_Morphe/base_rebuilt.apk"
-         
-         info "Generating temporary keystore and signing APK..."
-         KEYSTORE="$TMP_Morphe/temp.keystore"
-         # Tạo một keystore tạm thời bằng keytool để phục vụ cho apksigner
-         keytool -genkey -v -keystore "$KEYSTORE" -alias tempalias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=Android, O=Android, C=US" >/dev/null 2>&1
-         
-         # Ký APK bằng apksigner
-         java -jar "$APKSIGNER_JAR" sign --ks "$KEYSTORE" --ks-pass pass:password "$TMP_Morphe/base_rebuilt.apk"
-         # ==========================================
-         
-         # 2. Ghi đè file base_rebuilt.apk (đã sửa mã và ký) vào thư mục đích
-         cp -rf "$TMP_Morphe/base_rebuilt.apk" "$YT_DIR/base.apk"
-         
-         # 3. Trích xuất native libs từ app gốc (arm64-v8a)
-         mkdir -p "$YT_DIR/lib/arm64"
-         unzip -q -j "$TMP_Morphe/stock/base.apk" "lib/arm64-v8a/*" -d "$YT_DIR/lib/arm64/" 2>/dev/null || true
-         
-         info "YouTube Morphe integrated into $YT_DIR with updated versionCode."
-    else
-         error "Invalid Morphe module structure (missing base.apk or stock/ folder)"
-         exit 1 
-    fi
-    
-    # Dọn dẹp sau khi build xong
-    rm -rf "$TMP_Morphe"
-else
-    error "Morphe_module.zip not found, integration failed."
-    exit 1
-fi
-; then
-         error "Downloaded Morphe ZIP does not contain the expected root-module structure."
-         exit 1
+    mkdir -p "$TMP_Morphe"
+
+    # Validate the module layout before extraction.
+    if ! unzip -l "$Morphe_ZIP" | grep -qE '(^|[[:space:]])base\.apk$' || \
+       ! unzip -l "$Morphe_ZIP" | grep -qE '(^|[[:space:]])stock/base\.apk$'; then
+        error "Downloaded Morphe ZIP does not contain the expected root-module structure."
+        exit 1
     fi
 
-    # Giải nén module
     unzip -q "$Morphe_ZIP" -d "$TMP_Morphe"
 
-    # Kiểm tra cấu trúc module
     if [[ -f "$TMP_Morphe/base.apk" && -d "$TMP_Morphe/stock" ]]; then
-         YT_DIR="$ROM_PRODUCT_DIR/app/YouTube"
-         mkdir -p "$YT_DIR"
-         
-         # 1. Copy toàn bộ file gốc từ thư mục stock
-         cp -rf "$TMP_Morphe/stock/"*.apk "$YT_DIR/"
-         
-         # ==========================================
-         # BẮT ĐẦU QUY TRÌNH CHỈNH SỬA VÀ KÝ APK
-         # ==========================================
-         info "Decompiling base.apk using apktool..."
-         java -jar "$APKTOOL_JAR" d "$TMP_Morphe/base.apk" -o "$TMP_Morphe/base_decoded" -f
-         
-         info "Modifying versionCode in AndroidManifest.xml..."
-         # Sử dụng sed để thay thế chuỗi versionCode cũ bằng giá trị mới
-         sed -i -E 's/android:versionCode="[0-9]+"/android:versionCode="'"$NEW_VERSION_CODE"'"/g' "$TMP_Morphe/base_decoded/AndroidManifest.xml"
-         
-         info "Recompiling modified APK..."
-         java -jar "$APKTOOL_JAR" b "$TMP_Morphe/base_decoded" -o "$TMP_Morphe/base_rebuilt.apk"
-         
-         info "Generating temporary keystore and signing APK..."
-         KEYSTORE="$TMP_Morphe/temp.keystore"
-         # Tạo một keystore tạm thời bằng keytool để phục vụ cho apksigner
-         keytool -genkey -v -keystore "$KEYSTORE" -alias tempalias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=Android, O=Android, C=US" >/dev/null 2>&1
-         
-         # Ký APK bằng apksigner
-         java -jar "$APKSIGNER_JAR" sign --ks "$KEYSTORE" --ks-pass pass:password "$TMP_Morphe/base_rebuilt.apk"
-         # ==========================================
-         
-         # 2. Ghi đè file base_rebuilt.apk (đã sửa mã và ký) vào thư mục đích
-         cp -rf "$TMP_Morphe/base_rebuilt.apk" "$YT_DIR/base.apk"
-         
-         # 3. Trích xuất native libs từ app gốc (arm64-v8a)
-         mkdir -p "$YT_DIR/lib/arm64"
-         unzip -q -j "$TMP_Morphe/stock/base.apk" "lib/arm64-v8a/*" -d "$YT_DIR/lib/arm64/" 2>/dev/null || true
-         
-         info "YouTube Morphe integrated into $YT_DIR with updated versionCode."
+        YT_DIR="$ROM_PRODUCT_DIR/app/YouTube"
+        mkdir -p "$YT_DIR"
+
+        cp -rf "$TMP_Morphe/stock/"*.apk "$YT_DIR/"
+
+        info "Decompiling base.apk using apktool..."
+        java -jar "$APKTOOL_JAR" d "$TMP_Morphe/base.apk" -o "$TMP_Morphe/base_decoded" -f
+
+        info "Modifying versionCode in AndroidManifest.xml..."
+        sed -i -E 's/android:versionCode="[0-9]+"/android:versionCode="'"$NEW_VERSION_CODE"'"/g' "$TMP_Morphe/base_decoded/AndroidManifest.xml"
+
+        info "Recompiling modified APK..."
+        java -jar "$APKTOOL_JAR" b "$TMP_Morphe/base_decoded" -o "$TMP_Morphe/base_rebuilt.apk"
+
+        info "Generating temporary keystore and signing APK..."
+        KEYSTORE="$TMP_Morphe/temp.keystore"
+        keytool -genkey -v -keystore "$KEYSTORE" -alias tempalias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=Android, O=Android, C=US" >/dev/null 2>&1
+        java -jar "$APKSIGNER_JAR" sign --ks "$KEYSTORE" --ks-pass pass:password "$TMP_Morphe/base_rebuilt.apk"
+
+        cp -rf "$TMP_Morphe/base_rebuilt.apk" "$YT_DIR/base.apk"
+
+        mkdir -p "$YT_DIR/lib/arm64"
+        unzip -q -j "$TMP_Morphe/stock/base.apk" "lib/arm64-v8a/*" -d "$YT_DIR/lib/arm64/" 2>/dev/null || true
+
+        info "YouTube Morphe integrated into $YT_DIR with updated versionCode."
     else
-         error "Invalid Morphe module structure (missing base.apk or stock/ folder)"
-         exit 1 
+        error "Invalid Morphe module structure (missing base.apk or stock/ folder)"
+        exit 1
     fi
-    
-    # Dọn dẹp sau khi build xong
+
     rm -rf "$TMP_Morphe"
 else
     error "Morphe_module.zip not found, integration failed."
