@@ -2,10 +2,14 @@
 work_dir=$(pwd)
 source "$work_dir/bin/modfile/OS3/_common.sh"
 
-modscenter_apply_module \
+modscenter_apply_privapp \
     "HyperOS Theme Manager" \
     "Mods-Center/HyperOS-Theme-Manager" \
     "*ThemeManager*.apk" \
+    "MIUIThemeManager" \
+    "MIUIThemeManager.apk" \
+    "privapp_whitelist_com.android.thememanager.xml" \
+    "1" \
     "MIUIThemeManager" \
     "MIUIThemeManagerT" \
     "MIUIThemeManagerGlobal" \

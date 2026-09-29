@@ -1,22 +1,22 @@
 # OS3 Mods Center integration
 
-This directory integrates Mods Center releases into HyperOS 3 ROM images during the build.
+HyperMOS resolves the latest GitHub release for each Mods Center package at build time.
 
-Packages:
-- HyperOS Theme Manager
-- HyperOS App Vault
-- HyperOS Security Center
-- ColorOS Control Center
+For App Vault, Theme Manager and Security Center, the release ZIP is treated only as the source of the latest modified APK and any extra system files. HyperMOS then normalizes the app into a HalcyonOS-style ROM layout:
 
-Each build resolves the repository's GitHub `/releases/latest` endpoint, selects the uploaded ZIP asset, downloads it, and verifies GitHub's SHA-256 asset digest when one is provided.
+- product/priv-app/<App>/<App>.apk
+- product/priv-app/<App>/lib/arm64/*.so
+- product/priv-app/<App>/lib/arm/*.so
+- product/etc/permissions/privapp_whitelist_*.xml
 
-The integration copies the complete Magisk module `system/` tree into the unpacked ROM. This means files such as:
-- `product/etc/permissions/*.xml`
-- `priv-app/<app>/lib/arm64/*.so` and other native libraries
-- `system_ext`, `vendor`, `odm`, overlays, and other module-owned system files
+Native libraries are extracted from the same latest APK:
+- APK lib/arm64-v8a/*.so -> ROM lib/arm64/*.so
+- APK lib/armeabi-v7a/*.so -> ROM lib/arm/*.so
 
-are preserved automatically when they exist in the latest module.
+This avoids mixing old HalcyonOS native libraries with a newer Mods Center APK. If an app that is expected to have native libraries contains none, the build stops rather than silently producing an incomplete layout.
 
-Magisk/KernelSU runtime scripts such as `service.sh`, `post-fs-data.sh`, `customize.sh` and `system.prop` are not executed or imported.
+Permission XML files are taken from the upstream module when present, otherwise from the unpacked stock ROM for the same package. If the required permission XML is missing entirely, the build stops.
 
-The OS3 loader only runs when `rom_os.txt` contains `OS3`. Package/framework patching still runs afterwards through the existing HyperMOS `patchpackage.sh` flow.
+ColorOS Control Center follows HalcyonOS behavior: locate the existing MIUISystemUIPlugin directory and replace only its APK.
+
+Magisk/KernelSU runtime scripts such as service.sh, post-fs-data.sh, customize.sh and system.prop are not executed.
