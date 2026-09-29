@@ -24,26 +24,12 @@ find_theme_target() {
 
 prepare_roboto_variable() {
     local local_font="$FONT_SOURCE/Roboto-VF.ttf"
-    local cache_font="$work_dir/build/Roboto-VF.ttf"
-    local url="https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto%5Bwdth,wght%5D.ttf"
 
     if [ -s "$local_font" ]; then
         printf '%s\n' "$local_font"
         return 0
     fi
 
-    if [ -s "$cache_font" ]; then
-        printf '%s\n' "$cache_font"
-        return 0
-    fi
-
-    mkdir -p "$(dirname "$cache_font")" || return 1
-    if curl -L --fail --retry 3 -sS "$url" -o "$cache_font" && [ -s "$cache_font" ]; then
-        printf '%s\n' "$cache_font"
-        return 0
-    fi
-
-    rm -f "$cache_font"
     return 1
 }
 
