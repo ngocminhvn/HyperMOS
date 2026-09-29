@@ -127,6 +127,28 @@ mods "Gathering Devices Infomations"
 
 bash $work_dir/bin/ddevice/fetchINFO.sh
 
+# Kaorios Toolbox selector: keep A16/A17 paths strictly separated.
+KAORIOS_OPTION="${KAORIOS_OPTION:-disabled}"
+ANDROID_VER="$(cat "$work_dir/bin/ddevice/androidver.txt" 2>/dev/null || true)"
+case "$KAORIOS_OPTION" in
+    disabled)
+        info "Kaorios Toolbox: disabled"
+        ;;
+    a16)
+        [[ "$ANDROID_VER" == "16" ]] || { error "Kaorios A16 selected, but base ROM is Android $ANDROID_VER"; exit 1; }
+        info "Kaorios Toolbox: Android 16 path selected"
+        ;;
+    a17)
+        [[ "$ANDROID_VER" == "17" ]] || { error "Kaorios A17 selected, but base ROM is Android $ANDROID_VER"; exit 1; }
+        info "Kaorios Toolbox: Android 17 path selected"
+        ;;
+    *)
+        error "Unknown Kaorios option: $KAORIOS_OPTION"
+        exit 1
+        ;;
+esac
+export KAORIOS_OPTION
+
 # Gửi thông báo đang Build với đầy đủ Codename và Version
 python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_name" "$builder_id"
 
