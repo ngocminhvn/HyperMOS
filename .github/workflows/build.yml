@@ -12,6 +12,11 @@ on:
       builder_id:
         description: 'Builder ID'
         required: false
+      debug:
+        description: 'Debug build (add HHMM to ROM filename)'
+        required: false
+        default: false
+        type: boolean
       upload_method:
         description: 'Upload ROM to'
         required: true
@@ -111,6 +116,7 @@ jobs:
       - name: Prepare ROM and selected upload
         env:
           UPLOAD_METHOD: ${{ inputs.upload_method }}
+          DEBUG_BUILD: ${{ inputs.debug }}
         run: |
           set -e
           set -o pipefail
