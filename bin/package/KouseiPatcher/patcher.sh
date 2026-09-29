@@ -11,6 +11,8 @@ baksmali="$work_dir/bin/apktool/baksmaliv2.jar"
 smali="$work_dir/bin/apktool/smaliv2.jar"
 toolbox_py="$patcher_dir/toolbox.py"
 a17_patch_py="$patcher_dir/a17_patcher.py"
+hide_apps_legacy_py="$patcher_dir/hide_apps/a13_16.py"
+hide_apps_a17_py="$patcher_dir/hide_apps/a17.py"
 driver_dex="$patcher_dir/classes.dex"
 
 if [[ ! "$sdkLevel" =~ ^[0-9]+$ ]]; then
@@ -18,7 +20,15 @@ if [[ ! "$sdkLevel" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-for required in "$baksmali" "$smali" "$toolbox_py" "$driver_dex"; do
+if (( sdkLevel >= 37 )); then
+    hide_apps_py="$hide_apps_a17_py"
+    hide_apps_hook="shouldHideAppListForCaller(ILjava/lang/String;I)Z"
+else
+    hide_apps_py="$hide_apps_legacy_py"
+    hide_apps_hook="shouldHideAppListForCaller(ILandroid/content/ContentResolver;Ljava/lang/String;I)Z"
+fi
+
+for required in "$baksmali" "$smali" "$toolbox_py" "$driver_dex" "$hide_apps_py"; do
     if [[ ! -f "$required" ]]; then
         echo "Missing required file: $required"
         exit 1
@@ -131,6 +141,37 @@ collect_and_disassemble() {
         echo "Kaorios target $rel -> $owner"
     done
 }
+add_modified_owner_for_hook() {
+    local smali_root="$1"
+    local hook="$2"
+    local matches=()
+    local file rel owner_dir owner
+
+    while IFS= read -r file; do
+        [[ -n "$file" ]] && matches+=("$file")
+    done < <(grep -rlF --include='*.smali' -- "$hook" "$smali_root" || true)
+
+    if (( ${#matches[@]} != 1 )); then
+        echo "Expected exactly one patched Hide Installed Apps hook; found ${#matches[@]}" >&2
+        return 1
+    fi
+
+    rel="${matches[0]#"$smali_root"/}"
+    owner_dir="${rel%%/*}"
+
+    if [[ ! "$owner_dir" =~ ^classes([0-9]*)\.dex\.out$ ]]; then
+        echo "Cannot resolve owner DEX from $owner_dir" >&2
+        return 1
+    fi
+
+    owner="${owner_dir%.out}"
+    if ! contains_name "$owner" "${MODIFIED_DEXES[@]}"; then
+        MODIFIED_DEXES+=("$owner")
+    fi
+
+    echo "Hide Installed Apps -> $owner"
+}
+
 reassemble_modified() {
     local smali_root="$1"
     local unpacked="$2"
@@ -162,6 +203,7 @@ verify_driver_dex() {
         "CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;"
         "shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z"
         "initSystemServer()V"
+        "$hide_apps_hook"
     )
 
     if (( sdkLevel >= 37 )); then
@@ -270,6 +312,8 @@ PY
     else
         python3 "$toolbox_py" "$verify_root" --verify-services
     fi
+
+    python3 "$hide_apps_py" "$verify_root" --verify
 }
 
 pack_jar() {
@@ -356,6 +400,11 @@ patch_services() {
     else
         python3 "$toolbox_py" "$smali_root" --services
     fi
+
+    # Hide Installed Apps is version-split because A13-16 and A17 use
+    # different Package Manager classes and different Kaorios hook ABIs.
+    python3 "$hide_apps_py" "$smali_root"
+    add_modified_owner_for_hook "$smali_root" "$hide_apps_hook"
 
     reassemble_modified "$smali_root" "$unpacked" "$rebuilt"
     verify_reassembled_services "$unpacked"
