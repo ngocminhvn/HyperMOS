@@ -111,7 +111,6 @@ byglgnite
 com.altice.android.myapps
 com.sfr.android.sfrjeux
 QuickSearchBoxPadMIUI15
-MIUIPersonalAssistantPadOS3
 MIUISecurityCenterPad
 MIUIPackageInstallerVariants
 CAJLauncher
@@ -132,7 +131,6 @@ MiShare
 MiuiScanner
 SoundRecorder
 Velvet
-PersonalAssistant
 VieOSToolbox
 PrintSpooler
 MiService

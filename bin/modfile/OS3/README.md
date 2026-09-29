@@ -13,7 +13,7 @@ Build flow for every OS3 module:
    - APK `lib/arm64-v8a/*.so` -> app `lib/arm64/*.so`
    - APK `lib/armeabi-v7a/*.so` -> app `lib/arm/*.so`
    Each extracted library is SHA-256 checked against the APK stream.
-7. Replace the stock app using the module's own `system/` path when present. For standalone payloads, preserve an existing stock path; App Vault has an OS3 fallback because the debloat stage may remove its stock folder before OS3 mods run.
+7. Replace the stock app using the module's own `system/` path when present. For standalone payloads, preserve the existing stock app path. App Vault is excluded from DEBLOAT so its stock folder remains available until the OS3 replacement step.
 8. Compare the prepared source app tree and copied ROM app tree; mismatch stops the build.
 
 The builder does not import .so files from HalcyonOS or another project. Any generated external native library comes only from the exact latest mod APK being integrated.
