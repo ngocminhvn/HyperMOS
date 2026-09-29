@@ -72,7 +72,19 @@ if [[ -f "$Morphe_ZIP" ]]; then
         # Do NOT decode/rebuild resources: recent YouTube APKs contain MCC
         # qualifiers such as values-mcc1001 that older aapt/apktool rejects.
         cp -rf "$TMP_Morphe/stock/"*.apk "$YT_DIR/"
-        cp -f "$TMP_Morphe/base.apk" "$YT_DIR/base.apk"
+
+        # Keep com.google.android.youtube with the stock Google signer metadata,
+        # matching the behavior of older Morphe APKs used on CorePatch ROMs.
+        # The APK contents are still patched, so this relies on the ROM's
+        # existing signature-verification relaxation; it is not a genuine
+        # cryptographically Google-signed modified APK.
+        PATCHED_WITH_STOCK_SIGNER="$TMP_Morphe/base.stock-signer.apk"
+        python3 "$YT_MORPHE_DIR/transplant_signing_block.py" \
+            "$TMP_Morphe/stock/base.apk" \
+            "$TMP_Morphe/base.apk" \
+            "$PATCHED_WITH_STOCK_SIGNER"
+
+        cp -f "$PATCHED_WITH_STOCK_SIGNER" "$YT_DIR/base.apk"
 
         # Sanity-check the patched base before repacking product.img.
         if ! aapt dump badging "$YT_DIR/base.apk" 2>/dev/null | head -n1 | grep -q "package: name='com.google.android.youtube'"; then
