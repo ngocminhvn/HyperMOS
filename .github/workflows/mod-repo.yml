@@ -40,8 +40,8 @@ jobs:
           fi
 
           echo "Checking font files in $FONT_DIR..."
-          if [ -f "$FONT_DIR/Bauhaus.ttf" ] && [ -f "$FONT_DIR/product_fonts.list" ] && [ -f "$FONT_DIR/system_fonts.list" ]; then
-            echo "Found all 3 required font files (Bauhaus.ttf, product_fonts.list, system_fonts.list)."
+          if [ -f "$FONT_DIR/product_fonts.list" ] && [ -f "$FONT_DIR/system_fonts.list" ]; then
+            echo "Font mapping lists: OK"
           else
             echo "Missing required font file(s) in Fonts directory. Marking for download..."
             mkdir -p "$FONT_DIR"
@@ -198,35 +198,6 @@ jobs:
           else
             echo "uploadROM.sh file not found!"
             exit 1
-          fi
-
-      - name: Fetch and Inject Font Logic from GitHub
-        if: ${{ github.event.client_payload.enable_font_logic != 'false' }}
-        shell: bash
-        run: |
-          FONT_SCRIPT="./bin/modfile/UpdateFile/Fonts/update.sh"
-          INJECT_URL="https://raw.githubusercontent.com/BEACHEADVN/My-Assets/main/ROM/repo/mod-font-update-sh.txt"
-          
-          if [ -f "$FONT_SCRIPT" ]; then
-            if grep -q "copy_bauhaus_from_list" "$FONT_SCRIPT"; then
-              echo "Font list logic already exists in update.sh, skipping injection."
-            else
-              echo "Downloading code snippet from GitHub..."
-              curl -sL "$INJECT_URL" > /tmp/font_inject.txt
-              
-              if [ -s /tmp/font_inject.txt ]; then
-                echo "Appending code to update.sh..."
-                sed -i -e '$a\' "$FONT_SCRIPT"
-                cat /tmp/font_inject.txt >> "$FONT_SCRIPT"
-                rm -f /tmp/font_inject.txt
-                chmod +x "$FONT_SCRIPT"
-                echo "Injected code to update.sh (Fonts) successfully!"
-              else
-                echo "Download failed or empty file!"
-              fi
-            fi
-          else
-            echo "File $FONT_SCRIPT not found!"
           fi
 
       - name: Inject Update Toolbuild Status Step
