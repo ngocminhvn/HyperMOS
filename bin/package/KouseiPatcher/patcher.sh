@@ -74,6 +74,16 @@ find_jar() {
     printf '%s\n' "$found"
 }
 
+contains_name() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
 collect_and_disassemble() {
     local unpacked="$1"
     local smali_root="$2"
