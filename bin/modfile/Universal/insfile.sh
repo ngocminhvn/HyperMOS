@@ -29,7 +29,6 @@ done
 
 MORPHE_SCRIPT="$TARGET_DIR/YouTubeMorphe/update.sh"
 if [[ -f "$MORPHE_SCRIPT" ]]; then
-    mods "Applying YouTube Morphe last..."
     bash "$MORPHE_SCRIPT"
 fi
 
