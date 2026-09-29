@@ -22,18 +22,28 @@ find_theme_target() {
     return 1
 }
 
-find_roboto_font() {
-    local f
-    for f in \
-        "$work_dir/build/baserom/images/system/system/fonts/RobotoVF.ttf" \
-        "$work_dir/build/baserom/images/product/fonts/RobotoVF.ttf" \
-        "$work_dir/build/baserom/images/system/system/fonts/Roboto-Regular.ttf" \
-        "$work_dir/build/baserom/images/product/fonts/Roboto-Regular.ttf"; do
-        if [ -s "$f" ]; then
-            printf '%s\n' "$f"
-            return 0
-        fi
-    done
+prepare_roboto_variable() {
+    local local_font="$FONT_SOURCE/Roboto-VF.ttf"
+    local cache_font="$work_dir/build/Roboto-VF.ttf"
+    local url="https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto%5Bwdth,wght%5D.ttf"
+
+    if [ -s "$local_font" ]; then
+        printf '%s\n' "$local_font"
+        return 0
+    fi
+
+    if [ -s "$cache_font" ]; then
+        printf '%s\n' "$cache_font"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$cache_font")" || return 1
+    if curl -L --fail --retry 3 -sS "$url" -o "$cache_font" && [ -s "$cache_font" ]; then
+        printf '%s\n' "$cache_font"
+        return 0
+    fi
+
+    rm -f "$cache_font"
     return 1
 }
 
@@ -176,11 +186,11 @@ case "$rom_os" in
     OS1|OS2|OS3|OS4)
         install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010"
 
-        ROBOTO_FONT=$(find_roboto_font || true)
+        ROBOTO_FONT=$(prepare_roboto_variable || true)
         if [ -n "$ROBOTO_FONT" ]; then
             install_font_theme "$ROBOTO_FONT" "Roboto" "Roboto" "Google" "10011"
         else
-            mods "Font Roboto theme: SKIP"
+            mods "Font Roboto theme: ERROR"
         fi
         ;;
     *)
