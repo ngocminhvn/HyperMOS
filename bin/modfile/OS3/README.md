@@ -1,25 +1,21 @@
 # OS3 Mods Center integration
 
-The OS3 integration follows each Mods Center release ZIP itself. It does not reconstruct the app layout from HalcyonOS or another ROM project.
+HyperMOS uses each Mods Center release ZIP as the primary source of the mod payload.
 
-For every module HyperMOS:
+Build flow for every OS3 module:
 
-1. Resolves the repository's latest GitHub release and requires one ZIP asset.
-2. Downloads the ZIP and verifies GitHub's SHA-256 digest when available.
-3. Extracts the ZIP and finds the expected mod APK.
-4. Prints the complete extracted app-folder tree to the build log before changing the ROM.
-5. Replaces the stock app using the release's own layout.
-6. Verifies that the resulting app folder has the same file/directory shape as the extracted release folder.
+1. Resolve the latest GitHub release and verify its ZIP digest when available.
+2. Extract the ZIP.
+3. Scan every APK with `aapt dump badging` and identify the correct mod by Android package name. Filename matching is only a fallback.
+4. Print the extracted app-folder tree before touching the ROM.
+5. If the release already contains external `lib/arm` or `lib/arm64` native libraries, keep them exactly as supplied.
+6. If those external folders are absent but the mod APK contains `lib/arm64-v8a/*.so` or `lib/armeabi-v7a/*.so`, extract the same bytes into system-app style:
+   - APK `lib/arm64-v8a/*.so` -> app `lib/arm64/*.so`
+   - APK `lib/armeabi-v7a/*.so` -> app `lib/arm/*.so`
+   Each extracted library is SHA-256 checked against the APK stream.
+7. Replace the stock app using the module's own `system/` path when present. For standalone payloads, preserve an existing stock path; App Vault has an OS3 fallback because the debloat stage may remove its stock folder before OS3 mods run.
+8. Compare the prepared source app tree and copied ROM app tree; mismatch stops the build.
 
-If the APK is inside a Magisk-style `system/` tree, the complete `system/` payload is copied with its native structure. Therefore files are preserved only when the release actually contains them, including any:
+The builder does not import .so files from HalcyonOS or another project. Any generated external native library comes only from the exact latest mod APK being integrated.
 
-- app-local `lib/arm` or `lib/arm64`
-- permissions XML
-- overlays
-- `system_ext`, `vendor`, `odm`, `product`, and related payloads
-
-If a release instead contains a standalone app folder, HyperMOS mirrors that folder exactly into the existing stock app path.
-
-HyperMOS does **not** manufacture missing native libraries, extract .so files from inside the APK, or import permission XML from another ROM project. Missing files remain missing if the Mods Center release does not provide them.
-
-Magisk/KernelSU runtime scripts such as `service.sh`, `post-fs-data.sh`, and `customize.sh` are not executed during ROM building.
+Other files already present in a module `system/` tree (permissions, overlays, system_ext, vendor, odm, product, etc.) are copied with the module payload. Magisk/KernelSU runtime scripts are not executed.

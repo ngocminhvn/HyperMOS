@@ -140,34 +140,52 @@ modscenter_unpack_latest() {
     fi
 }
 
-modscenter_module_root() {
-    local extract_dir="$1"
-    local module_prop
-
-    module_prop=$(find "$extract_dir" -type f -name module.prop -print -quit 2>/dev/null || true)
-    if [[ -n "$module_prop" ]]; then
-        dirname "$module_prop"
-    else
-        printf '%s\n' "$extract_dir"
-    fi
+modscenter_apk_package() {
+    local apk="$1"
+    aapt dump badging "$apk" 2>/dev/null \
+        | sed -n "s/^package: name='\([^']*\)'.*/\1/p" \
+        | head -n 1
 }
 
 modscenter_find_apk() {
     local root="$1"
-    local pattern="$2"
-    local -a matches
+    local expected_package="$2"
+    local fallback_pattern="$3"
+    local apk pkg
+    local -a package_matches filename_matches all_apks
 
-    mapfile -d '' -t matches < <(find "$root" -type f -iname "$pattern" -print0 2>/dev/null)
+    mapfile -d '' -t all_apks < <(find "$root" -type f -iname '*.apk' -print0 2>/dev/null)
 
-    if (( ${#matches[@]} != 1 )); then
-        printf 'Expected exactly one APK matching %s, found %d\n' "$pattern" "${#matches[@]}" >&2
-        if (( ${#matches[@]} > 0 )); then
-            printf '  %s\n' "${matches[@]}" >&2
+    for apk in "${all_apks[@]}"; do
+        pkg=$(modscenter_apk_package "$apk" || true)
+        if [[ "$pkg" == "$expected_package" ]]; then
+            package_matches+=("$apk")
         fi
+    done
+
+    if (( ${#package_matches[@]} == 1 )); then
+        printf '%s\n' "${package_matches[0]}"
+        return 0
+    fi
+
+    if (( ${#package_matches[@]} > 1 )); then
+        printf 'Multiple APKs expose package %s:\n' "$expected_package" >&2
+        printf '  %s\n' "${package_matches[@]}" >&2
         return 1
     fi
 
-    printf '%s\n' "${matches[0]}"
+    mapfile -d '' -t filename_matches < <(find "$root" -type f -iname "$fallback_pattern" -print0 2>/dev/null)
+    if (( ${#filename_matches[@]} == 1 )); then
+        printf '%s\n' "${filename_matches[0]}"
+        return 0
+    fi
+
+    printf 'No unique APK for package %s / pattern %s. APK inventory:\n' "$expected_package" "$fallback_pattern" >&2
+    for apk in "${all_apks[@]}"; do
+        pkg=$(modscenter_apk_package "$apk" || true)
+        printf '  %s -> %s\n' "$apk" "${pkg:-<unknown>}" >&2
+    done
+    return 1
 }
 
 modscenter_inspect_app_folder() {
@@ -186,6 +204,76 @@ modscenter_inspect_app_folder() {
         find . -mindepth 1 -printf '%y %p\n' | LC_ALL=C sort
     )
     echo "----- end app folder ($file_count files, $so_count .so, $xml_count .xml) -----"
+}
+
+modscenter_supplement_native_libs() {
+    local label="$1"
+    local apk="$2"
+    local app_dir="$3"
+    local existing_count=0
+    local extracted=0
+    local mapping apk_abi rom_abi entry rel out src_hash dst_hash
+    local -a entries
+
+    if [[ -d "$app_dir/lib/arm" || -d "$app_dir/lib/arm64" ]]; then
+        existing_count=$(find "$app_dir/lib" \( -path '*/arm/*.so' -o -path '*/arm64/*.so' \) -type f 2>/dev/null | wc -l)
+    fi
+
+    if (( existing_count > 0 )); then
+        mods "$label: release already provides $existing_count external arm/arm64 .so files; keep them unchanged"
+        return 0
+    fi
+
+    mods "$label: release has no external arm/arm64 libs; inspect native libs inside APK"
+
+    for mapping in "arm64-v8a:arm64" "armeabi-v7a:arm"; do
+        apk_abi="${mapping%%:*}"
+        rom_abi="${mapping##*:}"
+
+        mapfile -t entries < <(
+            unzip -Z1 "$apk" 2>/dev/null \
+                | grep -E "^lib/${apk_abi}/.+[.]so$" \
+                | LC_ALL=C sort \
+                || true
+        )
+
+        for entry in "${entries[@]}"; do
+            rel="${entry#lib/${apk_abi}/}"
+            # Android system-app external native-lib layout is flat per ABI.
+            out="$app_dir/lib/$rom_abi/$(basename "$rel")"
+            mkdir -p "$(dirname "$out")"
+
+            if ! unzip -p "$apk" "$entry" > "$out"; then
+                rm -f "$out"
+                error "$label: failed extracting native lib $entry"
+                return 1
+            fi
+
+            if [[ ! -s "$out" ]]; then
+                rm -f "$out"
+                error "$label: extracted empty native lib from $entry"
+                return 1
+            fi
+
+            src_hash=$(unzip -p "$apk" "$entry" | sha256sum | awk '{print $1}')
+            dst_hash=$(sha256sum "$out" | awk '{print $1}')
+            if [[ "$src_hash" != "$dst_hash" ]]; then
+                rm -f "$out"
+                error "$label: native lib checksum mismatch: $entry"
+                return 1
+            fi
+
+            chmod 0644 "$out"
+            extracted=$((extracted + 1))
+            mods "$label: APK $apk_abi -> lib/$rom_abi/$(basename "$out")"
+        done
+    done
+
+    if (( extracted == 0 )); then
+        mods "$label: APK contains no ARM native .so payload; no external lib folder needed"
+    else
+        mods "$label: rebuilt $extracted external native .so files from the SAME mod APK"
+    fi
 }
 
 modscenter_remove_named_dirs() {
@@ -274,7 +362,7 @@ modscenter_copy_system_tree() {
         esac
     done < <(find "$system_root" -mindepth 1 -maxdepth 1 -print0)
 
-    mods "$label: copied module system tree exactly as provided by release ZIP"
+    mods "$label: copied module system tree"
 }
 
 modscenter_verify_folder_shape() {
@@ -302,31 +390,32 @@ modscenter_verify_folder_shape() {
     ) > "$dst_list"
 
     if ! diff -u "$src_list" "$dst_list" >/dev/null; then
-        error "$label: copied app folder shape differs from release ZIP"
+        error "$label: copied app folder shape differs from prepared mod folder"
         diff -u "$src_list" "$dst_list" || true
         rm -f "$src_list" "$dst_list"
         return 1
     fi
 
     rm -f "$src_list" "$dst_list"
-    mods "$label: app folder shape verified against extracted release"
+    mods "$label: prepared app folder shape verified after copy"
 }
 
 modscenter_apply_native_module() {
     local label="$1"
     local repo="$2"
-    local expected_apk="$3"
-    shift 3
+    local expected_package="$3"
+    local fallback_pattern="$4"
+    local fallback_relpath="$5"
+    shift 5
 
     local extract_dir="$OS3_MOD_CACHE/extract-${repo##*/}"
-    local module_root source_apk source_app_dir system_root target_app_dir
+    local source_apk source_app_dir system_root target_app_dir
     local -a stock_dirs
 
     modscenter_unpack_latest "$label" "$repo" "$extract_dir" || return 1
-    module_root=$(modscenter_module_root "$extract_dir")
 
-    source_apk=$(modscenter_find_apk "$module_root" "$expected_apk") || {
-        error "$label: cannot identify the mod APK in latest release"
+    source_apk=$(modscenter_find_apk "$extract_dir" "$expected_package" "$fallback_pattern") || {
+        error "$label: cannot identify mod APK by package or filename"
         rm -rf "$extract_dir"
         return 1
     }
@@ -337,17 +426,28 @@ modscenter_apply_native_module() {
         return 1
     }
 
-    system_root="$module_root/system"
+    # If the release does not already ship system-style external native libs,
+    # rebuild them byte-for-byte from the same mod APK.
+    modscenter_supplement_native_libs "$label" "$source_apk" "$source_app_dir" || {
+        rm -rf "$extract_dir"
+        return 1
+    }
 
-    if [[ -d "$system_root" && "$source_apk" == "$system_root/"* ]]; then
+    system_root=""
+    case "$source_apk" in
+        */system/*)
+            system_root="${source_apk%%/system/*}/system"
+            ;;
+    esac
+
+    if [[ -n "$system_root" && -d "$system_root" ]]; then
         target_app_dir=$(modscenter_map_system_path "$system_root" "$source_app_dir")
 
-        # The mod's own app folder must win exactly, without leftovers from stock.
         modscenter_remove_named_dirs "$OS3_IMAGES" "$@"
         rm -rf "$target_app_dir"
 
         modscenter_copy_system_tree "$label" "$system_root" || {
-            error "$label: failed copying native module payload"
+            error "$label: failed copying module payload"
             rm -rf "$extract_dir"
             return 1
         }
@@ -357,28 +457,27 @@ modscenter_apply_native_module() {
             return 1
         }
 
-        mods "$label: stock app replaced using native module path -> $target_app_dir"
+        mods "$label: stock app replaced using module system path -> $target_app_dir"
     else
-        # Some releases may ship only a standalone app folder instead of system/.
-        # In that case preserve the real stock partition/path and mirror the
-        # extracted app folder contents exactly into it.
         mapfile -d '' -t stock_dirs < <(modscenter_collect_named_dirs "$OS3_IMAGES" "$@")
 
-        if (( ${#stock_dirs[@]} == 0 )); then
-            error "$label: standalone app payload found, but no stock app directory matched"
+        if (( ${#stock_dirs[@]} > 0 )); then
+            target_app_dir="${stock_dirs[0]}"
+        elif [[ -n "$fallback_relpath" && "$fallback_relpath" != "-" ]]; then
+            target_app_dir="$OS3_IMAGES/$fallback_relpath"
+            mods "$label: stock folder was already removed; restore original OS3 path -> $target_app_dir"
+        else
+            error "$label: standalone app payload found and no stock/fallback path is available"
             rm -rf "$extract_dir"
             return 1
-        fi
-
-        target_app_dir="${stock_dirs[0]}"
-        if (( ${#stock_dirs[@]} > 1 )); then
-            mods "$label: multiple stock aliases found; keeping first path and removing the rest"
         fi
 
         modscenter_remove_named_dirs "$OS3_IMAGES" "$@"
+        rm -rf "$target_app_dir"
         mkdir -p "$target_app_dir"
+
         cp -a "$source_app_dir/." "$target_app_dir/" || {
-            error "$label: failed mirroring standalone app folder"
+            error "$label: failed mirroring prepared standalone app folder"
             rm -rf "$extract_dir"
             return 1
         }
@@ -388,9 +487,9 @@ modscenter_apply_native_module() {
             return 1
         }
 
-        mods "$label: stock app replaced in-place using standalone release folder -> $target_app_dir"
+        mods "$label: stock app replaced in-place from prepared release folder -> $target_app_dir"
     fi
 
     rm -rf "$extract_dir"
-    mods "$label: latest $MODSCENTER_TAG integrated from its OWN release layout"
+    mods "$label: latest $MODSCENTER_TAG integrated"
 }

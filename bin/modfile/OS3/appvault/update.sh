@@ -5,7 +5,9 @@ source "$work_dir/bin/modfile/OS3/_common.sh"
 modscenter_apply_native_module \
     "HyperOS App Vault" \
     "Mods-Center/HyperOS-App-Vault" \
+    "com.miui.personalassistant" \
     "*PersonalAssistant*.apk" \
+    "product/priv-app/MIUIPersonalAssistantPhoneOS3" \
     "MIUIGlobalMinusScreenWidget" \
     "MIUIGlobalMinusScreen" \
     "MIUIPersonalAssistantT" \
