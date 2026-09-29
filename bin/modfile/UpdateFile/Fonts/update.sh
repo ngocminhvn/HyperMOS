@@ -5,6 +5,7 @@ rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
 
 FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
 SF_FONT="$FONT_SOURCE/SF-Pro.ttf"
+IOS_EMOJI_FONT="$FONT_SOURCE/NotoColorEmoji.ttf"
 
 mods "Fonts: keep original ROM fonts"
 
@@ -168,6 +169,33 @@ PY
     return 1
 }
 
+install_ios_emoji() {
+    [ -s "$IOS_EMOJI_FONT" ] || {
+        mods "Emoji iOS: SKIP"
+        return 0
+    }
+
+    local target
+    local count=0
+    local failed=0
+
+    while IFS= read -r -d '' target; do
+        if cp -f "$IOS_EMOJI_FONT" "$target" >/dev/null 2>&1; then
+            count=$((count + 1))
+        else
+            failed=1
+        fi
+    done < <(find "$work_dir/build/baserom/images" -type f -name "NotoColorEmoji.ttf" -print0 2>/dev/null)
+
+    if [ "$failed" -eq 0 ] && [ "$count" -gt 0 ]; then
+        mods "Emoji iOS: OK"
+        return 0
+    fi
+
+    mods "Emoji iOS: ERROR"
+    return 1
+}
+
 case "$rom_os" in
     OS1|OS2|OS3|OS4)
         install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010"
@@ -184,3 +212,5 @@ case "$rom_os" in
         mods "Font Roboto theme: SKIP"
         ;;
 esac
+
+install_ios_emoji
