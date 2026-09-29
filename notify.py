@@ -621,6 +621,27 @@ def post_telegram(url: str, payload: dict):
     return response, data
 
 
+def delete_telegram_message(base_url: str, chat_id: str, message_id) -> bool:
+    if not chat_id or not message_id:
+        return False
+    try:
+        response, data = post_telegram(
+            f"{base_url}/deleteMessage",
+            {"chat_id": chat_id, "message_id": int(message_id)},
+        )
+        if response.ok:
+            print(f"Đã xóa tin nhắn tiến trình Telegram {message_id}.")
+            return True
+        description = str(data.get("description", response.text))
+        if "message to delete not found" in description.lower():
+            print(f"Tin nhắn tiến trình {message_id} không còn tồn tại; bỏ qua.")
+            return True
+        print(f"Không thể xóa tin nhắn tiến trình {message_id}: {description}")
+    except Exception as exc:
+        print(f"Lỗi khi xóa tin nhắn tiến trình Telegram {message_id}: {exc}")
+    return False
+
+
 def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id=None, build_id="Không rõ", builder_name="", builder_id=""):
     status = normalize_status(status)
     message = compose_message(status, repo_name, rom_link, build_id, builder_name)
@@ -634,33 +655,43 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
     }
 
     try:
-        if msg_id:
-            edit_payload = dict(payload)
-            edit_payload["message_id"] = msg_id
-            response, data = post_telegram(f"{base_url}/editMessageText", edit_payload)
-            if not response.ok:
-                description = str(data.get("description", response.text))
-                if "message is not modified" in description.lower():
-                    print("Thông báo Telegram không thay đổi; bỏ qua cập nhật.")
-                else:
-                    print(f"Không thể sửa thông báo Telegram cũ; sẽ gửi thông báo mới. Lý do: {description}")
-                    response, data = post_telegram(f"{base_url}/sendMessage", payload)
-                    response.raise_for_status()
-                    new_msg_id = data.get("result", {}).get("message_id")
-                    if new_msg_id:
-                        save_env("TELEGRAM_MSG_ID", str(new_msg_id))
+        # Trạng thái trung gian: chỉ dùng một message và edit nó xuyên suốt.
+        if status not in FINAL_STATUSES:
+            if msg_id:
+                edit_payload = dict(payload)
+                edit_payload["message_id"] = msg_id
+                response, data = post_telegram(f"{base_url}/editMessageText", edit_payload)
+                if not response.ok:
+                    description = str(data.get("description", response.text))
+                    if "message is not modified" in description.lower():
+                        print("Thông báo Telegram không thay đổi; bỏ qua cập nhật.")
+                    else:
+                        print(f"Không thể sửa thông báo Telegram cũ; sẽ gửi thông báo mới. Lý do: {description}")
+                        response, data = post_telegram(f"{base_url}/sendMessage", payload)
+                        response.raise_for_status()
+                        new_msg_id = data.get("result", {}).get("message_id")
+                        if new_msg_id:
+                            save_env("TELEGRAM_MSG_ID", str(new_msg_id))
             else:
-                print("Đã cập nhật thông báo Telegram.")
-        else:
-            response, data = post_telegram(f"{base_url}/sendMessage", payload)
-            response.raise_for_status()
-            new_msg_id = data.get("result", {}).get("message_id")
-            if new_msg_id:
-                save_env("TELEGRAM_MSG_ID", str(new_msg_id))
-                print(f"Đã lưu TELEGRAM_MSG_ID={new_msg_id} vào GITHUB_ENV.")
-            print("Đã gửi thông báo Telegram.")
+                response, data = post_telegram(f"{base_url}/sendMessage", payload)
+                response.raise_for_status()
+                new_msg_id = data.get("result", {}).get("message_id")
+                if new_msg_id:
+                    save_env("TELEGRAM_MSG_ID", str(new_msg_id))
+                    print(f"Đã lưu TELEGRAM_MSG_ID={new_msg_id} vào GITHUB_ENV.")
+                print("Đã gửi thông báo Telegram.")
+            return
 
-        if status in FINAL_STATUSES and builder_id:
+        # Trạng thái cuối: gửi message cuối MỚI trước. Chỉ dọn message tiến trình
+        # sau khi message cuối đã gửi thành công để tránh mất toàn bộ thông báo.
+        response, data = post_telegram(f"{base_url}/sendMessage", payload)
+        response.raise_for_status()
+        final_msg_id = data.get("result", {}).get("message_id")
+        print(f"Đã gửi thông báo cuối ({status}), message_id={final_msg_id}.")
+
+        # Nếu builder_id khác channel_id thì gửi bản riêng cho người yêu cầu.
+        # Nếu trùng nhau thì message cuối phía trên đã là thông báo cần giữ.
+        if builder_id and str(builder_id) != str(channel_id):
             pm_title = {
                 "success": "YÊU CẦU BUILD ROM CỦA BẠN ĐÃ HOÀN TẤT",
                 "fail": "YÊU CẦU BUILD ROM CỦA BẠN BỊ LỖI",
@@ -681,6 +712,7 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
                 pm_lines.extend(["", "<b>Log lỗi:</b> file .txt sẽ được gửi riêng ngay sau tin nhắn này nếu tìm thấy log."])
             else:
                 pm_lines.extend(["", "<b>Chi tiết:</b> mở Build log để xem lý do workflow bị hủy."])
+
             pm_text = "\n".join(pm_lines)
             if len(pm_text) > 3900:
                 pm_text = pm_text[:3800] + "\n...\n(Nội dung đã được rút gọn.)"
@@ -696,10 +728,16 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
             else:
                 print(f"Không thể gửi tin nhắn riêng cho người dùng {builder_id}: {pm_data or pm_response.text}")
 
-            if status == "fail" and os.environ.get("TELEGRAM_ERROR_LOG_SENT") != "1":
-                if send_error_log_document(base_url, builder_id, status, repo_name, build_id):
-                    os.environ["TELEGRAM_ERROR_LOG_SENT"] = "1"
-                    save_env("TELEGRAM_ERROR_LOG_SENT", "1")
+        # Build lỗi: giữ lại thông báo lỗi cuối + file log gửi cho builder.
+        if status == "fail" and builder_id and os.environ.get("TELEGRAM_ERROR_LOG_SENT") != "1":
+            if send_error_log_document(base_url, builder_id, status, repo_name, build_id):
+                os.environ["TELEGRAM_ERROR_LOG_SENT"] = "1"
+                save_env("TELEGRAM_ERROR_LOG_SENT", "1")
+
+        # Cuối cùng mới xóa message tiến trình cũ. Không bao giờ xóa message cuối.
+        if msg_id and str(msg_id) != str(final_msg_id):
+            delete_telegram_message(base_url, channel_id, msg_id)
+
     except Exception as exc:
         print(f"Lỗi khi gửi/cập nhật thông báo Telegram: {exc}")
 
