@@ -8,33 +8,26 @@ OS3_IMAGES="$work_dir/build/baserom/images"
 MODSCENTER_ARCHIVE=""
 MODSCENTER_TAG=""
 
-modscenter_remove_named_dirs() {
-    local root="$1"
-    shift
-    local name path
-    for name in "$@"; do
-        while IFS= read -r -d '' path; do
-            mods "Remove stock/staged dir: $path"
-            rm -rf "$path"
-        done < <(find "$root" -type d -name "$name" -prune -print0 2>/dev/null)
-    done
-}
-
 modscenter_resolve_latest() {
     local repo="$1"
 
     python3 - "$repo" <<'PY'
 import json
+import os
 import sys
 import urllib.request
 
 repo = sys.argv[1]
 api = f"https://api.github.com/repos/{repo}/releases/latest"
-req = urllib.request.Request(api, headers={
+headers = {
     "Accept": "application/vnd.github+json",
-    "User-Agent": "HyperMOS-OS3-ModsCenter"
-})
+    "User-Agent": "HyperMOS-OS3-ModsCenter",
+}
+token = os.environ.get("GITHUB_TOKEN", "").strip()
+if token:
+    headers["Authorization"] = f"Bearer {token}"
 
+req = urllib.request.Request(api, headers=headers)
 with urllib.request.urlopen(req, timeout=30) as r:
     data = json.load(r)
 
@@ -43,8 +36,9 @@ assets = [
     if str(a.get("name", "")).lower().endswith(".zip")
 ]
 
-if not assets:
-    raise SystemExit("No ZIP release asset found")
+if len(assets) != 1:
+    names = ", ".join(str(a.get("name", "")) for a in assets) or "<none>"
+    raise SystemExit(f"Expected exactly one ZIP release asset, found {len(assets)}: {names}")
 
 asset = assets[0]
 tag = str(data.get("tag_name", "latest"))
@@ -129,7 +123,6 @@ modscenter_download_latest() {
     fi
 
     MODSCENTER_ARCHIVE="$archive"
-    return 0
 }
 
 modscenter_unpack_latest() {
@@ -150,7 +143,8 @@ modscenter_unpack_latest() {
 modscenter_module_root() {
     local extract_dir="$1"
     local module_prop
-    module_prop=$(find "$extract_dir" -type f -name module.prop -print -quit 2>/dev/null)
+
+    module_prop=$(find "$extract_dir" -type f -name module.prop -print -quit 2>/dev/null || true)
     if [[ -n "$module_prop" ]]; then
         dirname "$module_prop"
     else
@@ -158,73 +152,94 @@ modscenter_module_root() {
     fi
 }
 
-modscenter_extract_native_libs() {
-    local label="$1"
-    local apk="$2"
-    local app_dir="$3"
-    local required="$4"
+modscenter_find_apk() {
+    local root="$1"
+    local pattern="$2"
+    local -a matches
 
-    local apk_abi rom_abi entry out count=0
-    local -a entries
+    mapfile -d '' -t matches < <(find "$root" -type f -iname "$pattern" -print0 2>/dev/null)
 
-    for mapping in "arm64-v8a:arm64" "armeabi-v7a:arm"; do
-        apk_abi="${mapping%%:*}"
-        rom_abi="${mapping##*:}"
-        mapfile -t entries < <(unzip -Z1 "$apk" 2>/dev/null | grep -E "^lib/${apk_abi}/[^/]+[.]so$" || true)
-
-        if [[ ${#entries[@]} -eq 0 ]]; then
-            continue
+    if (( ${#matches[@]} != 1 )); then
+        printf 'Expected exactly one APK matching %s, found %d\n' "$pattern" "${#matches[@]}" >&2
+        if (( ${#matches[@]} > 0 )); then
+            printf '  %s\n' "${matches[@]}" >&2
         fi
-
-        mkdir -p "$app_dir/lib/$rom_abi"
-        for entry in "${entries[@]}"; do
-            out="$app_dir/lib/$rom_abi/$(basename "$entry")"
-            if ! unzip -p "$apk" "$entry" > "$out"; then
-                rm -f "$out"
-                error "$label: failed extracting native lib $entry"
-                return 1
-            fi
-            chmod 0644 "$out"
-            count=$((count + 1))
-        done
-    done
-
-    if [[ "$required" == "1" && "$count" -eq 0 ]]; then
-        error "$label: latest APK contains no arm/arm64 native .so files; refusing incomplete ROM layout"
         return 1
     fi
 
-    mods "$label: extracted $count native libraries from latest APK"
-    return 0
+    printf '%s\n' "${matches[0]}"
 }
 
-modscenter_stage_permission() {
+modscenter_inspect_app_folder() {
     local label="$1"
-    local module_root="$2"
-    local stage_root="$3"
-    local permission_name="$4"
+    local app_dir="$2"
+    local file_count so_count xml_count
 
-    [[ -n "$permission_name" && "$permission_name" != "-" ]] || return 0
+    file_count=$(find "$app_dir" -type f | wc -l)
+    so_count=$(find "$app_dir" -type f -name '*.so' | wc -l)
+    xml_count=$(find "$app_dir" -type f -name '*.xml' | wc -l)
 
-    local src=""
-    src=$(find "$module_root" -type f -name "$permission_name" -print -quit 2>/dev/null || true)
+    mods "$label: inspect extracted app folder BEFORE replacing stock"
+    echo "----- $label app folder: $app_dir -----"
+    (
+        cd "$app_dir" || exit 1
+        find . -mindepth 1 -printf '%y %p\n' | LC_ALL=C sort
+    )
+    echo "----- end app folder ($file_count files, $so_count .so, $xml_count .xml) -----"
+}
 
-    if [[ -z "$src" ]]; then
-        src=$(find "$OS3_IMAGES" -type f -name "$permission_name" -print -quit 2>/dev/null || true)
+modscenter_remove_named_dirs() {
+    local root="$1"
+    shift
+    local name path
+
+    for name in "$@"; do
+        while IFS= read -r -d '' path; do
+            mods "Remove stock app dir: $path"
+            rm -rf "$path"
+        done < <(find "$root" -type d -name "$name" -prune -print0 2>/dev/null)
+    done
+}
+
+modscenter_collect_named_dirs() {
+    local root="$1"
+    shift
+    local name path
+
+    for name in "$@"; do
+        while IFS= read -r -d '' path; do
+            printf '%s\0' "$path"
+        done < <(find "$root" -type d -name "$name" -prune -print0 2>/dev/null)
+    done
+}
+
+modscenter_map_system_path() {
+    local system_root="$1"
+    local source_path="$2"
+    local rel first rest
+    local logical_parts="product system_ext vendor odm mi_ext mi_product product_dlkm system_dlkm vendor_dlkm odm_dlkm"
+
+    rel="${source_path#"$system_root"/}"
+    first="${rel%%/*}"
+
+    if [[ "$rel" == "$first" ]]; then
+        rest=""
+    else
+        rest="${rel#*/}"
     fi
 
-    if [[ -z "$src" ]]; then
-        error "$label: required permission XML not found: $permission_name"
-        return 1
-    fi
-
-    mkdir -p "$stage_root/product/etc/permissions"
-    cp -a "$src" "$stage_root/product/etc/permissions/$permission_name" || {
-        error "$label: failed staging $permission_name"
-        return 1
-    }
-
-    mods "$label: staged permission $permission_name"
+    case " $logical_parts " in
+        *" $first "*)
+            printf '%s\n' "$OS3_IMAGES/$first/$rest"
+            ;;
+        *)
+            if [[ "$first" == "system" ]]; then
+                printf '%s\n' "$OS3_IMAGES/system/system/$rest"
+            else
+                printf '%s\n' "$OS3_IMAGES/system/system/$rel"
+            fi
+            ;;
+    esac
 }
 
 modscenter_copy_system_tree() {
@@ -234,12 +249,13 @@ modscenter_copy_system_tree() {
     local logical_parts="product system_ext vendor odm mi_ext mi_product product_dlkm system_dlkm vendor_dlkm odm_dlkm"
 
     [[ -d "$system_root" ]] || {
-        error "$label: staged system tree missing"
+        error "$label: module has no system/ tree"
         return 1
     }
 
     while IFS= read -r -d '' entry; do
         base=$(basename "$entry")
+
         case " $logical_parts " in
             *" $base "*)
                 target="$OS3_IMAGES/$base"
@@ -249,113 +265,132 @@ modscenter_copy_system_tree() {
             *)
                 target="$OS3_IMAGES/system/system"
                 mkdir -p "$target"
-                cp -a "$entry" "$target/" || return 1
+                if [[ "$base" == "system" && -d "$entry" ]]; then
+                    cp -a "$entry/." "$target/" || return 1
+                else
+                    cp -a "$entry" "$target/" || return 1
+                fi
                 ;;
         esac
     done < <(find "$system_root" -mindepth 1 -maxdepth 1 -print0)
+
+    mods "$label: copied module system tree exactly as provided by release ZIP"
 }
 
-modscenter_apply_privapp() {
+modscenter_verify_folder_shape() {
+    local label="$1"
+    local source_dir="$2"
+    local target_dir="$3"
+    local src_list dst_list
+
+    [[ -d "$target_dir" ]] || {
+        error "$label: target app folder missing after copy: $target_dir"
+        return 1
+    }
+
+    src_list=$(mktemp)
+    dst_list=$(mktemp)
+
+    (
+        cd "$source_dir" || exit 1
+        find . -mindepth 1 -printf '%y %p\n' | LC_ALL=C sort
+    ) > "$src_list"
+
+    (
+        cd "$target_dir" || exit 1
+        find . -mindepth 1 -printf '%y %p\n' | LC_ALL=C sort
+    ) > "$dst_list"
+
+    if ! diff -u "$src_list" "$dst_list" >/dev/null; then
+        error "$label: copied app folder shape differs from release ZIP"
+        diff -u "$src_list" "$dst_list" || true
+        rm -f "$src_list" "$dst_list"
+        return 1
+    fi
+
+    rm -f "$src_list" "$dst_list"
+    mods "$label: app folder shape verified against extracted release"
+}
+
+modscenter_apply_native_module() {
     local label="$1"
     local repo="$2"
     local expected_apk="$3"
-    local target_dir_name="$4"
-    local target_apk_name="$5"
-    local permission_name="$6"
-    local require_native_libs="$7"
-    shift 7
+    shift 3
 
     local extract_dir="$OS3_MOD_CACHE/extract-${repo##*/}"
-    local stage_root="$OS3_MOD_CACHE/stage-${repo##*/}"
-    local module_root system_root source_apk target_dir
+    local module_root source_apk source_app_dir system_root target_app_dir
+    local -a stock_dirs
 
     modscenter_unpack_latest "$label" "$repo" "$extract_dir" || return 1
     module_root=$(modscenter_module_root "$extract_dir")
 
-    source_apk=$(find "$module_root" -type f -iname "$expected_apk" -print -quit 2>/dev/null || true)
-    if [[ -z "$source_apk" ]]; then
-        error "$label: expected APK '$expected_apk' not found in latest release"
+    source_apk=$(modscenter_find_apk "$module_root" "$expected_apk") || {
+        error "$label: cannot identify the mod APK in latest release"
         rm -rf "$extract_dir"
         return 1
-    fi
+    }
 
-    rm -rf "$stage_root"
-    mkdir -p "$stage_root"
+    source_app_dir=$(dirname "$source_apk")
+    modscenter_inspect_app_folder "$label" "$source_app_dir" || {
+        rm -rf "$extract_dir"
+        return 1
+    }
 
     system_root="$module_root/system"
-    if [[ -d "$system_root" ]]; then
-        cp -a "$system_root/." "$stage_root/" || {
-            error "$label: failed staging upstream system tree"
-            rm -rf "$extract_dir" "$stage_root"
+
+    if [[ -d "$system_root" && "$source_apk" == "$system_root/"* ]]; then
+        target_app_dir=$(modscenter_map_system_path "$system_root" "$source_app_dir")
+
+        # The mod's own app folder must win exactly, without leftovers from stock.
+        modscenter_remove_named_dirs "$OS3_IMAGES" "$@"
+        rm -rf "$target_app_dir"
+
+        modscenter_copy_system_tree "$label" "$system_root" || {
+            error "$label: failed copying native module payload"
+            rm -rf "$extract_dir"
             return 1
         }
+
+        modscenter_verify_folder_shape "$label" "$source_app_dir" "$target_app_dir" || {
+            rm -rf "$extract_dir"
+            return 1
+        }
+
+        mods "$label: stock app replaced using native module path -> $target_app_dir"
+    else
+        # Some releases may ship only a standalone app folder instead of system/.
+        # In that case preserve the real stock partition/path and mirror the
+        # extracted app folder contents exactly into it.
+        mapfile -d '' -t stock_dirs < <(modscenter_collect_named_dirs "$OS3_IMAGES" "$@")
+
+        if (( ${#stock_dirs[@]} == 0 )); then
+            error "$label: standalone app payload found, but no stock app directory matched"
+            rm -rf "$extract_dir"
+            return 1
+        fi
+
+        target_app_dir="${stock_dirs[0]}"
+        if (( ${#stock_dirs[@]} > 1 )); then
+            mods "$label: multiple stock aliases found; keeping first path and removing the rest"
+        fi
+
+        modscenter_remove_named_dirs "$OS3_IMAGES" "$@"
+        mkdir -p "$target_app_dir"
+        cp -a "$source_app_dir/." "$target_app_dir/" || {
+            error "$label: failed mirroring standalone app folder"
+            rm -rf "$extract_dir"
+            return 1
+        }
+
+        modscenter_verify_folder_shape "$label" "$source_app_dir" "$target_app_dir" || {
+            rm -rf "$extract_dir"
+            return 1
+        }
+
+        mods "$label: stock app replaced in-place using standalone release folder -> $target_app_dir"
     fi
-
-    # Normalize the app itself to the same ROM layout used by HalcyonOS.
-    modscenter_remove_named_dirs "$stage_root" "$@"
-    target_dir="$stage_root/product/priv-app/$target_dir_name"
-    mkdir -p "$target_dir"
-    cp -a "$source_apk" "$target_dir/$target_apk_name" || {
-        error "$label: failed staging latest APK"
-        rm -rf "$extract_dir" "$stage_root"
-        return 1
-    }
-
-    modscenter_extract_native_libs "$label" "$target_dir/$target_apk_name" "$target_dir" "$require_native_libs" || {
-        rm -rf "$extract_dir" "$stage_root"
-        return 1
-    }
-
-    modscenter_stage_permission "$label" "$module_root" "$stage_root" "$permission_name" || {
-        rm -rf "$extract_dir" "$stage_root"
-        return 1
-    }
-
-    modscenter_remove_named_dirs "$OS3_IMAGES" "$@"
-    modscenter_copy_system_tree "$label" "$stage_root" || {
-        error "$label: failed copying staged tree into ROM"
-        rm -rf "$extract_dir" "$stage_root"
-        return 1
-    }
-
-    rm -rf "$extract_dir" "$stage_root"
-    mods "$label: integrated latest $MODSCENTER_TAG with Halcyon-style APK/lib/permissions layout"
-}
-
-modscenter_replace_existing_apk() {
-    local label="$1"
-    local repo="$2"
-    local expected_apk="$3"
-    local target_dir_name="$4"
-    local target_apk_name="$5"
-
-    local extract_dir="$OS3_MOD_CACHE/extract-${repo##*/}"
-    local module_root source_apk target_dir
-
-    modscenter_unpack_latest "$label" "$repo" "$extract_dir" || return 1
-    module_root=$(modscenter_module_root "$extract_dir")
-
-    source_apk=$(find "$module_root" -type f -iname "$expected_apk" -print -quit 2>/dev/null || true)
-    if [[ -z "$source_apk" ]]; then
-        error "$label: expected APK '$expected_apk' not found in latest release"
-        rm -rf "$extract_dir"
-        return 1
-    fi
-
-    target_dir=$(find "$OS3_IMAGES" -type d -name "$target_dir_name" -print -quit 2>/dev/null || true)
-    if [[ -z "$target_dir" ]]; then
-        error "$label: stock target directory '$target_dir_name' not found"
-        rm -rf "$extract_dir"
-        return 1
-    fi
-
-    rm -f "$target_dir"/*.apk
-    cp -a "$source_apk" "$target_dir/$target_apk_name" || {
-        error "$label: failed replacing APK"
-        rm -rf "$extract_dir"
-        return 1
-    }
 
     rm -rf "$extract_dir"
-    mods "$label: replaced stock APK with latest $MODSCENTER_TAG"
+    mods "$label: latest $MODSCENTER_TAG integrated from its OWN release layout"
 }

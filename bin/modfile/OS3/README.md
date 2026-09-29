@@ -1,22 +1,25 @@
 # OS3 Mods Center integration
 
-HyperMOS resolves the latest GitHub release for each Mods Center package at build time.
+The OS3 integration follows each Mods Center release ZIP itself. It does not reconstruct the app layout from HalcyonOS or another ROM project.
 
-For App Vault, Theme Manager and Security Center, the release ZIP is treated only as the source of the latest modified APK and any extra system files. HyperMOS then normalizes the app into a HalcyonOS-style ROM layout:
+For every module HyperMOS:
 
-- product/priv-app/<App>/<App>.apk
-- product/priv-app/<App>/lib/arm64/*.so
-- product/priv-app/<App>/lib/arm/*.so
-- product/etc/permissions/privapp_whitelist_*.xml
+1. Resolves the repository's latest GitHub release and requires one ZIP asset.
+2. Downloads the ZIP and verifies GitHub's SHA-256 digest when available.
+3. Extracts the ZIP and finds the expected mod APK.
+4. Prints the complete extracted app-folder tree to the build log before changing the ROM.
+5. Replaces the stock app using the release's own layout.
+6. Verifies that the resulting app folder has the same file/directory shape as the extracted release folder.
 
-Native libraries are extracted from the same latest APK:
-- APK lib/arm64-v8a/*.so -> ROM lib/arm64/*.so
-- APK lib/armeabi-v7a/*.so -> ROM lib/arm/*.so
+If the APK is inside a Magisk-style `system/` tree, the complete `system/` payload is copied with its native structure. Therefore files are preserved only when the release actually contains them, including any:
 
-This avoids mixing old HalcyonOS native libraries with a newer Mods Center APK. If an app that is expected to have native libraries contains none, the build stops rather than silently producing an incomplete layout.
+- app-local `lib/arm` or `lib/arm64`
+- permissions XML
+- overlays
+- `system_ext`, `vendor`, `odm`, `product`, and related payloads
 
-Permission XML files are taken from the upstream module when present, otherwise from the unpacked stock ROM for the same package. If the required permission XML is missing entirely, the build stops.
+If a release instead contains a standalone app folder, HyperMOS mirrors that folder exactly into the existing stock app path.
 
-ColorOS Control Center follows HalcyonOS behavior: locate the existing MIUISystemUIPlugin directory and replace only its APK.
+HyperMOS does **not** manufacture missing native libraries, extract .so files from inside the APK, or import permission XML from another ROM project. Missing files remain missing if the Mods Center release does not provide them.
 
-Magisk/KernelSU runtime scripts such as service.sh, post-fs-data.sh, customize.sh and system.prop are not executed.
+Magisk/KernelSU runtime scripts such as `service.sh`, `post-fs-data.sh`, and `customize.sh` are not executed during ROM building.

@@ -2,14 +2,10 @@
 work_dir=$(pwd)
 source "$work_dir/bin/modfile/OS3/_common.sh"
 
-modscenter_apply_privapp \
+modscenter_apply_native_module \
     "HyperOS App Vault" \
     "Mods-Center/HyperOS-App-Vault" \
     "*PersonalAssistant*.apk" \
-    "MIUIPersonalAssistant" \
-    "MIUIPersonalAssistantPhoneOS3.apk" \
-    "privapp_whitelist_com.miui.personalassistant.xml" \
-    "1" \
     "MIUIGlobalMinusScreenWidget" \
     "MIUIGlobalMinusScreen" \
     "MIUIPersonalAssistantT" \
