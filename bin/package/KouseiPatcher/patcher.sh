@@ -74,58 +74,53 @@ find_jar() {
     printf '%s\n' "$found"
 }
 
-find_owner_dex() {
-    local unpacked="$1"
-    local descriptor="$2"
-    local matches=()
-    local dex
-
-    shopt -s nullglob
-    for dex in "$unpacked"/classes*.dex; do
-        if grep -aFq -- "$descriptor" "$dex"; then
-            matches+=("$dex")
-        fi
-    done
-    shopt -u nullglob
-
-    if (( ${#matches[@]} != 1 )); then
-        echo "Expected exactly one owner DEX for $descriptor; found ${#matches[@]}" >&2
-        return 1
-    fi
-
-    basename "${matches[0]}"
-}
-
-contains_name() {
-    local needle="$1"
-    shift
-    local item
-    for item in "$@"; do
-        [[ "$item" == "$needle" ]] && return 0
-    done
-    return 1
-}
-
 collect_and_disassemble() {
     local unpacked="$1"
     local smali_root="$2"
     shift 2
-    local descriptors=("$@")
-    local desc owner
-    MODIFIED_DEXES=()
+    local targets=("$@")
+    local dex base rel owner
+    local all_dexes=()
 
+    MODIFIED_DEXES=()
+    rm -rf "$smali_root"
     mkdir -p "$smali_root"
 
-    for desc in "${descriptors[@]}"; do
-        owner=$(find_owner_dex "$unpacked" "$desc")
+    # Disassemble every stock DEX for reliable class ownership discovery,
+    # but only owner DEXes are reassembled later.
+    shopt -s nullglob
+    for dex in "$unpacked"/classes*.dex; do
+        base=$(basename "$dex")
+        all_dexes+=("$base")
+        run_baksmali "$dex" "$smali_root/$base.out"
+    done
+    shopt -u nullglob
+
+    if (( ${#all_dexes[@]} == 0 )); then
+        echo "No classes*.dex found in JAR" >&2
+        return 1
+    fi
+
+    for rel in "${targets[@]}"; do
+        local matches=()
+        for base in "${all_dexes[@]}"; do
+            if [[ -f "$smali_root/$base.out/$rel" ]]; then
+                matches+=("$base")
+            fi
+        done
+
+        if (( ${#matches[@]} != 1 )); then
+            echo "Expected exactly one owner DEX for $rel; found ${#matches[@]}" >&2
+            return 1
+        fi
+
+        owner="${matches[0]}"
         if ! contains_name "$owner" "${MODIFIED_DEXES[@]}"; then
             MODIFIED_DEXES+=("$owner")
-            echo "Kaorios target $desc -> $owner"
-            run_baksmali "$unpacked/$owner" "$smali_root/$owner.out"
         fi
+        echo "Kaorios target $rel -> $owner"
     done
 }
-
 reassemble_modified() {
     local smali_root="$1"
     local unpacked="$2"
@@ -176,19 +171,18 @@ verify_driver_dex() {
 
 append_driver_dex() {
     local unpacked="$1"
+    local smali_root="$2"
     local dex
 
-    shopt -s nullglob
-    for dex in "$unpacked"/classes*.dex; do
-        if grep -aFq -- "Landroid/security/kaorios/KaoriosHook;" "$dex"; then
-            echo "KaoriosHook already exists in $(basename "$dex"); refusing duplicate class"
-            exit 1
-        fi
-    done
-    shopt -u nullglob
+    # Refuse only an actual KaoriosHook class definition, not ordinary references.
+    if find "$smali_root" -type f -path "*/android/security/kaorios/KaoriosHook.smali" -print -quit | grep -q .; then
+        echo "KaoriosHook class already exists in stock framework; refusing duplicate class"
+        exit 1
+    fi
 
     local max=0
     local base num
+    shopt -s nullglob
     for dex in "$unpacked"/classes*.dex; do
         base=$(basename "$dex")
         if [[ "$base" == "classes.dex" ]]; then
@@ -200,19 +194,13 @@ append_driver_dex() {
         fi
         (( num > max )) && max=$num
     done
+    shopt -u nullglob
 
     local next=$((max + 1))
-    local name
-    if (( next == 1 )); then
-        name="classes.dex"
-    else
-        name="classes${next}.dex"
-    fi
-
+    local name="classes${next}.dex"
     cp -f "$driver_dex" "$unpacked/$name"
     echo "Kaorios driver -> $name"
 }
-
 verify_reassembled_framework() {
     local unpacked="$1"
     local verify_root="$temp_root/framework_verify"
@@ -303,23 +291,23 @@ patch_framework() {
     mkdir -p "$unpacked"
     unzip -q "$jar" -d "$unpacked"
 
-    local descriptors=(
-        "Landroid/app/Instrumentation;"
-        "Landroid/app/ApplicationPackageManager;"
-        "Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;"
-        "Landroid/security/keystore2/AndroidKeyStoreSpi;"
-        "Landroid/provider/Settings\$NameValueCache;"
+    local targets=(
+        "android/app/Instrumentation.smali"
+        "android/app/ApplicationPackageManager.smali"
+        "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali"
+        "android/security/keystore2/AndroidKeyStoreSpi.smali"
+        "android/provider/Settings\$NameValueCache.smali"
     )
 
     if (( sdkLevel >= 37 )); then
-        descriptors+=(
-            "Landroid/app/ActivityThread;"
-            "Landroid/os/Build;"
-            "Landroid/os/Build\$VERSION;"
+        targets+=(
+            "android/app/ActivityThread.smali"
+            "android/os/Build.smali"
+            "android/os/Build\$VERSION.smali"
         )
     fi
 
-    collect_and_disassemble "$unpacked" "$smali_root" "${descriptors[@]}"
+    collect_and_disassemble "$unpacked" "$smali_root" "${targets[@]}"
 
     python3 "$toolbox_py" "$smali_root" --framework
 
@@ -329,7 +317,7 @@ patch_framework() {
 
     reassemble_modified "$smali_root" "$unpacked" "$rebuilt"
     verify_reassembled_framework "$unpacked"
-    append_driver_dex "$unpacked"
+    append_driver_dex "$unpacked" "$smali_root"
     pack_jar "$unpacked" "$jar" "framework"
 
     echo "framework.jar: rebuilt only owner DEXes: ${MODIFIED_DEXES[*]}"
@@ -347,11 +335,11 @@ patch_services() {
     mkdir -p "$unpacked"
     unzip -q "$jar" -d "$unpacked"
 
-    local descriptors=(
-        "Lcom/android/server/SystemServer;"
+    local targets=(
+        "com/android/server/SystemServer.smali"
     )
 
-    collect_and_disassemble "$unpacked" "$smali_root" "${descriptors[@]}"
+    collect_and_disassemble "$unpacked" "$smali_root" "${targets[@]}"
 
     if (( sdkLevel >= 37 )); then
         python3 "$a17_patch_py" "$smali_root" --services
