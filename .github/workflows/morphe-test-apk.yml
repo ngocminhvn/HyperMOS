@@ -1,0 +1,89 @@
+name: Build Morphe test APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/morphe-test-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download latest YouTube Morphe module
+        id: morphe
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(
+            curl -fsSL --retry 4 --retry-delay 3 \
+              'https://api.github.com/repos/j-hc/revanced-magisk-module/releases?per_page=30' |
+            jq -r '[.[].assets[]? | select(.name | test("^youtube-morphe-module-.*\\.zip$"; "i"))][0].browser_download_url // empty'
+          )"
+          if [ -z "$URL" ]; then
+            echo "Could not find a YouTube Morphe module release."
+            exit 1
+          fi
+
+          NAME="$(basename "$URL")"
+          VERSION="$(printf '%s' "$NAME" | sed -nE 's/^youtube-morphe-module-v([^ -]+)-all\.zip$/\1/p')"
+          [ -n "$VERSION" ] || VERSION="latest"
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          curl -fsSL --retry 4 --retry-delay 3 --connect-timeout 30 \
+            -o /tmp/YTMorphe_module.zip "$URL"
+
+      - name: Build stock-signer test APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/morphe-test
+          mkdir -p /tmp/morphe-test
+          unzip -q /tmp/YTMorphe_module.zip -d /tmp/morphe-test
+
+          test -f /tmp/morphe-test/base.apk
+          test -f /tmp/morphe-test/stock/base.apk
+
+          mkdir -p out
+          OUT="out/YouTube_v${{ steps.morphe.outputs.version }}-Morphe_stock-signer.apk"
+
+          python3 bin/modfile/Universal/YouTubeMorphe/transplant_signing_block.py \
+            /tmp/morphe-test/stock/base.apk \
+            /tmp/morphe-test/base.apk \
+            "$OUT"
+
+          test -s "$OUT"
+          sha256sum "$OUT" | tee out/SHA256SUMS.txt
+
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Morphe-test-APK
+          path: |
+            out/*.apk
+            out/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete morphe-test-latest --cleanup-tag -y || true
+          gh release create morphe-test-latest \
+            out/*.apk out/SHA256SUMS.txt \
+            --prerelease \
+            --title "Morphe test APK" \
+            --notes "Test build from the latest j-hc YouTube Morphe module using HyperMOS stock signing-block transplant helper. This APK still depends on a ROM whose package/signature verification behavior permits this modified package."
