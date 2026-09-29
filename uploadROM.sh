@@ -121,7 +121,14 @@ case "$regionTYPE" in
 esac
 
 build_date="$(date +%d%m%y)"
-final_name="ROM_${device_name}_${base_rom_code}_${region_short}${build_date}.zip"
+# Debug builds get HHMM in the filename so repeated test uploads do not
+# overwrite/reuse the same Google Drive path. Normal builds keep the old name.
+if [[ "${DEBUG_BUILD:-false}" == "true" ]]; then
+    build_time="$(date +%H%M)"
+    final_name="ROM_${device_name}_${base_rom_code}_${region_short}${build_date}_${build_time}.zip"
+else
+    final_name="ROM_${device_name}_${base_rom_code}_${region_short}${build_date}.zip"
+fi
 
 mv "out/${os_type}_${device_code}_${base_rom_code}.zip" "out/${final_name}"
 
