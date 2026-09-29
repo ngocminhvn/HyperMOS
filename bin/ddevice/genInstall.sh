@@ -193,11 +193,20 @@ if errorlevel 1 (
 
 if "%WIPE_DATA%"=="1" (
     echo.
-    echo [WIPE] Formatting userdata/metadata using fastboot -w...
-    "%FASTBOOT%" -w
+    echo [WIPE] Erasing userdata without fastboot -w...
+    "%FASTBOOT%" erase userdata
     if errorlevel 1 (
-        echo [ERROR] Data wipe failed.
+        echo [ERROR] Userdata erase failed.
         goto :fail
+    )
+
+    echo.
+    echo [WIPE] Trying to erase metadata...
+    "%FASTBOOT%" erase metadata
+    if errorlevel 1 (
+        echo [WARN] metadata erase is not supported or failed. Continuing...
+    ) else (
+        echo [OK] metadata erased.
     )
 )
 
