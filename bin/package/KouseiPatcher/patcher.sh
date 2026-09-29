@@ -1,190 +1,373 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 # SPDX-License-Identifier: GPL-3.0
 
-dir=$(pwd)
-work_dir="$dir"
-sdkLevel=$(tr -d ' \r\n' < "$dir/bin/ddevice/sdkLevel.txt")
-patch_py="$dir/bin/package/KouseiPatcher/toolbox.py"
-a17_patch_py="$dir/bin/package/KouseiPatcher/a17_patcher.py"
+work_dir=$(pwd)
+patcher_dir="$work_dir/bin/package/KouseiPatcher"
+sdkLevel=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")
+
+baksmali="$work_dir/bin/apktool/baksmaliv2.jar"
+smali="$work_dir/bin/apktool/smaliv2.jar"
+toolbox_py="$patcher_dir/toolbox.py"
+a17_patch_py="$patcher_dir/a17_patcher.py"
+driver_dex="$patcher_dir/classes.dex"
 
 if [[ ! "$sdkLevel" =~ ^[0-9]+$ ]]; then
     echo "Invalid sdkLevel: $sdkLevel"
     exit 1
 fi
 
-if (( sdkLevel >= 37 )); then
-    echo "Kaorios patch mode: Android 17 / SDK $sdkLevel"
-else
-    echo "Kaorios patch mode: Android 13-16 / SDK $sdkLevel"
+for required in "$baksmali" "$smali" "$toolbox_py" "$driver_dex"; do
+    if [[ ! -f "$required" ]]; then
+        echo "Missing required file: $required"
+        exit 1
+    fi
+done
+
+if (( sdkLevel >= 37 )) && [[ ! -f "$a17_patch_py" ]]; then
+    echo "Missing Android 17 patcher: $a17_patch_py"
+    exit 1
 fi
 
-mkdir -p "$dir/jar_temp"
+temp_root="$work_dir/jar_temp/kousei"
+rm -rf "$temp_root"
+mkdir -p "$temp_root"
 
-get_file_dir() {
-    if [[ -n "$1" ]]; then
-        sudo find "$dir/build/baserom/images/" -type f -name "$1" | head -n 1
-    fi
+cleanup() {
+    rm -rf "$temp_root"
+}
+trap cleanup EXIT
+
+run_baksmali() {
+    local dex="$1"
+    local out="$2"
+    rm -rf "$out"
+    mkdir -p "$(dirname "$out")"
+    java -jar "$baksmali" d --api "$sdkLevel" "$dex" -o "$out"
 }
 
-jar_util() {
-    cd "$dir"
+run_smali() {
+    local src="$1"
+    local out="$2"
+    rm -f "$out"
+    mkdir -p "$(dirname "$out")"
+    java -jar "$smali" a --api "$sdkLevel" "$src" -o "$out"
+    [[ -s "$out" ]]
+}
 
-    if [[ "$3" == "fw" ]]; then
-        bak="java -jar $dir/bin/apktool/baksmaliv2.jar d --api $sdkLevel"
-        sma="java -jar $dir/bin/apktool/smaliv2.jar a --api $sdkLevel"
-    fi
+find_jar() {
+    local name="$1"
+    local preferred="$work_dir/build/baserom/images/system/system/framework/$name"
 
-    if [[ "$1" == "d" ]]; then
-        echo -ne "====> Patching $2 : "
-
-        file_path=$(get_file_dir "$2")
-        if [[ -z "$file_path" ]]; then
-            echo "Fail - $2 not found"
-            return 1
-        fi
-
-        rm -rf "$dir/jar_temp/$2" "$dir/jar_temp/$2.out"
-        sudo cp "$file_path" "$dir/jar_temp/$2"
-        sudo chown "$(whoami)" "$dir/jar_temp/$2"
-        unzip "$dir/jar_temp/$2" -d "$dir/jar_temp/$2.out" >/dev/null 2>&1
-        rm -f "$dir/jar_temp/$2"
-
-        for dex in "$dir/jar_temp/$2.out"/classes*.dex; do
-            [[ -f "$dex" ]] || continue
-            $bak "$dex" -o "$dex.out"
-            [[ -d "$dex.out" ]] && rm -f "$dex"
-        done
+    if [[ -f "$preferred" ]]; then
+        printf '%s\n' "$preferred"
         return 0
     fi
 
-    if [[ "$1" == "a" && -d "$dir/jar_temp/$2.out" ]]; then
-        cd "$dir/jar_temp/$2.out"
-
-        for fld in ./*.dex.out; do
-            [[ -d "$fld" ]] || continue
-            $sma "$fld" -o "${fld%.out}"
-            [[ -f "${fld%.out}" ]] && rm -rf "$fld"
-        done
-
-        rm -f "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2"
-        7za a -tzip -mx=0 "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2.out/." >/dev/null 2>&1
-        zipalign 4 "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2"
-
-        if [[ -f "$dir/jar_temp/$2" ]]; then
-            sudo cp -f "$dir/jar_temp/$2" "$(get_file_dir "$2")"
-            echo "Success"
-            rm -rf "$dir/jar_temp/$2.out" "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2"
-        else
-            echo "Fail"
-            return 1
-        fi
-    fi
-}
-
-mvsml() {
-    local file_name="$1"
-    local target_folder="$2"
-    local framework_dir="$work_dir/jar_temp/framework.jar.out"
-    local file_path
-
-    file_path=$(find "$framework_dir" -type f -name "$file_name" | head -n 1)
-    if [[ -z "$file_path" ]]; then
-        echo "File $file_name not found in $framework_dir"
+    local found
+    found=$(find "$work_dir/build/baserom/images" -type f -name "$name" | head -n 1)
+    if [[ -z "$found" ]]; then
+        echo "Cannot find $name" >&2
         return 1
     fi
-
-    local parent_dex_folder
-    local relative_path
-    local target_path
-
-    parent_dex_folder=$(echo "$file_path" | sed "s|$framework_dir/||" | cut -d/ -f1)
-    relative_path=$(echo "$file_path" | sed "s|$framework_dir/$parent_dex_folder/||")
-    target_path="$target_folder/$relative_path"
-
-    mkdir -p "$(dirname "$target_path")"
-    mv "$file_path" "$target_path"
-    echo "Moved $file_name -> $(basename "$target_folder")"
+    printf '%s\n' "$found"
 }
 
-next_dex_number() {
-    local framework_dir="$1"
-    local max=0
-    local path base suffix num
+find_owner_dex() {
+    local unpacked="$1"
+    local descriptor="$2"
+    local matches=()
+    local dex
 
     shopt -s nullglob
-    for path in "$framework_dir"/classes*.dex.out "$framework_dir"/classes*.dex; do
-        base=$(basename "$path")
-        if [[ "$base" =~ ^classes([0-9]*)\.dex(\.out)?$ ]]; then
-            suffix="${BASH_REMATCH[1]}"
-            if [[ -z "$suffix" ]]; then
-                num=1
-            else
-                num="$suffix"
-            fi
-            (( num > max )) && max=$num
+    for dex in "$unpacked"/classes*.dex; do
+        if grep -aFq -- "$descriptor" "$dex"; then
+            matches+=("$dex")
         fi
     done
     shopt -u nullglob
 
-    echo $((max + 1))
+    if (( \${#matches[@]} != 1 )); then
+        echo "Expected exactly one owner DEX for $descriptor; found \${#matches[@]}" >&2
+        return 1
+    fi
+
+    basename "\${matches[0]}"
 }
 
-Patch_Framework() {
-    jar_util d 'framework.jar' fw 0 10
-    FRAMEWORK_DIR="$dir/jar_temp/framework.jar.out"
+contains_name() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
 
-    # Common Android 13-17 framework hooks + Developer Options/ADB hide.
-    python3 "$patch_py" "$FRAMEWORK_DIR"
+collect_and_disassemble() {
+    local unpacked="$1"
+    local smali_root="$2"
+    shift 2
+    local descriptors=("$@")
+    local desc owner
+    MODIFIED_DEXES=()
 
-    # Android 17 has extra ActivityThread + Build/Build$VERSION requirements.
-    if (( sdkLevel >= 37 )); then
-        python3 "$a17_patch_py" "$FRAMEWORK_DIR" --framework
-    fi
+    mkdir -p "$smali_root"
 
-    patch_dex_num=$(next_dex_number "$FRAMEWORK_DIR")
-    patch_dex_folder="$FRAMEWORK_DIR/classes${patch_dex_num}.dex.out"
-    mkdir -p "$patch_dex_folder"
+    for desc in "\${descriptors[@]}"; do
+        owner=$(find_owner_dex "$unpacked" "$desc")
+        if ! contains_name "$owner" "\${MODIFIED_DEXES[@]}"; then
+            MODIFIED_DEXES+=("$owner")
+            echo "Kaorios target $desc -> $owner"
+            run_baksmali "$unpacked/$owner" "$smali_root/$owner.out"
+        fi
+    done
+}
 
-    mvsml "AndroidKeyStoreSpi.smali" "$patch_dex_folder"
-    mvsml "Instrumentation.smali" "$patch_dex_folder"
-    mvsml "AndroidKeyStoreKeyPairGeneratorSpi.smali" "$patch_dex_folder"
-    mvsml "ApplicationPackageManager.smali" "$patch_dex_folder"
-    mvsml 'Settings$NameValueCache.smali' "$patch_dex_folder"
+reassemble_modified() {
+    local smali_root="$1"
+    local unpacked="$2"
+    local rebuilt_root="$3"
+    local dex
 
-    if (( sdkLevel >= 37 )); then
-        mvsml "ActivityThread.smali" "$patch_dex_folder"
-        mvsml "Build.smali" "$patch_dex_folder"
-        mvsml 'Build$VERSION.smali' "$patch_dex_folder"
-    fi
+    mkdir -p "$rebuilt_root"
 
-    # Keep Kaorios release-108 driver as its own DEX.
-    driver_dex_num=$((patch_dex_num + 1))
-    driver_dex="$dir/bin/package/KouseiPatcher/classes.dex"
-    if [[ ! -f "$driver_dex" ]]; then
-        echo "Missing Kaorios classes.dex: $driver_dex"
+    for dex in "\${MODIFIED_DEXES[@]}"; do
+        run_smali "$smali_root/$dex.out" "$rebuilt_root/$dex"
+        mv -f "$rebuilt_root/$dex" "$unpacked/$dex"
+    done
+}
+
+verify_driver_dex() {
+    local verify_root="$temp_root/driver_verify"
+    run_baksmali "$driver_dex" "$verify_root"
+
+    local hook="$verify_root/android/security/kaorios/KaoriosHook.smali"
+    if [[ ! -f "$hook" ]]; then
+        echo "KaoriosHook.smali not found in classes.dex"
         exit 1
     fi
-    cp -f "$driver_dex" "$FRAMEWORK_DIR/classes${driver_dex_num}.dex"
 
-    jar_util a 'framework.jar' fw 0 10
-}
-
-Patch_services() {
-    jar_util d 'services.jar' fw 0 10
-    SERVICES_DIR="$dir/jar_temp/services.jar.out"
+    local required=(
+        "initContext(Landroid/content/Context;)V"
+        "hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;"
+        "initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;"
+        "CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;"
+        "shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z"
+        "initSystemServer()V"
+    )
 
     if (( sdkLevel >= 37 )); then
-        # A17 uses the Looper.loop() anchor.
-        python3 "$a17_patch_py" "$SERVICES_DIR" --services
-    else
-        # A13-16 uses the startOtherServices(...) anchor.
-        python3 "$patch_py" "$SERVICES_DIR" --services
+        required+=("initActivityThread(Ljava/lang/Object;)V")
     fi
 
-    jar_util a 'services.jar' fw 0 10
+    local sig
+    for sig in "\${required[@]}"; do
+        if ! grep -Fq -- "$sig" "$hook"; then
+            echo "Kaorios classes.dex missing required hook: $sig"
+            exit 1
+        fi
+    done
+
+    echo "Kaorios driver verifier: PASS"
 }
 
-Patch_Framework
-Patch_services
+append_driver_dex() {
+    local unpacked="$1"
+    local dex
+
+    shopt -s nullglob
+    for dex in "$unpacked"/classes*.dex; do
+        if grep -aFq -- "Landroid/security/kaorios/KaoriosHook;" "$dex"; then
+            echo "KaoriosHook already exists in $(basename "$dex"); refusing duplicate class"
+            exit 1
+        fi
+    done
+    shopt -u nullglob
+
+    local max=0
+    local base num
+    for dex in "$unpacked"/classes*.dex; do
+        base=$(basename "$dex")
+        if [[ "$base" == "classes.dex" ]]; then
+            num=1
+        elif [[ "$base" =~ ^classes([0-9]+)\.dex$ ]]; then
+            num="\${BASH_REMATCH[1]}"
+        else
+            continue
+        fi
+        (( num > max )) && max=$num
+    done
+
+    local next=$((max + 1))
+    local name
+    if (( next == 1 )); then
+        name="classes.dex"
+    else
+        name="classes\${next}.dex"
+    fi
+
+    cp -f "$driver_dex" "$unpacked/$name"
+    echo "Kaorios driver -> $name"
+}
+
+verify_reassembled_framework() {
+    local unpacked="$1"
+    local verify_root="$temp_root/framework_verify"
+    local dex
+
+    rm -rf "$verify_root"
+    mkdir -p "$verify_root"
+
+    for dex in "\${MODIFIED_DEXES[@]}"; do
+        run_baksmali "$unpacked/$dex" "$verify_root/$dex.out"
+    done
+
+    python3 "$toolbox_py" "$verify_root" --verify-framework
+
+    if (( sdkLevel >= 37 )); then
+        local activity
+        activity=$(find "$verify_root" -type f -path "*/android/app/ActivityThread.smali" | head -n 1)
+        if [[ -z "$activity" ]] || ! grep -Fq -- "KaoriosHook;->initActivityThread(Ljava/lang/Object;)V" "$activity"; then
+            echo "Android 17 ActivityThread verification failed"
+            exit 1
+        fi
+    fi
+}
+
+verify_reassembled_services() {
+    local unpacked="$1"
+    local verify_root="$temp_root/services_verify"
+    local dex
+
+    rm -rf "$verify_root"
+    mkdir -p "$verify_root"
+
+    for dex in "\${MODIFIED_DEXES[@]}"; do
+        run_baksmali "$unpacked/$dex" "$verify_root/$dex.out"
+    done
+
+    if (( sdkLevel >= 37 )); then
+        local ss
+        ss=$(find "$verify_root" -type f -path "*/com/android/server/SystemServer.smali" | head -n 1)
+        if [[ -z "$ss" ]] || ! grep -Fq -- "KaoriosHook;->initSystemServer()V" "$ss"; then
+            echo "Android 17 SystemServer hook missing"
+            exit 1
+        fi
+        if ! python3 - "$ss" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+h = text.find("KaoriosHook;->initSystemServer()V")
+l = text.find("Landroid/os/Looper;->loop()V")
+raise SystemExit(0 if h >= 0 and l >= 0 and h < l else 1)
+PY
+        then
+            echo "Android 17 SystemServer hook is not before Looper.loop()"
+            exit 1
+        fi
+        echo "Kaorios Android 17 services verifier: PASS"
+    else
+        python3 "$toolbox_py" "$verify_root" --verify-services
+    fi
+}
+
+pack_jar() {
+    local unpacked="$1"
+    local output="$2"
+    local name="$3"
+    local candidate="$temp_root/\${name}.candidate.jar"
+    local aligned="$temp_root/\${name}.aligned.jar"
+
+    rm -f "$candidate" "$aligned"
+    (
+        cd "$unpacked"
+        7za a -tzip -mx=0 "$candidate" . >/dev/null
+    )
+    unzip -tq "$candidate" >/dev/null
+    zipalign -f 4 "$candidate" "$aligned"
+    sudo cp -f "$aligned" "$output"
+}
+
+patch_framework() {
+    local jar
+    jar=$(find_jar "framework.jar")
+    local root="$temp_root/framework"
+    local unpacked="$root/unpacked"
+    local smali_root="$root/smali"
+    local rebuilt="$root/rebuilt"
+
+    rm -rf "$root"
+    mkdir -p "$unpacked"
+    unzip -q "$jar" -d "$unpacked"
+
+    local descriptors=(
+        "Landroid/app/Instrumentation;"
+        "Landroid/app/ApplicationPackageManager;"
+        "Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;"
+        "Landroid/security/keystore2/AndroidKeyStoreSpi;"
+        "Landroid/provider/Settings\$NameValueCache;"
+    )
+
+    if (( sdkLevel >= 37 )); then
+        descriptors+=(
+            "Landroid/app/ActivityThread;"
+            "Landroid/os/Build;"
+            "Landroid/os/Build\$VERSION;"
+        )
+    fi
+
+    collect_and_disassemble "$unpacked" "$smali_root" "\${descriptors[@]}"
+
+    python3 "$toolbox_py" "$smali_root" --framework
+
+    if (( sdkLevel >= 37 )); then
+        python3 "$a17_patch_py" "$smali_root" --framework
+    fi
+
+    reassemble_modified "$smali_root" "$unpacked" "$rebuilt"
+    verify_reassembled_framework "$unpacked"
+    append_driver_dex "$unpacked"
+    pack_jar "$unpacked" "$jar" "framework"
+
+    echo "framework.jar: rebuilt only owner DEXes: \${MODIFIED_DEXES[*]}"
+}
+
+patch_services() {
+    local jar
+    jar=$(find_jar "services.jar")
+    local root="$temp_root/services"
+    local unpacked="$root/unpacked"
+    local smali_root="$root/smali"
+    local rebuilt="$root/rebuilt"
+
+    rm -rf "$root"
+    mkdir -p "$unpacked"
+    unzip -q "$jar" -d "$unpacked"
+
+    local descriptors=(
+        "Lcom/android/server/SystemServer;"
+    )
+
+    collect_and_disassemble "$unpacked" "$smali_root" "\${descriptors[@]}"
+
+    if (( sdkLevel >= 37 )); then
+        python3 "$a17_patch_py" "$smali_root" --services
+    else
+        python3 "$toolbox_py" "$smali_root" --services
+    fi
+
+    reassemble_modified "$smali_root" "$unpacked" "$rebuilt"
+    verify_reassembled_services "$unpacked"
+    pack_jar "$unpacked" "$jar" "services"
+
+    echo "services.jar: rebuilt only owner DEXes: \${MODIFIED_DEXES[*]}"
+}
+
+echo "Kaorios surgical patch mode: SDK $sdkLevel"
+verify_driver_dex
+patch_framework
+patch_services
+echo "Kaorios patch complete"
