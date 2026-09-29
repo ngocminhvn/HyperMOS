@@ -2,7 +2,6 @@ work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
-androidVer=$(cat "$work_dir/bin/ddevice/androidver.txt" 2>/dev/null)
 
 FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
 SF_FONT="$FONT_SOURCE/SF-Pro.ttf"
@@ -11,7 +10,10 @@ mods "Fonts: keep original ROM fonts"
 
 find_theme_target() {
     local p
-    for p in         "$work_dir/build/baserom/images/product/media/theme"         "$work_dir/build/baserom/images/system/system/media/theme"         "$work_dir/build/baserom/images/system/media/theme"; do
+    for p in \
+        "$work_dir/build/baserom/images/product/media/theme" \
+        "$work_dir/build/baserom/images/system/system/media/theme" \
+        "$work_dir/build/baserom/images/system/media/theme"; do
         if [ -d "$p" ]; then
             printf '%s\n' "$p"
             return 0
@@ -20,16 +22,36 @@ find_theme_target() {
     return 1
 }
 
-install_sfpro_theme() {
-    # MiSans/Roboto của ROM tuyệt đối không bị sửa.
-    if [ ! -s "$SF_FONT" ]; then
-        mods "Font SF Pro theme: SKIP"
+find_roboto_font() {
+    local f
+    for f in \
+        "$work_dir/build/baserom/images/system/system/fonts/RobotoVF.ttf" \
+        "$work_dir/build/baserom/images/product/fonts/RobotoVF.ttf" \
+        "$work_dir/build/baserom/images/system/system/fonts/Roboto-Regular.ttf" \
+        "$work_dir/build/baserom/images/product/fonts/Roboto-Regular.ttf"; do
+        if [ -s "$f" ]; then
+            printf '%s\n' "$f"
+            return 0
+        fi
+    done
+    return 1
+}
+
+install_font_theme() {
+    local font_file="$1"
+    local theme_id="$2"
+    local title="$3"
+    local author="$4"
+    local local_id="$5"
+
+    [ -s "$font_file" ] || {
+        mods "Font $title theme: SKIP"
         return 0
-    fi
+    }
 
     local theme_target
     theme_target=$(find_theme_target) || {
-        mods "Font SF Pro theme: ERROR"
+        mods "Font $title theme: ERROR"
         return 1
     }
 
@@ -38,19 +60,19 @@ install_sfpro_theme() {
 
     local tmp
     tmp=$(mktemp -d) || {
-        mods "Font SF Pro theme: ERROR"
+        mods "Font $title theme: ERROR"
         return 1
     }
 
     mkdir -p "$tmp/fonts" "$tmp/preview" "$theme_target/.data/meta/fonts" || {
         rm -rf "$tmp"
-        mods "Font SF Pro theme: ERROR"
+        mods "Font $title theme: ERROR"
         return 1
     }
 
-    cp -f "$SF_FONT" "$tmp/fonts/Current-Font.ttf" || {
+    cp -f "$font_file" "$tmp/fonts/Current-Font.ttf" || {
         rm -rf "$tmp"
-        mods "Font SF Pro theme: ERROR"
+        mods "Font $title theme: ERROR"
         return 1
     }
 
@@ -59,34 +81,34 @@ install_sfpro_theme() {
 <theme>
   <version>1.0</version>
   <uiVersion>$ui_version</uiVersion>
-  <author>Apple</author>
-  <designer>Apple</designer>
-  <title>SF Pro</title>
+  <author>$author</author>
+  <designer>$author</designer>
+  <title>$title</title>
   <fontWeight>100,150,200,250,300,350,400,450,500,550,600,650,700,800,900</fontWeight>
-  <description>SF Pro Variable font</description>
+  <description>$title Variable font</description>
 </theme>
 EOF
 
-    # Preview tối thiểu hợp lệ; giao diện Themes vẫn có thể dùng preview mặc định.
-    printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='         | base64 -d > "$tmp/preview/preview_fonts_0.png" 2>/dev/null || true
+    printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=' \
+        | base64 -d > "$tmp/preview/preview_fonts_0.png" 2>/dev/null || true
 
     (
         cd "$tmp" || exit 1
-        zip -qr "$theme_target/SF-Pro.mtz" description.xml fonts preview
+        zip -qr "$theme_target/$theme_id.mtz" description.xml fonts preview
     ) || {
         rm -rf "$tmp"
-        mods "Font SF Pro theme: ERROR"
+        mods "Font $title theme: ERROR"
         return 1
     }
 
-    python3 - "$theme_target" <<'PY'
+    python3 - "$theme_target" "$theme_id" "$title" "$author" "$local_id" <<'PY'
 import json
 import os
 import sys
 
-theme = sys.argv[1]
+theme, theme_id, title, author, local_id = sys.argv[1:6]
 src = os.path.join(theme, ".data", "meta", "fonts", "default.mrm")
-dst = os.path.join(theme, ".data", "meta", "fonts", "SF-Pro.mrm")
+dst = os.path.join(theme, ".data", "meta", "fonts", f"{theme_id}.mrm")
 
 try:
     with open(src, "r", encoding="utf-8-sig") as fh:
@@ -105,45 +127,30 @@ except Exception:
         "extraMeta": {}
     }
 
-data["localId"] = "10010"
+data["localId"] = local_id
 data["onlineId"] = None
 data["productId"] = None
-data["downloadPath"] = "/system/media/theme/SF-Pro.mtz"
-data["metaPath"] = "/system/media/theme/.data/meta/fonts/SF-Pro.mrm"
-data["contentPath"] = "/system/media/theme/SF-Pro.mtz"
+data["downloadPath"] = f"/system/media/theme/{theme_id}.mtz"
+data["metaPath"] = f"/system/media/theme/.data/meta/fonts/{theme_id}.mrm"
+data["contentPath"] = f"/system/media/theme/{theme_id}.mtz"
 data["status"] = 1
 data["hash"] = "0"
 data["size"] = 0
 data["updatedTime"] = 0
-data["title"] = "SF Pro"
-data["description"] = "SF Pro Variable font"
-data["author"] = "Apple"
-data["designer"] = "Apple"
+data["title"] = title
+data["description"] = f"{title} Variable font"
+data["author"] = author
+data["designer"] = author
 data["version"] = "1.0"
 
-titles = data.get("titles")
-if not isinstance(titles, dict):
-    titles = {}
-for locale in list(titles.keys()):
-    titles[locale] = "SF Pro"
-titles.update({"en_US": "SF Pro", "vi_VN": "SF Pro", "zh_CN": "SF Pro"})
-data["titles"] = titles
-
-authors = data.get("authors")
-if not isinstance(authors, dict):
-    authors = {}
-for locale in list(authors.keys()):
-    authors[locale] = "Apple"
-authors.update({"en_US": "Apple", "vi_VN": "Apple", "zh_CN": "Apple"})
-data["authors"] = authors
-
-designers = data.get("designers")
-if not isinstance(designers, dict):
-    designers = {}
-for locale in list(designers.keys()):
-    designers[locale] = "Apple"
-designers.update({"en_US": "Apple", "vi_VN": "Apple", "zh_CN": "Apple"})
-data["designers"] = designers
+for key, value in (("titles", title), ("authors", author), ("designers", author)):
+    obj = data.get(key)
+    if not isinstance(obj, dict):
+        obj = {}
+    for locale in list(obj.keys()):
+        obj[locale] = value
+    obj.update({"en_US": value, "vi_VN": value, "zh_CN": value})
+    data[key] = obj
 
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 with open(dst, "w", encoding="utf-8") as fh:
@@ -154,20 +161,30 @@ PY
     local rc=$?
     rm -rf "$tmp"
 
-    if [ "$rc" -eq 0 ] && [ -s "$theme_target/SF-Pro.mtz" ] && [ -s "$theme_target/.data/meta/fonts/SF-Pro.mrm" ]; then
-        mods "Font SF Pro theme: OK"
+    if [ "$rc" -eq 0 ] && \
+       [ -s "$theme_target/$theme_id.mtz" ] && \
+       [ -s "$theme_target/.data/meta/fonts/$theme_id.mrm" ]; then
+        mods "Font $title theme: OK"
         return 0
     fi
 
-    mods "Font SF Pro theme: ERROR"
+    mods "Font $title theme: ERROR"
     return 1
 }
 
 case "$rom_os" in
     OS1|OS2|OS3|OS4)
-        install_sfpro_theme
+        install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010"
+
+        ROBOTO_FONT=$(find_roboto_font || true)
+        if [ -n "$ROBOTO_FONT" ]; then
+            install_font_theme "$ROBOTO_FONT" "Roboto" "Roboto" "Google" "10011"
+        else
+            mods "Font Roboto theme: SKIP"
+        fi
         ;;
     *)
         mods "Font SF Pro theme: SKIP"
+        mods "Font Roboto theme: SKIP"
         ;;
 esac
