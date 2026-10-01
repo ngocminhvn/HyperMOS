@@ -20,15 +20,15 @@ if [[ $regionTYPE == "China" ]]; then
     fi
   else
     GMS_SOURCE="$GMS_BASE"
-
-    # Keep the legacy Google Velvet CTS payload only for Android 13-15.
-    mkdir -p "$GMS_SOURCE/product/priv-app/GoogleVelvet_CTS"
-    aria2c -q \
-      -d "$GMS_SOURCE/product/priv-app/GoogleVelvet_CTS/" \
-      -o GoogleVelvet_CTS.apk \
-      https://github.com/tiencv2006/NothingsVN-BuildExt/releases/download/oplus/GoogleVelvet_CTS.apk \
-      && info "Get File Successfully"
+    mods "Android ${androidVER} detected: use gmsservices"
   fi
+
+  VELVET_CTS="$GMS_SOURCE/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
+  if [[ ! -f "$VELVET_CTS" ]]; then
+    echo "[ERROR] GoogleVelvet_CTS.apk not found: $VELVET_CTS"
+    exit 1
+  fi
+  mods "GoogleVelvet_CTS.apk -> local payload"
 
   cp -rf "$GMS_SOURCE/product/." "$MAIN_FOLDER/product/"
   cp -rf "$GMS_SOURCE/system_ext/." "$MAIN_FOLDER/system_ext/"
