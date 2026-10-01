@@ -17,7 +17,40 @@ API_LEVEL=36
 # Feature Flags (set by command-line arguments)
 # ============================================
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
-FEATURE_DISABLE_SECURE_FLAG=1
+FEATURE_CN_NOTIFICATION_FIX=0
+FEATURE_DISABLE_SECURE_FLAG=0
+
+parse_feature_flags() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --disable-signature-verification)
+        FEATURE_DISABLE_SIGNATURE_VERIFICATION=1
+        ;;
+      --cn-notification-fix)
+        FEATURE_CN_NOTIFICATION_FIX=1
+        ;;
+      --disable-secure-flag)
+        FEATURE_DISABLE_SECURE_FLAG=1
+        ;;
+      *)
+        err "Unknown Android 16 COREPATCH option: $1"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  log "Android 16 COREPATCH features:"
+  [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
+  [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
+  [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
+
+  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
+     [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
+     [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
+    warn "No Android 16 COREPATCH feature selected"
+  fi
+}
 
 # ----------------------------------------------
 # Internal helpers (python-powered transformations)
@@ -786,7 +819,13 @@ patch_framework() {
   decompile_dir=$(decompile_jar "$framework_path") || return 1
 
   # Apply feature-specific patches based on flags
-  apply_framework_signature_patches "$decompile_dir"
+  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
+    apply_framework_signature_patches "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
+    apply_framework_disable_secure_flag "$decompile_dir"
+  fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -951,7 +990,13 @@ patch_services() {
   fi
 
   # Apply feature-specific patches based on flags
-  #apply_services_disable_secure_flag "$decompile_dir"
+  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
+    apply_services_signature_patches "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
+    apply_services_disable_secure_flag "$decompile_dir"
+  fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -1061,14 +1106,26 @@ patch_miui_services() {
     decompile_dir=$(decompile_jar "$miui_services_path") || return 1
   fi
 
-  # Apply feature-specific patches based on flags
+  # Existing HyperMOS patches
   apply_miui_services_floating "$decompile_dir"
   apply_miui_services_contentextension "$decompile_dir"
+
+  # Feature-specific patches
+  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
+    apply_miui_services_signature_patches "$decompile_dir"
+  fi
+
   if [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
-    apply_miui_services_cn_notification_fix "$decompile_dir"
+    if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
+      apply_miui_services_cn_notification_fix "$decompile_dir"
+    fi
     apply_miui_services_gboard "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
+    apply_miui_services_disable_secure_flag "$decompile_dir"
   fi
 
   # Apply invoke-custom patches (common to all features)
@@ -1130,9 +1187,13 @@ patch_miui_framework() {
     decompile_dir=$(decompile_jar "$miui_framework_path") || return 1
   fi
 
-  # Apply Gboard
+  # Existing HyperMOS Gboard patch
   apply_miui_framework_gboard "$decompile_dir"
-  apply_miui_framework_cn_notification_fix "$decompile_dir"
+
+  # CN notification related xBuild substitutions are only enabled by the feature flag.
+  if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
+    apply_miui_framework_cn_notification_fix "$decompile_dir"
+  fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -1148,9 +1209,8 @@ patch_miui_framework() {
 }
 
 # Main function
-# Initialize environment and check tools
-FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
-FEATURE_DISABLE_SECURE_FLAG=1
+# Parse requested features, then initialize environment and tools.
+parse_feature_flags "$@" || exit 1
 init_env
 ensure_tools || exit 1
 
