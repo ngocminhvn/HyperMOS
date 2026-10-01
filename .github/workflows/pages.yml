@@ -28,6 +28,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Resolve Telegram bot username
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -e
+          USERNAME=""
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            RESPONSE=$(curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe" || true)
+            USERNAME=$(printf '%s' "$RESPONSE" | jq -r '.result.username // empty')
+          fi
+          printf 'window.HYPERMOS_BOT_USERNAME = %s;\n' "$(jq -Rn --arg value "$USERNAME" '$value')" > docs/bot-config.js
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
