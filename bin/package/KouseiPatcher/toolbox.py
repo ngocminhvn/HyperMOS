@@ -213,12 +213,18 @@ def main():
     if not os.path.isdir(args.base_dir):
         sys.exit(1)
 
-    patches = list(PATCHES)
-    if args.services:
-        patches.append(SERVICES_PATCH)
+    # framework.jar and services.jar contain different classes.
+    # When --services is requested, patch only SystemServer in services.jar.
+    # Running the framework patch set against services.jar makes the patcher
+    # fail immediately because classes such as Instrumentation are not there.
+    patches = [SERVICES_PATCH] if args.services else list(PATCHES)
 
     for patch in patches:
         if not apply_patch(patch, args.base_dir):
+            print(
+                f"[ERROR] Kaorios smali patch failed: {patch.smali_class} -> {patch.method}",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
 
