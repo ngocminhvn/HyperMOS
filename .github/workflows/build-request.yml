@@ -59,7 +59,7 @@ jobs:
 
           filename = unquote(parsed.path.rsplit("/", 1)[-1])
           match = re.fullmatch(
-              r"(?P<codename>[a-z0-9_]+)-ota_full-(?P<version>OS3\\.[0-9A-Za-z.]*CNXM)-user-(?P<android>[0-9.]+)-(?P<hash>[0-9a-f]{10})\.zip",
+              r"(?P<codename>[a-z0-9_]+)-ota_full-(?P<version>OS3\.[0-9A-Za-z.]*CNXM)-user-(?P<android>[0-9.]+)-(?P<hash>[0-9a-f]{10})\.zip",
               filename,
               flags=re.IGNORECASE,
           )
@@ -249,7 +249,7 @@ jobs:
           parsed = urlparse(rom_url)
           filename = unquote(parsed.path.rsplit("/", 1)[-1])
           rom_match = re.fullmatch(
-              r"[a-z0-9_]+-ota_full-OS3\\.[0-9A-Za-z.]*CNXM-user-[0-9.]+-[0-9a-f]{10}\.zip",
+              r"[a-z0-9_]+-ota_full-OS3\.[0-9A-Za-z.]*CNXM-user-[0-9.]+-[0-9a-f]{10}\.zip",
               filename,
               flags=re.IGNORECASE,
           )
