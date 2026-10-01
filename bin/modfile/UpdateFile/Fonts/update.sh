@@ -67,11 +67,16 @@ install_font_theme() {
         return 1
     }
 
-    cp -f "$font_file" "$tmp/fonts/Current-Font.ttf" || {
-        rm -rf "$tmp"
-        mods "Font $title theme: ERROR"
-        return 1
-    }
+    # HyperOS Theme Manager resolves applied font payloads using these
+    # runtime names. Keep all three aliases so China/Global and different
+    # ThemeManager builds can bind the same variable font correctly.
+    for runtime_font in Roboto-Regular.ttf Miui-Regular.ttf MiuiEx-Regular.ttf; do
+        cp -f "$font_file" "$tmp/fonts/$runtime_font" || {
+            rm -rf "$tmp"
+            mods "Font $title theme: ERROR"
+            return 1
+        }
+    done
 
     cat > "$tmp/description.xml" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -186,11 +191,13 @@ PY
         return 1
     fi
 
-    if ! unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
-        | grep -Eq '^fonts/[^/]+[.](ttf|otf)$'; then
-        mods "Font $title theme: ERROR (font payload missing)"
-        return 1
-    fi
+    for runtime_font in Roboto-Regular.ttf Miui-Regular.ttf MiuiEx-Regular.ttf; do
+        if ! unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
+            | grep -qx "fonts/$runtime_font"; then
+            mods "Font $title theme: ERROR (missing $runtime_font)"
+            return 1
+        fi
+    done
 
     if ! python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$theme_id" "$title" <<'PYVERIFY'
 import json
