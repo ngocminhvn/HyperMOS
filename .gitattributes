@@ -1,3 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 bin/modfile/Universal/gmsservices16/**/*.apk filter=lfs diff=lfs merge=lfs -text
+bin/modfile/Universal/gmsservices/**/*.apk filter=lfs diff=lfs merge=lfs -text
