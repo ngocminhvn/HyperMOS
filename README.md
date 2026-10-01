@@ -2,6 +2,14 @@
 
 HyperMOS is a Xiaomi HyperOS ROM build and modification project designed to automate ROM unpacking, customization, patching, repacking, and distribution through GitHub Actions.
 
+## Build Portal
+
+Use the HyperMOS web build portal to submit a ROM build request:
+
+**https://ngocminhvn.github.io/HyperMOS/**
+
+> GitHub sign-in is required to submit a build request. HyperMOS currently supports **HyperOS 3 China (CN)** ROMs only.
+
 ## Tested Device
 
 | Item | Information |
