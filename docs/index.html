@@ -219,25 +219,25 @@
       <section class="hero">
         <div class="pill"><span class="dot"></span> Build request portal</div>
         <h1>Build your HyperMOS ROM.</h1>
-        <p>Submit a Xiaomi HyperOS China ROM package and request an automated HyperMOS build. Requests are reviewed before the GitHub Actions workflow is dispatched.</p>
+        <p>Submit a direct Xiaomi HyperOS China full-ROM link and your Telegram ID. Valid requests are sent to the maintainer for approval before the build workflow starts.</p>
       </section>
 
       <section class="grid">
         <div class="card form-card">
           <h2>New Build Request</h2>
-          <p class="sub">Fill in the information below. You will be redirected to GitHub to create the request.</p>
+          <p class="sub">Enter your China ROM link and Telegram ID. The ROM link will be validated again by GitHub Actions before the request is sent for approval.</p>
 
           <form id="buildForm">
             <div class="field">
               <label for="romUrl">China ROM URL</label>
               <input id="romUrl" type="url" placeholder="https://..." autocomplete="off" required />
-              <span class="hint">HTTPS only. HyperMOS supports Xiaomi HyperOS China (CN) ROM bases only.</span>
+              <span class="hint">HTTPS direct ZIP only. Expected format: codename-ota_full-OS...CNXM-user-Android-hash.zip.</span>
             </div>
 
             <div class="field">
-              <label for="builderName">Builder name</label>
-              <input id="builderName" type="text" maxlength="40" placeholder="Your name or nickname" required />
-              <span class="hint">1–40 characters. This information will appear publicly in the GitHub build request.</span>
+              <label for="builderId">Telegram Builder ID</label>
+              <input id="builderId" type="text" inputmode="numeric" maxlength="20" placeholder="Example: 123456789" required />
+              <span class="hint">Enter your numeric Telegram user ID. The HyperMOS bot will send build status and the final ROM download link to this ID. Start the bot first so it can message you.</span>
             </div>
 
             <div class="row">
@@ -281,10 +281,10 @@
           <div class="stat"><span>Build engine</span><strong>GitHub Actions</strong></div>
 
           <ol class="steps">
-            <li><b>Submit</b><br />Enter your ROM URL and build options.</li>
-            <li><b>Review</b><br />A maintainer checks the request and source ROM.</li>
+            <li><b>Submit</b><br />Enter a China full-ROM URL, Telegram ID, and build options.</li>
+            <li><b>Validate & review</b><br />GitHub checks the ROM link, then the maintainer receives a Telegram approval notification.</li>
             <li><b>Dispatch</b><br />The existing HyperMOS build workflow is started automatically.</li>
-            <li><b>Result</b><br />The normal HyperMOS upload and notification flow handles the completed ROM.</li>
+            <li><b>Result</b><br />The HyperMOS bot sends build status and the final ROM download link to the submitted Telegram ID.</li>
           </ol>
         </aside>
       </section>
@@ -313,7 +313,7 @@
       errorBox.style.display = 'none';
 
       const romUrl = document.getElementById('romUrl').value.trim();
-      const builderName = cleanName(document.getElementById('builderName').value);
+      const builderId = document.getElementById('builderId').value.trim();
       const uploadMethod = document.getElementById('upload').value;
       const debug = document.getElementById('debug').value;
       const agree = document.getElementById('agree').checked;
@@ -346,16 +346,16 @@
         return;
       }
 
-      const issueTitle = `[HyperMOS Build] ${builderName}`;
+      const issueTitle = `[HyperMOS Build] Telegram ${builderId}`;
       const issueBody = [
-        '<!-- HYPERMOS_BUILD_REQUEST_V1 -->',
+        '<!-- HYPERMOS_BUILD_REQUEST_V2 -->',
         '## HyperMOS Build Request',
         '',
         '### ROM URL',
         romUrl,
         '',
-        '### Builder name',
-        builderName,
+        '### Telegram Builder ID',
+        builderId,
         '',
         '### Debug build',
         debug,
