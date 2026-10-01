@@ -74,7 +74,7 @@ jobs:
           if upload_method not in {"drive", "pixeldrain"}:
               sys.exit("Invalid upload method.")
 
-          if region != "China (CN)":
+          if region != "China (CN)" or generation != "HyperOS 3":
               sys.exit("Only HyperOS 3 China (CN) ROM requests are supported.")
 
           if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", requester):
@@ -260,7 +260,7 @@ jobs:
               sys.exit("Invalid debug value.")
           if upload_method not in {"drive", "pixeldrain"}:
               sys.exit("Invalid upload method.")
-          if region != "China (CN)":
+          if region != "China (CN)" or generation != "HyperOS 3":
               sys.exit("Only HyperOS 3 China ROM is supported.")
           if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", requester):
               sys.exit("Invalid requester.")
