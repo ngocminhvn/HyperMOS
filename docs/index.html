@@ -386,7 +386,6 @@
       issueUrl.searchParams.set('title', issueTitle);
       issueUrl.searchParams.set('body', issueBody);
 
-      // Opening a GitHub Issue requires a signed-in GitHub account.
       const issueTab = window.open(issueUrl.toString(), '_blank', 'noopener');
       if (!issueTab) {
         showError('Your browser blocked the GitHub request tab. Allow pop-ups for this site, then try again.');
@@ -397,7 +396,6 @@
       if (botUsername) {
         window.location.href = `https://t.me/${encodeURIComponent(botUsername)}?start=hypermos_build`;
       } else {
-        // Keep the request usable if Telegram bot username discovery is unavailable.
         window.location.href = issueUrl.toString();
       }
     });
