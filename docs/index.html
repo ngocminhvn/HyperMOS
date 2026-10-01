@@ -386,11 +386,12 @@
       issueUrl.searchParams.set('title', issueTitle);
       issueUrl.searchParams.set('body', issueBody);
 
-      const issueTab = window.open(issueUrl.toString(), '_blank', 'noopener');
+      const issueTab = window.open(issueUrl.toString(), '_blank');
       if (!issueTab) {
         showError('Your browser blocked the GitHub request tab. Allow pop-ups for this site, then try again.');
         return;
       }
+      try { issueTab.opener = null; } catch (_) {}
 
       const botUsername = String(window.HYPERMOS_BOT_USERNAME || '').replace(/^@/, '').trim();
       if (botUsername) {
