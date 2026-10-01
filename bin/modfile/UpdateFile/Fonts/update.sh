@@ -124,12 +124,33 @@ except Exception:
         "extraMeta": {}
     }
 
+# Follow the runtime paths declared by the stock font metadata instead of
+# hard-coding /system/media/theme. Some HyperOS builds keep the theme tree on
+# another partition; a wrong contentPath makes the selector silently fall back
+# to the stock MiSans/MiLatin font.
+stock_download = data.get("downloadPath")
+stock_meta = data.get("metaPath")
+
+if isinstance(stock_download, str) and stock_download.startswith("/") and stock_download.endswith(".mtz"):
+    theme_runtime_root = os.path.dirname(stock_download)
+else:
+    norm = theme.replace("\\", "/")
+    if "/images/product/media/theme" in norm:
+        theme_runtime_root = "/product/media/theme"
+    else:
+        theme_runtime_root = "/system/media/theme"
+
+if isinstance(stock_meta, str) and stock_meta.startswith("/") and "/.data/meta/fonts/" in stock_meta:
+    font_meta_root = os.path.dirname(stock_meta)
+else:
+    font_meta_root = f"{theme_runtime_root}/.data/meta/fonts"
+
 data["localId"] = local_id
 data["onlineId"] = None
 data["productId"] = None
-data["downloadPath"] = f"/system/media/theme/{theme_id}.mtz"
-data["metaPath"] = f"/system/media/theme/.data/meta/fonts/{theme_id}.mrm"
-data["contentPath"] = f"/system/media/theme/{theme_id}.mtz"
+data["downloadPath"] = f"{theme_runtime_root}/{theme_id}.mtz"
+data["metaPath"] = f"{font_meta_root}/{theme_id}.mrm"
+data["contentPath"] = f"{theme_runtime_root}/{theme_id}.mtz"
 data["status"] = 1
 data["hash"] = "0"
 data["size"] = 0
@@ -158,15 +179,44 @@ PY
     local rc=$?
     rm -rf "$tmp"
 
-    if [ "$rc" -eq 0 ] && \
-       [ -s "$theme_target/$theme_id.mtz" ] && \
-       [ -s "$theme_target/.data/meta/fonts/$theme_id.mrm" ]; then
-        mods "Font $title theme: OK"
-        return 0
+    if [ "$rc" -ne 0 ] || \
+       [ ! -s "$theme_target/$theme_id.mtz" ] || \
+       [ ! -s "$theme_target/.data/meta/fonts/$theme_id.mrm" ]; then
+        mods "Font $title theme: ERROR"
+        return 1
     fi
 
-    mods "Font $title theme: ERROR"
-    return 1
+    if ! unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
+        | grep -Eq '^fonts/[^/]+[.](ttf|otf)$'; then
+        mods "Font $title theme: ERROR (font payload missing)"
+        return 1
+    fi
+
+    if ! python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$theme_id" "$title" <<'PYVERIFY'
+import json
+import sys
+
+path, theme_id, title = sys.argv[1:4]
+with open(path, "r", encoding="utf-8-sig") as fh:
+    data = json.load(fh)
+
+ok = (
+    data.get("title") == title
+    and bool(str(data.get("localId", "")))
+    and str(data.get("downloadPath", "")).endswith(f"/{theme_id}.mtz")
+    and str(data.get("contentPath", "")).endswith(f"/{theme_id}.mtz")
+    and str(data.get("metaPath", "")).endswith(f"/{theme_id}.mrm")
+)
+raise SystemExit(0 if ok else 1)
+PYVERIFY
+    then
+        mods "Font $title theme: ERROR (metadata verification failed)"
+        return 1
+    fi
+
+    mods "Font $title theme: OK (MTZ + metadata verified)"
+    return 0
+
 }
 
 install_ios_emoji() {
