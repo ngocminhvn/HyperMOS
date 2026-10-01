@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>HyperMOS Build Center</title>
-  <meta name="description" content="Submit a Xiaomi HyperOS China ROM build request for HyperMOS." />
+  <meta name="description" content="Submit a Xiaomi HyperOS 3 China ROM build request for HyperMOS." />
   <style>
     :root {
       --bg: #07090d;
@@ -219,7 +219,7 @@
       <section class="hero">
         <div class="pill"><span class="dot"></span> Build request portal</div>
         <h1>Build your HyperMOS ROM.</h1>
-        <p>Submit a direct Xiaomi HyperOS China full-ROM link and your Telegram ID. Valid requests are sent to the maintainer for approval before the build workflow starts.</p>
+        <p>Submit a direct Xiaomi HyperOS 3 China full-ROM link and your Telegram ID. Valid requests are sent to the maintainer for approval before the build workflow starts.</p>
       </section>
 
       <section class="grid">
@@ -231,7 +231,7 @@
             <div class="field">
               <label for="romUrl">China ROM URL</label>
               <input id="romUrl" type="url" placeholder="https://..." autocomplete="off" required />
-              <span class="hint">HTTPS direct ZIP only. Expected format: codename-ota_full-OS...CNXM-user-Android-hash.zip.</span>
+              <span class="hint">HTTPS direct ZIP only. HyperMOS supports HyperOS 3 China only. Expected format: codename-ota_full-OS3...CNXM-user-Android-hash.zip.</span>
             </div>
 
             <div class="field">
@@ -259,14 +259,14 @@
 
             <div class="check">
               <input id="agree" type="checkbox" required />
-              <label for="agree">I confirm that the submitted base ROM is a Xiaomi HyperOS China (CN) ROM and I understand that modified ROM flashing carries risk.</label>
+              <label for="agree">I confirm that the submitted base ROM is a Xiaomi HyperOS 3 China (CN) ROM and I understand that modified ROM flashing carries risk.</label>
             </div>
 
             <div id="error" class="error"></div>
-            <button type="submit">Create Build Request →</button>
+            <button type="submit">Create Build Request & Start Bot →</button>
 
             <div class="notice">
-              A GitHub account is required to submit the request. The build does not start until a repository maintainer approves it.
+              GitHub sign-in is required to submit a build request. The GitHub request form opens in a new tab, while this tab opens the HyperMOS Telegram bot so you can press Start.
             </div>
           </form>
         </div>
@@ -281,7 +281,7 @@
           <div class="stat"><span>Build engine</span><strong>GitHub Actions</strong></div>
 
           <ol class="steps">
-            <li><b>Submit</b><br />Enter a China full-ROM URL, Telegram ID, and build options.</li>
+            <li><b>Submit</b><br />Enter a HyperOS 3 China full-ROM URL, Telegram ID, and build options.</li>
             <li><b>Validate & review</b><br />GitHub checks the ROM link, then the maintainer receives a Telegram approval notification.</li>
             <li><b>Dispatch</b><br />The existing HyperMOS build workflow is started automatically.</li>
             <li><b>Result</b><br />The HyperMOS bot sends build status and the final ROM download link to the submitted Telegram ID.</li>
@@ -291,10 +291,11 @@
     </main>
 
     <footer>
-      HyperMOS · Xiaomi HyperOS China ROM build project
+      HyperMOS · Xiaomi HyperOS 3 China ROM build project
     </footer>
   </div>
 
+  <script src="bot-config.js"></script>
   <script>
     const form = document.getElementById('buildForm');
     const errorBox = document.getElementById('error');
@@ -331,8 +332,15 @@
         return;
       }
 
-      if (!/^[\p{L}\p{N}_. -]{1,40}$/u.test(builderName)) {
-        showError('Builder name may contain letters, numbers, spaces, dot, underscore, and hyphen only.');
+      if (!/^[1-9][0-9]{4,19}$/.test(builderId)) {
+        showError('Telegram Builder ID must be a numeric user ID.');
+        return;
+      }
+
+      const romFile = decodeURIComponent(parsed.pathname.split('/').pop() || '');
+      const hyperOs3ChinaFullRom = /^[a-z0-9_]+-ota_full-OS3\.[0-9A-Za-z.]*CNXM-user-[0-9.]+-[0-9a-f]{10}\.zip$/i;
+      if (!hyperOs3ChinaFullRom.test(romFile)) {
+        showError('Only Xiaomi HyperOS 3 China full ROMs are supported. Expected an ota_full ZIP with an OS3...CNXM build.');
         return;
       }
 
@@ -342,7 +350,7 @@
       }
 
       if (!agree) {
-        showError('Please confirm that you are submitting a China ROM base.');
+        showError('Please confirm that you are submitting a HyperOS 3 China ROM base.');
         return;
       }
 
@@ -366,15 +374,32 @@
         '### ROM region confirmation',
         'China (CN)',
         '',
+        '### HyperOS generation',
+        'HyperOS 3',
+        '',
         '> This request was generated from the HyperMOS GitHub Pages build portal.',
-        '> A maintainer can approve it by commenting `/approve-build`.'
+        '> GitHub sign-in is required to submit the issue.',
+        '> The maintainer can approve it by commenting `/approve-build`.'
       ].join('\n');
 
       const issueUrl = new URL('https://github.com/ngocminhvn/HyperMOS/issues/new');
       issueUrl.searchParams.set('title', issueTitle);
       issueUrl.searchParams.set('body', issueBody);
 
-      window.location.href = issueUrl.toString();
+      // Opening a GitHub Issue requires a signed-in GitHub account.
+      const issueTab = window.open(issueUrl.toString(), '_blank', 'noopener');
+      if (!issueTab) {
+        showError('Your browser blocked the GitHub request tab. Allow pop-ups for this site, then try again.');
+        return;
+      }
+
+      const botUsername = String(window.HYPERMOS_BOT_USERNAME || '').replace(/^@/, '').trim();
+      if (botUsername) {
+        window.location.href = `https://t.me/${encodeURIComponent(botUsername)}?start=hypermos_build`;
+      } else {
+        // Keep the request usable if Telegram bot username discovery is unavailable.
+        window.location.href = issueUrl.toString();
+      }
     });
   </script>
 </body>
