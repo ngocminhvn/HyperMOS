@@ -1,6 +1,8 @@
 name: HyperMOS Build Request
 
 on:
+  issues:
+    types: [opened]
   issue_comment:
     types: [created]
 
@@ -10,16 +12,16 @@ permissions:
   issues: write
 
 jobs:
-  dispatch-build:
+  notify-build-request:
     if: >-
+      github.event_name == 'issues' &&
       github.event.issue.pull_request == null &&
       startsWith(github.event.issue.title, '[HyperMOS Build]') &&
-      github.event.comment.body == '/approve-build' &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      contains(github.event.issue.body, '<!-- HYPERMOS_BUILD_REQUEST_V2 -->')
     runs-on: ubuntu-latest
 
     steps:
-      - name: Parse and validate build request
+      - name: Parse build request
         id: request
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
@@ -29,68 +31,264 @@ jobs:
           import os
           import re
           import sys
-          from urllib.parse import urlparse
+          from urllib.parse import urlparse, unquote
 
           body = os.environ.get("ISSUE_BODY", "")
           requester = os.environ.get("REQUESTER", "")
 
-          if "<!-- HYPERMOS_BUILD_REQUEST_V1 -->" not in body:
-              print("Invalid request marker.")
-              sys.exit(1)
+          if "<!-- HYPERMOS_BUILD_REQUEST_V2 -->" not in body:
+              sys.exit("Invalid request marker.")
 
           def read_field(name):
               pattern = rf"### {re.escape(name)}\s*\r?\n([^\r\n]+)"
               match = re.search(pattern, body)
               if not match:
-                  print(f"Missing field: {name}")
-                  sys.exit(1)
+                  sys.exit(f"Missing field: {name}")
               return match.group(1).strip()
 
           rom_url = read_field("ROM URL")
-          builder_name = read_field("Builder name")
+          builder_id = read_field("Telegram Builder ID")
           debug = read_field("Debug build").lower()
           upload_method = read_field("Upload method").lower()
           region = read_field("ROM region confirmation")
 
           parsed = urlparse(rom_url)
           if parsed.scheme != "https" or not parsed.netloc:
-              print("ROM URL must be a valid HTTPS URL.")
-              sys.exit(1)
+              sys.exit("ROM URL must be a valid HTTPS URL.")
 
-          if not re.fullmatch(r"[\w .-]{1,40}", builder_name, flags=re.UNICODE):
-              print("Invalid builder name.")
-              sys.exit(1)
+          filename = unquote(parsed.path.rsplit("/", 1)[-1])
+          match = re.fullmatch(
+              r"(?P<codename>[a-z0-9_]+)-ota_full-(?P<version>OS[0-9A-Za-z.]*CNXM)-user-(?P<android>[0-9.]+)-(?P<hash>[0-9a-f]{10})\.zip",
+              filename,
+              flags=re.IGNORECASE,
+          )
+          if not match:
+              sys.exit("ROM URL is not a Xiaomi HyperOS China full-ROM ZIP.")
+
+          if not re.fullmatch(r"[1-9][0-9]{4,19}", builder_id):
+              sys.exit("Telegram Builder ID must be numeric.")
 
           if debug not in {"true", "false"}:
-              print("Invalid debug value.")
-              sys.exit(1)
+              sys.exit("Invalid debug value.")
 
           if upload_method not in {"drive", "pixeldrain"}:
-              print("Invalid upload method.")
-              sys.exit(1)
+              sys.exit("Invalid upload method.")
 
           if region != "China (CN)":
-              print("Only China (CN) ROM requests are supported.")
-              sys.exit(1)
+              sys.exit("Only China (CN) ROM requests are supported.")
 
           if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", requester):
-              print("Invalid requester.")
-              sys.exit(1)
+              sys.exit("Invalid GitHub requester.")
 
-          output = os.environ["GITHUB_OUTPUT"]
-          with open(output, "a", encoding="utf-8") as f:
-              f.write(f"rom_url={rom_url}\n")
-              f.write(f"builder_name={builder_name}\n")
-              f.write(f"debug={debug}\n")
-              f.write(f"upload_method={upload_method}\n")
-              f.write(f"requester={requester}\n")
+          out = os.environ["GITHUB_OUTPUT"]
+          with open(out, "a", encoding="utf-8") as fh:
+              fh.write(f"rom_url={rom_url}\n")
+              fh.write(f"builder_id={builder_id}\n")
+              fh.write(f"debug={debug}\n")
+              fh.write(f"upload_method={upload_method}\n")
+              fh.write(f"requester={requester}\n")
+              fh.write(f"codename={match.group('codename')}\n")
+              fh.write(f"version={match.group('version')}\n")
+              fh.write(f"android={match.group('android')}\n")
           PY
+
+      - name: Verify ROM URL is reachable
+        id: rom_check
+        continue-on-error: true
+        env:
+          ROM_URL: ${{ steps.request.outputs.rom_url }}
+        run: |
+          set -e
+          curl --fail --silent --show-error --location --head \
+            --connect-timeout 15 --max-time 30 --retry 1 \
+            -A "Mozilla/5.0 HyperMOS-LinkChecker/1.0" \
+            "$ROM_URL" >/dev/null
+
+      - name: Reject unreachable ROM URL
+        if: steps.rom_check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --body "❌ ROM link validation failed. The URL could not be reached by GitHub Actions. Please submit a direct HTTPS Xiaomi HyperOS China full-ROM ZIP link."
+          gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" --reason "not planned"
+
+      - name: Notify maintainer on Telegram
+        if: steps.rom_check.outcome == 'success'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REQUESTER: ${{ steps.request.outputs.requester }}
+          BUILDER_ID: ${{ steps.request.outputs.builder_id }}
+          ROM_URL: ${{ steps.request.outputs.rom_url }}
+          CODENAME: ${{ steps.request.outputs.codename }}
+          VERSION: ${{ steps.request.outputs.version }}
+          ANDROID: ${{ steps.request.outputs.android }}
+          DEBUG_BUILD: ${{ steps.request.outputs.debug }}
+          UPLOAD_METHOD: ${{ steps.request.outputs.upload_method }}
+        run: |
+          python3 - <<'PY'
+          import html
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+          owner_chat = os.environ.get("TELEGRAM_CHANNEL_ID", "")
+          if not token or not owner_chat:
+              raise SystemExit("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID.")
+
+          issue_url = os.environ["ISSUE_URL"]
+          builder_id = os.environ["BUILDER_ID"]
+
+          message = (
+              "🛠 <b>NEW HYPERMOS BUILD REQUEST</b>\n\n"
+              f"• <b>GitHub:</b> @{html.escape(os.environ['REQUESTER'])}\n"
+              f"• <b>Telegram Builder ID:</b> <code>{html.escape(builder_id)}</code>\n"
+              f"• <b>Device:</b> <code>{html.escape(os.environ['CODENAME'])}</code>\n"
+              f"• <b>ROM:</b> <code>{html.escape(os.environ['VERSION'])}</code>\n"
+              f"• <b>Android:</b> {html.escape(os.environ['ANDROID'])}\n"
+              f"• <b>Upload:</b> {html.escape(os.environ['UPLOAD_METHOD'])}\n"
+              f"• <b>Debug:</b> {html.escape(os.environ['DEBUG_BUILD'])}\n\n"
+              f"<b>ROM URL:</b>\n{html.escape(os.environ['ROM_URL'])}\n\n"
+              "✅ Link format and reachability check passed.\n"
+              "To approve, open the request and comment: <code>/approve-build</code>"
+          )
+
+          keyboard = {
+              "inline_keyboard": [[
+                  {"text": "Open Build Request", "url": issue_url}
+              ]]
+          }
+
+          def send(chat_id, text, reply_markup=None):
+              data = {
+                  "chat_id": chat_id,
+                  "text": text,
+                  "parse_mode": "HTML",
+                  "disable_web_page_preview": "true",
+              }
+              if reply_markup:
+                  data["reply_markup"] = json.dumps(reply_markup)
+              req = urllib.request.Request(
+                  f"https://api.telegram.org/bot{token}/sendMessage",
+                  data=urllib.parse.urlencode(data).encode(),
+              )
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  return response.read()
+
+          send(owner_chat, message, keyboard)
+
+          # Best-effort confirmation to the requester. Telegram bots can only
+          # message a user who has already started/interacted with the bot.
+          try:
+              send(
+                  builder_id,
+                  "✅ <b>HyperMOS build request received.</b>\n"
+                  "Your ROM link passed validation and is waiting for maintainer approval.",
+              )
+          except Exception as exc:
+              print(f"Could not message builder {builder_id}: {exc}")
+          PY
+
+      - name: Mark request as awaiting approval
+        if: steps.rom_check.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --body "✅ ROM link validated. The maintainer has been notified on Telegram. Waiting for approval."
+
+  dispatch-build:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request == null &&
+      startsWith(github.event.issue.title, '[HyperMOS Build]') &&
+      contains(github.event.issue.body, '<!-- HYPERMOS_BUILD_REQUEST_V2 -->') &&
+      github.event.comment.body == '/approve-build' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Parse and validate approved request
+        id: request
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REQUESTER: ${{ github.event.issue.user.login }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+          from urllib.parse import urlparse, unquote
+
+          body = os.environ.get("ISSUE_BODY", "")
+          requester = os.environ.get("REQUESTER", "")
+
+          def read_field(name):
+              match = re.search(rf"### {re.escape(name)}\s*\r?\n([^\r\n]+)", body)
+              if not match:
+                  sys.exit(f"Missing field: {name}")
+              return match.group(1).strip()
+
+          rom_url = read_field("ROM URL")
+          builder_id = read_field("Telegram Builder ID")
+          debug = read_field("Debug build").lower()
+          upload_method = read_field("Upload method").lower()
+          region = read_field("ROM region confirmation")
+
+          parsed = urlparse(rom_url)
+          filename = unquote(parsed.path.rsplit("/", 1)[-1])
+          rom_match = re.fullmatch(
+              r"[a-z0-9_]+-ota_full-OS[0-9A-Za-z.]*CNXM-user-[0-9.]+-[0-9a-f]{10}\.zip",
+              filename,
+              flags=re.IGNORECASE,
+          )
+
+          if parsed.scheme != "https" or not parsed.netloc or not rom_match:
+              sys.exit("Invalid China full-ROM URL.")
+          if not re.fullmatch(r"[1-9][0-9]{4,19}", builder_id):
+              sys.exit("Invalid Telegram Builder ID.")
+          if debug not in {"true", "false"}:
+              sys.exit("Invalid debug value.")
+          if upload_method not in {"drive", "pixeldrain"}:
+              sys.exit("Invalid upload method.")
+          if region != "China (CN)":
+              sys.exit("Only China ROM is supported.")
+          if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", requester):
+              sys.exit("Invalid requester.")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"rom_url={rom_url}\n")
+              fh.write(f"builder_id={builder_id}\n")
+              fh.write(f"builder_name={requester}\n")
+              fh.write(f"debug={debug}\n")
+              fh.write(f"upload_method={upload_method}\n")
+              fh.write(f"requester={requester}\n")
+          PY
+
+      - name: Recheck ROM URL
+        env:
+          ROM_URL: ${{ steps.request.outputs.rom_url }}
+        run: |
+          curl --fail --silent --show-error --location --head \
+            --connect-timeout 15 --max-time 30 --retry 1 \
+            -A "Mozilla/5.0 HyperMOS-LinkChecker/1.0" \
+            "$ROM_URL" >/dev/null
 
       - name: Dispatch HyperMOS build
         env:
           GH_TOKEN: ${{ github.token }}
           ROM_URL: ${{ steps.request.outputs.rom_url }}
           BUILDER_NAME: ${{ steps.request.outputs.builder_name }}
+          BUILDER_ID: ${{ steps.request.outputs.builder_id }}
           DEBUG_BUILD: ${{ steps.request.outputs.debug }}
           UPLOAD_METHOD: ${{ steps.request.outputs.upload_method }}
         run: |
@@ -99,19 +297,20 @@ jobs:
             --ref main \
             -f input_url="$ROM_URL" \
             -f builder_name="$BUILDER_NAME" \
+            -f builder_id="$BUILDER_ID" \
             -f debug="$DEBUG_BUILD" \
             -f upload_method="$UPLOAD_METHOD"
 
-      - name: Confirm request
+      - name: Confirm approval
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           REQUESTER: ${{ steps.request.outputs.requester }}
+          BUILDER_ID: ${{ steps.request.outputs.builder_id }}
         run: |
           gh issue comment "$ISSUE_NUMBER" \
             --repo "${{ github.repository }}" \
-            --body "✅ Build approved and dispatched for @$REQUESTER. Track the build in the [HyperMOS Actions page](https://github.com/${{ github.repository }}/actions/workflows/build.yml)."
-
+            --body "✅ Build approved and dispatched for @$REQUESTER (Telegram ID: `$BUILDER_ID`). Track the build in the [HyperMOS Actions page](https://github.com/${{ github.repository }}/actions/workflows/build.yml)."
           gh issue close "$ISSUE_NUMBER" \
             --repo "${{ github.repository }}" \
             --reason completed
