@@ -1,0 +1,117 @@
+name: HyperMOS Build Request
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  dispatch-build:
+    if: >-
+      github.event.issue.pull_request == null &&
+      startsWith(github.event.issue.title, '[HyperMOS Build]') &&
+      github.event.comment.body == '/approve-build' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Parse and validate build request
+        id: request
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REQUESTER: ${{ github.event.issue.user.login }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+          from urllib.parse import urlparse
+
+          body = os.environ.get("ISSUE_BODY", "")
+          requester = os.environ.get("REQUESTER", "")
+
+          if "<!-- HYPERMOS_BUILD_REQUEST_V1 -->" not in body:
+              print("Invalid request marker.")
+              sys.exit(1)
+
+          def read_field(name):
+              pattern = rf"### {re.escape(name)}\s*\r?\n([^\r\n]+)"
+              match = re.search(pattern, body)
+              if not match:
+                  print(f"Missing field: {name}")
+                  sys.exit(1)
+              return match.group(1).strip()
+
+          rom_url = read_field("ROM URL")
+          builder_name = read_field("Builder name")
+          debug = read_field("Debug build").lower()
+          upload_method = read_field("Upload method").lower()
+          region = read_field("ROM region confirmation")
+
+          parsed = urlparse(rom_url)
+          if parsed.scheme != "https" or not parsed.netloc:
+              print("ROM URL must be a valid HTTPS URL.")
+              sys.exit(1)
+
+          if not re.fullmatch(r"[\w .-]{1,40}", builder_name, flags=re.UNICODE):
+              print("Invalid builder name.")
+              sys.exit(1)
+
+          if debug not in {"true", "false"}:
+              print("Invalid debug value.")
+              sys.exit(1)
+
+          if upload_method not in {"drive", "pixeldrain"}:
+              print("Invalid upload method.")
+              sys.exit(1)
+
+          if region != "China (CN)":
+              print("Only China (CN) ROM requests are supported.")
+              sys.exit(1)
+
+          if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", requester):
+              print("Invalid requester.")
+              sys.exit(1)
+
+          output = os.environ["GITHUB_OUTPUT"]
+          with open(output, "a", encoding="utf-8") as f:
+              f.write(f"rom_url={rom_url}\n")
+              f.write(f"builder_name={builder_name}\n")
+              f.write(f"debug={debug}\n")
+              f.write(f"upload_method={upload_method}\n")
+              f.write(f"requester={requester}\n")
+          PY
+
+      - name: Dispatch HyperMOS build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROM_URL: ${{ steps.request.outputs.rom_url }}
+          BUILDER_NAME: ${{ steps.request.outputs.builder_name }}
+          DEBUG_BUILD: ${{ steps.request.outputs.debug }}
+          UPLOAD_METHOD: ${{ steps.request.outputs.upload_method }}
+        run: |
+          gh workflow run build.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f input_url="$ROM_URL" \
+            -f builder_name="$BUILDER_NAME" \
+            -f debug="$DEBUG_BUILD" \
+            -f upload_method="$UPLOAD_METHOD"
+
+      - name: Confirm request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REQUESTER: ${{ steps.request.outputs.requester }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --body "✅ Build approved and dispatched for @$REQUESTER. Track the build in the [HyperMOS Actions page](https://github.com/${{ github.repository }}/actions/workflows/build.yml)."
+
+          gh issue close "$ISSUE_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --reason completed
