@@ -74,7 +74,8 @@ jar_util()
         done < <(find . -maxdepth 1 -type d -name "*.out" | LC_ALL=C sort)
 
         rm -f "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2"
-        7za a -tzip -mx=0 "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2.out/." >/dev/null 2>&1 || return 1
+        zip_bin=$(command -v 7za || command -v 7z) || return 1
+        "$zip_bin" a -tzip -mx=0 "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2.out/." >/dev/null 2>&1 || return 1
         zipalign 4 "$dir/jar_temp/$2_notal" "$dir/jar_temp/$2" || return 1
 
         target_path=$(get_file_dir "$2" | head -n 1)
