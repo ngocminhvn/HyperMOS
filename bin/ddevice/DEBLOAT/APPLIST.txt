@@ -122,6 +122,7 @@ GoogleCalendarSyncAdapter
 GoogleTTS
 MiuiBugReport
 MiuiCompass
+Notes
 AndroidAutoStub
 FamilyLinkParentalControls
 HotwordEnrollmentXGoogleHEXAGON_WIDEBAND

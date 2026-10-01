@@ -1,43 +1,35 @@
-#!/bin/bash
-# SPDX-License-Identifier: GPL-3.0
+#!/usr/bin/env bash
+set -e
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
-prop="$work_dir/bin/package/KouseiPatcher/prop"
-appdir="$work_dir/bin/package/KouseiPatcher/app"
-kaoriospatch=$(grep "install_toolbox" "$work_dir/config.env" | cut -d '=' -f 2)
 
-if [[ "$kaoriospatch" == "true" ]]; then
-    bash "$work_dir/bin/package/KouseiPatcher/fakelock_patch.sh" || {
-        error "Kaorios: fake-lock patch failed"
-        exit 1
-    }
+patcher_dir="$work_dir/bin/package/KouseiPatcher"
+install_toolbox=$(grep -m1 '^install_toolbox=' "$work_dir/config.env" | cut -d '=' -f 2 | tr -d ' \r')
 
-    bash "$work_dir/bin/package/KouseiPatcher/patcher.sh" || {
-        error "Kaorios: framework/services patch failed"
-        exit 1
-    }
-
-    mkdir -p         "$work_dir/build/baserom/images/system/system/priv-app"         "$work_dir/build/baserom/images/system/system/etc/permissions"
-
-    cp -rf "$appdir/KaoriosToolbox" "$work_dir/build/baserom/images/system/system/priv-app" || exit 1
-    cp -rf "$appdir/com.kousei.kaorios.xml" "$work_dir/build/baserom/images/system/system/etc/permissions" || exit 1
-
-    # Keep PenguinOS behavior: build.prop is appended here as well as in fakelock_patch.sh.
-    cat "$prop/build.prop" >> "$work_dir/build/baserom/images/system/system/build.prop" || exit 1
-
-    [[ -s "$work_dir/build/baserom/images/system/system/priv-app/KaoriosToolbox/KaoriosToolbox.apk" ]] || {
-        error "Kaorios: KaoriosToolbox.apk missing after integration"
-        exit 1
-    }
-    [[ -s "$work_dir/build/baserom/images/system/system/priv-app/KaoriosToolbox/lib/arm64-v8a/libkaorios_toolbox.so" ]] || {
-        error "Kaorios: native library missing after integration"
-        exit 1
-    }
-    [[ -s "$work_dir/build/baserom/images/system/system/etc/permissions/com.kousei.kaorios.xml" ]] || {
-        error "Kaorios: permission XML missing after integration"
-        exit 1
-    }
-
-    mods "Kaorios Toolbox integrated"
+if [[ "$install_toolbox" != "true" ]]; then
+    mods "Skip Kaorios Toolbox: install_toolbox is disabled"
+    exit 0
 fi
+
+# Kaorios Toolbox v2.0.6.0 / release 108.
+# Files are expected directly in:
+# bin/package/KouseiPatcher/
+#   KaoriosToolbox.apk
+#   classes.dex
+#   lib/arm64-v8a/libkaorios_toolbox.so
+
+export KAORIOS_RELEASE_DIR="$patcher_dir"
+
+mods "Patch framework/services for Kaorios release 108"
+bash "$patcher_dir/patcher.sh"
+
+privapp_dir="$work_dir/build/baserom/images/system/system/priv-app/KaoriosToolbox"
+perm_dir="$work_dir/build/baserom/images/system/system/etc/permissions"
+mkdir -p "$privapp_dir/lib/arm64-v8a" "$perm_dir"
+
+cp -f "$patcher_dir/KaoriosToolbox.apk" "$privapp_dir/KaoriosToolbox.apk"
+cp -f "$patcher_dir/lib/arm64-v8a/libkaorios_toolbox.so" "$privapp_dir/lib/arm64-v8a/libkaorios_toolbox.so"
+cp -f "$patcher_dir/app/com.kousei.kaorios.xml" "$perm_dir/com.kousei.kaorios.xml"
+
+mods "Kaorios Toolbox release 108 integrated"
