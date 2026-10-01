@@ -214,7 +214,65 @@ PYVERIFY
         return 1
     fi
 
-    mods "Font $title theme: OK (MTZ + metadata verified)"
+    # Theme Manager may scan preinstalled font metadata from /product/media/theme
+    # while the metadata itself still points to /system/media/theme/<id>.mtz.
+    # In that case the selector entry is visible, but applying it silently falls
+    # back to MiSans because the MTZ does not exist at the declared runtime path.
+    local runtime_content_path
+    runtime_content_path=$(python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" <<'PYRUNTIME'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8-sig") as fh:
+    data = json.load(fh)
+
+path = data.get("contentPath") or data.get("downloadPath") or ""
+print(path if isinstance(path, str) else "")
+PYRUNTIME
+)
+
+    local runtime_theme_dir=""
+    case "$runtime_content_path" in
+        /system/media/theme/*)
+            runtime_theme_dir="$work_dir/build/baserom/images/system/system/media/theme"
+            ;;
+        /product/media/theme/*)
+            runtime_theme_dir="$work_dir/build/baserom/images/product/media/theme"
+            ;;
+        /system_ext/media/theme/*)
+            runtime_theme_dir="$work_dir/build/baserom/images/system_ext/media/theme"
+            ;;
+        /vendor/media/theme/*)
+            runtime_theme_dir="$work_dir/build/baserom/images/vendor/media/theme"
+            ;;
+    esac
+
+    if [ -n "$runtime_theme_dir" ]; then
+        mkdir -p "$runtime_theme_dir" || {
+            mods "Font $title theme: ERROR (runtime theme dir)"
+            return 1
+        }
+
+        if [ "$runtime_theme_dir" != "$theme_target" ]; then
+            cp -f "$theme_target/$theme_id.mtz" "$runtime_theme_dir/$theme_id.mtz" || {
+                mods "Font $title theme: ERROR (runtime MTZ copy)"
+                return 1
+            }
+        fi
+
+        if [ ! -s "$runtime_theme_dir/$theme_id.mtz" ]; then
+            mods "Font $title theme: ERROR (runtime MTZ missing)"
+            return 1
+        fi
+
+        chmod 0644 "$runtime_theme_dir/$theme_id.mtz" 2>/dev/null || true
+        mods "Font $title runtime: OK ($runtime_content_path)"
+    else
+        mods "Font $title theme: ERROR (unsupported runtime path: $runtime_content_path)"
+        return 1
+    fi
+
+    mods "Font $title theme: OK (MTZ + metadata + runtime path verified)"
     return 0
 
 }
