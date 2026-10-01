@@ -50,7 +50,7 @@ jobs:
           builder_id = read_field("Telegram Builder ID")
           debug = read_field("Debug build").lower()
           upload_method = read_field("Upload method").lower()
-          region = read_field("ROM region confirmation")
+          region = read_field("ROM region confirmation")\n          generation = read_field("HyperOS generation")
 
           parsed = urlparse(rom_url)
           if parsed.scheme != "https" or not parsed.netloc:
@@ -58,12 +58,12 @@ jobs:
 
           filename = unquote(parsed.path.rsplit("/", 1)[-1])
           match = re.fullmatch(
-              r"(?P<codename>[a-z0-9_]+)-ota_full-(?P<version>OS[0-9A-Za-z.]*CNXM)-user-(?P<android>[0-9.]+)-(?P<hash>[0-9a-f]{10})\.zip",
+              r"(?P<codename>[a-z0-9_]+)-ota_full-(?P<version>OS3\\.[0-9A-Za-z.]*CNXM)-user-(?P<android>[0-9.]+)-(?P<hash>[0-9a-f]{10})\.zip",
               filename,
               flags=re.IGNORECASE,
           )
           if not match:
-              sys.exit("ROM URL is not a Xiaomi HyperOS China full-ROM ZIP.")
+              sys.exit("ROM URL is not a Xiaomi HyperOS 3 China full-ROM ZIP.")
 
           if not re.fullmatch(r"[1-9][0-9]{4,19}", builder_id):
               sys.exit("Telegram Builder ID must be numeric.")
@@ -75,7 +75,7 @@ jobs:
               sys.exit("Invalid upload method.")
 
           if region != "China (CN)":
-              sys.exit("Only China (CN) ROM requests are supported.")
+              sys.exit("Only HyperOS 3 China (CN) ROM requests are supported.")
 
           if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", requester):
               sys.exit("Invalid GitHub requester.")
@@ -112,7 +112,7 @@ jobs:
         run: |
           gh issue comment "$ISSUE_NUMBER" \
             --repo "${{ github.repository }}" \
-            --body "❌ ROM link validation failed. The URL could not be reached by GitHub Actions. Please submit a direct HTTPS Xiaomi HyperOS China full-ROM ZIP link."
+            --body "❌ ROM link validation failed. The URL could not be reached by GitHub Actions. Please submit a direct HTTPS Xiaomi HyperOS 3 China full-ROM ZIP link."
           gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" --reason "not planned"
 
       - name: Notify maintainer on Telegram
@@ -156,7 +156,7 @@ jobs:
               f"• <b>Upload:</b> {html.escape(os.environ['UPLOAD_METHOD'])}\n"
               f"• <b>Debug:</b> {html.escape(os.environ['DEBUG_BUILD'])}\n\n"
               f"<b>ROM URL:</b>\n{html.escape(os.environ['ROM_URL'])}\n\n"
-              "✅ Link format and reachability check passed.\n"
+              "✅ HyperOS 3 China format and reachability check passed.\n"
               "To approve, open the request and comment: <code>/approve-build</code>"
           )
 
@@ -247,7 +247,7 @@ jobs:
           parsed = urlparse(rom_url)
           filename = unquote(parsed.path.rsplit("/", 1)[-1])
           rom_match = re.fullmatch(
-              r"[a-z0-9_]+-ota_full-OS[0-9A-Za-z.]*CNXM-user-[0-9.]+-[0-9a-f]{10}\.zip",
+              r"[a-z0-9_]+-ota_full-OS3\\.[0-9A-Za-z.]*CNXM-user-[0-9.]+-[0-9a-f]{10}\.zip",
               filename,
               flags=re.IGNORECASE,
           )
@@ -261,7 +261,7 @@ jobs:
           if upload_method not in {"drive", "pixeldrain"}:
               sys.exit("Invalid upload method.")
           if region != "China (CN)":
-              sys.exit("Only China ROM is supported.")
+              sys.exit("Only HyperOS 3 China ROM is supported.")
           if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", requester):
               sys.exit("Invalid requester.")
 
