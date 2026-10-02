@@ -5,7 +5,7 @@ mods "Starting Update File..."
 TARGET_DIR="$work_dir/bin/modfile/UpdateFile"
 noexecute=( "insupdate" )
 
-find "$TARGET_DIR" -type f -name "*.sh" | LC_ALL=C sort | while read -r script; do
+while read -r script; do
     base="$(basename "$script" .sh)"
 
     skip=false
@@ -17,6 +17,9 @@ find "$TARGET_DIR" -type f -name "*.sh" | LC_ALL=C sort | while read -r script; 
     done
 
     if [[ $skip == false ]]; then
-        bash "$script"
+        if ! bash "$script"; then
+            error "UpdateFile mod failed: $script"
+            exit 1
+        fi
     fi
-done
+done < <(find "$TARGET_DIR" -type f -name "*.sh" | LC_ALL=C sort)
