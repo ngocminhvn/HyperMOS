@@ -272,15 +272,18 @@ install_ios_emoji() {
     return 1
 }
 
+font_failed=0
+
 case "$rom_os" in
     OS1|OS2|OS3|OS4)
-        install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010"
+        install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010" || font_failed=1
 
         ROBOTO_FONT=$(prepare_roboto_variable || true)
         if [ -n "$ROBOTO_FONT" ]; then
-            install_font_theme "$ROBOTO_FONT" "Roboto" "Roboto" "Google" "10011"
+            install_font_theme "$ROBOTO_FONT" "Roboto" "Roboto" "Google" "10011" || font_failed=1
         else
             mods "Font Roboto theme: ERROR"
+            font_failed=1
         fi
         ;;
     *)
@@ -289,4 +292,9 @@ case "$rom_os" in
         ;;
 esac
 
-install_ios_emoji
+install_ios_emoji || font_failed=1
+
+if [ "$font_failed" -ne 0 ]; then
+    error "Fonts integration failed"
+    exit 1
+fi
