@@ -20,7 +20,7 @@ isSettingsDIR=$(dirname "$isSettings")
 rm -rf "$work_dir/apk_temp"
 mkdir -p "$work_dir/apk_temp/final"
 
-"${APKEDITOR[@]}" d -t raw -f -no-dex-debug \
+# Decode resources as text; raw mode leaves settings_headers.xml as binary AXML.\n"${APKEDITOR[@]}" d -f -no-dex-debug \
   -i "$isSettings" \
   -o "$work_dir/apk_temp/isSettings.apk.out" >/dev/null 2>&1
 
