@@ -95,9 +95,16 @@ print(digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
 }
 
 patch_package_identity() {
-    local manifest="$DECODE_DIR/AndroidManifest.xml"
+    local manifest="$DECODE_DIR/resources/package_1/AndroidManifest.xml"
 
-    [[ -f "$manifest" ]] || {
+    # APKEditor raw decode normally stores package resources under
+    # resources/package_1/. Fall back to discovery so a layout change does not
+    # break the build just because AndroidManifest.xml is not at DECODE_DIR root.
+    if [[ ! -f "$manifest" ]]; then
+        manifest=$(find "$DECODE_DIR" -type f -name 'AndroidManifest.xml' -print -quit)
+    fi
+
+    [[ -n "${manifest:-}" && -f "$manifest" ]] || {
         echo "[ERROR] InstallerX AndroidManifest.xml not found after decode"
         return 1
     }
@@ -139,7 +146,7 @@ PY
         return 1
     fi
 
-    if ! grep -q "package=\"$TARGET_PACKAGE\"" "$manifest"; then
+    if ! grep -Fq "package=\"$TARGET_PACKAGE\"" "$manifest"; then
         echo "[ERROR] AndroidManifest package is not $TARGET_PACKAGE"
         return 1
     fi
