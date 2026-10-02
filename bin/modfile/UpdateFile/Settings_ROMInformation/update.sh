@@ -5,7 +5,7 @@ work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
 MAIN_FOLDER="$work_dir/build/baserom/images"
-APKEDITOR="java -jar $work_dir/bin/apktool/apke.jar"
+APKEDITOR=(java -jar "$work_dir/bin/apktool/apke.jar")
 REPO_URL="https://github.com/ngocminhvn/HyperMOS"
 
 mods "Adding HyperMOS GitHub entry"
@@ -20,7 +20,7 @@ isSettingsDIR=$(dirname "$isSettings")
 rm -rf "$work_dir/apk_temp"
 mkdir -p "$work_dir/apk_temp/final"
 
-"$APKEDITOR" d -t raw -f -no-dex-debug \
+"${APKEDITOR[@]}" d -t raw -f -no-dex-debug \
   -i "$isSettings" \
   -o "$work_dir/apk_temp/isSettings.apk.out" >/dev/null 2>&1
 
@@ -68,7 +68,7 @@ PY
 fi
 
 Settings=$(basename "$isSettings")
-"$APKEDITOR" b -f \
+"${APKEDITOR[@]}" b -f \
   -i "$work_dir/apk_temp/isSettings.apk.out" \
   -o "$work_dir/apk_temp/final/$Settings" >/dev/null 2>&1
 
