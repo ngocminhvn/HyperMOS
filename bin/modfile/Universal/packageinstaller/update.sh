@@ -2,46 +2,133 @@ WDIR=$(pwd)
 source "$WDIR/functions.sh"
 
 MAINF="$WDIR/build/baserom/images"
-androidVer=$(cat "$WDIR/bin/ddevice/androidver.txt")
 deviceTYPE=$(cat "$WDIR/bin/ddevice/device_type.txt")
 
 INSTALLER_DIR="$WDIR/bin/modfile/Universal/packageinstaller"
 WHITELIST="$INSTALLER_DIR/privapp_whitelist_kashi.pkginstaller.xml"
 
-# InstallerX-Revived Stable 26.09
-INSTALLERX_VERSION="26.09"
-INSTALLERX_URL="https://github.com/wxxsfxyzm/InstallerX-Revived/releases/download/26.09/InstallerX-Revived-online-26.09.apk"
-INSTALLERX_SHA256="fe7ac4737885a0426042222e27ed0a637e481e72c742ebe09142fd51448ae85b"
-
-# Keep Xiaomi's package identity so it can replace MIUIPackageInstaller.
 SOURCE_PACKAGE="com.rosan.installer.x.revived"
 TARGET_PACKAGE="com.miui.packageinstaller"
 
 APKEDITOR="java -Xmx4g -jar $WDIR/bin/apktool/apke.jar"
 APKSIGNER="java -jar $WDIR/bin/apktool/apksigner.jar"
+
+# Fixed signing key: keep this unchanged so future ROM dirty flashes use the same cert.
 SIGN_KEY="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
 SIGN_CERT="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem"
 
 TMP_DIR="$WDIR/apk_temp/InstallerX"
-DOWNLOAD_APK="$TMP_DIR/InstallerX-Revived-online-$INSTALLERX_VERSION.apk"
 DECODE_DIR="$TMP_DIR/decode"
 UNSIGNED_APK="$TMP_DIR/MIUIPackageInstaller-unsigned.apk"
 PATCHED_APK="$TMP_DIR/MIUIPackageInstaller.apk"
+
+fetch_latest_release() {
+    local release_json
+
+    release_json=$(curl -fsSL         -H "Accept: application/vnd.github+json"         "https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/latest") || {
+        echo "[ERROR] Failed to query latest InstallerX release"
+        return 1
+    }
+
+    INSTALLERX_VERSION=$(printf '%s' "$release_json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+print(data.get("tag_name", ""))
+')
+
+    INSTALLERX_URL=$(printf '%s' "$release_json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assets = data.get("assets", [])
+apk = next((a for a in assets if a.get("name", "").lower().endswith(".apk")), None)
+print(apk.get("browser_download_url", "") if apk else "")
+')
+
+    INSTALLERX_SHA256=$(printf '%s' "$release_json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assets = data.get("assets", [])
+apk = next((a for a in assets if a.get("name", "").lower().endswith(".apk")), None)
+digest = apk.get("digest", "") if apk else ""
+print(digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
+')
+
+    if [[ -z "$INSTALLERX_VERSION" || -z "$INSTALLERX_URL" ]]; then
+        echo "[ERROR] Latest InstallerX release has no usable APK asset"
+        return 1
+    fi
+
+    DOWNLOAD_APK="$TMP_DIR/InstallerX-Revived-$INSTALLERX_VERSION.apk"
+    mods "InstallerX Stable $INSTALLERX_VERSION"
+}
+
+patch_package_identity() {
+    local changed=0
+    local file
+
+    # Patch decoded text only: manifest, provider/fileprovider authorities,
+    # BuildConfig/applicationId strings and any app-id-specific references.
+    while IFS= read -r -d '' file; do
+        if grep -Iq -- "$SOURCE_PACKAGE" "$file" 2>/dev/null; then
+            sed -i "s#com\\.rosan\\.installer\\.x\\.revived#$TARGET_PACKAGE#g" "$file"
+            changed=1
+        fi
+
+        if grep -Iq -- "com/rosan/installer/x/revived" "$file" 2>/dev/null; then
+            sed -i "s#com/rosan/installer/x/revived#com/miui/packageinstaller#g" "$file"
+            changed=1
+        fi
+    done < <(find "$DECODE_DIR" -type f -print0)
+
+    if [[ "$changed" != "1" ]]; then
+        echo "[ERROR] InstallerX package identity not found: $SOURCE_PACKAGE"
+        return 1
+    fi
+
+    if grep -RIna --exclude='*.png' --exclude='*.jpg' --exclude='*.webp'         -- "$SOURCE_PACKAGE" "$DECODE_DIR" >/dev/null 2>&1; then
+        echo "[ERROR] InstallerX package rename is incomplete"
+        return 1
+    fi
+
+    if ! grep -q "package=\"$TARGET_PACKAGE\"" "$DECODE_DIR/AndroidManifest.xml"; then
+        echo "[ERROR] AndroidManifest package is not $TARGET_PACKAGE"
+        return 1
+    fi
+
+    mods "Package + authorities -> $TARGET_PACKAGE Done"
+}
+
+check_dirty_flash_cert() {
+    local fixed_cert old_cert
+
+    fixed_cert=$(openssl x509 -in "$SIGN_CERT" -outform DER 2>/dev/null         | sha256sum | awk '{print tolower($1)}')
+
+    if [[ -f "$INSTALLER_DIR/MIUIPackageInstaller.apk" ]]; then
+        old_cert=$($APKSIGNER verify --print-certs "$INSTALLER_DIR/MIUIPackageInstaller.apk" 2>/dev/null             | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2); exit}'             | tr -d ':')
+
+        if [[ -n "$old_cert" && -n "$fixed_cert" && "$old_cert" != "$fixed_cert" ]]; then
+            echo "[INFO] Existing MIUIPackageInstaller uses another signing certificate"
+            echo "[INFO] First transition may not be dirty-flash compatible; future builds will be"
+        fi
+    fi
+}
 
 build_installerx_stable() {
     rm -rf "$TMP_DIR"
     mkdir -p "$TMP_DIR"
 
-    mods "InstallerX Stable $INSTALLERX_VERSION"
+    fetch_latest_release || return 1
 
     if ! aria2c -q         --allow-overwrite=true         --auto-file-renaming=false         -d "$TMP_DIR"         -o "$(basename "$DOWNLOAD_APK")"         "$INSTALLERX_URL"; then
         echo "[ERROR] Failed to download InstallerX Stable $INSTALLERX_VERSION"
         return 1
     fi
 
-    if ! echo "$INSTALLERX_SHA256  $DOWNLOAD_APK" | sha256sum -c - >/dev/null 2>&1; then
-        echo "[ERROR] InstallerX Stable $INSTALLERX_VERSION SHA-256 mismatch"
-        return 1
+    if [[ -n "$INSTALLERX_SHA256" ]]; then
+        if ! echo "$INSTALLERX_SHA256  $DOWNLOAD_APK" | sha256sum -c - >/dev/null 2>&1; then
+            echo "[ERROR] InstallerX Stable $INSTALLERX_VERSION SHA-256 mismatch"
+            return 1
+        fi
     fi
 
     if ! $APKEDITOR d -t raw -f -no-dex-debug         -i "$DOWNLOAD_APK"         -o "$DECODE_DIR" >/dev/null 2>&1; then
@@ -49,26 +136,15 @@ build_installerx_stable() {
         return 1
     fi
 
-    mapfile -d '' package_files < <(
-        grep -RIlZ -- "$SOURCE_PACKAGE" "$DECODE_DIR" 2>/dev/null || true
-    )
-
-    if (( ${#package_files[@]} == 0 )); then
-        echo "[ERROR] InstallerX package identity not found: $SOURCE_PACKAGE"
-        return 1
-    fi
-
-    for file in "${package_files[@]}"; do
-        sed -i "s#com\\.rosan\\.installer\\.x\\.revived#$TARGET_PACKAGE#g" "$file"
-    done
-
-    if grep -RIl -- "$SOURCE_PACKAGE" "$DECODE_DIR" >/dev/null 2>&1; then
-        echo "[ERROR] InstallerX package rename is incomplete"
-        return 1
-    fi
+    patch_package_identity || return 1
 
     if ! $APKEDITOR b -f         -i "$DECODE_DIR"         -o "$UNSIGNED_APK" >/dev/null 2>&1; then
         echo "[ERROR] Failed to rebuild InstallerX Stable $INSTALLERX_VERSION"
+        return 1
+    fi
+
+    if [[ ! -f "$SIGN_KEY" || ! -f "$SIGN_CERT" ]]; then
+        echo "[ERROR] Fixed InstallerX signing key/cert not found"
         return 1
     fi
 
@@ -77,15 +153,17 @@ build_installerx_stable() {
         return 1
     fi
 
-    if ! $APKSIGNER verify "$PATCHED_APK" >/dev/null 2>&1; then
+    if ! $APKSIGNER verify --verbose --print-certs "$PATCHED_APK" >/dev/null 2>&1; then
         echo "[ERROR] MIUIPackageInstaller.apk signature verification failed"
         return 1
     fi
 
-    mods "InstallerX Stable $INSTALLERX_VERSION -> $TARGET_PACKAGE Done"
+    mods "Signed with fixed HyperMOS key -> Done"
 }
 
 if [[ "$deviceTYPE" == "China" ]]; then
+    check_dirty_flash_cert
+
     if ! build_installerx_stable; then
         rm -rf "$TMP_DIR"
         exit 1
