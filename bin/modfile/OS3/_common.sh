@@ -8,17 +8,59 @@ OS3_IMAGES="$work_dir/build/baserom/images"
 MODSCENTER_ARCHIVE=""
 MODSCENTER_TAG=""
 
+CONFIG_ENV="$work_dir/config.env"
+dirtyflash="${dirtyflash:-off}"
+if [[ -f "$CONFIG_ENV" ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_ENV"
+fi
+dirtyflash=$(printf '%s' "$dirtyflash" | tr '[:upper:]' '[:lower:]')
+case "$dirtyflash" in
+    on|off) ;;
+    *)
+        error "OS3 Mods Center: dirtyflash must be on or off in config.env"
+        exit 1
+        ;;
+esac
+
+modscenter_pinned_tag() {
+    local repo="$1"
+    case "$repo" in
+        "Mods-Center/HyperOS-App-Vault") printf '%s\n' "V4.5" ;;
+        "Mods-Center/ColorOS_Control_Center") printf '%s\n' "V3" ;;
+        "Mods-Center/HyperOS-Launcher") printf '%s\n' "V7.1" ;;
+        "Mods-Center/HyperOS-Security-Center") printf '%s\n' "V7" ;;
+        "Mods-Center/HyperOS-Theme-Manager") printf '%s\n' "V7" ;;
+        *) return 1 ;;
+    esac
+}
+
 modscenter_resolve_latest() {
     local repo="$1"
+    local pinned_tag=""
 
-    python3 - "$repo" <<'PY'
+    if [[ "$dirtyflash" == "on" ]]; then
+        if ! pinned_tag=$(modscenter_pinned_tag "$repo"); then
+            echo "No pinned OS3 release configured for $repo" >&2
+            return 1
+        fi
+    fi
+
+    python3 - "$repo" "$pinned_tag" <<'PY'
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 repo = sys.argv[1]
-api = f"https://api.github.com/repos/{repo}/releases/latest"
+pinned_tag = sys.argv[2].strip()
+if pinned_tag:
+    encoded_tag = urllib.parse.quote(pinned_tag, safe="")
+    api = f"https://api.github.com/repos/{repo}/releases/tags/{encoded_tag}"
+else:
+    api = f"https://api.github.com/repos/{repo}/releases/latest"
+
 headers = {
     "Accept": "application/vnd.github+json",
     "User-Agent": "HyperMOS-OS3-ModsCenter",
@@ -41,7 +83,7 @@ if len(assets) != 1:
     raise SystemExit(f"Expected exactly one ZIP release asset, found {len(assets)}: {names}")
 
 asset = assets[0]
-tag = str(data.get("tag_name", "latest"))
+tag = str(data.get("tag_name", pinned_tag or "latest"))
 url = str(asset.get("browser_download_url", ""))
 digest = str(asset.get("digest") or "")
 name = str(asset.get("name") or "module.zip")
@@ -65,8 +107,14 @@ modscenter_download_latest() {
     local label="$1"
     local repo="$2"
 
-    local meta url sha256 asset_name archive safe_tag
+    local meta url sha256 asset_name archive safe_tag release_mode
     local -a release_meta
+
+    if [[ "$dirtyflash" == "on" ]]; then
+        release_mode="pinned"
+    else
+        release_mode="latest"
+    fi
 
     if ! meta=$(modscenter_resolve_latest "$repo"); then
         error "$label: cannot resolve latest GitHub release"
@@ -92,18 +140,18 @@ modscenter_download_latest() {
         if [[ -n "$sha256" ]]; then
             if printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >/dev/null 2>&1; then
                 MODSCENTER_ARCHIVE="$archive"
-                mods "$label: latest $MODSCENTER_TAG (cached, SHA256 OK)"
+                mods "$label: $release_mode $MODSCENTER_TAG (cached, SHA256 OK)"
                 return 0
             fi
         else
             MODSCENTER_ARCHIVE="$archive"
-            mods "$label: latest $MODSCENTER_TAG (cached, no upstream digest)"
+            mods "$label: $release_mode $MODSCENTER_TAG (cached, no upstream digest)"
             return 0
         fi
     fi
 
     rm -f "$archive"
-    mods "$label: latest release $MODSCENTER_TAG -> $asset_name"
+    mods "$label: $release_mode release $MODSCENTER_TAG -> $asset_name"
 
     if ! aria2c -q --allow-overwrite=true --auto-file-renaming=false --file-allocation=none -x8 -s8 \
         -d "$(dirname "$archive")" -o "$(basename "$archive")" "$url"; then
@@ -491,5 +539,5 @@ modscenter_apply_native_module() {
     fi
 
     rm -rf "$extract_dir"
-    mods "$label: latest $MODSCENTER_TAG integrated"
+    mods "$label: $release_mode $MODSCENTER_TAG integrated"
 }
