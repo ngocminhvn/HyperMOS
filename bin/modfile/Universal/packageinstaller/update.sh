@@ -30,6 +30,7 @@ TARGET_PACKAGE="com.miui.packageinstaller"
 
 APKEDITOR="java -Xmx4g -jar $WDIR/bin/apktool/apke.jar"
 APKSIGNER="java -jar $WDIR/bin/apktool/apksigner.jar"
+AAPT="${AAPT:-aapt}"
 
 # Fixed signing key: keep this unchanged so future ROM dirty flashes use the same cert.
 SIGN_KEY="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
@@ -94,35 +95,61 @@ print(digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
 }
 
 patch_package_identity() {
-    local changed=0
-    local file
+    local manifest="$DECODE_DIR/AndroidManifest.xml"
 
-    # Patch decoded text only: manifest, provider/fileprovider authorities,
-    # BuildConfig/applicationId strings and any app-id-specific references.
-    while IFS= read -r -d '' file; do
-        if grep -Iq -- "$SOURCE_PACKAGE" "$file" 2>/dev/null; then
-            sed -i "s#com\\.rosan\\.installer\\.x\\.revived#$TARGET_PACKAGE#g" "$file"
-            changed=1
-        fi
+    [[ -f "$manifest" ]] || {
+        echo "[ERROR] InstallerX AndroidManifest.xml not found after decode"
+        return 1
+    }
 
-        if grep -Iq -- "com/rosan/installer/x/revived" "$file" 2>/dev/null; then
-            sed -i "s#com/rosan/installer/x/revived#com/miui/packageinstaller#g" "$file"
-            changed=1
-        fi
-    done < <(find "$DECODE_DIR" -type f -print0)
+    # Only replace the dotted application id in decoded UTF-8 text.
+    # Do NOT rewrite com/rosan/... class descriptor paths: Java/Kotlin classes
+    # are allowed to keep their original namespace when the Android package id
+    # is changed, and rewriting descriptors can break dex/class resolution.
+    if ! python3 - "$DECODE_DIR" "$SOURCE_PACKAGE" "$TARGET_PACKAGE" <<'PY'
+from pathlib import Path
+import sys
 
-    if [[ "$changed" != "1" ]]; then
-        echo "[ERROR] InstallerX package identity not found: $SOURCE_PACKAGE"
+root = Path(sys.argv[1])
+source = sys.argv[2]
+target = sys.argv[3]
+changed = 0
+
+for path in root.rglob("*"):
+    if not path.is_file():
+        continue
+    try:
+        raw = path.read_bytes()
+        text = raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        continue
+
+    if source not in text:
+        continue
+
+    path.write_text(text.replace(source, target), encoding="utf-8")
+    changed += 1
+
+if changed == 0:
+    print(f"InstallerX package identity not found: {source}", file=sys.stderr)
+    raise SystemExit(2)
+PY
+    then
+        echo "[ERROR] Failed to patch InstallerX package identity"
         return 1
     fi
 
-    if grep -RIna --exclude='*.png' --exclude='*.jpg' --exclude='*.webp'         -- "$SOURCE_PACKAGE" "$DECODE_DIR" >/dev/null 2>&1; then
-        echo "[ERROR] InstallerX package rename is incomplete"
-        return 1
-    fi
-
-    if ! grep -q "package=\"$TARGET_PACKAGE\"" "$DECODE_DIR/AndroidManifest.xml"; then
+    if ! grep -q "package=\"$TARGET_PACKAGE\"" "$manifest"; then
         echo "[ERROR] AndroidManifest package is not $TARGET_PACKAGE"
+        return 1
+    fi
+
+    # Remaining source-package strings in binary blobs are harmless and must
+    # not make the build fail. Relevant decoded text has already been patched.
+    local remaining_text
+    remaining_text=$(grep -RIl --binary-files=without-match -- "$SOURCE_PACKAGE" "$DECODE_DIR" 2>/dev/null | head -n 1 || true)
+    if [[ -n "$remaining_text" ]]; then
+        echo "[ERROR] InstallerX text package rename is incomplete: $remaining_text"
         return 1
     fi
 
@@ -189,7 +216,15 @@ build_installerx_stable() {
         return 1
     fi
 
-    mods "Signed with fixed HyperMOS key -> Done"
+    local rebuilt_package
+    rebuilt_package=$($AAPT dump badging "$PATCHED_APK" 2>/dev/null \
+        | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)
+    if [[ "$rebuilt_package" != "$TARGET_PACKAGE" ]]; then
+        echo "[ERROR] Rebuilt InstallerX package mismatch: expected $TARGET_PACKAGE, got ${rebuilt_package:-<empty>}"
+        return 1
+    fi
+
+    mods "Signed + verified package $TARGET_PACKAGE -> Done"
 }
 
 if [[ "$deviceTYPE" == "China" ]]; then
@@ -203,7 +238,13 @@ if [[ "$deviceTYPE" == "China" ]]; then
     TARGET="$MAINF/product/priv-app/MIUIPackageInstaller"
     mkdir -p "$TARGET"
     rm -rf "$TARGET"/*
-    cp -f "$PATCHED_APK" "$TARGET/MIUIPackageInstaller.apk"
+    cp -f "$PATCHED_APK" "$TARGET/MIUIPackageInstaller.apk" || exit 1
+
+    if [[ ! -s "$TARGET/MIUIPackageInstaller.apk" ]]; then
+        echo "[ERROR] InstallerX output missing from product/priv-app"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
 
     mkdir -p "$MAINF/product/etc/permissions"
     cp -f "$WHITELIST" "$MAINF/product/etc/permissions/"
