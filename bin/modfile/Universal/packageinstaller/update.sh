@@ -7,6 +7,24 @@ deviceTYPE=$(cat "$WDIR/bin/ddevice/device_type.txt")
 INSTALLER_DIR="$WDIR/bin/modfile/Universal/packageinstaller"
 WHITELIST="$INSTALLER_DIR/privapp_whitelist_kashi.pkginstaller.xml"
 
+CONFIG_ENV="$WDIR/config.env"
+dirtyflash="${dirtyflash:-off}"
+if [[ -f "$CONFIG_ENV" ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_ENV"
+fi
+dirtyflash=$(printf '%s' "$dirtyflash" | tr '[:upper:]' '[:lower:]')
+case "$dirtyflash" in
+    on|off) ;;
+    *)
+        echo "[ERROR] packageinstaller: dirtyflash must be on or off in config.env"
+        exit 1
+        ;;
+esac
+
+# Snapshot used when dirtyflash=on.
+PINNED_INSTALLERX_VERSION="26.09"
+
 SOURCE_PACKAGE="com.rosan.installer.x.revived"
 TARGET_PACKAGE="com.miui.packageinstaller"
 
@@ -23,10 +41,18 @@ UNSIGNED_APK="$TMP_DIR/MIUIPackageInstaller-unsigned.apk"
 PATCHED_APK="$TMP_DIR/MIUIPackageInstaller.apk"
 
 fetch_latest_release() {
-    local release_json
+    local release_json api_url release_mode
 
-    release_json=$(curl -fsSL         -H "Accept: application/vnd.github+json"         "https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/latest") || {
-        echo "[ERROR] Failed to query latest InstallerX release"
+    if [[ "$dirtyflash" == "on" ]]; then
+        release_mode="pinned"
+        api_url="https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/tags/$PINNED_INSTALLERX_VERSION"
+    else
+        release_mode="latest"
+        api_url="https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/latest"
+    fi
+
+    release_json=$(curl -fsSL         -H "Accept: application/vnd.github+json"         "$api_url") || {
+        echo "[ERROR] Failed to query $release_mode InstallerX release"
         return 1
     }
 
@@ -54,12 +80,17 @@ print(digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
 ')
 
     if [[ -z "$INSTALLERX_VERSION" || -z "$INSTALLERX_URL" ]]; then
-        echo "[ERROR] Latest InstallerX release has no usable APK asset"
+        echo "[ERROR] $release_mode InstallerX release has no usable APK asset"
+        return 1
+    fi
+
+    if [[ "$dirtyflash" == "on" && "$INSTALLERX_VERSION" != "$PINNED_INSTALLERX_VERSION" ]]; then
+        echo "[ERROR] Pinned InstallerX tag mismatch: expected $PINNED_INSTALLERX_VERSION, got $INSTALLERX_VERSION"
         return 1
     fi
 
     DOWNLOAD_APK="$TMP_DIR/InstallerX-Revived-$INSTALLERX_VERSION.apk"
-    mods "InstallerX Stable $INSTALLERX_VERSION"
+    mods "InstallerX Stable $INSTALLERX_VERSION ($release_mode)"
 }
 
 patch_package_identity() {
