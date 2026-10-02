@@ -747,6 +747,66 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
   done
+  # ZKOS/FrameworkPatcher behavior: keep the ROM region as CN, but make
+  # Xiaomi Greeze use the non-CN policy path. This avoids changing
+  # ro.miui.region and keeps the rest of Xiaomi regional behavior intact.
+  local policy_file
+  policy_file=$(find "$decompile_dir" -type f -path '*/com/miui/server/greeze/PolicyManager.smali' -print -quit)
+  if [ -z "$policy_file" ] || [ ! -f "$policy_file" ]; then
+    err "CN Notification Fix: PolicyManager.smali not found"
+    return 1
+  fi
+
+  POLICY_FILE="$policy_file" python3 <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+path = Path(os.environ["POLICY_FILE"])
+lines = path.read_text(encoding="utf-8").splitlines()
+
+pat = re.compile(
+    r"^(\s*)sput-boolean\s+([vp]\d+),\s+"
+    r"Lcom/miui/server/greeze/PolicyManager;->CN_MODEL:Z\s*$"
+)
+matches = []
+for idx, line in enumerate(lines):
+    m = pat.match(line)
+    if m:
+        matches.append((idx, m.group(1), m.group(2)))
+
+# Fail closed on an unknown Xiaomi layout instead of patching the wrong field.
+if len(matches) != 1:
+    print(f"unexpected CN_MODEL assignment count: {len(matches)}", file=sys.stderr)
+    sys.exit(3)
+
+idx, indent, reg = matches[0]
+force = f"{indent}const/4 {reg}, 0x0"
+
+if idx == 0 or lines[idx - 1].strip() != f"const/4 {reg}, 0x0":
+    lines.insert(idx, force)
+
+out = "\n".join(lines) + "\n"
+
+# Verify the exact CN_MODEL write is now immediately preceded by false.
+verify = re.compile(
+    rf"(?m)^\s*const/4\s+{re.escape(reg)},\s+0x0\s*$\n"
+    rf"^\s*sput-boolean\s+{re.escape(reg)},\s+"
+    rf"Lcom/miui/server/greeze/PolicyManager;->CN_MODEL:Z\s*$"
+)
+if not verify.search(out):
+    print("CN_MODEL=false verification failed", file=sys.stderr)
+    sys.exit(4)
+
+path.write_text(out, encoding="utf-8")
+PY
+  if [ $? -ne 0 ]; then
+    err "CN Notification Fix: failed to force PolicyManager.CN_MODEL=false"
+    return 1
+  fi
+  log "[PATCH] PolicyManager.CN_MODEL=false -> Done"
+
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
     [ -f "$i" ] || continue
     sed -i '/Lmiui\/drm\/DrmBroadcast;->getInstance/{N;N;N;N;d}' "$i"
@@ -1119,7 +1179,7 @@ patch_miui_services() {
     apply_miui_services_global_patch "$decompile_dir"
   else
     if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
-      apply_miui_services_cn_notification_fix "$decompile_dir"
+      apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
     fi
     apply_miui_services_gboard "$decompile_dir"
   fi
