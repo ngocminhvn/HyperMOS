@@ -13,6 +13,7 @@ find_theme_target() {
     local p
     for p in \
         "$work_dir/build/baserom/images/product/media/theme" \
+        "$work_dir/build/baserom/images/system_ext/media/theme" \
         "$work_dir/build/baserom/images/system/system/media/theme" \
         "$work_dir/build/baserom/images/system/media/theme"; do
         if [ -d "$p" ]; then
@@ -21,6 +22,24 @@ find_theme_target() {
         fi
     done
     return 1
+}
+
+theme_runtime_root_for_target() {
+    local target="$1"
+    case "$target" in
+        "$work_dir/build/baserom/images/product/media/theme")
+            printf '%s\n' "/product/media/theme"
+            ;;
+        "$work_dir/build/baserom/images/system_ext/media/theme")
+            printf '%s\n' "/system_ext/media/theme"
+            ;;
+        "$work_dir/build/baserom/images/system/system/media/theme"|"$work_dir/build/baserom/images/system/media/theme")
+            printf '%s\n' "/system/media/theme"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 prepare_roboto_variable() {
@@ -54,6 +73,12 @@ install_font_theme() {
 
     local ui_version=16
     [[ "$rom_os" == "OS4" ]] && ui_version=17
+
+    local theme_runtime_root
+    theme_runtime_root=$(theme_runtime_root_for_target "$theme_target") || {
+        mods "Font $title theme: ERROR (unknown theme target)"
+        return 1
+    }
 
     local tmp
     tmp=$(mktemp -d) || {
@@ -103,12 +128,12 @@ EOF
         return 1
     }
 
-    python3 - "$theme_target" "$theme_id" "$title" "$author" "$local_id" <<'PY'
+    python3 - "$theme_target" "$theme_id" "$title" "$author" "$local_id" "$theme_runtime_root" <<'PY'
 import json
 import os
 import sys
 
-theme, theme_id, title, author, local_id = sys.argv[1:6]
+theme, theme_id, title, author, local_id, theme_runtime_root = sys.argv[1:7]
 src = os.path.join(theme, ".data", "meta", "fonts", "default.mrm")
 dst = os.path.join(theme, ".data", "meta", "fonts", f"{theme_id}.mrm")
 
@@ -129,26 +154,10 @@ except Exception:
         "extraMeta": {}
     }
 
-# Follow the runtime paths declared by the stock font metadata instead of
-# hard-coding /system/media/theme. Some HyperOS builds keep the theme tree on
-# another partition; a wrong contentPath makes the selector silently fall back
-# to the stock MiSans/MiLatin font.
-stock_download = data.get("downloadPath")
-stock_meta = data.get("metaPath")
-
-if isinstance(stock_download, str) and stock_download.startswith("/") and stock_download.endswith(".mtz"):
-    theme_runtime_root = os.path.dirname(stock_download)
-else:
-    norm = theme.replace("\\", "/")
-    if "/images/product/media/theme" in norm:
-        theme_runtime_root = "/product/media/theme"
-    else:
-        theme_runtime_root = "/system/media/theme"
-
-if isinstance(stock_meta, str) and stock_meta.startswith("/") and "/.data/meta/fonts/" in stock_meta:
-    font_meta_root = os.path.dirname(stock_meta)
-else:
-    font_meta_root = f"{theme_runtime_root}/.data/meta/fonts"
+# Always point metadata at the partition that actually contains the MTZ in
+# the unpacked ROM. On this HyperOS base /system/media is represented by a
+# symlink-like entry during extraction, so trying to mkdir/copy through it fails.
+font_meta_root = f"{theme_runtime_root}/.data/meta/fonts"
 
 data["localId"] = local_id
 data["onlineId"] = None
@@ -221,64 +230,16 @@ PYVERIFY
         return 1
     fi
 
-    # Theme Manager may scan preinstalled font metadata from /product/media/theme
-    # while the metadata itself still points to /system/media/theme/<id>.mtz.
-    # In that case the selector entry is visible, but applying it silently falls
-    # back to MiSans because the MTZ does not exist at the declared runtime path.
-    local runtime_content_path
-    runtime_content_path=$(python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" <<'PYRUNTIME'
-import json
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8-sig") as fh:
-    data = json.load(fh)
-
-path = data.get("contentPath") or data.get("downloadPath") or ""
-print(path if isinstance(path, str) else "")
-PYRUNTIME
-)
-
-    local runtime_theme_dir=""
-    case "$runtime_content_path" in
-        /system/media/theme/*)
-            runtime_theme_dir="$work_dir/build/baserom/images/system/system/media/theme"
-            ;;
-        /product/media/theme/*)
-            runtime_theme_dir="$work_dir/build/baserom/images/product/media/theme"
-            ;;
-        /system_ext/media/theme/*)
-            runtime_theme_dir="$work_dir/build/baserom/images/system_ext/media/theme"
-            ;;
-        /vendor/media/theme/*)
-            runtime_theme_dir="$work_dir/build/baserom/images/vendor/media/theme"
-            ;;
-    esac
-
-    if [ -n "$runtime_theme_dir" ]; then
-        mkdir -p "$runtime_theme_dir" || {
-            mods "Font $title theme: ERROR (runtime theme dir)"
-            return 1
-        }
-
-        if [ "$runtime_theme_dir" != "$theme_target" ]; then
-            cp -f "$theme_target/$theme_id.mtz" "$runtime_theme_dir/$theme_id.mtz" || {
-                mods "Font $title theme: ERROR (runtime MTZ copy)"
-                return 1
-            }
-        fi
-
-        if [ ! -s "$runtime_theme_dir/$theme_id.mtz" ]; then
-            mods "Font $title theme: ERROR (runtime MTZ missing)"
-            return 1
-        fi
-
-        chmod 0644 "$runtime_theme_dir/$theme_id.mtz" 2>/dev/null || true
-        mods "Font $title runtime: OK ($runtime_content_path)"
-    else
-        mods "Font $title theme: ERROR (unsupported runtime path: $runtime_content_path)"
+    # The MTZ already lives in the real partition selected above. Do not
+    # mirror it through /system/media: that path may be a symlink represented as
+    # a regular entry by the image extractor and mkdir would fail.
+    if [ ! -s "$theme_target/$theme_id.mtz" ]; then
+        mods "Font $title theme: ERROR (runtime MTZ missing)"
         return 1
     fi
 
+    chmod 0644 "$theme_target/$theme_id.mtz" 2>/dev/null || true
+    mods "Font $title runtime: OK ($theme_runtime_root/$theme_id.mtz)"
     mods "Font $title theme: OK (MTZ + metadata + runtime path verified)"
     return 0
 
