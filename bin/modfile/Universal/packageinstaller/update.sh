@@ -95,11 +95,10 @@ print(digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
 }
 
 patch_package_identity() {
-    local manifest="$DECODE_DIR/resources/package_1/AndroidManifest.xml"
+    local manifest="$DECODE_DIR/AndroidManifest.xml"
 
-    # APKEditor raw decode normally stores package resources under
-    # resources/package_1/. Fall back to discovery so a layout change does not
-    # break the build just because AndroidManifest.xml is not at DECODE_DIR root.
+    # XML decode writes the main manifest at the decode root. Keep discovery as
+    # a fallback in case a future APKEditor version changes the output layout.
     if [[ ! -f "$manifest" ]]; then
         manifest=$(find "$DECODE_DIR" -type f -name 'AndroidManifest.xml' -print -quit)
     fi
@@ -196,14 +195,16 @@ build_installerx_stable() {
         fi
     fi
 
-    if ! $APKEDITOR d -t raw -f -no-dex-debug         -i "$DOWNLOAD_APK"         -o "$DECODE_DIR" >/dev/null 2>&1; then
-        echo "[ERROR] Failed to decode InstallerX Stable $INSTALLERX_VERSION"
+    # Package/authority rewriting requires a readable AndroidManifest.xml.
+    # APKEditor raw mode does not expose the decoded XML manifest.
+    if ! $APKEDITOR d -t xml -f -no-dex-debug         -i "$DOWNLOAD_APK"         -o "$DECODE_DIR" >/dev/null 2>&1; then
+        echo "[ERROR] Failed to XML-decode InstallerX Stable $INSTALLERX_VERSION"
         return 1
     fi
 
     patch_package_identity || return 1
 
-    if ! $APKEDITOR b -f         -i "$DECODE_DIR"         -o "$UNSIGNED_APK" >/dev/null 2>&1; then
+    if ! $APKEDITOR b -t xml -f         -i "$DECODE_DIR"         -o "$UNSIGNED_APK" >/dev/null 2>&1; then
         echo "[ERROR] Failed to rebuild InstallerX Stable $INSTALLERX_VERSION"
         return 1
     fi
