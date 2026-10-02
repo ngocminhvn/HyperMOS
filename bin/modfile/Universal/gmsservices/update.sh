@@ -9,48 +9,6 @@ MAIN_FOLDER="$work_dir/build/baserom/images"
 GMS_BASE="$work_dir/bin/modfile/Universal/gmsservices"
 GMS_A16="$work_dir/bin/modfile/Universal/gmsservices16"
 
-# LiteGapps Google Keyboard addon for Android 16 / arm64.
-# This is the exact package verified from the uploaded ZIP and SourceForge.
-GBOARD_A16_URL="https://sourceforge.net/projects/litegapps/files/addon/arm64/36/gapps/GoogleKeyboard/GoogleKeyboard-LiteGapps-Addon-arm64-16.0.zip/download"
-GBOARD_A16_SHA256="6fe9ae5d44c0faf162a951e648f8b320628ac444a77bdc6ef5be73bb413ca5f8"
-GBOARD_A16_ZIP="$work_dir/GoogleKeyboard-LiteGapps-Addon-arm64-16.0.zip"
-GBOARD_A16_ENTRY="system/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk"
-GBOARD_A16_TARGET="$MAIN_FOLDER/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk"
-
-install_gboard_a16() {
-  rm -f "$GBOARD_A16_ZIP"
-  mkdir -p "$(dirname "$GBOARD_A16_TARGET")"
-
-  mods "Downloading Google Keyboard (LiteGapps A16)"
-
-  if ! aria2c -q       --allow-overwrite=true       --auto-file-renaming=false       -d "$(dirname "$GBOARD_A16_ZIP")"       -o "$(basename "$GBOARD_A16_ZIP")"       "$GBOARD_A16_URL"; then
-    echo "[ERROR] Failed to download Google Keyboard addon"
-    rm -f "$GBOARD_A16_ZIP"
-    exit 1
-  fi
-
-  if ! echo "$GBOARD_A16_SHA256  $GBOARD_A16_ZIP" | sha256sum -c - >/dev/null 2>&1; then
-    echo "[ERROR] Google Keyboard addon SHA-256 mismatch"
-    rm -f "$GBOARD_A16_ZIP"
-    exit 1
-  fi
-
-  if ! unzip -p "$GBOARD_A16_ZIP" "$GBOARD_A16_ENTRY" > "$GBOARD_A16_TARGET"; then
-    echo "[ERROR] Failed to extract LatinIMEGooglePrebuilt.apk"
-    rm -f "$GBOARD_A16_ZIP" "$GBOARD_A16_TARGET"
-    exit 1
-  fi
-
-  rm -f "$GBOARD_A16_ZIP"
-
-  if [[ ! -s "$GBOARD_A16_TARGET" ]]; then
-    echo "[ERROR] Gboard APK missing after extraction: $GBOARD_A16_TARGET"
-    exit 1
-  fi
-
-  mods "Gboard (LatinIMEGooglePrebuilt) -> Done"
-}
-
 if [[ $regionTYPE == "China" ]]; then
   if [[ $androidVER == "16" ]]; then
     GMS_SOURCE="$GMS_A16"
@@ -58,6 +16,18 @@ if [[ $regionTYPE == "China" ]]; then
 
     if [[ ! -d "$GMS_SOURCE/product" || ! -d "$GMS_SOURCE/system_ext" ]]; then
       echo "[ERROR] gmsservices16 payload is incomplete"
+      exit 1
+    fi
+
+    GBOARD_HELPER="$GMS_A16/gboard.inc"
+    if [[ ! -f "$GBOARD_HELPER" ]]; then
+      echo "[ERROR] Missing gmsservices16 Gboard helper: $GBOARD_HELPER"
+      exit 1
+    fi
+
+    source "$GBOARD_HELPER"
+    if ! ensure_gboard_a16; then
+      echo "[ERROR] Failed to prepare Gboard inside gmsservices16"
       exit 1
     fi
   else
@@ -76,7 +46,12 @@ if [[ $regionTYPE == "China" ]]; then
   cp -rf "$GMS_SOURCE/system_ext/." "$MAIN_FOLDER/system_ext/"
 
   if [[ $androidVER == "16" ]]; then
-    install_gboard_a16
+    GBOARD_TARGET="$MAIN_FOLDER/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk"
+    if [[ ! -s "$GBOARD_TARGET" ]]; then
+      echo "[ERROR] Gboard was not copied from gmsservices16 into product"
+      exit 1
+    fi
+    mods "Gboard A16 -> product/app/LatinIMEGooglePrebuilt Done"
   fi
 
   if ! grep -q '^ro.miui.has_gmscore=1$' "$MAIN_FOLDER/system/system/build.prop"; then
@@ -98,12 +73,6 @@ if [[ $regionTYPE == "China" ]]; then
     cp -rf "$GMS_BASE/maps/A14/framework" "$MAIN_FOLDER/product/"
   else
     cp -rf "$GMS_BASE/maps/A15/framework" "$MAIN_FOLDER/product/"
-  fi
-
-  # Hard stop: China ROMs must never be packed without at least one keyboard.
-  if [[ $androidVER == "16" && ! -s "$GBOARD_A16_TARGET" ]]; then
-    echo "[ERROR] No Gboard found after GMS integration"
-    exit 1
   fi
 
   mods "Added GMS Done"
