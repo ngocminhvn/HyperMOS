@@ -157,7 +157,7 @@ apply_llions_app \
 apply_llions_app \
     "LLions Gallery Editor" \
     "[LLions] HyperOS Gallery Editor Mod v2.3.0.5.apk" \
-    "MIUIGalleryEditor" || exit 1
+    "MIMediaEditor" || exit 1
 
 apply_llions_app \
     "LLions Gallery" \
