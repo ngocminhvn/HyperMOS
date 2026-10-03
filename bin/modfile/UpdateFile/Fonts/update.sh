@@ -92,10 +92,37 @@ install_font_theme() {
         return 1
     }
 
-    # HyperOS Theme Manager resolves applied font payloads using these
-    # runtime names. Keep all three aliases so China/Global and different
-    # ThemeManager builds can bind the same variable font correctly.
-    for runtime_font in Roboto-Regular.ttf Miui-Regular.ttf MiuiEx-Regular.ttf; do
+    # HyperOS/MIUI ThemeManager does not treat a variable theme font as only
+    # Roboto-Regular.ttf. When a font advertises a fontWeightList it fans the
+    # same source font out to the Xiaomi runtime aliases below and, crucially,
+    # creates MI_Theme_VF.ttf. Settings/FontSettings uses MI_Theme_VF.ttf to
+    # detect a variable theme font and to keep weight changes smooth.
+    #
+    # Keep the stock ROM font XML/configs untouched. These aliases live only
+    # inside the MTZ and are populated from the selected SF Pro/Roboto VF.
+    local runtime_fonts=(
+        MI_Theme_VF.ttf
+        Roboto-Regular.ttf
+        Roboto-Italic.ttf
+        Roboto-Bold.ttf
+        Roboto-BoldItalic.ttf
+        Roboto-Light.ttf
+        Roboto-LightItalic.ttf
+        Roboto-Medium.ttf
+        Roboto-MediumItalic.ttf
+        Roboto-Black.ttf
+        Roboto-BlackItalic.ttf
+        Roboto-Thin.ttf
+        Roboto-ThinItalic.ttf
+        Miui-Regular.ttf
+        Miui-Bold.ttf
+        MiuiEx-Regular.ttf
+        MiuiEx-Bold.ttf
+        MiuiEx-Light.ttf
+    )
+
+    local runtime_font
+    for runtime_font in "${runtime_fonts[@]}"; do
         cp -f "$font_file" "$tmp/fonts/$runtime_font" || {
             rm -rf "$tmp"
             mods "Font $title theme: ERROR"
@@ -200,13 +227,20 @@ PY
         return 1
     fi
 
-    for runtime_font in Roboto-Regular.ttf Miui-Regular.ttf MiuiEx-Regular.ttf; do
+    for runtime_font in "${runtime_fonts[@]}"; do
         if ! unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
             | grep -qx "fonts/$runtime_font"; then
             mods "Font $title theme: ERROR (missing $runtime_font)"
             return 1
         fi
     done
+
+    # MI_Theme_VF.ttf is the key marker used by Xiaomi's variable-font path.
+    if ! unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
+        | grep -qx "fonts/MI_Theme_VF.ttf"; then
+        mods "Font $title theme: ERROR (MI_Theme_VF.ttf missing)"
+        return 1
+    fi
 
     if ! python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$theme_id" "$title" <<'PYVERIFY'
 import json
