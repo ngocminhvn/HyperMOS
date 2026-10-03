@@ -20,7 +20,7 @@ AAPT="${AAPT:-aapt}"
 BAKSMALI="java -jar $WDIR/bin/apktool/baksmali-3.0.5.jar"
 SMALI="java -jar $WDIR/bin/apktool/smali-3.0.5.jar"
 
-# Fixed signing key: keep this unchanged so future ROM dirty flashes use the same cert.
+# Signing key used for the rebuilt InstallerX system APK.
 SIGN_KEY="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
 SIGN_CERT="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem"
 
@@ -204,27 +204,6 @@ PYKEEP
     mods "InstallerX upstream self-update identity kept as $SOURCE_PACKAGE"
 }
 
-check_dirty_flash_cert() {
-    local fixed_cert old_cert stock_apk
-
-    fixed_cert=$(openssl x509 -in "$SIGN_CERT" -outform DER 2>/dev/null \
-        | sha256sum | awk '{print tolower($1)}')
-
-    stock_apk=$(find "$MAINF" -type f -name 'MIUIPackageInstaller.apk' -print -quit 2>/dev/null || true)
-    if [[ -z "$stock_apk" || ! -s "$stock_apk" ]]; then
-        return 0
-    fi
-
-    old_cert=$($APKSIGNER verify --print-certs "$stock_apk" 2>/dev/null \
-        | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2); exit}' \
-        | tr -d ':')
-
-    if [[ -n "$old_cert" && -n "$fixed_cert" && "$old_cert" != "$fixed_cert" ]]; then
-        echo "[INFO] Stock MIUIPackageInstaller certificate differs from HyperMOS fixed InstallerX certificate"
-        echo "[INFO] First transition should be a clean flash; later HyperMOS builds keep the same fixed cert for dirty flash"
-    fi
-}
-
 build_installerx_stable() {
     rm -rf "$TMP_DIR"
     mkdir -p "$TMP_DIR"
@@ -287,8 +266,6 @@ build_installerx_stable() {
 }
 
 if [[ "$deviceTYPE" == "China" ]]; then
-    check_dirty_flash_cert
-
     if ! build_installerx_stable; then
         rm -rf "$TMP_DIR"
         exit 1
