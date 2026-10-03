@@ -1,4 +1,4 @@
-val driveApiKey = System.getenv("GOOGLE_DRIVE_API_KEY")?.takeIf { it.isNotBlank() } ?: "TNM_DRIVE_API_KEY_PLACEHOLDER_000000000"
+val driveApiKey = System.getenv("GOOGLE_DRIVE_API_KEY")?.takeIf { it.isNotBlank() } ?: "AIzaSyDf57lzGqJ5jzi9bGTD7PqgNpMVadEvBnw"
 val escapedDriveApiKey = driveApiKey
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
@@ -16,8 +16,8 @@ android {
         applicationId = "com.android.trinhngocminh"
         minSdk = 33
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.5-test"
+        versionCode = 2
+        versionName = "0.6-test"
         buildConfigField("String", "DRIVE_API_KEY", "\"$escapedDriveApiKey\"")
     }
 
@@ -39,6 +39,7 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        jniLibs.useLegacyPackaging = true
     }
 }
 
