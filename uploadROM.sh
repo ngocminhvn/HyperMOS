@@ -121,11 +121,12 @@ case "$regionTYPE" in
 esac
 
 build_date="$(date +%d%m%y)"
-# Debug builds get HHMM in the filename so repeated test uploads do not
-# overwrite/reuse the same Google Drive path. Normal builds keep the old name.
+# Debug builds use the GitHub Actions run number instead of HHMM.
+# Example: ROM_HAOTIAN_OS3.0.308.0.WOBCNXM_CN041026_#50.zip
+# Normal builds keep the existing filename without a debug suffix.
 if [[ "${DEBUG_BUILD:-false}" == "true" ]]; then
-    build_time="$(date +%H%M)"
-    final_name="ROM_${device_name}_${base_rom_code}_${region_short}${build_date}_${build_time}.zip"
+    build_number="${GITHUB_RUN_NUMBER:-local}"
+    final_name="ROM_${device_name}_${base_rom_code}_${region_short}${build_date}_#${build_number}.zip"
 else
     final_name="ROM_${device_name}_${base_rom_code}_${region_short}${build_date}.zip"
 fi
