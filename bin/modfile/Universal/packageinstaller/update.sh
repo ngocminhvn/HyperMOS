@@ -7,9 +7,23 @@ deviceTYPE=$(cat "$WDIR/bin/ddevice/device_type.txt")
 INSTALLER_DIR="$WDIR/bin/modfile/Universal/packageinstaller"
 WHITELIST="$INSTALLER_DIR/privapp_whitelist_kashi.pkginstaller.xml"
 
-INSTALLERX_VERSION="26.09"
-INSTALLERX_SHA256="fe7ac4737885a0426042222e27ed0a637e481e72c742ebe09142fd51448ae85b"
-FIXED_SOURCE_APK="$INSTALLER_DIR/InstallerX-Revived-online-26.09.apk"
+CONFIG_ENV="$WDIR/config.env"
+dirtyflash="${dirtyflash:-off}"
+if [[ -f "$CONFIG_ENV" ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_ENV"
+fi
+dirtyflash=$(printf '%s' "$dirtyflash" | tr '[:upper:]' '[:lower:]')
+case "$dirtyflash" in
+    on|off) ;;
+    *)
+        echo "[ERROR] packageinstaller: dirtyflash must be on or off in config.env"
+        exit 1
+        ;;
+esac
+
+# Snapshot used when dirtyflash=on.
+PINNED_INSTALLERX_VERSION="26.09"
 
 SOURCE_PACKAGE="com.rosan.installer.x.revived"
 TARGET_PACKAGE="com.miui.packageinstaller"
@@ -17,10 +31,8 @@ TARGET_PACKAGE="com.miui.packageinstaller"
 APKEDITOR="java -Xmx4g -jar $WDIR/bin/apktool/apke.jar"
 APKSIGNER="java -jar $WDIR/bin/apktool/apksigner.jar"
 AAPT="${AAPT:-aapt}"
-BAKSMALI="java -jar $WDIR/bin/apktool/baksmali-3.0.5.jar"
-SMALI="java -jar $WDIR/bin/apktool/smali-3.0.5.jar"
 
-# Signing key used for the rebuilt InstallerX system APK.
+# Fixed signing key: keep this unchanged so future ROM dirty flashes use the same cert.
 SIGN_KEY="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
 SIGN_CERT="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem"
 
@@ -28,6 +40,59 @@ TMP_DIR="$WDIR/apk_temp/InstallerX"
 DECODE_DIR="$TMP_DIR/decode"
 UNSIGNED_APK="$TMP_DIR/MIUIPackageInstaller-unsigned.apk"
 PATCHED_APK="$TMP_DIR/MIUIPackageInstaller.apk"
+
+fetch_latest_release() {
+    local release_json api_url release_mode
+
+    if [[ "$dirtyflash" == "on" ]]; then
+        release_mode="pinned"
+        api_url="https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/tags/$PINNED_INSTALLERX_VERSION"
+    else
+        release_mode="latest"
+        api_url="https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/latest"
+    fi
+
+    release_json=$(curl -fsSL         -H "Accept: application/vnd.github+json"         "$api_url") || {
+        echo "[ERROR] Failed to query $release_mode InstallerX release"
+        return 1
+    }
+
+    INSTALLERX_VERSION=$(printf '%s' "$release_json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+print(data.get("tag_name", ""))
+')
+
+    INSTALLERX_URL=$(printf '%s' "$release_json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assets = data.get("assets", [])
+apk = next((a for a in assets if a.get("name", "").lower().endswith(".apk")), None)
+print(apk.get("browser_download_url", "") if apk else "")
+')
+
+    INSTALLERX_SHA256=$(printf '%s' "$release_json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assets = data.get("assets", [])
+apk = next((a for a in assets if a.get("name", "").lower().endswith(".apk")), None)
+digest = apk.get("digest", "") if apk else ""
+print(digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
+')
+
+    if [[ -z "$INSTALLERX_VERSION" || -z "$INSTALLERX_URL" ]]; then
+        echo "[ERROR] $release_mode InstallerX release has no usable APK asset"
+        return 1
+    fi
+
+    if [[ "$dirtyflash" == "on" && "$INSTALLERX_VERSION" != "$PINNED_INSTALLERX_VERSION" ]]; then
+        echo "[ERROR] Pinned InstallerX tag mismatch: expected $PINNED_INSTALLERX_VERSION, got $INSTALLERX_VERSION"
+        return 1
+    fi
+
+    DOWNLOAD_APK="$TMP_DIR/InstallerX-Revived-$INSTALLERX_VERSION.apk"
+    mods "InstallerX Stable $INSTALLERX_VERSION ($release_mode)"
+}
 
 patch_package_identity() {
     local manifest="$DECODE_DIR/AndroidManifest.xml"
@@ -94,134 +159,41 @@ PY
         return 1
     fi
 
-    mods "Manifest package + authorities -> $TARGET_PACKAGE Done"
+    mods "Package + authorities -> $TARGET_PACKAGE Done"
 }
 
-patch_dex_application_id() {
-    local apk="$1"
-    local dex_root="$TMP_DIR/dexpatch"
-    local entry dex_file smali_dir
-    local patched_files=0
-    local -a dex_entries
+check_dirty_flash_cert() {
+    local fixed_cert old_cert
 
-    rm -rf "$dex_root"
-    mkdir -p "$dex_root"
+    fixed_cert=$(openssl x509 -in "$SIGN_CERT" -outform DER 2>/dev/null         | sha256sum | awk '{print tolower($1)}')
 
-    mapfile -t dex_entries < <(
-        unzip -Z1 "$apk" 2>/dev/null | grep -E '^classes([0-9]+)?[.]dex$' | sort -V
-    )
+    if [[ -f "$INSTALLER_DIR/MIUIPackageInstaller.apk" ]]; then
+        old_cert=$($APKSIGNER verify --print-certs "$INSTALLER_DIR/MIUIPackageInstaller.apk" 2>/dev/null             | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2); exit}'             | tr -d ':')
 
-    if (( ${#dex_entries[@]} == 0 )); then
-        echo "[ERROR] InstallerX contains no classes*.dex"
-        return 1
-    fi
-
-    for entry in "${dex_entries[@]}"; do
-        dex_file="$dex_root/$entry"
-        smali_dir="$dex_root/${entry%.dex}-smali"
-
-        unzip -p "$apk" "$entry" > "$dex_file" || {
-            echo "[ERROR] Failed to extract $entry"
-            return 1
-        }
-
-        if ! $BAKSMALI d "$dex_file" -o "$smali_dir" >/dev/null 2>&1; then
-            echo "[ERROR] Failed to disassemble $entry"
-            return 1
+        if [[ -n "$old_cert" && -n "$fixed_cert" && "$old_cert" != "$fixed_cert" ]]; then
+            echo "[INFO] Existing MIUIPackageInstaller uses another signing certificate"
+            echo "[INFO] First transition may not be dirty-flash compatible; future builds will be"
         fi
-
-        if grep -RIlF -- "$SOURCE_PACKAGE" "$smali_dir" >/dev/null 2>&1; then
-            python3 - "$smali_dir" "$SOURCE_PACKAGE" "$TARGET_PACKAGE" <<'PYDEX'
-from pathlib import Path
-import sys
-
-root = Path(sys.argv[1])
-source = sys.argv[2]
-target = sys.argv[3]
-
-for path in root.rglob("*.smali"):
-    text = path.read_text(encoding="utf-8")
-    if source in text:
-        path.write_text(text.replace(source, target), encoding="utf-8")
-PYDEX
-
-            # InstallerX intentionally checks updates only for its official
-            # upstream package. Keep that identity unchanged so the renamed
-            # system package does not offer an incompatible upstream self-update.
-            while IFS= read -r -d '' updater_file; do
-                python3 - "$updater_file" "$TARGET_PACKAGE" "$SOURCE_PACKAGE" <<'PYKEEP'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-target = sys.argv[2]
-source = sys.argv[3]
-text = path.read_text(encoding="utf-8")
-if target in text:
-    path.write_text(text.replace(target, source), encoding="utf-8")
-PYKEEP
-            done < <(
-                find "$smali_dir" -type f \(
-                    -path '*/com/rosan/installer/core/env/AppConfig.smali' -o
-                    -path '*/com/rosan/installer/data/updater/repository/OnlineUpdateRepositoryImpl*.smali'
-                \) -print0 2>/dev/null
-            )
-
-            patched_files=$((patched_files + 1))
-        fi
-
-        rm -f "$dex_file"
-        if ! $SMALI a "$smali_dir" -o "$dex_file" >/dev/null 2>&1; then
-            echo "[ERROR] Failed to reassemble $entry"
-            return 1
-        fi
-
-        (
-            cd "$dex_root" || exit 1
-            zip -q -j "$apk" "$entry"
-        ) || {
-            echo "[ERROR] Failed to replace patched $entry in APK"
-            return 1
-        }
-    done
-
-    if (( patched_files == 0 )); then
-        echo "[ERROR] InstallerX applicationId string $SOURCE_PACKAGE was not found in DEX"
-        return 1
     fi
-
-    # Runtime applicationId must exist after patch. The upstream package string
-    # is intentionally still allowed in updater policy as described above.
-    if ! (
-        for entry in "${dex_entries[@]}"; do
-            unzip -p "$apk" "$entry" 2>/dev/null
-        done
-    ) | strings | grep -Fq "$TARGET_PACKAGE"; then
-        echo "[ERROR] Patched InstallerX DEX does not contain $TARGET_PACKAGE"
-        return 1
-    fi
-
-    mods "DEX applicationId -> $TARGET_PACKAGE Done"
-    mods "InstallerX upstream self-update identity kept as $SOURCE_PACKAGE"
 }
 
 build_installerx_stable() {
     rm -rf "$TMP_DIR"
     mkdir -p "$TMP_DIR"
 
-    if [[ ! -s "$FIXED_SOURCE_APK" ]]; then
-        echo "[ERROR] Fixed InstallerX source missing: $FIXED_SOURCE_APK"
-        echo "[ERROR] Run the Vendor fixed system apps workflow once"
+    fetch_latest_release || return 1
+
+    if ! aria2c -q         --allow-overwrite=true         --auto-file-renaming=false         -d "$TMP_DIR"         -o "$(basename "$DOWNLOAD_APK")"         "$INSTALLERX_URL"; then
+        echo "[ERROR] Failed to download InstallerX Stable $INSTALLERX_VERSION"
         return 1
     fi
 
-    if ! echo "$INSTALLERX_SHA256  $FIXED_SOURCE_APK" | sha256sum -c - >/dev/null 2>&1; then
-        echo "[ERROR] Fixed InstallerX Stable $INSTALLERX_VERSION SHA-256 mismatch"
-        return 1
+    if [[ -n "$INSTALLERX_SHA256" ]]; then
+        if ! echo "$INSTALLERX_SHA256  $DOWNLOAD_APK" | sha256sum -c - >/dev/null 2>&1; then
+            echo "[ERROR] InstallerX Stable $INSTALLERX_VERSION SHA-256 mismatch"
+            return 1
+        fi
     fi
-
-    DOWNLOAD_APK="$TMP_DIR/InstallerX-Revived-$INSTALLERX_VERSION.apk"
-    cp -f "$FIXED_SOURCE_APK" "$DOWNLOAD_APK" || return 1
-    mods "InstallerX Stable $INSTALLERX_VERSION (fixed local snapshot)"
 
     # Package/authority rewriting requires a readable AndroidManifest.xml.
     # APKEditor raw mode does not expose the decoded XML manifest.
@@ -236,8 +208,6 @@ build_installerx_stable() {
         echo "[ERROR] Failed to rebuild InstallerX Stable $INSTALLERX_VERSION"
         return 1
     fi
-
-    patch_dex_application_id "$UNSIGNED_APK" || return 1
 
     if [[ ! -f "$SIGN_KEY" || ! -f "$SIGN_CERT" ]]; then
         echo "[ERROR] Fixed InstallerX signing key/cert not found"
@@ -266,6 +236,8 @@ build_installerx_stable() {
 }
 
 if [[ "$deviceTYPE" == "China" ]]; then
+    check_dirty_flash_cert
+
     if ! build_installerx_stable; then
         rm -rf "$TMP_DIR"
         exit 1
