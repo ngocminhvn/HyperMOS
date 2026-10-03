@@ -1,3 +1,8 @@
+val driveApiKey = System.getenv("GOOGLE_DRIVE_API_KEY").orEmpty()
+val escapedDriveApiKey = driveApiKey
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -12,11 +17,13 @@ android {
         minSdk = 33
         targetSdk = 36
         versionCode = 1
-        versionName = "0.4-test"
+        versionName = "0.5-test"
+        buildConfigField("String", "DRIVE_API_KEY", "\"$escapedDriveApiKey\"")
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
