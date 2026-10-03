@@ -15,6 +15,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +70,14 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.blur.BlendColorEntry
+import top.yukonga.miuix.kmp.blur.BlurBlendMode
+import top.yukonga.miuix.kmp.blur.BlurDefaults
+import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Link
@@ -154,9 +163,13 @@ class MainActivity : ComponentActivity() {
                         SystemInfo.readRealtime(this@MainActivity, current)
                     }
                     info = next
-                    next.cpuCurrent.substringBefore(" ").toFloatOrNull()?.let { ghz ->
-                        cpuHistory = (cpuHistory + ghz).takeLast(60)
-                    }
+                    next.cpuCurrent
+                        .substringBefore(" ")
+                        .replace(',', '.')
+                        .toFloatOrNull()
+                        ?.let { ghz ->
+                            cpuHistory = (cpuHistory + ghz).takeLast(60)
+                        }
 
                     val notice = next.thermalNotice
                     if (notice != null && notice != lastThermalNotice) {
@@ -535,138 +548,183 @@ class MainActivity : ComponentActivity() {
     private fun GlossyDeviceHero(info: DeviceInfo?) {
         val transition = rememberInfiniteTransition(label = "hero")
         val drift by transition.animateFloat(
-            initialValue = -18f,
-            targetValue = 26f,
+            initialValue = -22f,
+            targetValue = 34f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 5200),
+                animation = tween(durationMillis = 5600),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "drift",
         )
         val glow by transition.animateFloat(
-            initialValue = 0.24f,
-            targetValue = 0.42f,
+            initialValue = 0.28f,
+            targetValue = 0.46f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 3200),
+                animation = tween(durationMillis = 3600),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "glow",
         )
 
-        val shape = RoundedCornerShape(28.dp)
+        val isDark = isSystemInDarkTheme()
+        val shape = RoundedCornerShape(30.dp)
+        val backdrop = rememberLayerBackdrop()
+        val blurSupported = isRuntimeShaderSupported()
+        val glassColors = BlurDefaults.blurColors(
+            blendColors = if (isDark) {
+                listOf(
+                    BlendColorEntry(Color(0x261A1A1A), BlurBlendMode.Overlay),
+                    BlendColorEntry(Color(0x18FFFFFF), BlurBlendMode.Screen),
+                )
+            } else {
+                listOf(
+                    BlendColorEntry(Color(0x24FFFFFF), BlurBlendMode.Screen),
+                    BlendColorEntry(Color(0x100B5CFF), BlurBlendMode.SoftLight),
+                )
+            },
+            brightness = if (isDark) -0.02f else 0.03f,
+            contrast = 1.06f,
+            saturation = 1.28f,
+        )
+        val glassHighlight = if (isDark) {
+            Highlight.GlassStrokeBigDark
+        } else {
+            Highlight.GlassStrokeBigLight
+        }
+
         Box(
             modifier = Modifier
                 .padding(horizontal = 12.dp)
                 .fillMaxWidth()
-                .height(206.dp)
-                .clip(shape)
-                .background(MiuixTheme.colorScheme.surfaceContainerHigh)
-                .border(1.dp, Color.White.copy(alpha = 0.12f), shape),
+                .height(218.dp)
+                .clip(shape),
         ) {
+            // Real backdrop layer: this is what Miuix textureBlur samples.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .layerBackdrop(backdrop)
                     .background(
                         Brush.linearGradient(
                             listOf(
-                                Color(0xFF0B5CFF).copy(alpha = 0.62f),
-                                Color(0xFF4A39D8).copy(alpha = 0.46f),
-                                Color(0xFF9A42CF).copy(alpha = 0.34f),
-                                Color.Transparent,
+                                Color(0xFF061B50),
+                                Color(0xFF0B4FD8),
+                                Color(0xFF3C2BAA),
+                                Color(0xFF220D3C),
                             )
                         )
                     ),
-            )
-            Box(
-                modifier = Modifier
-                    .offset(x = drift.dp, y = (-38).dp)
-                    .size(180.dp)
-                    .blur(50.dp)
-                    .background(Color(0xFF4D8DFF).copy(alpha = glow), CircleShape),
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = 26.dp, y = 32.dp)
-                    .size(190.dp)
-                    .blur(58.dp)
-                    .background(Color(0xFFB247FF).copy(alpha = glow * 0.85f), CircleShape),
-            )
-            Box(
-                modifier = Modifier
+            ) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = drift.dp, y = (-50).dp)
+                        .size(230.dp)
+                        .blur(68.dp)
+                        .background(Color(0xFF367CFF).copy(alpha = glow), CircleShape),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset(x = 56.dp, y = (-18).dp)
+                        .size(210.dp)
+                        .blur(72.dp)
+                        .background(Color(0xFF7A3CFF).copy(alpha = glow * 0.92f), CircleShape),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = 58.dp)
+                        .size(250.dp)
+                        .blur(82.dp)
+                        .background(Color(0xFF003B9E).copy(alpha = 0.42f), CircleShape),
+                )
+            }
+
+            val glassModifier = if (blurSupported) {
+                Modifier
+                    .fillMaxSize()
+                    .textureBlur(
+                        backdrop = backdrop,
+                        shape = shape,
+                        blurRadiusX = 150f,
+                        blurRadiusY = 150f,
+                        noiseCoefficient = 0.0044f,
+                        colors = glassColors,
+                        highlight = glassHighlight,
+                    )
+            } else {
+                Modifier
                     .fillMaxSize()
                     .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.08f),
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.10f),
-                            )
-                        )
-                    ),
-            )
+                        if (isDark) Color.Black.copy(alpha = 0.18f)
+                        else Color.White.copy(alpha = 0.12f)
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), shape)
+            }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+            Box(modifier = glassModifier) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(58.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(Color.White.copy(alpha = 0.14f))
-                            .border(
-                                1.dp,
-                                Color.White.copy(alpha = 0.18f),
-                                RoundedCornerShape(18.dp),
-                            ),
-                        contentAlignment = Alignment.Center,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Image(
-                            painter = painterResource(R.drawable.ic_tnm_foreground),
-                            contentDescription = "TNM",
-                            modifier = Modifier.size(46.dp),
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(RoundedCornerShape(19.dp))
+                                .background(Color.White.copy(alpha = 0.13f))
+                                .border(
+                                    1.dp,
+                                    Color.White.copy(alpha = 0.20f),
+                                    RoundedCornerShape(19.dp),
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_tnm_foreground),
+                                contentDescription = "TNM",
+                                modifier = Modifier.size(48.dp),
+                            )
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = info?.device ?: "Đang đọc thiết bị…",
+                                style = MiuixTheme.textStyles.title3,
+                                color = Color.White,
+                            )
+                            Text(
+                                text = "${info?.hyperos ?: "HyperOS"} · ${info?.android ?: "Android"}",
+                                style = MiuixTheme.textStyles.body2,
+                                color = Color.White.copy(alpha = 0.76f),
+                            )
+                        }
                     }
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            text = info?.device ?: "Đang đọc thiết bị…",
-                            style = MiuixTheme.textStyles.title3,
-                            color = Color.White,
-                        )
-                        Text(
-                            text = "${info?.hyperos ?: "HyperOS"} · ${info?.android ?: "Android"}",
-                            style = MiuixTheme.textStyles.body2,
-                            color = Color.White.copy(alpha = 0.74f),
-                        )
-                    }
-                }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    HeroMetric(
-                        modifier = Modifier.weight(1f),
-                        title = "SoC",
-                        value = info?.soc ?: "—",
-                    )
-                    HeroMetric(
-                        modifier = Modifier.weight(1f),
-                        title = "CPU",
-                        value = info?.cpuCurrent ?: "—",
-                    )
-                    HeroMetric(
-                        modifier = Modifier.weight(1f),
-                        title = "Nhiệt",
-                        value = info?.socTemp ?: "—",
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        HeroMetric(
+                            modifier = Modifier.weight(1f),
+                            title = "SoC",
+                            value = info?.soc ?: "—",
+                        )
+                        HeroMetric(
+                            modifier = Modifier.weight(1f),
+                            title = "CPU",
+                            value = info?.cpuCurrent ?: "—",
+                        )
+                        HeroMetric(
+                            modifier = Modifier.weight(1f),
+                            title = "Nhiệt",
+                            value = info?.socTemp ?: "—",
+                        )
+                    }
                 }
             }
         }
@@ -815,21 +873,65 @@ class MainActivity : ComponentActivity() {
                             end = androidx.compose.ui.geometry.Offset(size.width, y),
                         )
                     }
-                    if (values.size >= 2) {
-                        val maxGHz = max.substringBefore(" ").toFloatOrNull() ?: 1f
-                        val ceiling = maxOf(values.maxOrNull() ?: 1f, maxGHz, 1f)
-                        val path = Path()
-                        values.forEachIndexed { index, value ->
-                            val x = size.width * index / (values.size - 1f)
-                            val y = size.height - (value / ceiling).coerceIn(0f, 1f) * size.height
-                            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                        }
-                        drawPath(
-                            path = path,
-                            color = Color(0xFF3482FF),
-                            style = Stroke(width = 4.dp.toPx()),
+                    repeat(5) { i ->
+                        val x = size.width * i / 4f
+                        drawLine(
+                            color = grid.copy(alpha = 0.10f),
+                            start = androidx.compose.ui.geometry.Offset(x, 0f),
+                            end = androidx.compose.ui.geometry.Offset(x, size.height),
                         )
                     }
+
+                    if (values.isNotEmpty()) {
+                        val maxGHz = max
+                            .substringBefore(" ")
+                            .replace(',', '.')
+                            .toFloatOrNull()
+                            ?: 1f
+                        val ceiling = maxOf(values.maxOrNull() ?: 1f, maxGHz, 1f)
+                        val startSlot = (60 - values.size).coerceAtLeast(0)
+                        val points = values.mapIndexed { index, value ->
+                            val slot = startSlot + index
+                            val x = size.width * slot / 59f
+                            val y = size.height - (value / ceiling).coerceIn(0f, 1f) * size.height
+                            androidx.compose.ui.geometry.Offset(x, y)
+                        }
+
+                        if (points.size >= 2) {
+                            val fillPath = Path().apply {
+                                moveTo(points.first().x, size.height)
+                                lineTo(points.first().x, points.first().y)
+                                points.drop(1).forEach { lineTo(it.x, it.y) }
+                                lineTo(points.last().x, size.height)
+                                close()
+                            }
+                            drawPath(
+                                path = fillPath,
+                                color = Color(0xFF3482FF).copy(alpha = 0.13f),
+                            )
+
+                            val linePath = Path().apply {
+                                moveTo(points.first().x, points.first().y)
+                                points.drop(1).forEach { lineTo(it.x, it.y) }
+                            }
+                            drawPath(
+                                path = linePath,
+                                color = Color(0xFF3482FF),
+                                style = Stroke(width = 4.dp.toPx()),
+                            )
+                        }
+
+                        points.forEachIndexed { index, point ->
+                            if (index == points.lastIndex || index % 5 == 0) {
+                                drawCircle(
+                                    color = Color(0xFF3482FF),
+                                    radius = if (index == points.lastIndex) 4.5.dp.toPx() else 2.4.dp.toPx(),
+                                    center = point,
+                                )
+                            }
+                        }
+                    }
+                }
                 }
             }
         }

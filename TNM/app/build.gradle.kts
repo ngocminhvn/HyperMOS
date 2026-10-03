@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId = "com.android.trinhngocminh"
-        minSdk = 24
+        minSdk = 33
         targetSdk = 36
         versionCode = 1
-        versionName = "0.3-test"
+        versionName = "0.4-test"
     }
 
     buildFeatures {
@@ -40,4 +40,5 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
 }

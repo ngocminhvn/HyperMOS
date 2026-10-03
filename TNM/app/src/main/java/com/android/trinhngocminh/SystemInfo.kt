@@ -8,6 +8,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.StatFs
 import java.io.File
+import java.util.Locale
 
 data class DeviceInfo(
     val device: String,
@@ -81,11 +82,17 @@ object SystemInfo {
                     ?: read(File(it, "scaling_max_freq").path).toLongOrNull()
             }
             ?.maxOrNull()
-        return maxKHz?.let { "%.2f GHz".format(it / 1_000_000.0) } ?: "—"
+        val value = maxKHz ?: run {
+            if (!RootShell.hasRoot()) null
+            else RootShell.run(
+                "cat /sys/devices/system/cpu/cpufreq/policy*/cpuinfo_max_freq /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq 2>/dev/null | sort -n | tail -1"
+            ).out.lineSequence().lastOrNull()?.trim()?.toLongOrNull()
+        }
+        return value?.let { String.format(Locale.US, "%.2f GHz", it / 1_000_000.0) } ?: "—"
     }
 
     private fun cpuCurrentGHz(): String {
-        val currentKHz = File("/sys/devices/system/cpu/cpufreq").listFiles()
+        var currentKHz = File("/sys/devices/system/cpu/cpufreq").listFiles()
             ?.filter { it.name.startsWith("policy") }
             ?.mapNotNull {
                 read(File(it, "scaling_cur_freq").path).toLongOrNull()
@@ -93,7 +100,16 @@ object SystemInfo {
             }
             ?.filter { it > 0 }
             ?.maxOrNull()
-        return currentKHz?.let { "%.2f GHz".format(it / 1_000_000.0) } ?: "—"
+
+        if (currentKHz == null && RootShell.hasRoot()) {
+            currentKHz = RootShell.run(
+                "cat /sys/devices/system/cpu/cpufreq/policy*/scaling_cur_freq /sys/devices/system/cpu/cpufreq/policy*/cpuinfo_cur_freq 2>/dev/null | awk '$1>0' | sort -n | tail -1"
+            ).out.lineSequence().lastOrNull()?.trim()?.toLongOrNull()
+        }
+
+        return currentKHz?.let {
+            String.format(Locale.US, "%.2f GHz", it / 1_000_000.0)
+        } ?: "—"
     }
 
     private fun ramUsage(context: Context): String {
