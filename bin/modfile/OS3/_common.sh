@@ -9,24 +9,14 @@ OS3_FIXED_ASSET_DIR="$work_dir/bin/modfile/OS3/assets"
 MODSCENTER_ARCHIVE=""
 MODSCENTER_TAG=""
 
-modscenter_fixed_metadata() {
+modscenter_fixed_prefix() {
     local repo="$1"
     case "$repo" in
-        "Mods-Center/HyperOS-App-Vault")
-            printf '%s|%s|%s\n' "V4.5" "HyperOS_AppVaultV4.5@kashis_cringey_stuffs.zip" "fee4f5398472b1febe1d10a12695a2ce7b7d7e3b1f4102be11117dd3150c97ab"
-            ;;
-        "Mods-Center/ColorOS_Control_Center")
-            printf '%s|%s|%s\n' "V3" "ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip" "0cd9436b9cc76a7c4138137190a44d830783a4cc67980d40e9e273f2c3327499"
-            ;;
-        "Mods-Center/HyperOS-Launcher")
-            printf '%s|%s|%s\n' "V7.1" "HyperOS_LauncherV7.1@kashis_cringey_stuffs.zip" "386d95cb96574108d61524589cd21c3ccab18afdb221a31b04eca94ba8d30e0e"
-            ;;
-        "Mods-Center/HyperOS-Security-Center")
-            printf '%s|%s|%s\n' "V7" "HyperOS_SecurityV7@kashis_cringey_stuffs.zip" "b1722752144805f15e8e7d2d619403257594b05f123afb5ff61af004ba642d9c"
-            ;;
-        "Mods-Center/HyperOS-Theme-Manager")
-            printf '%s|%s|%s\n' "V7" "HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip" "caba9debf6ce68d42a734125d9956707ad89ab4beda9aa6bca84d6f904d28398"
-            ;;
+        "Mods-Center/HyperOS-App-Vault") printf '%s\n' "HyperOS_AppVault" ;;
+        "Mods-Center/ColorOS_Control_Center") printf '%s\n' "ColorOS_plugin_mod_" ;;
+        "Mods-Center/HyperOS-Launcher") printf '%s\n' "HyperOS_Launcher" ;;
+        "Mods-Center/HyperOS-Security-Center") printf '%s\n' "HyperOS_Security" ;;
+        "Mods-Center/HyperOS-Theme-Manager") printf '%s\n' "HyperOS_ThemeManager" ;;
         *) return 1 ;;
     esac
 }
@@ -34,37 +24,45 @@ modscenter_fixed_metadata() {
 modscenter_prepare_fixed() {
     local label="$1"
     local repo="$2"
-    local meta tag asset_name sha256 archive actual_sha
+    local prefix archive actual_sha
+    local -a matches
 
-    meta=$(modscenter_fixed_metadata "$repo") || {
-        error "$label: no fixed local snapshot configured for $repo"
+    prefix=$(modscenter_fixed_prefix "$repo") || {
+        error "$label: no fixed local filename prefix configured for $repo"
         return 1
     }
 
-    IFS='|' read -r tag asset_name sha256 <<< "$meta"
-    archive="$OS3_FIXED_ASSET_DIR/$asset_name"
+    mapfile -d '' -t matches < <(
+        find "$OS3_FIXED_ASSET_DIR" -maxdepth 1 -type f -iname "${prefix}*.zip" -print0 2>/dev/null
+    )
 
-    if [[ ! -s "$archive" ]]; then
-        error "$label: fixed asset missing: $archive"
-        error "$label: run the Vendor fixed system apps workflow once"
+    if (( ${#matches[@]} == 0 )); then
+        error "$label: no local ZIP matching ${prefix}*.zip in $OS3_FIXED_ASSET_DIR"
         return 1
     fi
 
+    if (( ${#matches[@]} > 1 )); then
+        error "$label: multiple local ZIPs match ${prefix}*.zip; keep exactly one"
+        printf '  %s\n' "${matches[@]}" >&2
+        return 1
+    fi
+
+    archive="${matches[0]}"
+    [[ -s "$archive" ]] || {
+        error "$label: matched ZIP is empty: $archive"
+        return 1
+    }
+
+    # No hard-coded version/checksum: replacing a fixed local ZIP later should
+    # only require swapping the file. We still print its SHA256 for traceability.
     actual_sha=$(sha256sum "$archive" | awk '{print $1}')
-    if [[ "$actual_sha" != "$sha256" ]]; then
-        error "$label: SHA256 mismatch for fixed asset $asset_name"
-        error "$label: expected $sha256"
-        error "$label: actual   $actual_sha"
-        return 1
-    fi
-
-    MODSCENTER_TAG="$tag"
     MODSCENTER_ARCHIVE="$archive"
-    mods "$label: fixed local $tag -> $asset_name (SHA256 OK)"
+    MODSCENTER_TAG=$(basename "$archive" .zip)
+
+    mods "$label: fixed local -> $(basename "$archive")"
+    mods "$label: SHA256 $actual_sha"
 }
 
-# Compatibility name kept so individual module scripts do not need network logic.
-# This function only reads a fixed archive already committed in this repository.
 modscenter_unpack_latest() {
     local label="$1"
     local repo="$2"
