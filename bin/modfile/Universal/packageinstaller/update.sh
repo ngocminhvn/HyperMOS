@@ -17,6 +17,8 @@ TARGET_PACKAGE="com.miui.packageinstaller"
 APKEDITOR="java -Xmx4g -jar $WDIR/bin/apktool/apke.jar"
 APKSIGNER="java -jar $WDIR/bin/apktool/apksigner.jar"
 AAPT="${AAPT:-aapt}"
+BAKSMALI="java -jar $WDIR/bin/apktool/baksmali-3.0.5.jar"
+SMALI="java -jar $WDIR/bin/apktool/smali-3.0.5.jar"
 
 # Fixed signing key: keep this unchanged so future ROM dirty flashes use the same cert.
 SIGN_KEY="$WDIR/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
@@ -92,21 +94,134 @@ PY
         return 1
     fi
 
-    mods "Package + authorities -> $TARGET_PACKAGE Done"
+    mods "Manifest package + authorities -> $TARGET_PACKAGE Done"
+}
+
+patch_dex_application_id() {
+    local apk="$1"
+    local dex_root="$TMP_DIR/dexpatch"
+    local entry dex_file smali_dir
+    local patched_files=0
+    local -a dex_entries
+
+    rm -rf "$dex_root"
+    mkdir -p "$dex_root"
+
+    mapfile -t dex_entries < <(
+        unzip -Z1 "$apk" 2>/dev/null | grep -E '^classes([0-9]+)?[.]dex$' | sort -V
+    )
+
+    if (( ${#dex_entries[@]} == 0 )); then
+        echo "[ERROR] InstallerX contains no classes*.dex"
+        return 1
+    fi
+
+    for entry in "${dex_entries[@]}"; do
+        dex_file="$dex_root/$entry"
+        smali_dir="$dex_root/${entry%.dex}-smali"
+
+        unzip -p "$apk" "$entry" > "$dex_file" || {
+            echo "[ERROR] Failed to extract $entry"
+            return 1
+        }
+
+        if ! $BAKSMALI d "$dex_file" -o "$smali_dir" >/dev/null 2>&1; then
+            echo "[ERROR] Failed to disassemble $entry"
+            return 1
+        fi
+
+        if grep -RIlF -- "$SOURCE_PACKAGE" "$smali_dir" >/dev/null 2>&1; then
+            python3 - "$smali_dir" "$SOURCE_PACKAGE" "$TARGET_PACKAGE" <<'PYDEX'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+source = sys.argv[2]
+target = sys.argv[3]
+
+for path in root.rglob("*.smali"):
+    text = path.read_text(encoding="utf-8")
+    if source in text:
+        path.write_text(text.replace(source, target), encoding="utf-8")
+PYDEX
+
+            # InstallerX intentionally checks updates only for its official
+            # upstream package. Keep that identity unchanged so the renamed
+            # system package does not offer an incompatible upstream self-update.
+            while IFS= read -r -d '' updater_file; do
+                python3 - "$updater_file" "$TARGET_PACKAGE" "$SOURCE_PACKAGE" <<'PYKEEP'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+target = sys.argv[2]
+source = sys.argv[3]
+text = path.read_text(encoding="utf-8")
+if target in text:
+    path.write_text(text.replace(target, source), encoding="utf-8")
+PYKEEP
+            done < <(
+                find "$smali_dir" -type f \(
+                    -path '*/com/rosan/installer/core/env/AppConfig.smali' -o
+                    -path '*/com/rosan/installer/data/updater/repository/OnlineUpdateRepositoryImpl*.smali'
+                \) -print0 2>/dev/null
+            )
+
+            patched_files=$((patched_files + 1))
+        fi
+
+        rm -f "$dex_file"
+        if ! $SMALI a "$smali_dir" -o "$dex_file" >/dev/null 2>&1; then
+            echo "[ERROR] Failed to reassemble $entry"
+            return 1
+        fi
+
+        (
+            cd "$dex_root" || exit 1
+            zip -q -j "$apk" "$entry"
+        ) || {
+            echo "[ERROR] Failed to replace patched $entry in APK"
+            return 1
+        }
+    done
+
+    if (( patched_files == 0 )); then
+        echo "[ERROR] InstallerX applicationId string $SOURCE_PACKAGE was not found in DEX"
+        return 1
+    fi
+
+    # Runtime applicationId must exist after patch. The upstream package string
+    # is intentionally still allowed in updater policy as described above.
+    if ! (
+        for entry in "${dex_entries[@]}"; do
+            unzip -p "$apk" "$entry" 2>/dev/null
+        done
+    ) | strings | grep -Fq "$TARGET_PACKAGE"; then
+        echo "[ERROR] Patched InstallerX DEX does not contain $TARGET_PACKAGE"
+        return 1
+    fi
+
+    mods "DEX applicationId -> $TARGET_PACKAGE Done"
+    mods "InstallerX upstream self-update identity kept as $SOURCE_PACKAGE"
 }
 
 check_dirty_flash_cert() {
-    local fixed_cert old_cert
+    local fixed_cert old_cert stock_apk
 
-    fixed_cert=$(openssl x509 -in "$SIGN_CERT" -outform DER 2>/dev/null         | sha256sum | awk '{print tolower($1)}')
+    fixed_cert=$(openssl x509 -in "$SIGN_CERT" -outform DER 2>/dev/null \
+        | sha256sum | awk '{print tolower($1)}')
 
-    if [[ -f "$INSTALLER_DIR/MIUIPackageInstaller.apk" ]]; then
-        old_cert=$($APKSIGNER verify --print-certs "$INSTALLER_DIR/MIUIPackageInstaller.apk" 2>/dev/null             | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2); exit}'             | tr -d ':')
+    stock_apk=$(find "$MAINF" -type f -name 'MIUIPackageInstaller.apk' -print -quit 2>/dev/null || true)
+    if [[ -z "$stock_apk" || ! -s "$stock_apk" ]]; then
+        return 0
+    fi
 
-        if [[ -n "$old_cert" && -n "$fixed_cert" && "$old_cert" != "$fixed_cert" ]]; then
-            echo "[INFO] Existing MIUIPackageInstaller uses another signing certificate"
-            echo "[INFO] First transition may not be dirty-flash compatible; future builds will be"
-        fi
+    old_cert=$($APKSIGNER verify --print-certs "$stock_apk" 2>/dev/null \
+        | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2); exit}' \
+        | tr -d ':')
+
+    if [[ -n "$old_cert" && -n "$fixed_cert" && "$old_cert" != "$fixed_cert" ]]; then
+        echo "[INFO] Stock MIUIPackageInstaller certificate differs from HyperMOS fixed InstallerX certificate"
+        echo "[INFO] First transition should be a clean flash; later HyperMOS builds keep the same fixed cert for dirty flash"
     fi
 }
 
@@ -142,6 +257,8 @@ build_installerx_stable() {
         echo "[ERROR] Failed to rebuild InstallerX Stable $INSTALLERX_VERSION"
         return 1
     fi
+
+    patch_dex_application_id "$UNSIGNED_APK" || return 1
 
     if [[ ! -f "$SIGN_KEY" || ! -f "$SIGN_CERT" ]]; then
         echo "[ERROR] Fixed InstallerX signing key/cert not found"
