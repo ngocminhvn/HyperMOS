@@ -2,19 +2,19 @@
 
 HyperMOS builds use system-app payloads committed directly in this repository. Normal ROM builds do not resolve GitHub releases and do not download these apps at build time.
 
-## Fixed snapshots
+## Local ZIP naming
 
-- HyperOS App Vault: V4.5
-- ColorOS Control Center: V3
-- HyperOS Launcher: V7.1
-- HyperOS Security Center: V7
-- HyperOS Theme Manager: V7
-- InstallerX Revived source: 26.09
+Normal ROM builds locate exactly one local ZIP for each module by filename prefix:
 
-OS3 release ZIPs live in `bin/modfile/OS3/assets/`.
-InstallerX source APK lives in `bin/modfile/Universal/packageinstaller/`.
+- `HyperOS_AppVault*.zip`
+- `ColorOS_plugin_mod_*.zip`
+- `HyperOS_Launcher*.zip`
+- `HyperOS_Security*.zip`
+- `HyperOS_ThemeManager*.zip`
 
-Each build verifies the committed file against its pinned SHA-256 before extracting or patching it. Missing or modified assets stop the build instead of silently downloading another version.
+This makes later replacement simple: remove the old ZIP and put the new ZIP in `bin/modfile/OS3/assets/`. No script version or checksum needs to be edited. The build prints the actual SHA-256 for traceability and fails if zero or multiple files match a prefix.
+
+InstallerX source remains local in `bin/modfile/Universal/packageinstaller/`.
 
 The manual `Vendor fixed system apps` workflow is the only maintenance path that downloads these upstream assets. It uses exact pinned tags and exact filenames, verifies SHA-256, and commits the files into HyperMOS. Running the normal ROM build never invokes that workflow.
 
