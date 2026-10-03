@@ -159,9 +159,15 @@ apply_llions_app \
     "[LLions] HyperOS Gallery Editor Mod v2.3.0.5.apk" \
     "MIMediaEditor" || exit 1
 
+GALLERY_APK="MIUIGallery.apk"
+if [[ ! -f "$LLIONS_DIR/$GALLERY_APK" ]]; then
+    info "Xiaomi Gallery 4.3.1.8-global not found; fallback to LLions Gallery v4.3.1.16"
+    GALLERY_APK="[LLions] HyperOS Gallery Mod v4.3.1.16.apk"
+fi
+
 apply_llions_app \
-    "LLions Gallery" \
-    "[LLions] HyperOS Gallery Mod v4.3.1.16.apk" \
+    "Xiaomi Gallery 4.3.1.8-global" \
+    "$GALLERY_APK" \
     "MIUIGallery" || exit 1
 
 apply_llions_app \
