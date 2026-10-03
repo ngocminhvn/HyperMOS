@@ -66,6 +66,8 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -79,6 +81,8 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Download
+import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Link
 import top.yukonga.miuix.kmp.icon.extended.More
@@ -112,6 +116,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Home() {
         var info by remember { mutableStateOf<DeviceInfo?>(null) }
+        var selectedTab by remember { mutableStateOf(0) }
+        var driveFiles by remember { mutableStateOf<List<DriveFile>>(emptyList()) }
+        var driveLoading by remember { mutableStateOf(false) }
+        var driveError by remember { mutableStateOf<String?>(null) }
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
         var systemDialog by remember { mutableStateOf(false) }
@@ -144,6 +152,19 @@ class MainActivity : ComponentActivity() {
                 info = withContext(Dispatchers.IO) {
                     SystemInfo.readRealtime(this@MainActivity, current)
                 }
+            }
+        }
+
+        fun refreshDrive() {
+            scope.launch {
+                driveLoading = true
+                driveError = null
+                val result = withContext(Dispatchers.IO) {
+                    DriveDownloads.list(this@MainActivity)
+                }
+                driveFiles = result.files
+                driveError = result.error
+                driveLoading = false
             }
         }
 
@@ -190,6 +211,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        LaunchedEffect(selectedTab) {
+            if (selectedTab == 1) {
+                refreshDrive()
+            }
+        }
+
         val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) {
                 Thread {
@@ -202,12 +229,23 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        val pageTitle = when (selectedTab) {
+            0 -> "Home"
+            1 -> "Downloads"
+            else -> "Tools"
+        }
+        val pageSubtitle = when (selectedTab) {
+            0 -> "HyperMOS Control"
+            1 -> "Google Drive"
+            else -> "TNM Tools"
+        }
+
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = "TNM",
-                    largeTitle = "TNM",
-                    subtitle = "HyperMOS Control",
+                    title = pageTitle,
+                    largeTitle = pageTitle,
+                    subtitle = pageSubtitle,
                     scrollBehavior = scrollBehavior,
                     actions = {
                         IconButton(
@@ -236,6 +274,28 @@ class MainActivity : ComponentActivity() {
                     },
                 )
             },
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        icon = MiuixIcons.Home,
+                        label = "Home",
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        icon = MiuixIcons.Download,
+                        label = "Downloads",
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        icon = MiuixIcons.Settings,
+                        label = "Tools",
+                    )
+                }
+            },
         ) { padding ->
             LazyColumn(
                 state = listState,
@@ -244,144 +304,245 @@ class MainActivity : ComponentActivity() {
                     .nestedScroll(scrollBehavior.nestedScrollConnection),
                 contentPadding = PaddingValues(
                     top = padding.calculateTopPadding() + 4.dp,
-                    bottom = 28.dp,
+                    bottom = padding.calculateBottomPadding() + 18.dp,
                 ),
             ) {
-                item(key = "hero") {
-                    GlossyDeviceHero(info)
-                }
+                if (selectedTab == 0) {
+                    item(key = "hero") {
+                        GlossyDeviceHero(info)
+                    }
 
-                item(key = "customTitle") {
-                    SmallTitle("Tùy chỉnh")
-                }
+                    if (message.isNotBlank()) {
+                        item(key = "homeMessage") {
+                            Spacer(Modifier.height(10.dp))
+                            Card(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .fillMaxWidth(),
+                            ) {
+                                BasicComponent(
+                                    title = "Trạng thái",
+                                    summary = message,
+                                    startAction = {
+                                        FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
+                                    },
+                                )
+                            }
+                        }
+                    }
 
-                item(key = "custom") {
-                    Card(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        ArrowPreference(
-                            title = "Font",
-                            summary = "Đổi font hệ thống",
-                            startAction = {
-                                FeatureIcon(MiuixIcons.Theme, Color(0xFF6C63FF))
-                            },
-                            onClick = { fontDialog = true },
-                            holdDownState = fontDialog,
-                        )
-                        ArrowPreference(
-                            title = "Thermal",
-                            summary = info?.thermal ?: if (selectedThermal == "eco") "Eco" else "Stock Xiaomi",
-                            startAction = {
-                                FeatureIcon(MiuixIcons.Tune, Color(0xFFFF9500))
-                            },
-                            onClick = { thermalDialog = true },
-                            holdDownState = thermalDialog,
+                    item(key = "realtimeTitle") {
+                        SmallTitle("Realtime")
+                    }
+
+                    item(key = "stats1") {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            StatCard(
+                                modifier = Modifier.weight(1f),
+                                title = "CPU",
+                                value = info?.cpuCurrent ?: "—",
+                                imageVector = MiuixIcons.Settings,
+                                accent = Color(0xFF3482FF),
+                            )
+                            StatCard(
+                                modifier = Modifier.weight(1f),
+                                title = "RAM dùng",
+                                value = info?.ram ?: "—",
+                                imageVector = MiuixIcons.Info,
+                                accent = Color(0xFF34C759),
+                            )
+                        }
+                    }
+
+                    item(key = "stats2") {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            StatCard(
+                                modifier = Modifier.weight(1f),
+                                title = "Nhiệt SoC",
+                                value = info?.socTemp ?: "—",
+                                imageVector = MiuixIcons.Tune,
+                                accent = Color(0xFFFF3B30),
+                            )
+                            StatCard(
+                                modifier = Modifier.weight(1f),
+                                title = "Nhiệt pin",
+                                value = info?.batteryTemp ?: "—",
+                                imageVector = MiuixIcons.Settings,
+                                accent = Color(0xFFFF9500),
+                            )
+                        }
+                    }
+
+                    item(key = "cpuChart") {
+                        Spacer(Modifier.height(10.dp))
+                        CpuChart(
+                            values = cpuHistory,
+                            current = info?.cpuCurrent ?: "—",
+                            max = info?.cpuMax ?: "—",
                         )
                     }
-                }
+                } else if (selectedTab == 1) {
+                    item(key = "driveTitle") {
+                        SmallTitle("Google Drive")
+                    }
 
-                if (message.isNotBlank()) {
-                    item(key = "message") {
-                        Spacer(Modifier.height(10.dp))
+                    item(key = "driveFolder") {
                         Card(
                             modifier = Modifier
                                 .padding(horizontal = 12.dp)
                                 .fillMaxWidth(),
                         ) {
                             BasicComponent(
-                                title = "Trạng thái",
-                                summary = message,
+                                title = "TNM Downloads",
+                                summary = "Tự động đọc file từ folder Drive đã cấu hình",
                                 startAction = {
-                                    FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
+                                    FeatureIcon(MiuixIcons.Download, Color(0xFF3482FF))
                                 },
                             )
                         }
                     }
-                }
 
-                item(key = "realtimeTitle") {
-                    SmallTitle("Realtime")
-                }
-
-                item(key = "stats1") {
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        StatCard(
-                            modifier = Modifier.weight(1f),
-                            title = "CPU",
-                            value = info?.cpuCurrent ?: "—",
-                            imageVector = MiuixIcons.Settings,
-                            accent = Color(0xFF3482FF),
-                        )
-                        StatCard(
-                            modifier = Modifier.weight(1f),
-                            title = "RAM dùng",
-                            value = info?.ram ?: "—",
-                            imageVector = MiuixIcons.Info,
-                            accent = Color(0xFF34C759),
-                        )
+                    item(key = "driveRefresh") {
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            enabled = !driveLoading,
+                            onClick = { refreshDrive() },
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .fillMaxWidth(),
+                        ) {
+                            Text(if (driveLoading) "Đang tải danh sách…" else "Làm mới")
+                        }
                     }
-                }
 
-                item(key = "stats2") {
-                    Spacer(Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        StatCard(
-                            modifier = Modifier.weight(1f),
-                            title = "Nhiệt SoC",
-                            value = info?.socTemp ?: "—",
-                            imageVector = MiuixIcons.Tune,
-                            accent = Color(0xFFFF3B30),
-                        )
-                        StatCard(
-                            modifier = Modifier.weight(1f),
-                            title = "Nhiệt pin",
-                            value = info?.batteryTemp ?: "—",
-                            imageVector = MiuixIcons.Settings,
-                            accent = Color(0xFFFF9500),
-                        )
+                    if (driveError != null) {
+                        item(key = "driveError") {
+                            Spacer(Modifier.height(10.dp))
+                            Card(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .fillMaxWidth(),
+                            ) {
+                                BasicComponent(
+                                    title = "Không tải được danh sách",
+                                    summary = driveError ?: "Lỗi không xác định",
+                                    startAction = {
+                                        FeatureIcon(MiuixIcons.Info, Color(0xFFFF3B30))
+                                    },
+                                )
+                            }
+                        }
+                    } else if (!driveLoading && driveFiles.isEmpty()) {
+                        item(key = "driveEmpty") {
+                            Spacer(Modifier.height(10.dp))
+                            Card(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .fillMaxWidth(),
+                            ) {
+                                BasicComponent(
+                                    title = "Chưa có file",
+                                    summary = "Thả file vào folder Drive rồi bấm Làm mới",
+                                )
+                            }
+                        }
+                    } else {
+                        items(
+                            count = driveFiles.size,
+                            key = { index -> driveFiles[index].id },
+                        ) { index ->
+                            val file = driveFiles[index]
+                            Spacer(Modifier.height(if (index == 0) 10.dp else 8.dp))
+                            DownloadFileRow(
+                                file = file,
+                                onDownload = {
+                                    message = DriveDownloads.enqueue(this@MainActivity, file)
+                                },
+                            )
+                        }
                     }
-                }
+                } else {
+                    item(key = "customTitle") {
+                        SmallTitle("Tùy chỉnh")
+                    }
 
-                item(key = "cpuChart") {
-                    Spacer(Modifier.height(10.dp))
-                    CpuChart(
-                        values = cpuHistory,
-                        current = info?.cpuCurrent ?: "—",
-                        max = info?.cpuMax ?: "—",
-                    )
-                }
+                    item(key = "custom") {
+                        Card(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .fillMaxWidth(),
+                        ) {
+                            ArrowPreference(
+                                title = "Font",
+                                summary = "Đổi font hệ thống",
+                                startAction = {
+                                    FeatureIcon(MiuixIcons.Theme, Color(0xFF6C63FF))
+                                },
+                                onClick = { fontDialog = true },
+                                holdDownState = fontDialog,
+                            )
+                            ArrowPreference(
+                                title = "Thermal",
+                                summary = info?.thermal ?: if (selectedThermal == "eco") "Eco" else "Stock Xiaomi",
+                                startAction = {
+                                    FeatureIcon(MiuixIcons.Tune, Color(0xFFFF9500))
+                                },
+                                onClick = { thermalDialog = true },
+                                holdDownState = thermalDialog,
+                            )
+                        }
+                    }
 
-                item(key = "deviceTitle") {
-                    SmallTitle("Thiết bị")
-                }
+                    if (message.isNotBlank()) {
+                        item(key = "toolsMessage") {
+                            Spacer(Modifier.height(10.dp))
+                            Card(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .fillMaxWidth(),
+                            ) {
+                                BasicComponent(
+                                    title = "Trạng thái",
+                                    summary = message,
+                                    startAction = {
+                                        FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
+                                    },
+                                )
+                            }
+                        }
+                    }
 
-                item(key = "details") {
-                    Card(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        ArrowPreference(
-                            title = "Thông tin hệ thống",
-                            summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
-                            startAction = {
-                                FeatureIcon(MiuixIcons.Info, Color(0xFF5AC8FA))
-                            },
-                            onClick = { systemDialog = true },
-                            holdDownState = systemDialog,
-                        )
+                    item(key = "deviceTitle") {
+                        SmallTitle("Thiết bị")
+                    }
+
+                    item(key = "details") {
+                        Card(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .fillMaxWidth(),
+                        ) {
+                            ArrowPreference(
+                                title = "Thông tin hệ thống",
+                                summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
+                                startAction = {
+                                    FeatureIcon(MiuixIcons.Info, Color(0xFF5AC8FA))
+                                },
+                                onClick = { systemDialog = true },
+                                holdDownState = systemDialog,
+                            )
+                        }
                     }
                 }
             }
@@ -852,6 +1013,45 @@ class MainActivity : ComponentActivity() {
                         style = MiuixTheme.textStyles.headline2,
                         maxLines = 1,
                     )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DownloadFileRow(
+        file: DriveFile,
+        onDownload: () -> Unit,
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(horizontal = 12.dp)
+                .fillMaxWidth(),
+            insideMargin = PaddingValues(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FeatureIcon(MiuixIcons.Download, Color(0xFF3482FF))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        text = file.name,
+                        style = MiuixTheme.textStyles.body1,
+                        maxLines = 2,
+                    )
+                    Text(
+                        text = DriveDownloads.formatSize(file.sizeBytes),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+                Button(onClick = onDownload) {
+                    Text("Tải")
                 }
             }
         }
