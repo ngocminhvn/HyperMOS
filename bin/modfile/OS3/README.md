@@ -1,21 +1,31 @@
-# OS3 Mods Center integration
+# OS3 fixed system-app snapshots
 
-HyperMOS uses each Mods Center release ZIP as the primary source of the mod payload.
+HyperMOS builds use system-app payloads committed directly in this repository. Normal ROM builds do not resolve GitHub releases and do not download these apps at build time.
 
-Build flow for every OS3 module:
+## Fixed snapshots
 
-1. Resolve the latest GitHub release and verify its ZIP digest when available.
-2. Extract the ZIP.
-3. Scan every APK with `aapt dump badging` and identify the correct mod by Android package name. Filename matching is only a fallback.
-4. Print the extracted app-folder tree before touching the ROM.
-5. If the release already contains external `lib/arm` or `lib/arm64` native libraries, keep them exactly as supplied.
-6. If those external folders are absent but the mod APK contains `lib/arm64-v8a/*.so` or `lib/armeabi-v7a/*.so`, extract the same bytes into system-app style:
-   - APK `lib/arm64-v8a/*.so` -> app `lib/arm64/*.so`
-   - APK `lib/armeabi-v7a/*.so` -> app `lib/arm/*.so`
-   Each extracted library is SHA-256 checked against the APK stream.
-7. Replace the stock app using the module's own `system/` path when present. For standalone payloads, preserve the existing stock app path. App Vault is excluded from DEBLOAT so its stock folder remains available until the OS3 replacement step.
-8. Compare the prepared source app tree and copied ROM app tree; mismatch stops the build.
+- HyperOS App Vault: V4.5
+- ColorOS Control Center: V3
+- HyperOS Launcher: V7.1
+- HyperOS Security Center: V7
+- HyperOS Theme Manager: V7
+- InstallerX Revived source: 26.09
 
-The builder does not import .so files from HalcyonOS or another project. Any generated external native library comes only from the exact latest mod APK being integrated.
+OS3 release ZIPs live in `bin/modfile/OS3/assets/`.
+InstallerX source APK lives in `bin/modfile/Universal/packageinstaller/`.
 
-Other files already present in a module `system/` tree (permissions, overlays, system_ext, vendor, odm, product, etc.) are copied with the module payload. Magisk/KernelSU runtime scripts are not executed.
+Each build verifies the committed file against its pinned SHA-256 before extracting or patching it. Missing or modified assets stop the build instead of silently downloading another version.
+
+The manual `Vendor fixed system apps` workflow is the only maintenance path that downloads these upstream assets. It uses exact pinned tags and exact filenames, verifies SHA-256, and commits the files into HyperMOS. Running the normal ROM build never invokes that workflow.
+
+## Integration flow
+
+1. Read the fixed local ZIP/APK from the repository.
+2. Verify SHA-256.
+3. Extract the ZIP.
+4. Scan APKs with `aapt dump badging` and identify the expected Android package.
+5. Preserve release-provided external native libraries. If they are absent but embedded ARM libraries exist inside the APK, rebuild `lib/arm` and `lib/arm64` byte-for-byte from that same APK and verify them.
+6. Replace the stock app at its expected system path.
+7. Verify the copied app-folder shape before continuing the ROM build.
+
+No app payload is taken from HalcyonOS or another ROM project.
