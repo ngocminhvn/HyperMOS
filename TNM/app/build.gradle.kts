@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.android.trinhngocminh"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.android.trinhngocminh"
@@ -37,6 +37,6 @@ android {
 
 dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.8.8")
-    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.8.8")
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4")
 }
