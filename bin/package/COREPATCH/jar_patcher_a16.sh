@@ -882,10 +882,11 @@ patch_framework() {
   local decompile_dir
   decompile_dir=$(decompile_jar "$framework_path") || return 1
 
-  # Apply feature-specific patches based on flags
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_framework_signature_patches "$decompile_dir"
-  fi
+  # Build #24 compatibility:
+  # framework.jar signature bypass is always applied.
+  # Keep services.jar / miui-services.jar signature bypass flag-controlled,
+  # so they remain stock unless explicitly requested elsewhere.
+  apply_framework_signature_patches "$decompile_dir"
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
     apply_framework_disable_secure_flag "$decompile_dir"
