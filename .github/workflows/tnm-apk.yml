@@ -34,9 +34,6 @@ jobs:
 
       - name: Build signed debug APK
         working-directory: TNM
-        env:
-          PLAY_CLOUD_PROJECT_NUMBER: ${{ secrets.PLAY_CLOUD_PROJECT_NUMBER }}
-          PLAY_INTEGRITY_BACKEND_URL: ${{ secrets.PLAY_INTEGRITY_BACKEND_URL }}
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK

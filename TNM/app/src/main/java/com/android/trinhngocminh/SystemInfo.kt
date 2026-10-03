@@ -2,6 +2,9 @@ package com.android.trinhngocminh
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.os.StatFs
 import java.io.File
@@ -19,6 +22,7 @@ data class DeviceInfo(
     val socTemp: String,
     val gpuTemp: String,
     val root: String,
+    val selinux: String,
     val thermal: String,
     val thermalNotice: String? = null,
 )
@@ -36,6 +40,24 @@ object SystemInfo {
         ""
     }
 
+    private fun readFirst(vararg paths: String): String {
+        for (path in paths) {
+            val value = read(path)
+            if (value.isNotBlank()) return value
+        }
+        return ""
+    }
+
+    private fun temperatureValue(rawValue: String): String {
+        val raw = rawValue.toDoubleOrNull() ?: return "—"
+        val celsius = when {
+            raw > 10000 -> raw / 1000.0
+            raw > 100 -> raw / 10.0
+            else -> raw
+        }
+        return if (celsius in -20.0..150.0) "%.1f °C".format(celsius) else "—"
+    }
+
     private fun tempFor(vararg keys: String): String {
         val zones = File("/sys/class/thermal").listFiles()
             ?.filter { it.name.startsWith("thermal_zone") }
@@ -44,9 +66,8 @@ object SystemInfo {
         for (zone in zones) {
             val type = read(File(zone, "type").path).lowercase()
             if (keys.any { type.contains(it.lowercase()) }) {
-                val raw = read(File(zone, "temp").path).toDoubleOrNull() ?: continue
-                val celsius = if (raw > 1000) raw / 1000.0 else raw
-                if (celsius in -20.0..150.0) return "%.1f °C".format(celsius)
+                val shown = temperatureValue(read(File(zone, "temp").path))
+                if (shown != "—") return shown
             }
         }
         return "—"
@@ -83,14 +104,53 @@ object SystemInfo {
         return "%.1f / %.1f GB".format(used, total)
     }
 
-    private fun batteryTemp(): String {
-        val raw = read("/sys/class/power_supply/battery/temp").toDoubleOrNull() ?: return "—"
-        val celsius = when {
-            raw > 1000 -> raw / 1000.0
-            raw > 100 -> raw / 10.0
-            else -> raw
+    private fun batteryTemp(context: Context): String {
+        try {
+            val intent = context.registerReceiver(
+                null,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            )
+            val tenthC = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+            if (tenthC != null && tenthC != Int.MIN_VALUE && tenthC != 0) {
+                return "%.1f °C".format(tenthC / 10.0)
+            }
+        } catch (_: Throwable) {
         }
-        return "%.1f °C".format(celsius)
+
+        val sysfs = readFirst(
+            "/sys/class/power_supply/battery/temp",
+            "/sys/class/power_supply/battery/temperature",
+            "/sys/class/power_supply/battery/batt_temp",
+            "/sys/class/power_supply/bms/temp",
+        )
+        return temperatureValue(sysfs)
+    }
+
+    private fun selinuxMode(): String {
+        val enforce = read("/sys/fs/selinux/enforce")
+        if (enforce == "1") return "Enforcing"
+        if (enforce == "0") return "Permissive"
+
+        try {
+            val direct = ProcessBuilder("getenforce")
+                .start()
+                .inputStream
+                .bufferedReader()
+                .readText()
+                .trim()
+            if (direct.isNotBlank()) return direct
+        } catch (_: Throwable) {
+        }
+
+        if (RootShell.hasRoot()) {
+            val root = RootShell.run(
+                "getenforce 2>/dev/null || cat /sys/fs/selinux/enforce 2>/dev/null"
+            ).out.trim()
+            if (root == "1") return "Enforcing"
+            if (root == "0") return "Permissive"
+            if (root.isNotBlank()) return root
+        }
+        return "Không đọc được"
     }
 
     private fun thermalState(context: Context): Pair<String, String?> {
@@ -108,11 +168,7 @@ object SystemInfo {
         val selected = ThermalManager.selected(context)
 
         if (id == "0") {
-            return if (selected == "eco") {
-                "Eco" to null
-            } else {
-                "Stock Xiaomi" to null
-            }
+            return if (selected == "eco") "Eco" to null else "Stock Xiaomi" to null
         }
 
         val name = when (id) {
@@ -166,6 +222,7 @@ object SystemInfo {
             socTemp = "—",
             gpuTemp = "—",
             root = if (RootShell.hasRoot()) "Có" else "Không",
+            selinux = selinuxMode(),
             thermal = "—",
         )
         return readRealtime(context, base)
@@ -176,7 +233,7 @@ object SystemInfo {
         return base.copy(
             cpuCurrent = cpuCurrentGHz(),
             ram = ramUsage(context),
-            batteryTemp = batteryTemp(),
+            batteryTemp = batteryTemp(context),
             socTemp = tempFor("cpu", "soc", "ap", "quiet_therm"),
             gpuTemp = tempFor("gpu"),
             thermal = thermal.first,
