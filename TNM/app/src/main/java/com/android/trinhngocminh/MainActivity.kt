@@ -1,5 +1,6 @@
 package com.android.trinhngocminh
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,6 +13,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,7 +37,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +47,8 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
@@ -57,6 +60,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -67,6 +71,8 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Link
+import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
@@ -91,19 +97,19 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Home() {
         var info by remember { mutableStateOf<DeviceInfo?>(null) }
-        var alwaysStrong by remember { mutableStateOf<AlwaysStrongStatus?>(null) }
-
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
         var systemDialog by remember { mutableStateOf(false) }
-        var alwaysStrongDialog by remember { mutableStateOf(false) }
+        var powerDialog by remember { mutableStateOf(false) }
+        var confirmRebootDialog by remember { mutableStateOf(false) }
+        var pendingReboot by remember { mutableStateOf<RebootTarget?>(null) }
         var message by remember { mutableStateOf("") }
         var lastThermalNotice by remember { mutableStateOf<String?>(null) }
         var selectedThermal by remember { mutableStateOf(ThermalManager.selected(this)) }
         var appVisible by remember {
             mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         }
-        var tick by remember { mutableIntStateOf(0) }
+        var cpuHistory by remember { mutableStateOf<List<Float>>(emptyList()) }
 
         val scope = rememberCoroutineScope()
         val listState = rememberLazyListState()
@@ -111,11 +117,9 @@ class MainActivity : ComponentActivity() {
 
         fun readStaticOnce() {
             scope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    SystemInfo.readStatic(this@MainActivity) to AlwaysStrongMonitor.read()
+                info = withContext(Dispatchers.IO) {
+                    SystemInfo.readStatic(this@MainActivity)
                 }
-                info = result.first
-                alwaysStrong = result.second
             }
         }
 
@@ -137,11 +141,9 @@ class MainActivity : ComponentActivity() {
         }
 
         LaunchedEffect(Unit) {
-            val result = withContext(Dispatchers.IO) {
-                SystemInfo.readStatic(this@MainActivity) to AlwaysStrongMonitor.read()
+            info = withContext(Dispatchers.IO) {
+                SystemInfo.readStatic(this@MainActivity)
             }
-            info = result.first
-            alwaysStrong = result.second
         }
 
         LaunchedEffect(appVisible) {
@@ -152,6 +154,9 @@ class MainActivity : ComponentActivity() {
                         SystemInfo.readRealtime(this@MainActivity, current)
                     }
                     info = next
+                    next.cpuCurrent.substringBefore(" ").toFloatOrNull()?.let { ghz ->
+                        cpuHistory = (cpuHistory + ghz).takeLast(60)
+                    }
 
                     val notice = next.thermalNotice
                     if (notice != null && notice != lastThermalNotice) {
@@ -162,12 +167,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                tick++
-                if (tick % 10 == 0) {
-                    alwaysStrong = withContext(Dispatchers.IO) {
-                        AlwaysStrongMonitor.read()
-                    }
-                }
                 delay(1000)
             }
         }
@@ -192,10 +191,26 @@ class MainActivity : ComponentActivity() {
                     subtitle = "HyperMOS Control",
                     scrollBehavior = scrollBehavior,
                     actions = {
-                        IconButton(onClick = { readStaticOnce() }) {
+                        IconButton(
+                            onClick = {
+                                startActivity(
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse("https://github.com/ngocminhvn/HyperMOS")
+                                    )
+                                )
+                            }
+                        ) {
                             Icon(
-                                imageVector = MiuixIcons.Refresh,
-                                contentDescription = "Đọc lại",
+                                imageVector = MiuixIcons.Link,
+                                contentDescription = "GitHub",
+                                tint = MiuixTheme.colorScheme.onBackground,
+                            )
+                        }
+                        IconButton(onClick = { powerDialog = true }) {
+                            Icon(
+                                imageVector = MiuixIcons.More,
+                                contentDescription = "Nguồn",
                                 tint = MiuixTheme.colorScheme.onBackground,
                             )
                         }
@@ -320,6 +335,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                item(key = "cpuChart") {
+                    Spacer(Modifier.height(10.dp))
+                    CpuChart(
+                        values = cpuHistory,
+                        current = info?.cpuCurrent ?: "—",
+                        max = info?.cpuMax ?: "—",
+                    )
+                }
+
                 item(key = "deviceTitle") {
                     SmallTitle("Thiết bị")
                 }
@@ -332,28 +356,12 @@ class MainActivity : ComponentActivity() {
                     ) {
                         ArrowPreference(
                             title = "Thông tin hệ thống",
-                            summary = "${info?.storage ?: "—"} · SELinux ${info?.selinux ?: "—"}",
+                            summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
                             startAction = {
                                 FeatureIcon(MiuixIcons.Info, Color(0xFF5AC8FA))
                             },
                             onClick = { systemDialog = true },
                             holdDownState = systemDialog,
-                        )
-                        ArrowPreference(
-                            title = "AlwaysStrong",
-                            summary = when {
-                                alwaysStrong == null -> "Đang đọc…"
-                                alwaysStrong?.installed == true -> {
-                                    val state = if (alwaysStrong?.enabled == true) "Đang bật" else "Đã tắt"
-                                    "${alwaysStrong?.version} · $state"
-                                }
-                                else -> "Không phát hiện module"
-                            },
-                            startAction = {
-                                FeatureIcon(MiuixIcons.Settings, Color(0xFFAF52DE))
-                            },
-                            onClick = { alwaysStrongDialog = true },
-                            holdDownState = alwaysStrongDialog,
                         )
                     }
                 }
@@ -451,32 +459,73 @@ class MainActivity : ComponentActivity() {
                     DetailRow("Nhiệt SoC / CPU", info?.socTemp ?: "—")
                     DetailRow("Nhiệt GPU", info?.gpuTemp ?: "—")
                     DetailRow("Thermal", info?.thermal ?: "—")
-                    DetailRow("SELinux", info?.selinux ?: "—")
                     DetailRow("Root", info?.root ?: "—")
                 }
             }
 
             OverlayDialog(
-                title = "AlwaysStrong",
-                summary = "Trạng thái đọc trực tiếp từ module trên máy.",
-                show = alwaysStrongDialog,
-                onDismissRequest = { alwaysStrongDialog = false },
+                title = "Nguồn",
+                summary = "Chọn chế độ khởi động. TNM cần quyền root.",
+                show = powerDialog,
+                onDismissRequest = { powerDialog = false },
             ) {
                 Card {
-                    DetailRow(
-                        "Module",
-                        when {
-                            alwaysStrong?.installed != true -> "Không phát hiện"
-                            alwaysStrong?.enabled == true -> "Đã cài · đang bật"
-                            else -> "Đã cài · đang tắt"
+                    RebootChoice("Khởi động lại", "Android bình thường", RebootTarget.SYSTEM) {
+                        pendingReboot = it
+                        powerDialog = false
+                        confirmRebootDialog = true
+                    }
+                    RebootChoice("Fastboot", "Bootloader fastboot", RebootTarget.BOOTLOADER) {
+                        pendingReboot = it
+                        powerDialog = false
+                        confirmRebootDialog = true
+                    }
+                    RebootChoice("Fastbootd", "Userspace fastbootd", RebootTarget.FASTBOOTD) {
+                        pendingReboot = it
+                        powerDialog = false
+                        confirmRebootDialog = true
+                    }
+                    RebootChoice("Recovery", "Khởi động vào recovery", RebootTarget.RECOVERY) {
+                        pendingReboot = it
+                        powerDialog = false
+                        confirmRebootDialog = true
+                    }
+                }
+            }
+
+            OverlayDialog(
+                title = "Xác nhận khởi động",
+                summary = pendingReboot?.description ?: "",
+                show = confirmRebootDialog,
+                onDismissRequest = { confirmRebootDialog = false },
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Button(
+                        onClick = { confirmRebootDialog = false },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Hủy")
+                    }
+                    Button(
+                        onClick = {
+                            val target = pendingReboot
+                            confirmRebootDialog = false
+                            if (target != null) {
+                                Thread {
+                                    val result = RebootManager.reboot(target)
+                                    if (!result.ok) {
+                                        runOnUiThread { message = result.message }
+                                    }
+                                }.start()
+                            }
                         },
-                    )
-                    DetailRow("Phiên bản", alwaysStrong?.version ?: "—")
-                    DetailRow("Engine", alwaysStrong?.engine ?: "—")
-                    DetailRow("Auto fingerprint", alwaysStrong?.autoFingerprint ?: "—")
-                    DetailRow("Auto keybox", alwaysStrong?.autoKeybox ?: "—")
-                    DetailRow("Chu kỳ", alwaysStrong?.interval ?: "—")
-                    DetailRow("Trạng thái gần nhất", alwaysStrong?.lastState ?: "—")
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Thực hiện")
+                    }
                 }
             }
         }
@@ -716,6 +765,88 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    @Composable
+    private fun CpuChart(
+        values: List<Float>,
+        current: String,
+        max: String,
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(horizontal = 12.dp)
+                .fillMaxWidth(),
+            insideMargin = PaddingValues(16.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text(text = "Biểu đồ CPU", style = MiuixTheme.textStyles.title4)
+                        Text(
+                            text = "60 giây gần nhất · cập nhật mỗi 1 giây",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = current, style = MiuixTheme.textStyles.headline2)
+                        Text(
+                            text = "Max $max",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(132.dp)
+                ) {
+                    val grid = Color.Gray.copy(alpha = 0.16f)
+                    repeat(4) { i ->
+                        val y = size.height * i / 3f
+                        drawLine(
+                            color = grid,
+                            start = androidx.compose.ui.geometry.Offset(0f, y),
+                            end = androidx.compose.ui.geometry.Offset(size.width, y),
+                        )
+                    }
+                    if (values.size >= 2) {
+                        val maxGHz = max.substringBefore(" ").toFloatOrNull() ?: 1f
+                        val ceiling = maxOf(values.maxOrNull() ?: 1f, maxGHz, 1f)
+                        val path = Path()
+                        values.forEachIndexed { index, value ->
+                            val x = size.width * index / (values.size - 1f)
+                            val y = size.height - (value / ceiling).coerceIn(0f, 1f) * size.height
+                            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        drawPath(
+                            path = path,
+                            color = Color(0xFF3482FF),
+                            style = Stroke(width = 4.dp.toPx()),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun RebootChoice(
+        title: String,
+        summary: String,
+        target: RebootTarget,
+        onClick: (RebootTarget) -> Unit,
+    ) {
+        BasicComponent(
+            title = title,
+            summary = summary,
+            onClick = { onClick(target) },
+        )
     }
 
     @Composable
