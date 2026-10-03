@@ -8,7 +8,7 @@ MAIN_FOLDER="$work_dir/build/baserom/images"
 APKEDITOR="java -jar $work_dir/bin/apktool/apke.jar"
 tmp="$work_dir/apk_temp/notification-powerkeeper"
 
-patch "PowerKeeper A16 (ZKOS notification behavior)"
+patch "PowerKeeper A16 (VSTeam notification behavior)"
 
 apk=$(find "$MAIN_FOLDER" -type f -name "PowerKeeper.apk" -print -quit)
 [[ -n "$apk" && -f "$apk" ]] || { error "NOTIFICATION_FIX: PowerKeeper.apk not found"; exit 1; }
@@ -19,9 +19,8 @@ mkdir -p "$tmp/out" "$tmp/final"
 
 $APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null
 
-# ZKOS uses its own always-enabled build flag in PowerKeeper.
-# HyperMOS already provides the equivalent xBuild flag (always true), so keep
-# the same behavior without importing ZKOS-specific framework classes.
+# Keep the existing HyperMOS international-behavior patch. This is separate
+# from the VSTeam kill wrapper below.
 mapfile -t intl_targets < <(
   grep -RIl 'Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z' "$tmp/out" --include='*.smali' || true
 )
@@ -40,128 +39,91 @@ if grep -RIlq 'Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z' "$tmp/out" --include='
   exit 1
 fi
 
-# Match the verified ZKOS 4.2.00 behavior in
-# KillProcessController.setUidState(IZ)V:
-#   stock : build ProcessConfig -> ProcessManager.kill(...) -> "stop uid="
-#   ZKOS  : skip ProcessManager.kill(...)                 -> "ignore stop uid="
+# VSTeam PowerKeeper 4.2.00 does not call ProcessManager.kill() directly.
+# Its 13 original call sites are redirected to:
+#   com.android.vsteam.Toolbox.kill(ProcessConfig) -> false
 #
-# Keep the rest of PowerKeeper (DeviceIdle/Wakelock/background policies and
-# device configs) from the current base ROM instead of copying a 304 APK.
-kill_smali=$(find "$tmp/out" -type f -path '*/com/miui/powerkeeper/controller/KillProcessController.smali' -print -quit)
-[[ -n "$kill_smali" && -f "$kill_smali" ]] || {
-  error "NOTIFICATION_FIX: KillProcessController.smali not found"
+# Reproduce that behavior locally inside PowerKeeper instead of importing the
+# whole VSTeam framework. Keeping a real helper method preserves move-result
+# and caller branch semantics at every call site.
+OLD_KILL='Lmiui/process/ProcessManager;->kill(Lmiui/process/ProcessConfig;)Z'
+NEW_KILL='Lcom/hypermos/notification/PowerKeeperCompat;->kill(Lmiui/process/ProcessConfig;)Z'
+
+kill_count=$(SMALI_ROOT="$tmp/out" OLD_KILL="$OLD_KILL" NEW_KILL="$NEW_KILL" python3 <<'PY'
+from pathlib import Path
+import os
+import sys
+
+root = Path(os.environ["SMALI_ROOT"])
+old = os.environ["OLD_KILL"]
+new = os.environ["NEW_KILL"]
+
+count = 0
+for path in root.rglob("*.smali"):
+    text = path.read_text(encoding="utf-8")
+    n = text.count(old)
+    if n:
+        path.write_text(text.replace(old, new), encoding="utf-8")
+        count += n
+
+if count < 1:
+    print("0")
+    sys.exit(3)
+
+print(count)
+PY
+) || {
+  error "NOTIFICATION_FIX: no ProcessManager.kill(ProcessConfig) call sites found"
   exit 1
 }
 
-KILL_SMALI="$kill_smali" python3 <<'PY'
-import os
-import re
-import sys
+if [[ "$kill_count" -ne 13 ]]; then
+  warn "PowerKeeper kill-site count is $kill_count (verified VSTeam 4.2.00 has 13)"
+fi
 
-path = os.environ["KILL_SMALI"]
-with open(path, "r", encoding="utf-8") as fh:
-    lines = fh.readlines()
+helper_root=$(find "$tmp/out" -maxdepth 1 -type d -name 'smali*' | sort | head -n 1)
+[[ -n "$helper_root" && -d "$helper_root" ]] || {
+  error "NOTIFICATION_FIX: no smali directory found for helper injection"
+  exit 1
+}
 
-method_start = None
-method_end = None
+helper_dir="$helper_root/com/hypermos/notification"
+helper_file="$helper_dir/PowerKeeperCompat.smali"
+mkdir -p "$helper_dir"
 
-for i, line in enumerate(lines):
-    if re.match(r"^\.method\b.*\bsetUidState\(IZ\)V\s*$", line.strip()):
-        if method_start is not None:
-            print("duplicate setUidState(IZ)V", file=sys.stderr)
-            sys.exit(2)
-        method_start = i
+cat > "$helper_file" <<'SMALI'
+.class public final Lcom/hypermos/notification/PowerKeeperCompat;
+.super Ljava/lang/Object;
 
-if method_start is None:
-    print("setUidState(IZ)V not found", file=sys.stderr)
-    sys.exit(3)
+.method private constructor <init>()V
+    .locals 0
 
-for i in range(method_start + 1, len(lines)):
-    if lines[i].strip() == ".end method":
-        method_end = i
-        break
+    invoke-direct {p0}, Ljava/lang/Object;-><init>()V
 
-if method_end is None:
-    print("unterminated setUidState(IZ)V", file=sys.stderr)
-    sys.exit(4)
+    return-void
+.end method
 
-kill_sig = "Lmiui/process/ProcessManager;->kill(Lmiui/process/ProcessConfig;)Z"
-method = lines[method_start:method_end + 1]
+.method public static kill(Lmiui/process/ProcessConfig;)Z
+    .locals 1
 
-kill_rel = [
-    i for i, line in enumerate(method)
-    if "invoke-static" in line and kill_sig in line
-]
-stop_rel = [
-    i for i, line in enumerate(method)
-    if '"stop uid="' in line
-]
-already_rel = [
-    i for i, line in enumerate(method)
-    if '"ignore stop uid="' in line
-]
+    const/4 v0, 0x0
 
-# Idempotent if the input APK has already received the same ZKOS patch.
-if not kill_rel and len(already_rel) == 1:
-    sys.exit(0)
+    return v0
+.end method
+SMALI
 
-if len(kill_rel) != 1 or len(stop_rel) != 1:
-    print(
-        f"unexpected setUidState layout: kill={len(kill_rel)} stop_log={len(stop_rel)}",
-        file=sys.stderr,
-    )
-    sys.exit(5)
+if grep -RIlq "$OLD_KILL" "$tmp/out" --include='*.smali'; then
+  error "NOTIFICATION_FIX: direct ProcessManager.kill(ProcessConfig) calls remain"
+  exit 1
+fi
 
-kill_idx = method_start + kill_rel[0]
-stop_idx = method_start + stop_rel[0]
+helper_refs=$(grep -RhoF "$NEW_KILL" "$tmp/out" --include='*.smali' | wc -l)
+if [[ "$helper_refs" -ne "$kill_count" ]]; then
+  error "NOTIFICATION_FIX: helper redirect verification failed ($helper_refs/$kill_count)"
+  exit 1
+fi
 
-# ZKOS removes the short ProcessConfig construction immediately preceding
-# ProcessManager.kill(). Limit the search window so a changed Xiaomi layout
-# fails safely instead of deleting an unrelated block.
-new_idx = None
-for i in range(kill_idx - 1, max(method_start, kill_idx - 8), -1):
-    s = lines[i].strip()
-    if s.startswith(":"):
-        break
-    if "new-instance" in s and "Lmiui/process/ProcessConfig;" in s:
-        new_idx = i
-        break
-
-if new_idx is None:
-    print("ProcessConfig construction before ProcessManager.kill() not found", file=sys.stderr)
-    sys.exit(6)
-
-# Do not cross labels/branches inside the block being removed.
-for line in lines[new_idx:kill_idx + 1]:
-    if line.strip().startswith(":"):
-        print("label found inside ProcessConfig/kill block", file=sys.stderr)
-        sys.exit(7)
-
-lines[stop_idx] = lines[stop_idx].replace('"stop uid="', '"ignore stop uid="', 1)
-del lines[new_idx:kill_idx + 1]
-
-out = "".join(lines)
-
-# Verify only the intended method behavior changed.
-m = re.search(
-    r"(?ms)^\.method\b[^\n]*\bsetUidState\(IZ\)V\s*$.*?^\.end method\s*$",
-    out,
-)
-if not m:
-    print("patched setUidState(IZ)V verification failed", file=sys.stderr)
-    sys.exit(8)
-
-patched_method = m.group(0)
-if kill_sig in patched_method:
-    print("ProcessManager.kill() remains in setUidState(IZ)V", file=sys.stderr)
-    sys.exit(9)
-if patched_method.count('"ignore stop uid="') != 1:
-    print("ZKOS ignore-stop marker verification failed", file=sys.stderr)
-    sys.exit(10)
-
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(out)
-PY
+mods "PowerKeeper VSTeam kill wrapper -> $kill_count call sites"
 
 name=$(basename "$apk")
 $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null
