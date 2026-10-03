@@ -98,7 +98,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val controller = remember { ThemeController(ColorSchemeMode.System) }
+            val systemDark = isSystemInDarkTheme()
+            val controller = remember(systemDark) {
+                ThemeController(
+                    colorSchemeMode = ColorSchemeMode.System,
+                    isDark = systemDark,
+                )
+            }
             MiuixTheme(controller = controller) { Home() }
         }
     }
@@ -567,6 +573,26 @@ class MainActivity : ComponentActivity() {
         )
 
         val isDark = isSystemInDarkTheme()
+        val heroGradient = if (isDark) {
+            listOf(
+                Color(0xFF04112F),
+                Color(0xFF082D78),
+                Color(0xFF39257E),
+                Color(0xFF160923),
+            )
+        } else {
+            listOf(
+                Color(0xFFDCEBFF),
+                Color(0xFFAECFFF),
+                Color(0xFFC8BAFF),
+                Color(0xFFF0E9FF),
+            )
+        }
+        val primaryGlow = if (isDark) Color(0xFF367CFF) else Color(0xFF5D94FF)
+        val secondaryGlow = if (isDark) Color(0xFF7A3CFF) else Color(0xFFA77BFF)
+        val bottomGlow = if (isDark) Color(0xFF003B9E) else Color(0xFF8DB4FF)
+        val heroText = if (isDark) Color.White else Color(0xFF111318)
+        val heroSubText = if (isDark) Color.White.copy(alpha = 0.76f) else Color(0xFF3A3D44).copy(alpha = 0.72f)
         val shape = RoundedCornerShape(30.dp)
         val backdrop = rememberLayerBackdrop()
         val blurSupported = isRuntimeShaderSupported()
@@ -605,14 +631,7 @@ class MainActivity : ComponentActivity() {
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .background(
-                        Brush.linearGradient(
-                            listOf(
-                                Color(0xFF061B50),
-                                Color(0xFF0B4FD8),
-                                Color(0xFF3C2BAA),
-                                Color(0xFF220D3C),
-                            )
-                        )
+                        Brush.linearGradient(heroGradient)
                     ),
             ) {
                 Box(
@@ -620,7 +639,7 @@ class MainActivity : ComponentActivity() {
                         .offset(x = drift.dp, y = (-50).dp)
                         .size(230.dp)
                         .blur(68.dp)
-                        .background(Color(0xFF367CFF).copy(alpha = glow), CircleShape),
+                        .background(primaryGlow.copy(alpha = glow), CircleShape),
                 )
                 Box(
                     modifier = Modifier
@@ -628,7 +647,7 @@ class MainActivity : ComponentActivity() {
                         .offset(x = 56.dp, y = (-18).dp)
                         .size(210.dp)
                         .blur(72.dp)
-                        .background(Color(0xFF7A3CFF).copy(alpha = glow * 0.92f), CircleShape),
+                        .background(secondaryGlow.copy(alpha = glow * 0.92f), CircleShape),
                 )
                 Box(
                     modifier = Modifier
@@ -636,7 +655,7 @@ class MainActivity : ComponentActivity() {
                         .offset(y = 58.dp)
                         .size(250.dp)
                         .blur(82.dp)
-                        .background(Color(0xFF003B9E).copy(alpha = 0.42f), CircleShape),
+                        .background(bottomGlow.copy(alpha = if (isDark) 0.42f else 0.30f), CircleShape),
                 )
             }
 
@@ -695,12 +714,12 @@ class MainActivity : ComponentActivity() {
                             Text(
                                 text = info?.device ?: "Đang đọc thiết bị…",
                                 style = MiuixTheme.textStyles.title3,
-                                color = Color.White,
+                                color = heroText,
                             )
                             Text(
                                 text = "${info?.hyperos ?: "HyperOS"} · ${info?.android ?: "Android"}",
                                 style = MiuixTheme.textStyles.body2,
-                                color = Color.White.copy(alpha = 0.76f),
+                                color = heroSubText,
                             )
                         }
                     }
@@ -736,22 +755,35 @@ class MainActivity : ComponentActivity() {
         title: String,
         value: String,
     ) {
+        val isDark = isSystemInDarkTheme()
+        val metricBackground = if (isDark) {
+            Color.Black.copy(alpha = 0.16f)
+        } else {
+            Color.White.copy(alpha = 0.38f)
+        }
+        val metricTitle = if (isDark) {
+            Color.White.copy(alpha = 0.66f)
+        } else {
+            Color(0xFF4A4D55).copy(alpha = 0.78f)
+        }
+        val metricValue = if (isDark) Color.White else Color(0xFF111318)
+
         Column(
             modifier = modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color.Black.copy(alpha = 0.16f))
+                .background(metricBackground)
                 .padding(horizontal = 10.dp, vertical = 9.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = title,
                 style = MiuixTheme.textStyles.footnote1,
-                color = Color.White.copy(alpha = 0.66f),
+                color = metricTitle,
             )
             Text(
                 text = value,
                 style = MiuixTheme.textStyles.body2,
-                color = Color.White,
+                color = metricValue,
                 maxLines = 1,
             )
         }
