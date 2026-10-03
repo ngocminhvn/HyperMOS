@@ -21,7 +21,7 @@ find_unique_file() {
     printf '%s\n' "${matches[0]}"
 }
 
-mods "$label: installing latest Kashi/Mods Center release on stable #24 base"
+mods "$label: installing fixed local Kashi/Mods Center snapshot on stable #24 base"
 
 modscenter_unpack_latest "$label" "$repo" "$extract_dir" || exit 1
 
