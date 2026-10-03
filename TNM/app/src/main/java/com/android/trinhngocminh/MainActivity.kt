@@ -7,8 +7,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,22 +24,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -46,7 +58,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -57,7 +68,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
-import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
@@ -82,20 +92,19 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Home() {
         var info by remember { mutableStateOf<DeviceInfo?>(null) }
-        var integrity by remember { mutableStateOf<IntegrityDiagnostics?>(null) }
-        var playIntegrity by remember { mutableStateOf("Chưa kiểm tra") }
-        var checkingIntegrity by remember { mutableStateOf(false) }
+        var alwaysStrong by remember { mutableStateOf<AlwaysStrongStatus?>(null) }
 
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
         var systemDialog by remember { mutableStateOf(false) }
-        var integrityDialog by remember { mutableStateOf(false) }
+        var alwaysStrongDialog by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
         var lastThermalNotice by remember { mutableStateOf<String?>(null) }
         var selectedThermal by remember { mutableStateOf(ThermalManager.selected(this)) }
         var appVisible by remember {
             mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         }
+        var tick by remember { mutableIntStateOf(0) }
 
         val scope = rememberCoroutineScope()
         val listState = rememberLazyListState()
@@ -103,27 +112,19 @@ class MainActivity : ComponentActivity() {
 
         fun readStaticOnce() {
             scope.launch {
-                val pair = withContext(Dispatchers.IO) {
-                    SystemInfo.readStatic(this@MainActivity) to IntegrityChecker.local()
+                val result = withContext(Dispatchers.IO) {
+                    SystemInfo.readStatic(this@MainActivity) to AlwaysStrongMonitor.read()
                 }
-                info = pair.first
-                integrity = pair.second
+                info = result.first
+                alwaysStrong = result.second
             }
         }
 
         fun refreshRealtimeNow() {
             val current = info ?: return
             scope.launch {
-                val next = withContext(Dispatchers.IO) {
+                info = withContext(Dispatchers.IO) {
                     SystemInfo.readRealtime(this@MainActivity, current)
-                }
-                info = next
-                val notice = next.thermalNotice
-                if (notice != null && notice != lastThermalNotice) {
-                    message = notice
-                    lastThermalNotice = notice
-                } else if (notice == null) {
-                    lastThermalNotice = null
                 }
             }
         }
@@ -137,11 +138,11 @@ class MainActivity : ComponentActivity() {
         }
 
         LaunchedEffect(Unit) {
-            val pair = withContext(Dispatchers.IO) {
-                SystemInfo.readStatic(this@MainActivity) to IntegrityChecker.local()
+            val result = withContext(Dispatchers.IO) {
+                SystemInfo.readStatic(this@MainActivity) to AlwaysStrongMonitor.read()
             }
-            info = pair.first
-            integrity = pair.second
+            info = result.first
+            alwaysStrong = result.second
         }
 
         LaunchedEffect(appVisible) {
@@ -159,6 +160,13 @@ class MainActivity : ComponentActivity() {
                         lastThermalNotice = notice
                     } else if (notice == null) {
                         lastThermalNotice = null
+                    }
+                }
+
+                tick++
+                if (tick % 10 == 0) {
+                    alwaysStrong = withContext(Dispatchers.IO) {
+                        AlwaysStrongMonitor.read()
                     }
                 }
                 delay(1000)
@@ -188,7 +196,7 @@ class MainActivity : ComponentActivity() {
                         IconButton(onClick = { readStaticOnce() }) {
                             Icon(
                                 imageVector = MiuixIcons.Refresh,
-                                contentDescription = "Đọc lại toàn bộ",
+                                contentDescription = "Đọc lại",
                                 tint = MiuixTheme.colorScheme.onBackground,
                             )
                         }
@@ -206,9 +214,13 @@ class MainActivity : ComponentActivity() {
                     bottom = 28.dp,
                 ),
             ) {
-                item(key = "hero") { DeviceHero(info) }
+                item(key = "hero") {
+                    GlossyDeviceHero(info)
+                }
 
-                item(key = "customTitle") { SmallTitle("Tùy chỉnh") }
+                item(key = "customTitle") {
+                    SmallTitle("Tùy chỉnh")
+                }
 
                 item(key = "custom") {
                     Card(
@@ -256,7 +268,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                item(key = "systemTitle") { SmallTitle("Realtime") }
+                item(key = "realtimeTitle") {
+                    SmallTitle("Realtime")
+                }
 
                 item(key = "stats1") {
                     Row(
@@ -307,7 +321,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                item(key = "detailsTitle") { SmallTitle("Thiết bị") }
+                item(key = "deviceTitle") {
+                    SmallTitle("Thiết bị")
+                }
 
                 item(key = "details") {
                     Card(
@@ -317,7 +333,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         ArrowPreference(
                             title = "Thông tin hệ thống",
-                            summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
+                            summary = "${info?.storage ?: "—"} · SELinux ${info?.selinux ?: "—"}",
                             startAction = {
                                 FeatureIcon(MiuixIcons.Info, Color(0xFF5AC8FA))
                             },
@@ -325,13 +341,20 @@ class MainActivity : ComponentActivity() {
                             holdDownState = systemDialog,
                         )
                         ArrowPreference(
-                            title = "Integrity",
-                            summary = integrity?.summary ?: "Đang kiểm tra…",
-                            startAction = {
-                                FeatureIcon(MiuixIcons.Lock, Color(0xFFAF52DE))
+                            title = "AlwaysStrong",
+                            summary = when {
+                                alwaysStrong == null -> "Đang đọc…"
+                                alwaysStrong?.installed == true -> {
+                                    val state = if (alwaysStrong?.enabled == true) "Đang bật" else "Đã tắt"
+                                    "${alwaysStrong?.version} · $state"
+                                }
+                                else -> "Không phát hiện module"
                             },
-                            onClick = { integrityDialog = true },
-                            holdDownState = integrityDialog,
+                            startAction = {
+                                FeatureIcon(MiuixIcons.Settings, Color(0xFFAF52DE))
+                            },
+                            onClick = { alwaysStrongDialog = true },
+                            holdDownState = alwaysStrongDialog,
                         )
                     }
                 }
@@ -429,91 +452,202 @@ class MainActivity : ComponentActivity() {
                     DetailRow("Nhiệt SoC / CPU", info?.socTemp ?: "—")
                     DetailRow("Nhiệt GPU", info?.gpuTemp ?: "—")
                     DetailRow("Thermal", info?.thermal ?: "—")
+                    DetailRow("SELinux", info?.selinux ?: "—")
                     DetailRow("Root", info?.root ?: "—")
                 }
             }
 
             OverlayDialog(
-                title = "Integrity",
-                summary = "Chẩn đoán cục bộ + Play Integrity chính thức khi đã cấu hình backend.",
-                show = integrityDialog,
-                onDismissRequest = { integrityDialog = false },
+                title = "AlwaysStrong",
+                summary = "Trạng thái đọc trực tiếp từ module trên máy.",
+                show = alwaysStrongDialog,
+                onDismissRequest = { alwaysStrongDialog = false },
             ) {
                 Card {
-                    DetailRow("Chẩn đoán", integrity?.summary ?: "—")
-                    DetailRow("Verified Boot", integrity?.verifiedBoot ?: "—")
-                    DetailRow("Bootloader", integrity?.bootloader ?: "—")
-                    DetailRow("VBMeta", integrity?.vbmeta ?: "—")
-                    DetailRow("SELinux", integrity?.selinux ?: "—")
-                    DetailRow("Build tags", integrity?.buildTags ?: "—")
-                    DetailRow("Root", integrity?.root ?: "—")
-                    DetailRow("Play Integrity", playIntegrity)
-                }
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    enabled = !checkingIntegrity,
-                    onClick = {
-                        checkingIntegrity = true
-                        playIntegrity = "Đang kiểm tra…"
-                        scope.launch {
-                            playIntegrity = withContext(Dispatchers.IO) {
-                                IntegrityChecker.official(this@MainActivity)
-                            }
-                            checkingIntegrity = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (checkingIntegrity) "Đang kiểm tra…" else "Check Play Integrity")
+                    DetailRow(
+                        "Module",
+                        when {
+                            alwaysStrong?.installed != true -> "Không phát hiện"
+                            alwaysStrong?.enabled == true -> "Đã cài · đang bật"
+                            else -> "Đã cài · đang tắt"
+                        },
+                    )
+                    DetailRow("Phiên bản", alwaysStrong?.version ?: "—")
+                    DetailRow("Engine", alwaysStrong?.engine ?: "—")
+                    DetailRow("Auto fingerprint", alwaysStrong?.autoFingerprint ?: "—")
+                    DetailRow("Auto keybox", alwaysStrong?.autoKeybox ?: "—")
+                    DetailRow("Chu kỳ", alwaysStrong?.interval ?: "—")
+                    DetailRow("Trạng thái gần nhất", alwaysStrong?.lastState ?: "—")
                 }
             }
         }
     }
 
     @Composable
-    private fun DeviceHero(info: DeviceInfo?) {
-        Card(
+    private fun GlossyDeviceHero(info: DeviceInfo?) {
+        val transition = rememberInfiniteTransition(label = "hero")
+        val drift by transition.animateFloat(
+            initialValue = -18f,
+            targetValue = 26f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 5200),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "drift",
+        )
+        val glow by transition.animateFloat(
+            initialValue = 0.24f,
+            targetValue = 0.42f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 3200),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "glow",
+        )
+
+        val shape = RoundedCornerShape(28.dp)
+        Box(
             modifier = Modifier
                 .padding(horizontal = 12.dp)
-                .fillMaxWidth(),
-            insideMargin = PaddingValues(18.dp),
+                .fillMaxWidth()
+                .height(206.dp)
+                .clip(shape)
+                .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+                .border(1.dp, Color.White.copy(alpha = 0.12f), shape),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                Color(0xFF0B5CFF).copy(alpha = 0.62f),
+                                Color(0xFF4A39D8).copy(alpha = 0.46f),
+                                Color(0xFF9A42CF).copy(alpha = 0.34f),
+                                Color.Transparent,
+                            )
+                        )
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .offset(x = drift.dp, y = (-38).dp)
+                    .size(180.dp)
+                    .blur(50.dp)
+                    .background(Color(0xFF4D8DFF).copy(alpha = glow), CircleShape),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 26.dp, y = 32.dp)
+                    .size(190.dp)
+                    .blur(58.dp)
+                    .background(Color(0xFFB247FF).copy(alpha = glow * 0.85f), CircleShape),
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.08f),
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.10f),
+                            )
+                        )
+                    ),
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(68.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF3482FF)),
-                    contentAlignment = Alignment.Center,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Image(
-                        painter = painterResource(R.drawable.ic_tnm_foreground),
-                        contentDescription = "TNM",
-                        modifier = Modifier.size(54.dp),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.White.copy(alpha = 0.14f))
+                            .border(
+                                1.dp,
+                                Color.White.copy(alpha = 0.18f),
+                                RoundedCornerShape(18.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.ic_tnm_foreground),
+                            contentDescription = "TNM",
+                            modifier = Modifier.size(46.dp),
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = info?.device ?: "Đang đọc thiết bị…",
+                            style = MiuixTheme.textStyles.title3,
+                            color = Color.White,
+                        )
+                        Text(
+                            text = "${info?.hyperos ?: "HyperOS"} · ${info?.android ?: "Android"}",
+                            style = MiuixTheme.textStyles.body2,
+                            color = Color.White.copy(alpha = 0.74f),
+                        )
+                    }
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = info?.device ?: "Đang đọc thiết bị…",
-                        style = MiuixTheme.textStyles.title3,
+                    HeroMetric(
+                        modifier = Modifier.weight(1f),
+                        title = "SoC",
+                        value = info?.soc ?: "—",
                     )
-                    Text(
-                        text = buildString {
-                            append(info?.hyperos ?: "HyperOS")
-                            append(" · ")
-                            append(info?.android ?: "Android")
-                        },
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    HeroMetric(
+                        modifier = Modifier.weight(1f),
+                        title = "CPU",
+                        value = info?.cpuCurrent ?: "—",
+                    )
+                    HeroMetric(
+                        modifier = Modifier.weight(1f),
+                        title = "Nhiệt",
+                        value = info?.socTemp ?: "—",
                     )
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun HeroMetric(
+        modifier: Modifier,
+        title: String,
+        value: String,
+    ) {
+        Column(
+            modifier = modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black.copy(alpha = 0.16f))
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MiuixTheme.textStyles.footnote1,
+                color = Color.White.copy(alpha = 0.66f),
+            )
+            Text(
+                text = value,
+                style = MiuixTheme.textStyles.body2,
+                color = Color.White,
+                maxLines = 1,
+            )
         }
     }
 
@@ -578,6 +712,7 @@ class MainActivity : ComponentActivity() {
                     Text(
                         text = value,
                         style = MiuixTheme.textStyles.headline2,
+                        maxLines = 1,
                     )
                 }
             }
