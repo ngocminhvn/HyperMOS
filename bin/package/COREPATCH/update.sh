@@ -12,9 +12,11 @@ elif [[ $AndroidVER == "14" ]];then
 elif [[ $AndroidVER == "15" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a15.sh
 elif [[ $AndroidVER == "16" ]];then
+    # Match the known-good #24 COREPATCH behavior:
+    # - keep CN notification fix
+    # - do NOT disable secure flag in services.jar / miui-services.jar
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a16.sh \
-        --cn-notification-fix \
-        --disable-secure-flag
+        --cn-notification-fix
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh
 fi
