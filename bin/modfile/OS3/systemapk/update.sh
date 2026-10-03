@@ -3,8 +3,8 @@
 work_dir=$(pwd)
 source "$work_dir/bin/modfile/OS3/_common.sh"
 
-LLIONS_DIR="$work_dir/bin/modfile/OS3/llionsapps"
-CACHE_DIR="$work_dir/build/os3_llionsapps"
+SYSTEMAPK_DIR="$work_dir/bin/modfile/OS3/systemapk"
+CACHE_DIR="$work_dir/build/os3_systemapk"
 
 rm -rf "$CACHE_DIR"
 mkdir -p "$CACHE_DIR"
@@ -78,12 +78,12 @@ copy_external_libs() {
     mods "$label: copied $count external lib file(s)"
 }
 
-apply_llions_app() {
+apply_system_apk() {
     local label="$1"
     local apk_name="$2"
     local preferred_stock_dir="$3"
 
-    local source_apk="$LLIONS_DIR/$apk_name"
+    local source_apk="$SYSTEMAPK_DIR/$apk_name"
     local source_dir="${source_apk%.apk}"
     local mod_package stock_apk stock_dir stock_name prepared copied_package
 
@@ -147,38 +147,38 @@ apply_llions_app() {
     mods "$label -> Done"
 }
 
-mods "LLions system apps: starting"
+mods "System APKs: starting"
 
-apply_llions_app \
+apply_system_apk \
     "LLions File Manager" \
     "[LLions] HyperOS File Manager Mod v8.1.0.5 Fix.apk" \
     "MIUIFileExplorer" || exit 1
 
-apply_llions_app \
+apply_system_apk \
     "LLions Gallery Editor" \
     "[LLions] HyperOS Gallery Editor Mod v2.3.0.5.apk" \
     "MIMediaEditor" || exit 1
 
 GALLERY_APK="MIUIGallery.apk"
-if [[ ! -f "$LLIONS_DIR/$GALLERY_APK" ]]; then
+if [[ ! -f "$SYSTEMAPK_DIR/$GALLERY_APK" ]]; then
     info "Xiaomi Gallery 4.3.1.8-global not found; fallback to LLions Gallery v4.3.1.16"
     GALLERY_APK="[LLions] HyperOS Gallery Mod v4.3.1.16.apk"
 fi
 
-apply_llions_app \
+apply_system_apk \
     "Xiaomi Gallery 4.3.1.8-global" \
     "$GALLERY_APK" \
     "MIUIGallery" || exit 1
 
-apply_llions_app \
+apply_system_apk \
     "LLions Screen Recorder" \
     "[LLions] HyperOS Screen Recorder Mod v4.15.2.12.1.apk" \
     "ScreenRecorder" || exit 1
 
-apply_llions_app \
+apply_system_apk \
     "LLions Screenshot" \
     "[LLions] HyperOS Screenshot Mod v1.6.2.9.apk" \
     "MIUIScreenshot" || exit 1
 
 rm -rf "$CACHE_DIR"
-mods "LLions system apps -> Done"
+mods "System APKs -> Done"

@@ -25,8 +25,13 @@ The manual `Vendor fixed system apps` workflow is the only maintenance path that
 - HyperOS App Vault
 - ColorOS Control Center
 - HyperOS Launcher
+- HyperOS Theme Manager
 
-The old per-module `appvault/update.sh`, `controlcenter/update.sh`, and `launcher/update.sh` entry scripts are no longer used.
+The old per-module `appvault/update.sh`, `controlcenter/update.sh`, `launcher/update.sh`, and `thememanager/update.sh` entry scripts are no longer used.
+
+## System APKs
+
+Local replacement APKs and their external libraries live in `bin/modfile/OS3/systemapk/`. This folder replaces the old `llionsapps/` name.
 
 ## Integration flow
 
