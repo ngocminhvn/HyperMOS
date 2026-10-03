@@ -5,185 +5,77 @@ source "$work_dir/functions.sh"
 
 OS3_MOD_CACHE="$work_dir/build/os3_modscenter"
 OS3_IMAGES="$work_dir/build/baserom/images"
+OS3_FIXED_ASSET_DIR="$work_dir/bin/modfile/OS3/assets"
 MODSCENTER_ARCHIVE=""
 MODSCENTER_TAG=""
 
-CONFIG_ENV="$work_dir/config.env"
-dirtyflash="${dirtyflash:-off}"
-if [[ -f "$CONFIG_ENV" ]]; then
-    # shellcheck disable=SC1090
-    source "$CONFIG_ENV"
-fi
-dirtyflash=$(printf '%s' "$dirtyflash" | tr '[:upper:]' '[:lower:]')
-case "$dirtyflash" in
-    on|off) ;;
-    *)
-        error "OS3 Mods Center: dirtyflash must be on or off in config.env"
-        exit 1
-        ;;
-esac
-
-modscenter_pinned_tag() {
+modscenter_fixed_metadata() {
     local repo="$1"
     case "$repo" in
-        "Mods-Center/HyperOS-App-Vault") printf '%s\n' "V4.5" ;;
-        "Mods-Center/ColorOS_Control_Center") printf '%s\n' "V3" ;;
-        "Mods-Center/HyperOS-Launcher") printf '%s\n' "V7.1" ;;
-        "Mods-Center/HyperOS-Security-Center") printf '%s\n' "V7" ;;
-        "Mods-Center/HyperOS-Theme-Manager") printf '%s\n' "V7" ;;
+        "Mods-Center/HyperOS-App-Vault")
+            printf '%s|%s|%s\n' "V4.5" "HyperOS_AppVaultV4.5@kashis_cringey_stuffs.zip" "fee4f5398472b1febe1d10a12695a2ce7b7d7e3b1f4102be11117dd3150c97ab"
+            ;;
+        "Mods-Center/ColorOS_Control_Center")
+            printf '%s|%s|%s\n' "V3" "ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip" "0cd9436b9cc76a7c4138137190a44d830783a4cc67980d40e9e273f2c3327499"
+            ;;
+        "Mods-Center/HyperOS-Launcher")
+            printf '%s|%s|%s\n' "V7.1" "HyperOS_LauncherV7.1@kashis_cringey_stuffs.zip" "386d95cb96574108d61524589cd21c3ccab18afdb221a31b04eca94ba8d30e0e"
+            ;;
+        "Mods-Center/HyperOS-Security-Center")
+            printf '%s|%s|%s\n' "V7" "HyperOS_SecurityV7@kashis_cringey_stuffs.zip" "b1722752144805f15e8e7d2d619403257594b05f123afb5ff61af004ba642d9c"
+            ;;
+        "Mods-Center/HyperOS-Theme-Manager")
+            printf '%s|%s|%s\n' "V7" "HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip" "caba9debf6ce68d42a734125d9956707ad89ab4beda9aa6bca84d6f904d28398"
+            ;;
         *) return 1 ;;
     esac
 }
 
-modscenter_resolve_latest() {
-    local repo="$1"
-    local pinned_tag=""
-
-    if [[ "$dirtyflash" == "on" ]]; then
-        if ! pinned_tag=$(modscenter_pinned_tag "$repo"); then
-            echo "No pinned OS3 release configured for $repo" >&2
-            return 1
-        fi
-    fi
-
-    python3 - "$repo" "$pinned_tag" <<'PY'
-import json
-import os
-import sys
-import urllib.parse
-import urllib.request
-
-repo = sys.argv[1]
-pinned_tag = sys.argv[2].strip()
-if pinned_tag:
-    encoded_tag = urllib.parse.quote(pinned_tag, safe="")
-    api = f"https://api.github.com/repos/{repo}/releases/tags/{encoded_tag}"
-else:
-    api = f"https://api.github.com/repos/{repo}/releases/latest"
-
-headers = {
-    "Accept": "application/vnd.github+json",
-    "User-Agent": "HyperMOS-OS3-ModsCenter",
-}
-token = os.environ.get("GITHUB_TOKEN", "").strip()
-if token:
-    headers["Authorization"] = f"Bearer {token}"
-
-req = urllib.request.Request(api, headers=headers)
-with urllib.request.urlopen(req, timeout=30) as r:
-    data = json.load(r)
-
-assets = [
-    a for a in data.get("assets", [])
-    if str(a.get("name", "")).lower().endswith(".zip")
-]
-
-if len(assets) != 1:
-    names = ", ".join(str(a.get("name", "")) for a in assets) or "<none>"
-    raise SystemExit(f"Expected exactly one ZIP release asset, found {len(assets)}: {names}")
-
-asset = assets[0]
-tag = str(data.get("tag_name", pinned_tag or "latest"))
-url = str(asset.get("browser_download_url", ""))
-digest = str(asset.get("digest") or "")
-name = str(asset.get("name") or "module.zip")
-
-if not url:
-    raise SystemExit("Release asset has no download URL")
-
-if digest.startswith("sha256:"):
-    digest = digest.split(":", 1)[1]
-else:
-    digest = ""
-
-print(tag)
-print(url)
-print(digest)
-print(name)
-PY
-}
-
-modscenter_download_latest() {
+modscenter_prepare_fixed() {
     local label="$1"
     local repo="$2"
+    local meta tag asset_name sha256 archive actual_sha
 
-    local meta url sha256 asset_name archive safe_tag release_mode
-    local -a release_meta
+    meta=$(modscenter_fixed_metadata "$repo") || {
+        error "$label: no fixed local snapshot configured for $repo"
+        return 1
+    }
 
-    if [[ "$dirtyflash" == "on" ]]; then
-        release_mode="pinned"
-    else
-        release_mode="latest"
-    fi
+    IFS='|' read -r tag asset_name sha256 <<< "$meta"
+    archive="$OS3_FIXED_ASSET_DIR/$asset_name"
 
-    if ! meta=$(modscenter_resolve_latest "$repo"); then
-        error "$label: cannot resolve latest GitHub release"
+    if [[ ! -s "$archive" ]]; then
+        error "$label: fixed asset missing: $archive"
+        error "$label: run the Vendor fixed system apps workflow once"
         return 1
     fi
 
-    mapfile -t release_meta <<< "$meta"
-    MODSCENTER_TAG="${release_meta[0]:-}"
-    url="${release_meta[1]:-}"
-    sha256="${release_meta[2]:-}"
-    asset_name="${release_meta[3]:-module.zip}"
-
-    if [[ -z "$MODSCENTER_TAG" || -z "$url" ]]; then
-        error "$label: invalid latest release metadata"
+    actual_sha=$(sha256sum "$archive" | awk '{print $1}')
+    if [[ "$actual_sha" != "$sha256" ]]; then
+        error "$label: SHA256 mismatch for fixed asset $asset_name"
+        error "$label: expected $sha256"
+        error "$label: actual   $actual_sha"
         return 1
     fi
 
-    safe_tag=$(printf '%s' "$MODSCENTER_TAG" | tr -cd 'A-Za-z0-9._-')
-    archive="$OS3_MOD_CACHE/${repo//\//_}-${safe_tag}.zip"
-    mkdir -p "$OS3_MOD_CACHE"
-
-    if [[ -s "$archive" ]]; then
-        if [[ -n "$sha256" ]]; then
-            if printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >/dev/null 2>&1; then
-                MODSCENTER_ARCHIVE="$archive"
-                mods "$label: $release_mode $MODSCENTER_TAG (cached, SHA256 OK)"
-                return 0
-            fi
-        else
-            MODSCENTER_ARCHIVE="$archive"
-            mods "$label: $release_mode $MODSCENTER_TAG (cached, no upstream digest)"
-            return 0
-        fi
-    fi
-
-    rm -f "$archive"
-    mods "$label: $release_mode release $MODSCENTER_TAG -> $asset_name"
-
-    if ! aria2c -q --allow-overwrite=true --auto-file-renaming=false --file-allocation=none -x8 -s8 \
-        -d "$(dirname "$archive")" -o "$(basename "$archive")" "$url"; then
-        error "$label: download failed"
-        return 1
-    fi
-
-    if [[ -n "$sha256" ]]; then
-        if ! printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >/dev/null 2>&1; then
-            rm -f "$archive"
-            error "$label: SHA256 mismatch for $MODSCENTER_TAG"
-            return 1
-        fi
-        mods "$label: SHA256 verified"
-    else
-        mods "$label: warning - latest asset has no SHA256 digest from GitHub"
-    fi
-
+    MODSCENTER_TAG="$tag"
     MODSCENTER_ARCHIVE="$archive"
+    mods "$label: fixed local $tag -> $asset_name (SHA256 OK)"
 }
 
+# Compatibility name kept so individual module scripts do not need network logic.
+# This function only reads a fixed archive already committed in this repository.
 modscenter_unpack_latest() {
     local label="$1"
     local repo="$2"
     local extract_dir="$3"
 
-    modscenter_download_latest "$label" "$repo" || return 1
+    modscenter_prepare_fixed "$label" "$repo" || return 1
 
     rm -rf "$extract_dir"
     mkdir -p "$extract_dir"
     if ! unzip -q "$MODSCENTER_ARCHIVE" -d "$extract_dir"; then
-        error "$label: unzip failed"
+        error "$label: unzip fixed asset failed"
         return 1
     fi
 }
@@ -539,5 +431,5 @@ modscenter_apply_native_module() {
     fi
 
     rm -rf "$extract_dir"
-    mods "$label: $release_mode $MODSCENTER_TAG integrated"
+    mods "$label: fixed local $MODSCENTER_TAG integrated"
 }
