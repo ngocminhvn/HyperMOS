@@ -15,9 +15,15 @@ object ThermalManager {
     fun applyEco(context: Context): String {
         if (!RootShell.hasRoot()) return "Cần quyền root"
 
-        val encoded = context.assets.open("thermal/thermal-eco.b64")
-            .bufferedReader()
-            .use { it.readText().trim() }
+        val encoded = buildString {
+            for (i in 1..4) {
+                append(
+                    context.assets.open("thermal/thermal-eco.part$i")
+                        .bufferedReader()
+                        .use { it.readText().trim() }
+                )
+            }
+        }
         val bytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }
             .getOrElse { return "Profile Eco trong APK không hợp lệ" }
 
