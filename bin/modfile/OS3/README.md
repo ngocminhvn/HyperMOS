@@ -26,8 +26,9 @@ The manual `Vendor fixed system apps` workflow is the only maintenance path that
 - ColorOS Control Center
 - HyperOS Launcher
 - HyperOS Theme Manager
+- HyperOS Security Center
 
-The old per-module `appvault/update.sh`, `controlcenter/update.sh`, `launcher/update.sh`, and `thememanager/update.sh` entry scripts are no longer used.
+The old per-module `appvault/update.sh`, `controlcenter/update.sh`, `launcher/update.sh`, `thememanager/update.sh`, and `security/update.sh` entry scripts are no longer used.
 
 ## System APKs
 
