@@ -12,12 +12,20 @@ fi
 mods "Starting Apply OS3 Mods Center packages..."
 
 TARGET_DIR="$work_dir/bin/modfile/OS3"
-mapfile -t scripts < <(find "$TARGET_DIR" -mindepth 2 -type f -name "update.sh" | LC_ALL=C sort)
+KASHI_SCRIPT="$TARGET_DIR/kashimod.sh"
 
-if [[ ${#scripts[@]} -eq 0 ]]; then
-    error "OS3 Mods Center: no update.sh scripts found"
+if [[ ! -f "$KASHI_SCRIPT" ]]; then
+    error "OS3 Kashi mods: kashimod.sh not found"
     exit 1
 fi
+
+mods "OS3 -> kashimod"
+if ! bash "$KASHI_SCRIPT"; then
+    error "OS3 mod failed: $KASHI_SCRIPT"
+    exit 1
+fi
+
+mapfile -t scripts < <(find "$TARGET_DIR" -mindepth 2 -type f -name "update.sh" | LC_ALL=C sort)
 
 for script in "${scripts[@]}"; do
     mods "OS3 -> $(basename "$(dirname "$script")")"

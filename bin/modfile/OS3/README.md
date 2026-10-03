@@ -18,6 +18,16 @@ InstallerX source remains local in `bin/modfile/Universal/packageinstaller/`.
 
 The manual `Vendor fixed system apps` workflow is the only maintenance path that downloads these upstream assets. It uses exact pinned tags and exact filenames, verifies SHA-256, and commits the files into HyperMOS. Running the normal ROM build never invokes that workflow.
 
+## Kashi mods
+
+`bin/modfile/OS3/kashimod.sh` is the single integration entry for:
+
+- HyperOS App Vault
+- ColorOS Control Center
+- HyperOS Launcher
+
+The old per-module `appvault/update.sh`, `controlcenter/update.sh`, and `launcher/update.sh` entry scripts are no longer used.
+
 ## Integration flow
 
 1. Read the fixed local ZIP/APK from the repository.
