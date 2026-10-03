@@ -12,7 +12,7 @@ Normal ROM builds locate exactly one local ZIP for each module by filename prefi
 - `HyperOS_Security*.zip`
 - `HyperOS_ThemeManager*.zip`
 
-This makes later replacement simple: remove the old ZIP and put the new ZIP in `bin/modfile/OS3/assets/`. No script version or checksum needs to be edited. The build prints the actual SHA-256 for traceability and fails if zero or multiple files match a prefix.
+This makes later replacement simple: remove the old ZIP and put the new ZIP in `bin/modfile/OS3/kashi/`. No script version or checksum needs to be edited. The build prints the actual SHA-256 for traceability and fails if zero or multiple files match a prefix.
 
 InstallerX source remains local in `bin/modfile/Universal/packageinstaller/`.
 
@@ -32,7 +32,7 @@ The old per-module `appvault/update.sh`, `controlcenter/update.sh`, `launcher/up
 
 ## System APKs
 
-Local replacement APKs and their external libraries live in `bin/modfile/OS3/systemapk/`. This folder replaces the old `llionsapps/` name.
+Local replacement APKs and their external libraries live in `bin/modfile/OS3/system/`. This folder contains local system APK replacements and their external libraries.
 
 ## Integration flow
 

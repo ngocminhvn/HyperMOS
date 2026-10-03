@@ -3,8 +3,8 @@
 work_dir=$(pwd)
 source "$work_dir/bin/modfile/OS3/_common.sh"
 
-SYSTEMAPK_DIR="$work_dir/bin/modfile/OS3/systemapk"
-CACHE_DIR="$work_dir/build/os3_systemapk"
+SYSTEM_DIR="$work_dir/bin/modfile/OS3/system"
+CACHE_DIR="$work_dir/build/os3_system"
 
 rm -rf "$CACHE_DIR"
 mkdir -p "$CACHE_DIR"
@@ -83,7 +83,7 @@ apply_system_apk() {
     local apk_name="$2"
     local preferred_stock_dir="$3"
 
-    local source_apk="$SYSTEMAPK_DIR/$apk_name"
+    local source_apk="$SYSTEM_DIR/$apk_name"
     local source_dir="${source_apk%.apk}"
     local mod_package stock_apk stock_dir stock_name prepared copied_package
 
@@ -160,7 +160,7 @@ apply_system_apk \
     "MIMediaEditor" || exit 1
 
 GALLERY_APK="MIUIGallery.apk"
-if [[ ! -f "$SYSTEMAPK_DIR/$GALLERY_APK" ]]; then
+if [[ ! -f "$SYSTEM_DIR/$GALLERY_APK" ]]; then
     info "Xiaomi Gallery 4.3.1.8-global not found; fallback to LLions Gallery v4.3.1.16"
     GALLERY_APK="[LLions] HyperOS Gallery Mod v4.3.1.16.apk"
 fi

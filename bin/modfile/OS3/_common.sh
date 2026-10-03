@@ -5,7 +5,7 @@ source "$work_dir/functions.sh"
 
 OS3_MOD_CACHE="$work_dir/build/os3_modscenter"
 OS3_IMAGES="$work_dir/build/baserom/images"
-OS3_FIXED_ASSET_DIR="$work_dir/bin/modfile/OS3/assets"
+OS3_KASHI_DIR="$work_dir/bin/modfile/OS3/kashi"
 MODSCENTER_ARCHIVE=""
 MODSCENTER_TAG=""
 
@@ -33,11 +33,11 @@ modscenter_prepare_fixed() {
     }
 
     mapfile -d '' -t matches < <(
-        find "$OS3_FIXED_ASSET_DIR" -maxdepth 1 -type f -iname "${prefix}*.zip" -print0 2>/dev/null
+        find "$OS3_KASHI_DIR" -maxdepth 1 -type f -iname "${prefix}*.zip" -print0 2>/dev/null
     )
 
     if (( ${#matches[@]} == 0 )); then
-        error "$label: no local ZIP matching ${prefix}*.zip in $OS3_FIXED_ASSET_DIR"
+        error "$label: no local ZIP matching ${prefix}*.zip in $OS3_KASHI_DIR"
         return 1
     fi
 

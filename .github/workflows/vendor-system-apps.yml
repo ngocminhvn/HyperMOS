@@ -28,34 +28,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          OS3_DIR="bin/modfile/OS3/assets"
+          KASHI_DIR="bin/modfile/OS3/kashi"
           INSTALLER_DIR="bin/modfile/Universal/packageinstaller"
-          mkdir -p "$OS3_DIR" "$INSTALLER_DIR"
+          mkdir -p "$KASHI_DIR" "$INSTALLER_DIR"
 
           gh release download "V4.5" \
             --repo "Mods-Center/HyperOS-App-Vault" \
             --pattern "HyperOS_AppVaultV4.5@kashis_cringey_stuffs.zip" \
-            --dir "$OS3_DIR" --clobber
+            --dir "$KASHI_DIR" --clobber
 
           gh release download "V3" \
             --repo "Mods-Center/ColorOS_Control_Center" \
             --pattern "ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip" \
-            --dir "$OS3_DIR" --clobber
+            --dir "$KASHI_DIR" --clobber
 
           gh release download "V7.1" \
             --repo "Mods-Center/HyperOS-Launcher" \
             --pattern "HyperOS_LauncherV7.1@kashis_cringey_stuffs.zip" \
-            --dir "$OS3_DIR" --clobber
+            --dir "$KASHI_DIR" --clobber
 
           gh release download "V7" \
             --repo "Mods-Center/HyperOS-Security-Center" \
             --pattern "HyperOS_SecurityV7@kashis_cringey_stuffs.zip" \
-            --dir "$OS3_DIR" --clobber
+            --dir "$KASHI_DIR" --clobber
 
           gh release download "V7" \
             --repo "Mods-Center/HyperOS-Theme-Manager" \
             --pattern "HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip" \
-            --dir "$OS3_DIR" --clobber
+            --dir "$KASHI_DIR" --clobber
 
           gh release download "26.09" \
             --repo "wxxsfxyzm/InstallerX-Revived" \
@@ -72,11 +72,11 @@ jobs:
             echo "$hash  $file" | sha256sum -c -
           }
 
-          check "fee4f5398472b1febe1d10a12695a2ce7b7d7e3b1f4102be11117dd3150c97ab" "bin/modfile/OS3/assets/HyperOS_AppVaultV4.5@kashis_cringey_stuffs.zip"
-          check "0cd9436b9cc76a7c4138137190a44d830783a4cc67980d40e9e273f2c3327499" "bin/modfile/OS3/assets/ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip"
-          check "386d95cb96574108d61524589cd21c3ccab18afdb221a31b04eca94ba8d30e0e" "bin/modfile/OS3/assets/HyperOS_LauncherV7.1@kashis_cringey_stuffs.zip"
-          check "b1722752144805f15e8e7d2d619403257594b05f123afb5ff61af004ba642d9c" "bin/modfile/OS3/assets/HyperOS_SecurityV7@kashis_cringey_stuffs.zip"
-          check "caba9debf6ce68d42a734125d9956707ad89ab4beda9aa6bca84d6f904d28398" "bin/modfile/OS3/assets/HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip"
+          check "fee4f5398472b1febe1d10a12695a2ce7b7d7e3b1f4102be11117dd3150c97ab" "bin/modfile/OS3/kashi/HyperOS_AppVaultV4.5@kashis_cringey_stuffs.zip"
+          check "0cd9436b9cc76a7c4138137190a44d830783a4cc67980d40e9e273f2c3327499" "bin/modfile/OS3/kashi/ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip"
+          check "386d95cb96574108d61524589cd21c3ccab18afdb221a31b04eca94ba8d30e0e" "bin/modfile/OS3/kashi/HyperOS_LauncherV7.1@kashis_cringey_stuffs.zip"
+          check "b1722752144805f15e8e7d2d619403257594b05f123afb5ff61af004ba642d9c" "bin/modfile/OS3/kashi/HyperOS_SecurityV7@kashis_cringey_stuffs.zip"
+          check "caba9debf6ce68d42a734125d9956707ad89ab4beda9aa6bca84d6f904d28398" "bin/modfile/OS3/kashi/HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip"
           check "fe7ac4737885a0426042222e27ed0a637e481e72c742ebe09142fd51448ae85b" "bin/modfile/Universal/packageinstaller/InstallerX-Revived-online-26.09.apk"
 
       - name: Commit fixed assets
@@ -87,11 +87,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add \
-            "bin/modfile/OS3/assets/HyperOS_AppVaultV4.5@kashis_cringey_stuffs.zip" \
-            "bin/modfile/OS3/assets/ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip" \
-            "bin/modfile/OS3/assets/HyperOS_LauncherV7.1@kashis_cringey_stuffs.zip" \
-            "bin/modfile/OS3/assets/HyperOS_SecurityV7@kashis_cringey_stuffs.zip" \
-            "bin/modfile/OS3/assets/HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip" \
+            "bin/modfile/OS3/kashi/HyperOS_AppVaultV4.5@kashis_cringey_stuffs.zip" \
+            "bin/modfile/OS3/kashi/ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip" \
+            "bin/modfile/OS3/kashi/HyperOS_LauncherV7.1@kashis_cringey_stuffs.zip" \
+            "bin/modfile/OS3/kashi/HyperOS_SecurityV7@kashis_cringey_stuffs.zip" \
+            "bin/modfile/OS3/kashi/HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip" \
             "bin/modfile/Universal/packageinstaller/InstallerX-Revived-online-26.09.apk"
 
           if git diff --cached --quiet; then
