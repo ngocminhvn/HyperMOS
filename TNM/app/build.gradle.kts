@@ -1,4 +1,4 @@
-val driveApiKey = System.getenv("GOOGLE_DRIVE_API_KEY").orEmpty()
+val driveApiKey = System.getenv("GOOGLE_DRIVE_API_KEY")?.takeIf { it.isNotBlank() } ?: "TNM_DRIVE_API_KEY_PLACEHOLDER_000000000"
 val escapedDriveApiKey = driveApiKey
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
