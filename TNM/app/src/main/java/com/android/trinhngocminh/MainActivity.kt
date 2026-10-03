@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +39,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -53,6 +57,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
@@ -77,23 +82,88 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Home() {
         var info by remember { mutableStateOf<DeviceInfo?>(null) }
+        var integrity by remember { mutableStateOf<IntegrityDiagnostics?>(null) }
+        var playIntegrity by remember { mutableStateOf("Chưa kiểm tra") }
+        var checkingIntegrity by remember { mutableStateOf(false) }
+
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
         var systemDialog by remember { mutableStateOf(false) }
+        var integrityDialog by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
+        var lastThermalNotice by remember { mutableStateOf<String?>(null) }
         var selectedThermal by remember { mutableStateOf(ThermalManager.selected(this)) }
+        var appVisible by remember {
+            mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        }
 
         val scope = rememberCoroutineScope()
         val listState = rememberLazyListState()
         val scrollBehavior = MiuixScrollBehavior()
 
-        fun refreshInfo() {
+        fun readStaticOnce() {
             scope.launch {
-                info = withContext(Dispatchers.IO) { SystemInfo.read(this@MainActivity) }
+                val pair = withContext(Dispatchers.IO) {
+                    SystemInfo.readStatic(this@MainActivity) to IntegrityChecker.local()
+                }
+                info = pair.first
+                integrity = pair.second
             }
         }
 
-        LaunchedEffect(Unit) { refreshInfo() }
+        fun refreshRealtimeNow() {
+            val current = info ?: return
+            scope.launch {
+                val next = withContext(Dispatchers.IO) {
+                    SystemInfo.readRealtime(this@MainActivity, current)
+                }
+                info = next
+                val notice = next.thermalNotice
+                if (notice != null && notice != lastThermalNotice) {
+                    message = notice
+                    lastThermalNotice = notice
+                } else if (notice == null) {
+                    lastThermalNotice = null
+                }
+            }
+        }
+
+        DisposableEffect(Unit) {
+            val observer = LifecycleEventObserver { _, _ ->
+                appVisible = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            }
+            lifecycle.addObserver(observer)
+            onDispose { lifecycle.removeObserver(observer) }
+        }
+
+        LaunchedEffect(Unit) {
+            val pair = withContext(Dispatchers.IO) {
+                SystemInfo.readStatic(this@MainActivity) to IntegrityChecker.local()
+            }
+            info = pair.first
+            integrity = pair.second
+        }
+
+        LaunchedEffect(appVisible) {
+            while (appVisible) {
+                val current = info
+                if (current != null) {
+                    val next = withContext(Dispatchers.IO) {
+                        SystemInfo.readRealtime(this@MainActivity, current)
+                    }
+                    info = next
+
+                    val notice = next.thermalNotice
+                    if (notice != null && notice != lastThermalNotice) {
+                        message = notice
+                        lastThermalNotice = notice
+                    } else if (notice == null) {
+                        lastThermalNotice = null
+                    }
+                }
+                delay(1000)
+            }
+        }
 
         val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) {
@@ -115,10 +185,10 @@ class MainActivity : ComponentActivity() {
                     subtitle = "HyperMOS Control",
                     scrollBehavior = scrollBehavior,
                     actions = {
-                        IconButton(onClick = { refreshInfo() }) {
+                        IconButton(onClick = { readStaticOnce() }) {
                             Icon(
                                 imageVector = MiuixIcons.Refresh,
-                                contentDescription = "Làm mới",
+                                contentDescription = "Đọc lại toàn bộ",
                                 tint = MiuixTheme.colorScheme.onBackground,
                             )
                         }
@@ -136,13 +206,9 @@ class MainActivity : ComponentActivity() {
                     bottom = 28.dp,
                 ),
             ) {
-                item(key = "hero") {
-                    DeviceHero(info)
-                }
+                item(key = "hero") { DeviceHero(info) }
 
-                item(key = "customTitle") {
-                    SmallTitle("Tùy chỉnh")
-                }
+                item(key = "customTitle") { SmallTitle("Tùy chỉnh") }
 
                 item(key = "custom") {
                     Card(
@@ -154,26 +220,16 @@ class MainActivity : ComponentActivity() {
                             title = "Font",
                             summary = "Đổi font hệ thống",
                             startAction = {
-                                FeatureIcon(
-                                    imageVector = MiuixIcons.Theme,
-                                    accent = Color(0xFF6C63FF),
-                                )
+                                FeatureIcon(MiuixIcons.Theme, Color(0xFF6C63FF))
                             },
                             onClick = { fontDialog = true },
                             holdDownState = fontDialog,
                         )
                         ArrowPreference(
                             title = "Thermal",
-                            summary = if (selectedThermal == "eco") {
-                                "Eco · ưu tiên pin và nhiệt độ"
-                            } else {
-                                "Stock Xiaomi"
-                            },
+                            summary = info?.thermal ?: if (selectedThermal == "eco") "Eco" else "Stock Xiaomi",
                             startAction = {
-                                FeatureIcon(
-                                    imageVector = MiuixIcons.Tune,
-                                    accent = Color(0xFFFF9500),
-                                )
+                                FeatureIcon(MiuixIcons.Tune, Color(0xFFFF9500))
                             },
                             onClick = { thermalDialog = true },
                             holdDownState = thermalDialog,
@@ -193,19 +249,14 @@ class MainActivity : ComponentActivity() {
                                 title = "Trạng thái",
                                 summary = message,
                                 startAction = {
-                                    FeatureIcon(
-                                        imageVector = MiuixIcons.Info,
-                                        accent = Color(0xFF34C759),
-                                    )
+                                    FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
                                 },
                             )
                         }
                     }
                 }
 
-                item(key = "systemTitle") {
-                    SmallTitle("Hệ thống")
-                }
+                item(key = "systemTitle") { SmallTitle("Realtime") }
 
                 item(key = "stats1") {
                     Row(
@@ -216,14 +267,14 @@ class MainActivity : ComponentActivity() {
                     ) {
                         StatCard(
                             modifier = Modifier.weight(1f),
-                            title = "SoC",
-                            value = info?.soc ?: "Đang đọc…",
+                            title = "CPU",
+                            value = info?.cpuCurrent ?: "—",
                             imageVector = MiuixIcons.Settings,
                             accent = Color(0xFF3482FF),
                         )
                         StatCard(
                             modifier = Modifier.weight(1f),
-                            title = "RAM",
+                            title = "RAM dùng",
                             value = info?.ram ?: "—",
                             imageVector = MiuixIcons.Info,
                             accent = Color(0xFF34C759),
@@ -256,8 +307,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                item(key = "detailsTitle") { SmallTitle("Thiết bị") }
+
                 item(key = "details") {
-                    Spacer(Modifier.height(10.dp))
                     Card(
                         modifier = Modifier
                             .padding(horizontal = 12.dp)
@@ -265,15 +317,21 @@ class MainActivity : ComponentActivity() {
                     ) {
                         ArrowPreference(
                             title = "Thông tin hệ thống",
-                            summary = "${info?.storage ?: "—"} bộ nhớ · Root ${info?.root ?: "—"}",
+                            summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
                             startAction = {
-                                FeatureIcon(
-                                    imageVector = MiuixIcons.Info,
-                                    accent = Color(0xFF5AC8FA),
-                                )
+                                FeatureIcon(MiuixIcons.Info, Color(0xFF5AC8FA))
                             },
                             onClick = { systemDialog = true },
                             holdDownState = systemDialog,
+                        )
+                        ArrowPreference(
+                            title = "Integrity",
+                            summary = integrity?.summary ?: "Đang kiểm tra…",
+                            startAction = {
+                                FeatureIcon(MiuixIcons.Lock, Color(0xFFAF52DE))
+                            },
+                            onClick = { integrityDialog = true },
+                            holdDownState = integrityDialog,
                         )
                     }
                 }
@@ -289,27 +347,15 @@ class MainActivity : ComponentActivity() {
                     BasicComponent(
                         title = "Chọn file font",
                         summary = ".ttf hoặc .otf",
-                        startAction = {
-                            FeatureIcon(
-                                imageVector = MiuixIcons.Theme,
-                                accent = Color(0xFF6C63FF),
-                            )
-                        },
+                        startAction = { FeatureIcon(MiuixIcons.Theme, Color(0xFF6C63FF)) },
                         onClick = {
-                            fontPicker.launch(
-                                arrayOf("font/ttf", "font/otf", "application/octet-stream")
-                            )
+                            fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream"))
                         },
                     )
                     BasicComponent(
                         title = "Khôi phục font",
                         summary = "Trở về font đã dùng trước khi TNM thay đổi",
-                        startAction = {
-                            FeatureIcon(
-                                imageVector = MiuixIcons.Refresh,
-                                accent = Color(0xFF34C759),
-                            )
-                        },
+                        startAction = { FeatureIcon(MiuixIcons.Refresh, Color(0xFF34C759)) },
                         onClick = {
                             Thread {
                                 val result = FontManager.restore()
@@ -341,7 +387,7 @@ class MainActivity : ComponentActivity() {
                                     message = result
                                     if (result.startsWith("Đã bật")) selectedThermal = "eco"
                                     thermalDialog = false
-                                    refreshInfo()
+                                    refreshRealtimeNow()
                                 }
                             }.start()
                         },
@@ -357,7 +403,7 @@ class MainActivity : ComponentActivity() {
                                     message = result
                                     if (result.startsWith("Đã khôi phục")) selectedThermal = "stock"
                                     thermalDialog = false
-                                    refreshInfo()
+                                    refreshRealtimeNow()
                                 }
                             }.start()
                         },
@@ -373,8 +419,9 @@ class MainActivity : ComponentActivity() {
             ) {
                 Card {
                     DetailRow("SoC", info?.soc ?: "—")
-                    DetailRow("CPU", info?.cpu ?: "—")
-                    DetailRow("RAM", info?.ram ?: "—")
+                    DetailRow("CPU hiện tại", info?.cpuCurrent ?: "—")
+                    DetailRow("CPU tối đa", info?.cpuMax ?: "—")
+                    DetailRow("RAM đang dùng / tổng", info?.ram ?: "—")
                     DetailRow("Bộ nhớ", info?.storage ?: "—")
                     DetailRow("Android", info?.android ?: "—")
                     DetailRow("HyperOS", info?.hyperos ?: "—")
@@ -384,15 +431,40 @@ class MainActivity : ComponentActivity() {
                     DetailRow("Thermal", info?.thermal ?: "—")
                     DetailRow("Root", info?.root ?: "—")
                 }
+            }
+
+            OverlayDialog(
+                title = "Integrity",
+                summary = "Chẩn đoán cục bộ + Play Integrity chính thức khi đã cấu hình backend.",
+                show = integrityDialog,
+                onDismissRequest = { integrityDialog = false },
+            ) {
+                Card {
+                    DetailRow("Chẩn đoán", integrity?.summary ?: "—")
+                    DetailRow("Verified Boot", integrity?.verifiedBoot ?: "—")
+                    DetailRow("Bootloader", integrity?.bootloader ?: "—")
+                    DetailRow("VBMeta", integrity?.vbmeta ?: "—")
+                    DetailRow("SELinux", integrity?.selinux ?: "—")
+                    DetailRow("Build tags", integrity?.buildTags ?: "—")
+                    DetailRow("Root", integrity?.root ?: "—")
+                    DetailRow("Play Integrity", playIntegrity)
+                }
                 Spacer(Modifier.height(12.dp))
                 Button(
+                    enabled = !checkingIntegrity,
                     onClick = {
-                        refreshInfo()
-                        systemDialog = false
+                        checkingIntegrity = true
+                        playIntegrity = "Đang kiểm tra…"
+                        scope.launch {
+                            playIntegrity = withContext(Dispatchers.IO) {
+                                IntegrityChecker.official(this@MainActivity)
+                            }
+                            checkingIntegrity = false
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Làm mới")
+                    Text(if (checkingIntegrity) "Đang kiểm tra…" else "Check Play Integrity")
                 }
             }
         }
@@ -446,10 +518,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun FeatureIcon(
-        imageVector: ImageVector,
-        accent: Color,
-    ) {
+    private fun FeatureIcon(imageVector: ImageVector, accent: Color) {
         Box(
             modifier = Modifier
                 .padding(end = 14.dp)
@@ -517,9 +586,6 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun DetailRow(title: String, value: String) {
-        BasicComponent(
-            title = title,
-            summary = value,
-        )
+        BasicComponent(title = title, summary = value)
     }
 }
