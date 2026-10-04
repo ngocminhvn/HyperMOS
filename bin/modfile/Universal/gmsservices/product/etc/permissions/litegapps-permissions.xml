@@ -213,16 +213,6 @@ It allows additional grants on top of privapp-permissions-platform.xml
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
     </privapp-permissions>
 
-    <privapp-permissions package="com.google.android.apps.restore">
-        <permission name="android.permission.BACKUP" />
-        <permission name="android.permission.GET_ACCOUNTS_PRIVILEGED" />
-        <permission name="android.permission.MANAGE_USB" />
-        <permission name="android.permission.MANAGE_USERS" />
-        <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
-        <permission name="android.permission.SUBSTITUTE_NOTIFICATION_APP_NAME" />
-        <permission name="android.permission.WRITE_EMBEDDED_SUBSCRIPTIONS" />
-        <permission name="android.permission.WRITE_SECURE_SETTINGS" />
-    </privapp-permissions>
 
     <privapp-permissions package="com.google.android.apps.safetyhub">
         <permission name="android.permission.CALL_PRIVILEGED" />
@@ -382,14 +372,6 @@ It allows additional grants on top of privapp-permissions-platform.xml
         <permission name="android.permission.WRITE_APN_SETTINGS" />
     </privapp-permissions>
 
-    <privapp-permissions package="com.google.android.carriersetup">
-        <permission name="android.permission.CONNECTIVITY_INTERNAL" />
-        <permission name="android.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS" />
-        <permission name="android.permission.MODIFY_PHONE_STATE" />
-        <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
-        <permission name="android.permission.WRITE_APN_SETTINGS" />
-        <permission name="android.permission.WRITE_SECURE_SETTINGS" />
-    </privapp-permissions>
 
     <privapp-permissions package="com.google.android.cbrsnetworkmonitor">
         <permission name="android.permission.INTERACT_ACROSS_USERS" />
@@ -660,9 +642,6 @@ It allows additional grants on top of privapp-permissions-platform.xml
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
     </privapp-permissions>
 
-    <privapp-permissions package="com.google.android.onetimeinitializer">
-        <permission name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
-    </privapp-permissions>
 
     <privapp-permissions package="com.google.android.packageinstaller">
         <permission name="android.permission.CLEAR_APP_CACHE" />
@@ -676,11 +655,6 @@ It allows additional grants on top of privapp-permissions-platform.xml
         <permission name="android.permission.USE_RESERVED_DISK" />
     </privapp-permissions>
 
-    <privapp-permissions package="com.google.android.partnersetup">
-        <permission name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
-        <permission name="android.permission.CHANGE_CONFIGURATION" />
-        <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
-    </privapp-permissions>
 
     <privapp-permissions package="com.google.android.permissioncontroller">
         <permission name="android.permission.MANAGE_USERS" />
@@ -791,9 +765,6 @@ It allows additional grants on top of privapp-permissions-platform.xml
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
     </privapp-permissions>
 
-    <privapp-permissions package="com.google.android.syncadapters.contacts">
-        <permission name="android.permission.INTERACT_ACROSS_USERS" />
-    </privapp-permissions>
 
     <privapp-permissions package="com.google.android.tag">
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
