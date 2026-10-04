@@ -3,7 +3,6 @@ package com.android.trinhngocminh
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -148,10 +147,6 @@ class MainActivity : ComponentActivity() {
         var driveError by remember { mutableStateOf<String?>(null) }
         var downloadingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
         var downloadStatus by remember { mutableStateOf("") }
-        var fcmDialog by remember { mutableStateOf(false) }
-        var fcmSnapshot by remember {
-            mutableStateOf(FcmDiagnostics.read(this@MainActivity))
-        }
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
         var systemDialog by remember { mutableStateOf(false) }
@@ -247,16 +242,6 @@ class MainActivity : ComponentActivity() {
             if (selectedTab == 1) {
                 refreshDrive()
             }
-            if (selectedTab == 2) {
-                fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
-            }
-        }
-
-        LaunchedEffect(fcmDialog) {
-            while (fcmDialog) {
-                fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
-                delay(1000)
-            }
         }
 
         val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -284,37 +269,39 @@ class MainActivity : ComponentActivity() {
 
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = pageTitle,
-                    largeTitle = pageTitle,
-                    subtitle = pageSubtitle,
-                    scrollBehavior = scrollBehavior,
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                startActivity(
-                                    Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse("https://github.com/ngocminhvn/HyperMOS")
+                if (selectedTab != 0) {
+                    TopAppBar(
+                        title = pageTitle,
+                        largeTitle = pageTitle,
+                        subtitle = pageSubtitle,
+                        scrollBehavior = scrollBehavior,
+                        actions = {
+                            IconButton(
+                                onClick = {
+                                    startActivity(
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse("https://github.com/ngocminhvn/HyperMOS")
+                                        )
                                     )
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = MiuixIcons.Link,
+                                    contentDescription = "GitHub",
+                                    tint = MiuixTheme.colorScheme.onBackground,
                                 )
                             }
-                        ) {
-                            Icon(
-                                imageVector = MiuixIcons.Link,
-                                contentDescription = "GitHub",
-                                tint = MiuixTheme.colorScheme.onBackground,
-                            )
-                        }
-                        IconButton(onClick = { powerDialog = true }) {
-                            Icon(
-                                imageVector = MiuixIcons.More,
-                                contentDescription = "Nguồn",
-                                tint = MiuixTheme.colorScheme.onBackground,
-                            )
-                        }
-                    },
-                )
+                            IconButton(onClick = { powerDialog = true }) {
+                                Icon(
+                                    imageVector = MiuixIcons.More,
+                                    contentDescription = "Nguồn",
+                                    tint = MiuixTheme.colorScheme.onBackground,
+                                )
+                            }
+                        },
+                    )
+                }
             },
             bottomBar = {
                 NavigationBar {
@@ -350,113 +337,20 @@ class MainActivity : ComponentActivity() {
                 ),
             ) {
                 if (selectedTab == 0) {
-                    item(key = "hero") {
-                        GlossyDeviceHero(info)
-                    }
-
-                    if (message.isNotBlank()) {
-                        item(key = "homeMessage") {
-                            Spacer(Modifier.height(10.dp))
-                            Card(
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .fillMaxWidth(),
-                            ) {
-                                BasicComponent(
-                                    title = "Trạng thái",
-                                    summary = message,
-                                    startAction = {
-                                        FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
-                                    },
+                    item(key = "installerHome") {
+                        InstallerStyleHome(
+                            info = info,
+                            cpuHistory = cpuHistory,
+                            message = message,
+                            onGithub = {
+                                startActivity(
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse("https://github.com/ngocminhvn/HyperMOS")
+                                    )
                                 )
-                            }
-                        }
-                    }
-
-                    item(key = "realtimeTitle") {
-                        SmallTitle("Realtime")
-                    }
-
-                    item(key = "stats1") {
-                        Row(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            StatCard(
-                                modifier = Modifier.weight(1f),
-                                title = "CPU",
-                                value = info?.cpuCurrent ?: "—",
-                                imageVector = MiuixIcons.Settings,
-                                accent = Color(0xFF3482FF),
-                            )
-                            StatCard(
-                                modifier = Modifier.weight(1f),
-                                title = "RAM dùng",
-                                value = info?.ram ?: "—",
-                                imageVector = MiuixIcons.Info,
-                                accent = Color(0xFF34C759),
-                            )
-                        }
-                    }
-
-                    item(key = "stats2") {
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            StatCard(
-                                modifier = Modifier.weight(1f),
-                                title = "Nhiệt SoC",
-                                value = info?.socTemp ?: "—",
-                                imageVector = MiuixIcons.Tune,
-                                accent = Color(0xFFFF3B30),
-                            )
-                            StatCard(
-                                modifier = Modifier.weight(1f),
-                                title = "Nhiệt pin",
-                                value = info?.batteryTemp ?: "—",
-                                imageVector = MiuixIcons.Settings,
-                                accent = Color(0xFFFF9500),
-                            )
-                        }
-                    }
-
-                    item(key = "stats3") {
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            StatCard(
-                                modifier = Modifier.weight(1f),
-                                title = "Công suất",
-                                value = info?.batteryPower ?: "—",
-                                imageVector = MiuixIcons.Tune,
-                                accent = Color(0xFFAF52DE),
-                            )
-                            StatCard(
-                                modifier = Modifier.weight(1f),
-                                title = "Nhiệt GPU",
-                                value = info?.gpuTemp ?: "—",
-                                imageVector = MiuixIcons.Settings,
-                                accent = Color(0xFF5AC8FA),
-                            )
-                        }
-                    }
-
-                    item(key = "cpuChart") {
-                        Spacer(Modifier.height(10.dp))
-                        CpuChart(
-                            values = cpuHistory,
-                            current = info?.cpuCurrent ?: "—",
-                            max = info?.cpuMax ?: "—",
+                            },
+                            onPower = { powerDialog = true },
                         )
                     }
                 } else if (selectedTab == 1) {
@@ -611,21 +505,15 @@ class MainActivity : ComponentActivity() {
                                 holdDownState = thermalDialog,
                             )
                             ArrowPreference(
-                                title = "FCM / độ trễ thông báo",
-                                summary = if (fcmSnapshot.enabled) {
-                                    val avg = FcmDiagnostics.formatDelay(fcmSnapshot.averageDelayMs)
-                                    "Đang theo dõi · FCM mẫu: ${fcmSnapshot.fcmSamples} · TB: $avg"
-                                } else {
-                                    "Chưa cấp quyền truy cập thông báo"
-                                },
+                                title = "FCM Diagnostics",
+                                summary = "Mở chẩn đoán FCM gốc của Google Play services (*#*#426#*#*)",
                                 startAction = {
                                     FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
                                 },
                                 onClick = {
-                                    fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
-                                    fcmDialog = true
+                                    val error = GmsFcmDiagnostics.open(this@MainActivity)
+                                    if (error != null) message = error
                                 },
-                                holdDownState = fcmDialog,
                             )
                         }
                     }
@@ -771,53 +659,6 @@ class MainActivity : ComponentActivity() {
             }
 
             OverlayDialog(
-                title = "FCM / độ trễ thông báo",
-                summary = "TNM ưu tiên timestamp FCM nếu notification có google.sent_time; nếu không chỉ là ước tính theo notification.when.",
-                show = fcmDialog,
-                onDismissRequest = { fcmDialog = false },
-            ) {
-                Card {
-                    DetailRow(
-                        "Notification Access",
-                        if (fcmSnapshot.enabled) "Đã cấp" else "Chưa cấp",
-                    )
-                    DetailRow(
-                        "Mẫu FCM",
-                        fcmSnapshot.fcmSamples.toString(),
-                    )
-                    DetailRow(
-                        "Độ trễ FCM trung bình",
-                        FcmDiagnostics.formatDelay(fcmSnapshot.averageDelayMs),
-                    )
-                    fcmSnapshot.latest.take(6).forEach { sample ->
-                        DetailRow(
-                            sample.packageName,
-                            "${FcmDiagnostics.formatDelay(sample.delayMs)} · ${sample.source}",
-                        )
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick = {
-                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (fcmSnapshot.enabled) "Mở cài đặt quyền" else "Cấp quyền Notification Access")
-                }
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = {
-                        FcmDiagnostics.clear(this@MainActivity)
-                        fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Xóa lịch sử")
-                }
-            }
-
-            OverlayDialog(
                 title = "Nguồn",
                 summary = "Chọn chế độ khởi động. TNM cần quyền root.",
                 show = powerDialog,
@@ -882,6 +723,302 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun InstallerStyleHome(
+        info: DeviceInfo?,
+        cpuHistory: List<Float>,
+        message: String,
+        onGithub: () -> Unit,
+        onPower: () -> Unit,
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val backdrop = rememberLayerBackdrop()
+        val blurSupported = isRuntimeShaderSupported()
+        val shape = RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp)
+        val transition = rememberInfiniteTransition(label = "installer_home")
+        val drift by transition.animateFloat(
+            initialValue = -34f,
+            targetValue = 46f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(6200),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "home_drift",
+        )
+
+        val background = if (isDark) {
+            listOf(
+                Color(0xFF07183B),
+                Color(0xFF063F9C),
+                Color(0xFF251570),
+                Color(0xFF24051F),
+            )
+        } else {
+            listOf(
+                Color(0xFFD9E9FF),
+                Color(0xFF9DC4FF),
+                Color(0xFFC7B6FF),
+                Color(0xFFF1DDF0),
+            )
+        }
+        val primaryText = if (isDark) Color.White else Color(0xFF111318)
+        val secondaryText = primaryText.copy(alpha = 0.63f)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(720.dp)
+                .clip(shape),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(backdrop)
+                    .background(Brush.verticalGradient(background)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = drift.dp, y = 80.dp)
+                        .size(330.dp)
+                        .blur(100.dp)
+                        .background(Color(0xFF0C62FF).copy(alpha = 0.46f), CircleShape),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset(x = 95.dp, y = (-70).dp)
+                        .size(280.dp)
+                        .blur(95.dp)
+                        .background(Color(0xFF7F36C8).copy(alpha = 0.36f), CircleShape),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = 90.dp)
+                        .size(360.dp)
+                        .blur(110.dp)
+                        .background(Color(0xFF001A58).copy(alpha = if (isDark) 0.74f else 0.20f), CircleShape),
+                )
+            }
+
+            if (blurSupported) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .textureBlur(
+                            backdrop = backdrop,
+                            shape = shape,
+                            blurRadiusX = 170f,
+                            blurRadiusY = 170f,
+                            noiseCoefficient = 0.0044f,
+                            colors = BlurDefaults.blurColors(
+                                blendColors = listOf(
+                                    BlendColorEntry(
+                                        if (isDark) Color(0x16101010) else Color(0x20FFFFFF),
+                                        BlurBlendMode.Overlay,
+                                    ),
+                                    BlendColorEntry(Color(0x12FFFFFF), BlurBlendMode.Screen),
+                                ),
+                                brightness = if (isDark) -0.03f else 0.03f,
+                                contrast = 1.06f,
+                                saturation = 1.24f,
+                            ),
+                            highlight = if (isDark) {
+                                Highlight.GlassStrokeBigDark
+                            } else {
+                                Highlight.GlassStrokeBigLight
+                            },
+                        )
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 18.dp, end = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                IconButton(onClick = onGithub) {
+                    Icon(
+                        imageVector = MiuixIcons.Link,
+                        contentDescription = "GitHub",
+                        tint = primaryText.copy(alpha = 0.88f),
+                    )
+                }
+                IconButton(onClick = onPower) {
+                    Icon(
+                        imageVector = MiuixIcons.More,
+                        contentDescription = "Nguồn",
+                        tint = primaryText.copy(alpha = 0.88f),
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 22.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(112.dp))
+                Box(
+                    modifier = Modifier
+                        .size(116.dp)
+                        .clip(RoundedCornerShape(30.dp))
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .border(
+                            1.dp,
+                            Color.White.copy(alpha = 0.18f),
+                            RoundedCornerShape(30.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_tnm_foreground),
+                        contentDescription = "TNM",
+                        modifier = Modifier.size(92.dp),
+                    )
+                }
+
+                Spacer(Modifier.height(26.dp))
+                Text(
+                    text = "TNM",
+                    style = MiuixTheme.textStyles.title1,
+                    color = primaryText,
+                )
+                Text(
+                    text = "HyperMOS Control · ${BuildConfig.VERSION_NAME}",
+                    style = MiuixTheme.textStyles.body1,
+                    color = secondaryText,
+                )
+                Text(
+                    text = info?.device ?: "Đang đọc thiết bị…",
+                    style = MiuixTheme.textStyles.body2,
+                    color = secondaryText,
+                )
+
+                Spacer(Modifier.weight(1f))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(
+                            if (isDark) Color(0x5AFFFFFF)
+                            else Color(0x72FFFFFF)
+                        )
+                        .border(
+                            1.dp,
+                            Color.White.copy(alpha = if (isDark) 0.12f else 0.32f),
+                            RoundedCornerShape(28.dp),
+                        )
+                        .padding(vertical = 6.dp),
+                ) {
+                    HomeGlassRow(
+                        title = "Hiệu năng",
+                        summary = "${info?.cpuCurrent ?: "—"} · RAM ${info?.ram ?: "—"}",
+                        icon = MiuixIcons.Settings,
+                        textColor = primaryText,
+                        summaryColor = secondaryText,
+                    )
+                    HomeGlassRow(
+                        title = "Nhiệt độ",
+                        summary = "SoC ${info?.socTemp ?: "—"} · GPU ${info?.gpuTemp ?: "—"} · Pin ${info?.batteryTemp ?: "—"}",
+                        icon = MiuixIcons.Tune,
+                        textColor = primaryText,
+                        summaryColor = secondaryText,
+                    )
+                    HomeGlassRow(
+                        title = "Pin / Thermal",
+                        summary = "${info?.batteryPower ?: "—"} · ${info?.thermal ?: "—"}",
+                        icon = MiuixIcons.Info,
+                        textColor = primaryText,
+                        summaryColor = secondaryText,
+                    )
+                }
+
+                if (message.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = message,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = secondaryText,
+                    )
+                }
+
+                Spacer(Modifier.height(14.dp))
+                MiniCpuLine(
+                    values = cpuHistory,
+                    color = primaryText.copy(alpha = 0.82f),
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun HomeGlassRow(
+        title: String,
+        summary: String,
+        icon: ImageVector,
+        textColor: Color,
+        summaryColor: Color,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = textColor.copy(alpha = 0.82f),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MiuixTheme.textStyles.headline1,
+                    color = textColor,
+                )
+                Text(
+                    text = summary,
+                    style = MiuixTheme.textStyles.body2,
+                    color = summaryColor,
+                    maxLines = 2,
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun MiniCpuLine(
+        values: List<Float>,
+        color: Color,
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .padding(horizontal = 4.dp),
+        ) {
+            if (values.size < 2) return@Canvas
+            val ceiling = maxOf(values.maxOrNull() ?: 1f, 1f)
+            val path = Path()
+            values.forEachIndexed { index, value ->
+                val x = size.width * index / (values.size - 1f)
+                val y = size.height - (value / ceiling).coerceIn(0f, 1f) * size.height
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(
+                path = path,
+                color = color,
+                style = Stroke(width = 2.5.dp.toPx()),
+            )
         }
     }
 
