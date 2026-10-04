@@ -19,6 +19,7 @@ API_LEVEL=36
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_DISABLE_SECURE_FLAG=0
+FEATURE_MICTS_POWER_KEY=0
 
 parse_feature_flags() {
   while [ $# -gt 0 ]; do
@@ -32,6 +33,9 @@ parse_feature_flags() {
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
         ;;
+      --micts-power-key)
+        FEATURE_MICTS_POWER_KEY=1
+        ;;
       *)
         err "Unknown Android 16 COREPATCH option: $1"
         return 1
@@ -44,10 +48,12 @@ parse_feature_flags() {
   [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
+  [ "$FEATURE_MICTS_POWER_KEY" -eq 1 ] && log "  [PATCH] Long Press Power -> MiCTS"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
-     [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
+     [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ] &&
+     [ "$FEATURE_MICTS_POWER_KEY" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
 }
@@ -1140,6 +1146,153 @@ apply_miui_services_floating() {
   done
 }
 
+# Redirect Xiaomi's resolved long-press power shortcut to MiCTS.
+# The patch is applied inside ShortCutActionsUtils.triggerFunction(), after Xiaomi has
+# already recognized the key gesture. If MiCTS cannot launch, the original assistant
+# call is allowed to continue (fail-open).
+apply_miui_services_micts_power_key() {
+  local decompile_dir="$1"
+  local target
+  target=$(find "$decompile_dir" -type f \
+    -path '*/com/miui/server/input/util/ShortCutActionsUtils.smali' \
+    -print -quit)
+
+  if [ -z "$target" ] || [ ! -f "$target" ]; then
+    err "MiCTS power key: ShortCutActionsUtils.smali not found"
+    return 1
+  fi
+
+  if ! grep -q 'Lcom/hypermos/micts/PowerTrigger;->trigger' "$target"; then
+    MICTS_TARGET="$target" python3 <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+path = Path(os.environ["MICTS_TARGET"])
+lines = path.read_text(encoding="utf-8").splitlines()
+
+method_ranges = []
+i = 0
+while i < len(lines):
+    s = lines[i].strip()
+    if s.startswith(".method") and " triggerFunction(" in s and s.endswith(")Z"):
+        j = i + 1
+        while j < len(lines) and not lines[j].strip().startswith(".end method"):
+            j += 1
+        if j >= len(lines):
+            print("unterminated triggerFunction method", file=sys.stderr)
+            sys.exit(2)
+        method_ranges.append((i, j))
+        i = j + 1
+    else:
+        i += 1
+
+if not method_ranges:
+    print("triggerFunction methods not found", file=sys.stderr)
+    sys.exit(3)
+
+patterns = (
+    ("voice", "->launchVoiceAssistant(Ljava/lang/String;Landroid/os/Bundle;)Z"),
+    ("google", "->launchGoogleSearch(Ljava/lang/String;)Z"),
+)
+
+candidates = []
+serial = 0
+for start, end in method_ranges:
+    for idx in range(start, end):
+        line = lines[idx]
+        kind = None
+        for candidate_kind, pattern in patterns:
+            if pattern in line and "invoke-" in line:
+                kind = candidate_kind
+                break
+        if kind is None:
+            continue
+
+        reg_match = re.search(r"\{([^}]*)\}", line)
+        if not reg_match:
+            print(f"cannot parse invoke registers at line {idx + 1}", file=sys.stderr)
+            sys.exit(4)
+        regs = [r.strip() for r in reg_match.group(1).split(",") if r.strip()]
+        if len(regs) < 2:
+            print(f"unexpected invoke register list at line {idx + 1}", file=sys.stderr)
+            sys.exit(5)
+        action_reg = regs[1]
+
+        move_idx = None
+        result_reg = None
+        for j in range(idx + 1, min(idx + 5, end)):
+            m = re.match(r"\s*move-result\s+([vp]\d+)\s*$", lines[j])
+            if m:
+                move_idx = j
+                result_reg = m.group(1)
+                break
+        if move_idx is None or result_reg is None:
+            print(f"move-result missing after {kind} invoke", file=sys.stderr)
+            sys.exit(6)
+
+        serial += 1
+        label = f":hypermos_micts_after_{kind}_{serial}"
+        candidates.append((idx, move_idx, action_reg, result_reg, label, kind))
+
+if not candidates:
+    print("MiCTS target invokes not found in triggerFunction", file=sys.stderr)
+    sys.exit(7)
+
+# Apply from the bottom of the file upward so saved indexes remain valid.
+for invoke_idx, move_idx, action_reg, result_reg, label, kind in sorted(
+    candidates, key=lambda item: item[0], reverse=True
+):
+    indent = re.match(r"\s*", lines[invoke_idx]).group(0)
+    injection = [
+        f"{indent}iget-object {result_reg}, p0, Lcom/miui/server/input/util/ShortCutActionsUtils;->mContext:Landroid/content/Context;",
+        f"{indent}invoke-static {{{result_reg}, {action_reg}}}, Lcom/hypermos/micts/PowerTrigger;->trigger(Landroid/content/Context;Ljava/lang/String;)Z",
+        f"{indent}move-result {result_reg}",
+        f"{indent}if-nez {result_reg}, {label}",
+    ]
+
+    lines[move_idx + 1:move_idx + 1] = [f"{indent}{label}"]
+    lines[invoke_idx:invoke_idx] = injection
+
+out = "\n".join(lines) + "\n"
+
+if "Lcom/hypermos/micts/PowerTrigger;->trigger" not in out:
+    print("MiCTS injection verification failed", file=sys.stderr)
+    sys.exit(8)
+
+path.write_text(out, encoding="utf-8")
+print(f"patched {len(candidates)} Xiaomi shortcut dispatch path(s)")
+PY
+    if [ $? -ne 0 ]; then
+      err "MiCTS power key: ShortCutActionsUtils patch failed"
+      return 1
+    fi
+  else
+    log "[PATCH] MiCTS power key already present"
+  fi
+
+  local helper_src="$SCRIPT_DIR/micts/PowerTrigger.smali"
+  if [ ! -f "$helper_src" ]; then
+    err "MiCTS power key: helper missing at $helper_src"
+    return 1
+  fi
+
+  local smali_root
+  smali_root="${target%/com/miui/server/input/util/ShortCutActionsUtils.smali}"
+  local helper_dst="$smali_root/com/hypermos/micts/PowerTrigger.smali"
+
+  mkdir -p "$(dirname "$helper_dst")"
+  cp -f "$helper_src" "$helper_dst"
+
+  if ! grep -q 'com.parallelc.micts.ui.activity.MainActivity' "$helper_dst"; then
+    err "MiCTS power key: helper verification failed"
+    return 1
+  fi
+
+  log "[PATCH] Long press power -> MiCTS (fallback: original Xiaomi action)"
+}
+
 # Main miui-services patching function (Android 16)
 patch_miui_services() {
   local miui_services_path="$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
@@ -1189,6 +1342,10 @@ patch_miui_services() {
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
     apply_miui_services_disable_secure_flag "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_MICTS_POWER_KEY" -eq 1 ]; then
+    apply_miui_services_micts_power_key "$decompile_dir" || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
