@@ -2,22 +2,17 @@ package com.android.trinhngocminh
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,13 +22,55 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BatteryFull
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material.icons.rounded.Thermostat
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,10 +88,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -62,125 +97,54 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurBlendMode
-import top.yukonga.miuix.kmp.blur.BlurDefaults
-import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
-import top.yukonga.miuix.kmp.blur.layerBackdrop
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
-import top.yukonga.miuix.kmp.blur.highlight.Highlight
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Download
-import top.yukonga.miuix.kmp.icon.extended.Home
-import top.yukonga.miuix.kmp.icon.extended.Info
-import top.yukonga.miuix.kmp.icon.extended.Link
-import top.yukonga.miuix.kmp.icon.extended.More
-import top.yukonga.miuix.kmp.icon.extended.Refresh
-import top.yukonga.miuix.kmp.icon.extended.Settings
-import top.yukonga.miuix.kmp.icon.extended.Theme
-import top.yukonga.miuix.kmp.icon.extended.Tune
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.RadioButtonPreference
-import top.yukonga.miuix.kmp.theme.ColorSchemeMode
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.theme.ThemeController
-import top.yukonga.miuix.kmp.theme.defaultTextStyles
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val systemDark = isSystemInDarkTheme()
-            val controller = remember(systemDark) {
-                ThemeController(
-                    colorSchemeMode = ColorSchemeMode.System,
-                    isDark = systemDark,
-                )
+            val dark = isSystemInDarkTheme()
+            val scheme = if (Build.VERSION.SDK_INT >= 31) {
+                if (dark) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)
+            } else {
+                if (dark) darkColorScheme() else lightColorScheme()
             }
-            val baseTextStyles = remember { defaultTextStyles() }
-            val systemTextStyles = remember {
-                baseTextStyles.copy(
-                    main = baseTextStyles.main.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    paragraph = baseTextStyles.paragraph.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    body1 = baseTextStyles.body1.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    body2 = baseTextStyles.body2.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    button = baseTextStyles.button.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold),
-                    footnote1 = baseTextStyles.footnote1.copy(fontFamily = FontFamily.Default),
-                    footnote2 = baseTextStyles.footnote2.copy(fontFamily = FontFamily.Default),
-                    headline1 = baseTextStyles.headline1.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    headline2 = baseTextStyles.headline2.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    subtitle = baseTextStyles.subtitle.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold),
-                    title1 = baseTextStyles.title1.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    title2 = baseTextStyles.title2.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    title3 = baseTextStyles.title3.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                    title4 = baseTextStyles.title4.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
-                )
+            MaterialTheme(colorScheme = scheme) {
+                AppContent()
             }
-            MiuixTheme(
-                controller = controller,
-                textStyles = systemTextStyles,
-            ) { Home() }
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun Home() {
-        var info by remember { mutableStateOf<DeviceInfo?>(null) }
+    private fun AppContent() {
         var selectedTab by remember { mutableStateOf(0) }
+        var info by remember { mutableStateOf<DeviceInfo?>(null) }
+        var cpuHistory by remember { mutableStateOf<List<Float>>(emptyList()) }
+        var appVisible by remember {
+            mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        }
+
         var driveFiles by remember { mutableStateOf<List<DriveFile>>(emptyList()) }
         var driveLoading by remember { mutableStateOf(false) }
         var driveError by remember { mutableStateOf<String?>(null) }
         var downloadingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
         var downloadStatus by remember { mutableStateOf("") }
+
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
         var systemDialog by remember { mutableStateOf(false) }
+        var integrityDialog by remember { mutableStateOf(false) }
         var powerDialog by remember { mutableStateOf(false) }
         var confirmRebootDialog by remember { mutableStateOf(false) }
         var pendingReboot by remember { mutableStateOf<RebootTarget?>(null) }
+        var integrity by remember { mutableStateOf(IntegrityDiagnostics.read()) }
+
         var message by remember { mutableStateOf("") }
-        var lastThermalNotice by remember { mutableStateOf<String?>(null) }
         var selectedThermal by remember { mutableStateOf(ThermalManager.selected(this)) }
-        var appVisible by remember {
-            mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-        }
-        var cpuHistory by remember { mutableStateOf<List<Float>>(emptyList()) }
+        var lastThermalNotice by remember { mutableStateOf<String?>(null) }
 
         val scope = rememberCoroutineScope()
-        val listState = rememberLazyListState()
-        val scrollBehavior = MiuixScrollBehavior()
-
-        fun readStaticOnce() {
-            scope.launch {
-                info = withContext(Dispatchers.IO) {
-                    SystemInfo.readStatic(this@MainActivity)
-                }
-            }
-        }
-
-        fun refreshRealtimeNow() {
-            val current = info ?: return
-            scope.launch {
-                info = withContext(Dispatchers.IO) {
-                    SystemInfo.readRealtime(this@MainActivity, current)
-                }
-            }
-        }
 
         fun refreshDrive() {
             scope.launch {
@@ -192,6 +156,15 @@ class MainActivity : ComponentActivity() {
                 driveFiles = result.files
                 driveError = result.error
                 driveLoading = false
+            }
+        }
+
+        fun refreshRealtimeNow() {
+            val current = info ?: return
+            scope.launch {
+                info = withContext(Dispatchers.IO) {
+                    SystemInfo.readRealtime(this@MainActivity, current)
+                }
             }
         }
 
@@ -211,8 +184,7 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(appVisible) {
             while (appVisible) {
-                val current = info
-                if (current != null) {
+                info?.let { current ->
                     val next = withContext(Dispatchers.IO) {
                         SystemInfo.readRealtime(this@MainActivity, current)
                     }
@@ -233,927 +205,501 @@ class MainActivity : ComponentActivity() {
                         lastThermalNotice = null
                     }
                 }
-
                 delay(1000)
             }
         }
 
         LaunchedEffect(selectedTab) {
-            if (selectedTab == 1) {
-                refreshDrive()
-            }
+            if (selectedTab == 1) refreshDrive()
         }
 
-        val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        val fontPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri: Uri? ->
             if (uri != null) {
-                Thread {
-                    val result = FontManager.apply(this@MainActivity, uri)
-                    runOnUiThread {
-                        message = result
-                        fontDialog = false
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        FontManager.apply(this@MainActivity, uri)
                     }
-                }.start()
+                    message = result
+                    fontDialog = false
+                }
             }
         }
 
         val pageTitle = when (selectedTab) {
-            0 -> "Home"
+            0 -> "TNM"
             1 -> "Downloads"
             else -> "Tools"
-        }
-        val pageSubtitle = when (selectedTab) {
-            0 -> "HyperMOS Control"
-            1 -> "Google Drive"
-            else -> "TNM Tools"
         }
 
         Scaffold(
             topBar = {
-                if (selectedTab != 0) {
-                    TopAppBar(
-                        title = pageTitle,
-                        largeTitle = pageTitle,
-                        subtitle = pageSubtitle,
-                        scrollBehavior = scrollBehavior,
-                        actions = {
-                            IconButton(
-                                onClick = {
-                                    startActivity(
-                                        Intent(
-                                            Intent.ACTION_VIEW,
-                                            Uri.parse("https://github.com/ngocminhvn/HyperMOS")
-                                        )
-                                    )
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = MiuixIcons.Link,
-                                    contentDescription = "GitHub",
-                                    tint = MiuixTheme.colorScheme.onBackground,
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = pageTitle,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (selectedTab != 0) {
+                                Text(
+                                    text = if (selectedTab == 1) "Google Drive" else "HyperMOS Control",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            IconButton(onClick = { powerDialog = true }) {
-                                Icon(
-                                    imageVector = MiuixIcons.More,
-                                    contentDescription = "Nguồn",
-                                    tint = MiuixTheme.colorScheme.onBackground,
-                                )
-                            }
-                        },
-                    )
-                }
-            },
-            bottomBar = {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        icon = MiuixIcons.Home,
-                        label = "Home",
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        icon = MiuixIcons.Download,
-                        label = "Downloads",
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        icon = MiuixIcons.Settings,
-                        label = "Tools",
-                    )
-                }
-            },
-        ) { padding ->
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding() + 4.dp,
-                    bottom = padding.calculateBottomPadding() + 18.dp,
-                ),
-            ) {
-                if (selectedTab == 0) {
-                    item(key = "installerHome") {
-                        InstallerStyleHome(
-                            info = info,
-                            cpuHistory = cpuHistory,
-                            message = message,
-                            onGithub = {
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
                                 startActivity(
                                     Intent(
                                         Intent.ACTION_VIEW,
                                         Uri.parse("https://github.com/ngocminhvn/HyperMOS")
                                     )
                                 )
-                            },
-                            onPower = { powerDialog = true },
-                        )
-                    }
-                } else if (selectedTab == 1) {
-                    item(key = "driveTitle") {
-                        SmallTitle("Google Drive")
-                    }
-
-                    item(key = "driveFolder") {
-                        Card(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .fillMaxWidth(),
+                            }
                         ) {
-                            BasicComponent(
-                                title = "TNM Downloads",
-                                summary = if (driveLoading) {
-                                    "Đang làm mới danh sách…"
-                                } else {
-                                    "Tự động đọc file từ folder Drive"
-                                },
-                                startAction = {
-                                    FeatureIcon(MiuixIcons.Download, Color(0xFF3482FF))
-                                },
-                                endActions = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(CircleShape)
-                                            .background(MiuixTheme.colorScheme.surfaceContainerHigh),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        IconButton(
-                                            onClick = {
-                                                if (!driveLoading) refreshDrive()
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = MiuixIcons.Refresh,
-                                                contentDescription = "Làm mới",
-                                                tint = MiuixTheme.colorScheme.onBackground,
-                                            )
-                                        }
-                                    }
-                                },
-                            )
+                            Icon(Icons.Rounded.Link, contentDescription = "GitHub")
                         }
-                    }
-
-                    if (downloadStatus.isNotBlank()) {
-                        item(key = "downloadStatus") {
-                            Spacer(Modifier.height(10.dp))
-                            Card(
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .fillMaxWidth(),
-                            ) {
-                                BasicComponent(
-                                    title = "Tải xuống",
-                                    summary = downloadStatus,
-                                    startAction = {
-                                        FeatureIcon(MiuixIcons.Download, Color(0xFF34C759))
-                                    },
-                                )
-                            }
+                        IconButton(onClick = { powerDialog = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Nguồn")
                         }
-                    }
-
-                    if (driveError != null) {
-                        item(key = "driveError") {
-                            Spacer(Modifier.height(10.dp))
-                            Card(
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .fillMaxWidth(),
-                            ) {
-                                BasicComponent(
-                                    title = "Không tải được danh sách",
-                                    summary = driveError ?: "Lỗi không xác định",
-                                    startAction = {
-                                        FeatureIcon(MiuixIcons.Info, Color(0xFFFF3B30))
-                                    },
-                                )
-                            }
-                        }
-                    } else if (!driveLoading && driveFiles.isEmpty()) {
-                        item(key = "driveEmpty") {
-                            Spacer(Modifier.height(10.dp))
-                            Card(
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .fillMaxWidth(),
-                            ) {
-                                BasicComponent(
-                                    title = "Chưa có file",
-                                    summary = "Thả file vào folder Drive rồi bấm Làm mới",
-                                )
-                            }
-                        }
-                    } else {
-                        items(
-                            count = driveFiles.size,
-                            key = { index -> driveFiles[index].id },
-                        ) { index ->
-                            val file = driveFiles[index]
-                            Spacer(Modifier.height(if (index == 0) 10.dp else 8.dp))
-                            DownloadFileRow(
-                                file = file,
-                                isDownloading = file.id in downloadingIds,
-                                onDownload = {
-                                    if (file.id !in downloadingIds) {
-                                        downloadingIds = downloadingIds + file.id
-                                        downloadStatus = "Đang tải ${file.name}…"
-                                        scope.launch {
-                                            val result = withContext(Dispatchers.IO) {
-                                                DriveDownloads.download(this@MainActivity, file)
-                                            }
-                                            downloadStatus = result
-                                            downloadingIds = downloadingIds - file.id
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-                } else {
-                    item(key = "customTitle") {
-                        SmallTitle("Tùy chỉnh")
-                    }
-
-                    item(key = "custom") {
-                        Card(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .fillMaxWidth(),
-                        ) {
-                            ArrowPreference(
-                                title = "Font",
-                                summary = "Đổi font hệ thống",
-                                startAction = {
-                                    FeatureIcon(MiuixIcons.Theme, Color(0xFF6C63FF))
-                                },
-                                onClick = { fontDialog = true },
-                                holdDownState = fontDialog,
-                            )
-                            ArrowPreference(
-                                title = "Thermal",
-                                summary = info?.thermal ?: if (selectedThermal == "eco") "Eco" else "Stock Xiaomi",
-                                startAction = {
-                                    FeatureIcon(MiuixIcons.Tune, Color(0xFFFF9500))
-                                },
-                                onClick = { thermalDialog = true },
-                                holdDownState = thermalDialog,
-                            )
-                            ArrowPreference(
-                                title = "FCM Diagnostics",
-                                summary = "Mở chẩn đoán FCM gốc của Google Play services (*#*#426#*#*)",
-                                startAction = {
-                                    FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
-                                },
-                                onClick = {
-                                    val error = GmsFcmDiagnostics.open(this@MainActivity)
-                                    if (error != null) message = error
-                                },
-                            )
-                        }
-                    }
-
-                    if (message.isNotBlank()) {
-                        item(key = "toolsMessage") {
-                            Spacer(Modifier.height(10.dp))
-                            Card(
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .fillMaxWidth(),
-                            ) {
-                                BasicComponent(
-                                    title = "Trạng thái",
-                                    summary = message,
-                                    startAction = {
-                                        FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    item(key = "deviceTitle") {
-                        SmallTitle("Thiết bị")
-                    }
-
-                    item(key = "details") {
-                        Card(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .fillMaxWidth(),
-                        ) {
-                            ArrowPreference(
-                                title = "Thông tin hệ thống",
-                                summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
-                                startAction = {
-                                    FeatureIcon(MiuixIcons.Info, Color(0xFF5AC8FA))
-                                },
-                                onClick = { systemDialog = true },
-                                holdDownState = systemDialog,
-                            )
-                        }
-                    }
-                }
-            }
-
-            OverlayDialog(
-                title = "Font",
-                summary = "Chọn font trên máy hoặc khôi phục font trước đó.",
-                show = fontDialog,
-                onDismissRequest = { fontDialog = false },
-            ) {
-                Card {
-                    BasicComponent(
-                        title = "Chọn file font",
-                        summary = ".ttf hoặc .otf",
-                        startAction = { FeatureIcon(MiuixIcons.Theme, Color(0xFF6C63FF)) },
-                        onClick = {
-                            fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream"))
-                        },
+                    },
+                )
+            },
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        icon = { Icon(Icons.Rounded.Home, null) },
+                        label = { Text("Home") },
                     )
-                    BasicComponent(
-                        title = "Khôi phục font",
-                        summary = "Trở về font đã dùng trước khi TNM thay đổi",
-                        startAction = { FeatureIcon(MiuixIcons.Refresh, Color(0xFF34C759)) },
-                        onClick = {
-                            Thread {
-                                val result = FontManager.restore()
-                                runOnUiThread {
-                                    message = result
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        icon = { Icon(Icons.Rounded.Download, null) },
+                        label = { Text("Downloads") },
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        icon = { Icon(Icons.Rounded.Settings, null) },
+                        label = { Text("Tools") },
+                    )
+                }
+            },
+        ) { padding ->
+            when (selectedTab) {
+                0 -> HomePage(
+                    modifier = Modifier.padding(padding),
+                    info = info,
+                    cpuHistory = cpuHistory,
+                    message = message,
+                )
+                1 -> DownloadsPage(
+                    modifier = Modifier.padding(padding),
+                    files = driveFiles,
+                    loading = driveLoading,
+                    error = driveError,
+                    status = downloadStatus,
+                    downloadingIds = downloadingIds,
+                    onRefresh = { refreshDrive() },
+                    onDownload = { file ->
+                        if (file.id !in downloadingIds) {
+                            downloadingIds = downloadingIds + file.id
+                            downloadStatus = "Đang tải ${file.name}…"
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    DriveDownloads.download(this@MainActivity, file)
+                                }
+                                downloadStatus = result
+                                downloadingIds = downloadingIds - file.id
+                            }
+                        }
+                    },
+                )
+                else -> ToolsPage(
+                    modifier = Modifier.padding(padding),
+                    info = info,
+                    message = message,
+                    onFont = { fontDialog = true },
+                    onThermal = { thermalDialog = true },
+                    onSystemInfo = { systemDialog = true },
+                    onIntegrity = {
+                        integrity = IntegrityDiagnostics.read()
+                        integrityDialog = true
+                    },
+                    onFcm = {
+                        GmsFcmDiagnostics.open(this@MainActivity)?.let { message = it }
+                    },
+                )
+            }
+        }
+
+        if (fontDialog) {
+            AlertDialog(
+                onDismissRequest = { fontDialog = false },
+                title = { Text("Font") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Dùng font hệ thống mặc định của Material 3 hoặc chọn file .ttf/.otf để áp dụng cho ROM.")
+                        Button(
+                            onClick = {
+                                fontPicker.launch(
+                                    arrayOf("font/ttf", "font/otf", "application/octet-stream")
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Chọn file font")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    message = withContext(Dispatchers.IO) {
+                                        FontManager.restore()
+                                    }
                                     fontDialog = false
                                 }
-                            }.start()
-                        },
-                    )
-                }
-            }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Khôi phục font")
+                        }
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { fontDialog = false }) {
+                        Text("Đóng")
+                    }
+                },
+            )
+        }
 
-            OverlayDialog(
-                title = "Thermal",
-                summary = "Chọn profile thermal dùng ngay trong ROM.",
-                show = thermalDialog,
+        if (thermalDialog) {
+            AlertDialog(
                 onDismissRequest = { thermalDialog = false },
-            ) {
-                Card {
-                    RadioButtonPreference(
-                        title = "Eco",
-                        summary = "Ưu tiên pin và nhiệt độ, vẫn giữ bảo vệ thermal stock",
-                        selected = selectedThermal == "eco",
-                        onClick = {
-                            Thread {
-                                val result = ThermalManager.applyEco(this@MainActivity)
-                                runOnUiThread {
+                title = { Text("Thermal") },
+                text = {
+                    Column {
+                        ThermalChoice(
+                            title = "Eco",
+                            summary = "Ưu tiên pin và nhiệt độ",
+                            selected = selectedThermal == "eco",
+                            onClick = {
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        ThermalManager.applyEco(this@MainActivity)
+                                    }
                                     message = result
                                     if (result.startsWith("Đã bật")) selectedThermal = "eco"
                                     thermalDialog = false
                                     refreshRealtimeNow()
                                 }
-                            }.start()
-                        },
-                    )
-                    RadioButtonPreference(
-                        title = "Stock Xiaomi",
-                        summary = "Khôi phục thermal nguyên bản Xiaomi",
-                        selected = selectedThermal == "stock",
-                        onClick = {
-                            Thread {
-                                val result = ThermalManager.applyStock(this@MainActivity)
-                                runOnUiThread {
+                            },
+                        )
+                        ThermalChoice(
+                            title = "Stock Xiaomi",
+                            summary = "Khôi phục thermal nguyên bản",
+                            selected = selectedThermal == "stock",
+                            onClick = {
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        ThermalManager.applyStock(this@MainActivity)
+                                    }
                                     message = result
                                     if (result.startsWith("Đã khôi phục")) selectedThermal = "stock"
                                     thermalDialog = false
                                     refreshRealtimeNow()
                                 }
-                            }.start()
-                        },
-                    )
-                }
-            }
+                            },
+                        )
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { thermalDialog = false }) {
+                        Text("Đóng")
+                    }
+                },
+            )
+        }
 
-            OverlayDialog(
-                title = "Thông tin hệ thống",
-                summary = info?.device ?: "Đang đọc thông tin thiết bị…",
-                show = systemDialog,
+        if (systemDialog) {
+            AlertDialog(
                 onDismissRequest = { systemDialog = false },
-            ) {
-                Card {
-                    DetailRow("SoC", info?.soc ?: "—")
-                    DetailRow("CPU hiện tại", info?.cpuCurrent ?: "—")
-                    DetailRow("CPU tối đa", info?.cpuMax ?: "—")
-                    DetailRow("RAM đang dùng / tổng", info?.ram ?: "—")
-                    DetailRow("Bộ nhớ", info?.storage ?: "—")
-                    DetailRow("Android", info?.android ?: "—")
-                    DetailRow("HyperOS", info?.hyperos ?: "—")
-                    DetailRow("Nhiệt pin", info?.batteryTemp ?: "—")
-                    DetailRow("Công suất pin", info?.batteryPower ?: "—")
-                    DetailRow("Nhiệt SoC / CPU", info?.socTemp ?: "—")
-                    DetailRow("Nhiệt GPU", info?.gpuTemp ?: "—")
-                    DetailRow("Thermal", info?.thermal ?: "—")
-                    DetailRow("Root", info?.root ?: "—")
-                }
-            }
+                title = { Text("Thông tin hệ thống") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoLine("Thiết bị", info?.device ?: "—")
+                        InfoLine("SoC", info?.soc ?: "—")
+                        InfoLine("CPU", info?.cpuCurrent ?: "—")
+                        InfoLine("CPU max", info?.cpuMax ?: "—")
+                        InfoLine("RAM", info?.ram ?: "—")
+                        InfoLine("Bộ nhớ", info?.storage ?: "—")
+                        InfoLine("Android", info?.android ?: "—")
+                        InfoLine("HyperOS", info?.hyperos ?: "—")
+                        InfoLine("Pin", info?.batteryTemp ?: "—")
+                        InfoLine("Công suất", info?.batteryPower ?: "—")
+                        InfoLine("Nhiệt SoC", info?.socTemp ?: "—")
+                        InfoLine("Nhiệt GPU", info?.gpuTemp ?: "—")
+                        InfoLine("Thermal", info?.thermal ?: "—")
+                        InfoLine("Root", info?.root ?: "—")
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { systemDialog = false }) {
+                        Text("Đóng")
+                    }
+                },
+            )
+        }
 
-            OverlayDialog(
-                title = "Nguồn",
-                summary = "Chọn chế độ khởi động. TNM cần quyền root.",
-                show = powerDialog,
+        if (integrityDialog) {
+            AlertDialog(
+                onDismissRequest = { integrityDialog = false },
+                icon = { Icon(Icons.Rounded.Security, null) },
+                title = { Text("Integrity") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            integrity.summary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        InfoLine("Verified Boot", integrity.verifiedBoot)
+                        InfoLine("Bootloader", integrity.bootloader)
+                        InfoLine("VBMeta", integrity.vbmeta)
+                        InfoLine("Build tags", integrity.buildTags)
+                        InfoLine("Root", integrity.root)
+                        HorizontalDivider()
+                        Text(
+                            "Đây là kiểm tra cục bộ. Nó không phải verdict BASIC / DEVICE / STRONG của Google Play Integrity.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { integrityDialog = false }) {
+                        Text("Đóng")
+                    }
+                },
+            )
+        }
+
+        if (powerDialog) {
+            AlertDialog(
                 onDismissRequest = { powerDialog = false },
-            ) {
-                Card {
-                    RebootChoice("Khởi động lại", "Android bình thường", RebootTarget.SYSTEM) {
-                        pendingReboot = it
-                        powerDialog = false
-                        confirmRebootDialog = true
+                icon = { Icon(Icons.Rounded.PowerSettingsNew, null) },
+                title = { Text("Khởi động") },
+                text = {
+                    Column {
+                        RebootChoice("Khởi động lại", RebootTarget.SYSTEM) {
+                            pendingReboot = it
+                            powerDialog = false
+                            confirmRebootDialog = true
+                        }
+                        RebootChoice("Fastboot", RebootTarget.BOOTLOADER) {
+                            pendingReboot = it
+                            powerDialog = false
+                            confirmRebootDialog = true
+                        }
+                        RebootChoice("Fastbootd", RebootTarget.FASTBOOTD) {
+                            pendingReboot = it
+                            powerDialog = false
+                            confirmRebootDialog = true
+                        }
+                        RebootChoice("Recovery", RebootTarget.RECOVERY) {
+                            pendingReboot = it
+                            powerDialog = false
+                            confirmRebootDialog = true
+                        }
                     }
-                    RebootChoice("Fastboot", "Bootloader fastboot", RebootTarget.BOOTLOADER) {
-                        pendingReboot = it
-                        powerDialog = false
-                        confirmRebootDialog = true
-                    }
-                    RebootChoice("Fastbootd", "Userspace fastbootd", RebootTarget.FASTBOOTD) {
-                        pendingReboot = it
-                        powerDialog = false
-                        confirmRebootDialog = true
-                    }
-                    RebootChoice("Recovery", "Khởi động vào recovery", RebootTarget.RECOVERY) {
-                        pendingReboot = it
-                        powerDialog = false
-                        confirmRebootDialog = true
-                    }
-                }
-            }
-
-            OverlayDialog(
-                title = "Xác nhận khởi động",
-                summary = pendingReboot?.description ?: "",
-                show = confirmRebootDialog,
-                onDismissRequest = { confirmRebootDialog = false },
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Button(
-                        onClick = { confirmRebootDialog = false },
-                        modifier = Modifier.weight(1f),
-                    ) {
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { powerDialog = false }) {
                         Text("Hủy")
                     }
+                },
+            )
+        }
+
+        if (confirmRebootDialog) {
+            AlertDialog(
+                onDismissRequest = { confirmRebootDialog = false },
+                title = { Text("Xác nhận") },
+                text = { Text(pendingReboot?.description ?: "") },
+                dismissButton = {
+                    OutlinedButton(onClick = { confirmRebootDialog = false }) {
+                        Text("Hủy")
+                    }
+                },
+                confirmButton = {
                     Button(
                         onClick = {
                             val target = pendingReboot
                             confirmRebootDialog = false
                             if (target != null) {
-                                Thread {
-                                    val result = RebootManager.reboot(target)
-                                    if (!result.ok) {
-                                        runOnUiThread { message = result.message }
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        RebootManager.reboot(target)
                                     }
-                                }.start()
+                                    if (!result.ok) message = result.message
+                                }
                             }
-                        },
-                        modifier = Modifier.weight(1f),
+                        }
                     ) {
                         Text("Thực hiện")
                     }
-                }
-            }
+                },
+            )
         }
     }
 
     @Composable
-    private fun InstallerStyleHome(
+    private fun HomePage(
+        modifier: Modifier,
         info: DeviceInfo?,
         cpuHistory: List<Float>,
         message: String,
-        onGithub: () -> Unit,
-        onPower: () -> Unit,
     ) {
-        val isDark = isSystemInDarkTheme()
-        val backdrop = rememberLayerBackdrop()
-        val blurSupported = isRuntimeShaderSupported()
-        val shape = RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp)
-        val transition = rememberInfiniteTransition(label = "installer_home")
-        val drift by transition.animateFloat(
-            initialValue = -34f,
-            targetValue = 46f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(6200),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "home_drift",
-        )
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                DeviceHero(info)
+            }
 
-        val background = if (isDark) {
-            listOf(
-                Color(0xFF07183B),
-                Color(0xFF063F9C),
-                Color(0xFF251570),
-                Color(0xFF24051F),
-            )
-        } else {
-            listOf(
-                Color(0xFFD9E9FF),
-                Color(0xFF9DC4FF),
-                Color(0xFFC7B6FF),
-                Color(0xFFF1DDF0),
-            )
+            if (message.isNotBlank()) {
+                item {
+                    Card {
+                        ListItem(
+                            headlineContent = { Text("Trạng thái", fontWeight = FontWeight.Medium) },
+                            supportingContent = { Text(message) },
+                            leadingContent = { Icon(Icons.Rounded.Info, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                }
+            }
+
+            item {
+                SectionTitle("Realtime")
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    StatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Speed,
+                        title = "CPU",
+                        value = info?.cpuCurrent ?: "—",
+                    )
+                    StatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Memory,
+                        title = "RAM",
+                        value = info?.ram ?: "—",
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    StatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Thermostat,
+                        title = "SoC",
+                        value = info?.socTemp ?: "—",
+                    )
+                    StatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.BatteryFull,
+                        title = "Pin",
+                        value = info?.batteryTemp ?: "—",
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    StatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Bolt,
+                        title = "Công suất",
+                        value = info?.batteryPower ?: "—",
+                    )
+                    StatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Thermostat,
+                        title = "GPU",
+                        value = info?.gpuTemp ?: "—",
+                    )
+                }
+            }
+
+            item {
+                CpuChart(cpuHistory, info?.cpuCurrent ?: "—", info?.cpuMax ?: "—")
+            }
         }
-        val primaryText = if (isDark) Color.White else Color(0xFF111318)
-        val secondaryText = primaryText.copy(alpha = 0.63f)
+    }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(720.dp)
-                .clip(shape),
+    @Composable
+    private fun DeviceHero(info: DeviceInfo?) {
+        val dark = isSystemInDarkTheme()
+        val shape = RoundedCornerShape(28.dp)
+        Card(
+            shape = shape,
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .layerBackdrop(backdrop)
-                    .background(Brush.verticalGradient(background)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .offset(x = drift.dp, y = 80.dp)
-                        .size(330.dp)
-                        .blur(100.dp)
-                        .background(Color(0xFF0C62FF).copy(alpha = 0.46f), CircleShape),
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .offset(x = 95.dp, y = (-70).dp)
-                        .size(280.dp)
-                        .blur(95.dp)
-                        .background(Color(0xFF7F36C8).copy(alpha = 0.36f), CircleShape),
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .offset(y = 90.dp)
-                        .size(360.dp)
-                        .blur(110.dp)
-                        .background(Color(0xFF001A58).copy(alpha = if (isDark) 0.74f else 0.20f), CircleShape),
-                )
-            }
-
-            if (blurSupported) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .textureBlur(
-                            backdrop = backdrop,
-                            shape = shape,
-                            blurRadiusX = 170f,
-                            blurRadiusY = 170f,
-                            noiseCoefficient = 0.0044f,
-                            colors = BlurDefaults.blurColors(
-                                blendColors = listOf(
-                                    BlendColorEntry(
-                                        if (isDark) Color(0x16101010) else Color(0x20FFFFFF),
-                                        BlurBlendMode.Overlay,
-                                    ),
-                                    BlendColorEntry(Color(0x12FFFFFF), BlurBlendMode.Screen),
-                                ),
-                                brightness = if (isDark) -0.03f else 0.03f,
-                                contrast = 1.06f,
-                                saturation = 1.24f,
-                            ),
-                            highlight = if (isDark) {
-                                Highlight.GlassStrokeBigDark
-                            } else {
-                                Highlight.GlassStrokeBigLight
-                            },
-                        )
-                )
-            }
-
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 18.dp, end = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                IconButton(onClick = onGithub) {
-                    Icon(
-                        imageVector = MiuixIcons.Link,
-                        contentDescription = "GitHub",
-                        tint = primaryText.copy(alpha = 0.88f),
-                    )
-                }
-                IconButton(onClick = onPower) {
-                    Icon(
-                        imageVector = MiuixIcons.More,
-                        contentDescription = "Nguồn",
-                        tint = primaryText.copy(alpha = 0.88f),
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 22.dp, vertical = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Spacer(Modifier.height(112.dp))
-                Box(
-                    modifier = Modifier
-                        .size(116.dp)
-                        .clip(RoundedCornerShape(30.dp))
-                        .background(Color.White.copy(alpha = 0.12f))
-                        .border(
-                            1.dp,
-                            Color.White.copy(alpha = 0.18f),
-                            RoundedCornerShape(30.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.ic_tnm_foreground),
-                        contentDescription = "TNM",
-                        modifier = Modifier.size(92.dp),
-                    )
-                }
-
-                Spacer(Modifier.height(26.dp))
-                Text(
-                    text = "TNM",
-                    style = MiuixTheme.textStyles.title1,
-                    color = primaryText,
-                )
-                Text(
-                    text = "HyperMOS Control · ${BuildConfig.VERSION_NAME}",
-                    style = MiuixTheme.textStyles.body1,
-                    color = secondaryText,
-                )
-                Text(
-                    text = info?.device ?: "Đang đọc thiết bị…",
-                    style = MiuixTheme.textStyles.body2,
-                    color = secondaryText,
-                )
-
-                Spacer(Modifier.weight(1f))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(28.dp))
-                        .background(
-                            if (isDark) Color(0x5AFFFFFF)
-                            else Color(0x72FFFFFF)
-                        )
-                        .border(
-                            1.dp,
-                            Color.White.copy(alpha = if (isDark) 0.12f else 0.32f),
-                            RoundedCornerShape(28.dp),
-                        )
-                        .padding(vertical = 6.dp),
-                ) {
-                    HomeGlassRow(
-                        title = "Hiệu năng",
-                        summary = "${info?.cpuCurrent ?: "—"} · RAM ${info?.ram ?: "—"}",
-                        icon = MiuixIcons.Settings,
-                        textColor = primaryText,
-                        summaryColor = secondaryText,
-                    )
-                    HomeGlassRow(
-                        title = "Nhiệt độ",
-                        summary = "SoC ${info?.socTemp ?: "—"} · GPU ${info?.gpuTemp ?: "—"} · Pin ${info?.batteryTemp ?: "—"}",
-                        icon = MiuixIcons.Tune,
-                        textColor = primaryText,
-                        summaryColor = secondaryText,
-                    )
-                    HomeGlassRow(
-                        title = "Pin / Thermal",
-                        summary = "${info?.batteryPower ?: "—"} · ${info?.thermal ?: "—"}",
-                        icon = MiuixIcons.Info,
-                        textColor = primaryText,
-                        summaryColor = secondaryText,
-                    )
-                }
-
-                if (message.isNotBlank()) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = message,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = secondaryText,
-                    )
-                }
-
-                Spacer(Modifier.height(14.dp))
-                MiniCpuLine(
-                    values = cpuHistory,
-                    color = primaryText.copy(alpha = 0.82f),
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun HomeGlassRow(
-        title: String,
-        summary: String,
-        icon: ImageVector,
-        textColor: Color,
-        summaryColor: Color,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = textColor.copy(alpha = 0.82f),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MiuixTheme.textStyles.headline1,
-                    color = textColor,
-                )
-                Text(
-                    text = summary,
-                    style = MiuixTheme.textStyles.body2,
-                    color = summaryColor,
-                    maxLines = 2,
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun MiniCpuLine(
-        values: List<Float>,
-        color: Color,
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp)
-                .padding(horizontal = 4.dp),
-        ) {
-            if (values.size < 2) return@Canvas
-            val ceiling = maxOf(values.maxOrNull() ?: 1f, 1f)
-            val path = Path()
-            values.forEachIndexed { index, value ->
-                val x = size.width * index / (values.size - 1f)
-                val y = size.height - (value / ceiling).coerceIn(0f, 1f) * size.height
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            drawPath(
-                path = path,
-                color = color,
-                style = Stroke(width = 2.5.dp.toPx()),
-            )
-        }
-    }
-
-    @Composable
-    private fun GlossyDeviceHero(info: DeviceInfo?) {
-        val transition = rememberInfiniteTransition(label = "hero")
-        val drift by transition.animateFloat(
-            initialValue = -22f,
-            targetValue = 34f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 5600),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "drift",
-        )
-        val glow by transition.animateFloat(
-            initialValue = 0.28f,
-            targetValue = 0.46f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 3600),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "glow",
-        )
-
-        val isDark = isSystemInDarkTheme()
-        val heroGradient = if (isDark) {
-            listOf(
-                Color(0xFF04112F),
-                Color(0xFF082D78),
-                Color(0xFF39257E),
-                Color(0xFF160923),
-            )
-        } else {
-            listOf(
-                Color(0xFFDCEBFF),
-                Color(0xFFAECFFF),
-                Color(0xFFC8BAFF),
-                Color(0xFFF0E9FF),
-            )
-        }
-        val primaryGlow = if (isDark) Color(0xFF367CFF) else Color(0xFF5D94FF)
-        val secondaryGlow = if (isDark) Color(0xFF7A3CFF) else Color(0xFFA77BFF)
-        val bottomGlow = if (isDark) Color(0xFF003B9E) else Color(0xFF8DB4FF)
-        val heroText = if (isDark) Color.White else Color(0xFF111318)
-        val heroSubText = if (isDark) Color.White.copy(alpha = 0.76f) else Color(0xFF3A3D44).copy(alpha = 0.72f)
-        val shape = RoundedCornerShape(30.dp)
-        val backdrop = rememberLayerBackdrop()
-        val blurSupported = isRuntimeShaderSupported()
-        val glassColors = BlurDefaults.blurColors(
-            blendColors = if (isDark) {
-                listOf(
-                    BlendColorEntry(Color(0x261A1A1A), BlurBlendMode.Overlay),
-                    BlendColorEntry(Color(0x18FFFFFF), BlurBlendMode.Screen),
-                )
-            } else {
-                listOf(
-                    BlendColorEntry(Color(0x24FFFFFF), BlurBlendMode.Screen),
-                    BlendColorEntry(Color(0x100B5CFF), BlurBlendMode.SoftLight),
-                )
-            },
-            brightness = if (isDark) -0.02f else 0.03f,
-            contrast = 1.06f,
-            saturation = 1.28f,
-        )
-        val glassHighlight = if (isDark) {
-            Highlight.GlassStrokeBigDark
-        } else {
-            Highlight.GlassStrokeBigLight
-        }
-
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 12.dp)
-                .fillMaxWidth()
-                .height(218.dp)
-                .clip(shape),
-        ) {
-            // Real backdrop layer: this is what Miuix textureBlur samples.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .layerBackdrop(backdrop)
+                    .fillMaxWidth()
+                    .height(190.dp)
+                    .clip(shape)
                     .background(
-                        Brush.linearGradient(heroGradient)
+                        Brush.linearGradient(
+                            if (dark) {
+                                listOf(
+                                    Color(0xFF0A2A5B),
+                                    Color(0xFF274EBE),
+                                    Color(0xFF5A3BA8),
+                                )
+                            } else {
+                                listOf(
+                                    Color(0xFFD9E9FF),
+                                    Color(0xFFAEC8FF),
+                                    Color(0xFFD9C6FF),
+                                )
+                            }
+                        )
                     ),
             ) {
                 Box(
                     modifier = Modifier
-                        .offset(x = drift.dp, y = (-50).dp)
-                        .size(230.dp)
-                        .blur(68.dp)
-                        .background(primaryGlow.copy(alpha = glow), CircleShape),
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(120.dp)
+                        .blur(42.dp)
+                        .background(
+                            Color.White.copy(alpha = if (dark) 0.10f else 0.28f),
+                            CircleShape,
+                        )
                 )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .offset(x = 56.dp, y = (-18).dp)
-                        .size(210.dp)
-                        .blur(72.dp)
-                        .background(secondaryGlow.copy(alpha = glow * 0.92f), CircleShape),
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .offset(y = 58.dp)
-                        .size(250.dp)
-                        .blur(82.dp)
-                        .background(bottomGlow.copy(alpha = if (isDark) 0.42f else 0.30f), CircleShape),
-                )
-            }
-
-            val glassModifier = if (blurSupported) {
-                Modifier
-                    .fillMaxSize()
-                    .textureBlur(
-                        backdrop = backdrop,
-                        shape = shape,
-                        blurRadiusX = 150f,
-                        blurRadiusY = 150f,
-                        noiseCoefficient = 0.0044f,
-                        colors = glassColors,
-                        highlight = glassHighlight,
-                    )
-            } else {
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        if (isDark) Color.Black.copy(alpha = 0.18f)
-                        else Color.White.copy(alpha = 0.12f)
-                    )
-                    .border(1.dp, Color.White.copy(alpha = 0.14f), shape)
-            }
-
-            Box(modifier = glassModifier) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1166,32 +712,28 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(60.dp)
-                                .clip(RoundedCornerShape(19.dp))
-                                .background(Color.White.copy(alpha = 0.13f))
-                                .border(
-                                    1.dp,
-                                    Color.White.copy(alpha = 0.20f),
-                                    RoundedCornerShape(19.dp),
-                                ),
+                                .size(58.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color.White.copy(alpha = 0.18f)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Image(
+                            androidx.compose.foundation.Image(
                                 painter = painterResource(R.drawable.ic_tnm_foreground),
                                 contentDescription = "TNM",
-                                modifier = Modifier.size(48.dp),
+                                modifier = Modifier.size(46.dp),
                             )
                         }
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Column {
                             Text(
                                 text = info?.device ?: "Đang đọc thiết bị…",
-                                style = MiuixTheme.textStyles.title3,
-                                color = heroText,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (dark) Color.White else Color(0xFF101318),
                             )
                             Text(
                                 text = "${info?.hyperos ?: "HyperOS"} · ${info?.android ?: "Android"}",
-                                style = MiuixTheme.textStyles.body2,
-                                color = heroSubText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (dark) Color.White.copy(alpha = 0.72f) else Color(0xFF343840),
                             )
                         }
                     }
@@ -1200,20 +742,23 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        HeroMetric(
+                        HeroPill(
                             modifier = Modifier.weight(1f),
-                            title = "SoC",
-                            value = info?.soc ?: "—",
+                            label = "Thermal",
+                            value = info?.thermal ?: "—",
+                            dark = dark,
                         )
-                        HeroMetric(
+                        HeroPill(
                             modifier = Modifier.weight(1f),
-                            title = "CPU",
+                            label = "Power",
+                            value = info?.batteryPower ?: "—",
+                            dark = dark,
+                        )
+                        HeroPill(
+                            modifier = Modifier.weight(1f),
+                            label = "CPU",
                             value = info?.cpuCurrent ?: "—",
-                        )
-                        HeroMetric(
-                            modifier = Modifier.weight(1f),
-                            title = "Nhiệt",
-                            value = info?.socTemp ?: "—",
+                            dark = dark,
                         )
                     }
                 }
@@ -1222,60 +767,32 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun HeroMetric(
+    private fun HeroPill(
         modifier: Modifier,
-        title: String,
+        label: String,
         value: String,
+        dark: Boolean,
     ) {
-        val isDark = isSystemInDarkTheme()
-        val metricBackground = if (isDark) {
-            Color.Black.copy(alpha = 0.16f)
-        } else {
-            Color.White.copy(alpha = 0.38f)
-        }
-        val metricTitle = if (isDark) {
-            Color.White.copy(alpha = 0.66f)
-        } else {
-            Color(0xFF4A4D55).copy(alpha = 0.78f)
-        }
-        val metricValue = if (isDark) Color.White else Color(0xFF111318)
-
         Column(
             modifier = modifier
-                .clip(RoundedCornerShape(14.dp))
-                .background(metricBackground)
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    if (dark) Color.Black.copy(alpha = 0.18f)
+                    else Color.White.copy(alpha = 0.46f)
+                )
                 .padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = title,
-                style = MiuixTheme.textStyles.footnote1,
-                color = metricTitle,
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (dark) Color.White.copy(alpha = 0.64f) else Color(0xFF575B64),
             )
             Text(
-                text = value,
-                style = MiuixTheme.textStyles.body2,
-                color = metricValue,
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = if (dark) Color.White else Color(0xFF111318),
                 maxLines = 1,
-            )
-        }
-    }
-
-    @Composable
-    private fun FeatureIcon(imageVector: ImageVector, accent: Color) {
-        Box(
-            modifier = Modifier
-                .padding(end = 14.dp)
-                .size(40.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(accent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = imageVector,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-                tint = Color.White,
             )
         }
     }
@@ -1283,90 +800,42 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun StatCard(
         modifier: Modifier,
+        icon: ImageVector,
         title: String,
         value: String,
-        imageVector: ImageVector,
-        accent: Color,
     ) {
-        Card(
-            modifier = modifier,
-            insideMargin = PaddingValues(14.dp),
-        ) {
+        Card(modifier = modifier) {
             Row(
+                modifier = Modifier.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(accent),
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = imageVector,
+                        icon,
                         contentDescription = null,
-                        modifier = Modifier.size(19.dp),
-                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = title,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = value,
-                        style = MiuixTheme.textStyles.headline2,
+                        value,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                     )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun DownloadFileRow(
-        file: DriveFile,
-        isDownloading: Boolean,
-        onDownload: () -> Unit,
-    ) {
-        Card(
-            modifier = Modifier
-                .padding(horizontal = 12.dp)
-                .fillMaxWidth(),
-            insideMargin = PaddingValues(16.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                FeatureIcon(MiuixIcons.Download, Color(0xFF3482FF))
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        text = file.name,
-                        style = MiuixTheme.textStyles.body1,
-                        maxLines = 2,
-                    )
-                    Text(
-                        text = DriveDownloads.formatSize(file.sizeBytes),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-                Button(
-                    enabled = !isDownloading,
-                    onClick = onDownload,
-                ) {
-                    Text(if (isDownloading) "Đang tải" else "Tải")
                 }
             }
         }
@@ -1378,63 +847,51 @@ class MainActivity : ComponentActivity() {
         current: String,
         max: String,
     ) {
-        Card(
-            modifier = Modifier
-                .padding(horizontal = 12.dp)
-                .fillMaxWidth(),
-            insideMargin = PaddingValues(16.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Column {
-                        Text(text = "Biểu đồ CPU", style = MiuixTheme.textStyles.title4)
+                        Text("Biểu đồ CPU", fontWeight = FontWeight.SemiBold)
                         Text(
-                            text = "60 giây gần nhất · cập nhật mỗi 1 giây",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            "60 giây gần nhất",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(text = current, style = MiuixTheme.textStyles.headline2)
+                        Text(current, fontWeight = FontWeight.SemiBold)
                         Text(
-                            text = "Max $max",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            "Max $max",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
+
+                val lineColor = MaterialTheme.colorScheme.primary
+                val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
                 Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(132.dp)
+                        .height(130.dp),
                 ) {
-                    val grid = Color.Gray.copy(alpha = 0.16f)
                     repeat(4) { i ->
                         val y = size.height * i / 3f
                         drawLine(
-                            color = grid,
+                            color = gridColor,
                             start = androidx.compose.ui.geometry.Offset(0f, y),
                             end = androidx.compose.ui.geometry.Offset(size.width, y),
                         )
                     }
-                    repeat(5) { i ->
-                        val x = size.width * i / 4f
-                        drawLine(
-                            color = grid.copy(alpha = 0.10f),
-                            start = androidx.compose.ui.geometry.Offset(x, 0f),
-                            end = androidx.compose.ui.geometry.Offset(x, size.height),
-                        )
-                    }
 
-                    if (values.isNotEmpty()) {
-                        val maxGHz = max
-                            .substringBefore(" ")
-                            .replace(',', '.')
-                            .toFloatOrNull()
-                            ?: 1f
+                    if (values.size >= 2) {
+                        val maxGHz = max.substringBefore(" ").replace(',', '.').toFloatOrNull() ?: 1f
                         val ceiling = maxOf(values.maxOrNull() ?: 1f, maxGHz, 1f)
                         val startSlot = (60 - values.size).coerceAtLeast(0)
                         val points = values.mapIndexed { index, value ->
@@ -1443,40 +900,11 @@ class MainActivity : ComponentActivity() {
                             val y = size.height - (value / ceiling).coerceIn(0f, 1f) * size.height
                             androidx.compose.ui.geometry.Offset(x, y)
                         }
-
-                        if (points.size >= 2) {
-                            val fillPath = Path().apply {
-                                moveTo(points.first().x, size.height)
-                                lineTo(points.first().x, points.first().y)
-                                points.drop(1).forEach { lineTo(it.x, it.y) }
-                                lineTo(points.last().x, size.height)
-                                close()
-                            }
-                            drawPath(
-                                path = fillPath,
-                                color = Color(0xFF3482FF).copy(alpha = 0.13f),
-                            )
-
-                            val linePath = Path().apply {
-                                moveTo(points.first().x, points.first().y)
-                                points.drop(1).forEach { lineTo(it.x, it.y) }
-                            }
-                            drawPath(
-                                path = linePath,
-                                color = Color(0xFF3482FF),
-                                style = Stroke(width = 4.dp.toPx()),
-                            )
+                        val path = Path().apply {
+                            moveTo(points.first().x, points.first().y)
+                            points.drop(1).forEach { lineTo(it.x, it.y) }
                         }
-
-                        points.forEachIndexed { index, point ->
-                            if (index == points.lastIndex || index % 5 == 0) {
-                                drawCircle(
-                                    color = Color(0xFF3482FF),
-                                    radius = if (index == points.lastIndex) 4.5.dp.toPx() else 2.4.dp.toPx(),
-                                    center = point,
-                                )
-                            }
-                        }
+                        drawPath(path, lineColor, style = Stroke(width = 3.dp.toPx()))
                     }
                 }
             }
@@ -1484,21 +912,292 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun RebootChoice(
-        title: String,
-        summary: String,
-        target: RebootTarget,
-        onClick: (RebootTarget) -> Unit,
+    private fun DownloadsPage(
+        modifier: Modifier,
+        files: List<DriveFile>,
+        loading: Boolean,
+        error: String?,
+        status: String,
+        downloadingIds: Set<String>,
+        onRefresh: () -> Unit,
+        onDownload: (DriveFile) -> Unit,
     ) {
-        BasicComponent(
-            title = title,
-            summary = summary,
-            onClick = { onClick(target) },
-        )
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Card {
+                    ListItem(
+                        headlineContent = {
+                            Text("TNM Downloads", fontWeight = FontWeight.SemiBold)
+                        },
+                        supportingContent = {
+                            Text(if (loading) "Đang làm mới…" else "Google Drive folder")
+                        },
+                        leadingContent = {
+                            Icon(Icons.Rounded.Download, contentDescription = null)
+                        },
+                        trailingContent = {
+                            IconButton(onClick = onRefresh, enabled = !loading) {
+                                if (loading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(22.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(Icons.Rounded.Refresh, contentDescription = "Làm mới")
+                                }
+                            }
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                }
+            }
+
+            if (status.isNotBlank()) {
+                item {
+                    Card {
+                        ListItem(
+                            headlineContent = { Text("Tải xuống") },
+                            supportingContent = { Text(status) },
+                            leadingContent = { Icon(Icons.Rounded.Info, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                }
+            }
+
+            if (error != null) {
+                item {
+                    Card {
+                        ListItem(
+                            headlineContent = { Text("Không tải được danh sách") },
+                            supportingContent = { Text(error) },
+                            leadingContent = { Icon(Icons.Rounded.Info, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                }
+            } else if (!loading && files.isEmpty()) {
+                item {
+                    Text(
+                        "Chưa có file trong folder Drive.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                items(files, key = { it.id }) { file ->
+                    Card {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    file.name,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 2,
+                                )
+                            },
+                            supportingContent = {
+                                Text(DriveDownloads.formatSize(file.sizeBytes))
+                            },
+                            leadingContent = {
+                                Icon(Icons.Rounded.Download, null)
+                            },
+                            trailingContent = {
+                                FilledTonalButton(
+                                    enabled = file.id !in downloadingIds,
+                                    onClick = { onDownload(file) },
+                                ) {
+                                    Text(
+                                        if (file.id in downloadingIds) "Đang tải" else "Tải"
+                                    )
+                                }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     @Composable
-    private fun DetailRow(title: String, value: String) {
-        BasicComponent(title = title, summary = value)
+    private fun ToolsPage(
+        modifier: Modifier,
+        info: DeviceInfo?,
+        message: String,
+        onFont: () -> Unit,
+        onThermal: () -> Unit,
+        onSystemInfo: () -> Unit,
+        onIntegrity: () -> Unit,
+        onFcm: () -> Unit,
+    ) {
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { SectionTitle("Tùy chỉnh") }
+            item {
+                ToolCard(
+                    icon = Icons.Rounded.TextFields,
+                    title = "Font",
+                    summary = "Đổi font hệ thống",
+                    onClick = onFont,
+                )
+            }
+            item {
+                ToolCard(
+                    icon = Icons.Rounded.Thermostat,
+                    title = "Thermal",
+                    summary = info?.thermal ?: "Eco / Stock Xiaomi",
+                    onClick = onThermal,
+                )
+            }
+
+            item { SectionTitle("Chẩn đoán") }
+            item {
+                ToolCard(
+                    icon = Icons.Rounded.Notifications,
+                    title = "FCM Diagnostics",
+                    summary = "Mở trang chẩn đoán gốc của Google Play services",
+                    onClick = onFcm,
+                )
+            }
+            item {
+                ToolCard(
+                    icon = Icons.Rounded.Security,
+                    title = "Integrity",
+                    summary = "Verified Boot · Bootloader · VBMeta · Root",
+                    onClick = onIntegrity,
+                )
+            }
+            item {
+                ToolCard(
+                    icon = Icons.Rounded.Info,
+                    title = "Thông tin hệ thống",
+                    summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
+                    onClick = onSystemInfo,
+                )
+            }
+
+            if (message.isNotBlank()) {
+                item {
+                    Card {
+                        ListItem(
+                            headlineContent = { Text("Trạng thái") },
+                            supportingContent = { Text(message) },
+                            leadingContent = { Icon(Icons.Rounded.Info, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun ToolCard(
+        icon: ImageVector,
+        title: String,
+        summary: String,
+        onClick: () -> Unit,
+    ) {
+        Card(onClick = onClick) {
+            ListItem(
+                headlineContent = {
+                    Text(title, fontWeight = FontWeight.Medium)
+                },
+                supportingContent = { Text(summary) },
+                leadingContent = {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            icon,
+                            null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+        }
+    }
+
+    @Composable
+    private fun ThermalChoice(
+        title: String,
+        summary: String,
+        selected: Boolean,
+        onClick: () -> Unit,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = selected, onClick = onClick)
+            Column(modifier = Modifier.padding(start = 8.dp)) {
+                Text(title, fontWeight = FontWeight.Medium)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun RebootChoice(
+        title: String,
+        target: RebootTarget,
+        onClick: (RebootTarget) -> Unit,
+    ) {
+        FilledTonalButton(
+            onClick = { onClick(target) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        ) {
+            Icon(Icons.Rounded.RestartAlt, null)
+            Spacer(Modifier.size(8.dp))
+            Text(title)
+        }
+    }
+
+    @Composable
+    private fun InfoLine(title: String, value: String) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                title,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(0.44f),
+            )
+            Text(
+                value,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(0.56f),
+            )
+        }
+    }
+
+    @Composable
+    private fun SectionTitle(text: String) {
+        Text(
+            text,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
