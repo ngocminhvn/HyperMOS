@@ -19,8 +19,6 @@ API_LEVEL=36
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_DISABLE_SECURE_FLAG=0
-FEATURE_MICTS_POWER_KEY=0
-FEATURE_PASSKEY=0
 
 parse_feature_flags() {
   while [ $# -gt 0 ]; do
@@ -34,12 +32,6 @@ parse_feature_flags() {
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
         ;;
-      --micts-power-key)
-        FEATURE_MICTS_POWER_KEY=1
-        ;;
-      --passkey)
-        FEATURE_PASSKEY=1
-        ;;
       *)
         err "Unknown Android 16 COREPATCH option: $1"
         return 1
@@ -52,14 +44,10 @@ parse_feature_flags() {
   [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
-  [ "$FEATURE_MICTS_POWER_KEY" -eq 1 ] && log "  [PATCH] Long Press Power -> MiCTS"
-  [ "$FEATURE_PASSKEY" -eq 1 ] && log "  [PATCH] Google Passkey / Credential Manager"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
-     [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ] &&
-     [ "$FEATURE_MICTS_POWER_KEY" -eq 0 ] &&
-     [ "$FEATURE_PASSKEY" -eq 0 ]; then
+     [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
 }
@@ -821,134 +809,6 @@ PY
   fi
   log "[PATCH] PolicyManager.CN_MODEL=false -> Done"
 
-  # HyperMOS FCM Live delta: do not defer Google's reconnect/heartbeat broadcasts.
-  # Only patch the two narrow boolean gates used by Xiaomi Greeze. Keep all other
-  # Greeze/SmartPower behavior stock.
-  DECOMPILE_DIR="$decompile_dir" python3 <<'PY'
-from pathlib import Path
-import os
-import re
-import sys
-
-root = Path(os.environ["DECOMPILE_DIR"])
-targets = (
-    ("com/miui/server/greeze/GreezeManagerService.smali", "deferBroadcastForMiui"),
-    ("com/miui/server/greeze/DomesticPolicyManager.smali", "deferBroadcast"),
-)
-actions = (
-    "com.google.android.intent.action.GCM_RECONNECT",
-    "com.google.android.gcm.DISCONNECTED",
-    "com.google.android.gcm.CONNECTED",
-    "com.google.android.gms.gcm.HEARTBEAT_ALARM",
-)
-
-patched = 0
-found = 0
-verified = 0
-
-for rel, method_name in targets:
-    matches = list(root.glob(f"smali*/{rel}"))
-    if not matches:
-        print(f"optional FCM gate class missing: {rel}")
-        continue
-    path = matches[0]
-    text = path.read_text(encoding="utf-8")
-
-    pat = re.compile(
-        rf"(?ms)^\.method\b([^\n]*)\b{re.escape(method_name)}\(Ljava/lang/String;\)Z\s*$.*?^\.end method\s*$"
-    )
-    m = pat.search(text)
-    if not m:
-        print(f"optional FCM gate missing: {path.name}#{method_name}(String)")
-        continue
-    found += 1
-    method = m.group(0)
-    if "hypermos_fcm_no_defer" in method:
-        verified += 1
-        continue
-
-    head, body = method.split("\n", 1)
-    static_method = " static " in f" {head} "
-    arg_reg = "p0" if static_method else "p1"
-    lines = body.splitlines()
-
-    reg_idx = next(
-        (i for i, line in enumerate(lines)
-         if line.strip().startswith(".locals") or line.strip().startswith(".registers")),
-        None,
-    )
-    if reg_idx is None:
-        print(f"register directive missing in {path.name}#{method_name}", file=sys.stderr)
-        sys.exit(51)
-
-    directive = lines[reg_idx].strip()
-    if directive.startswith(".locals"):
-        n = int(directive.split()[1])
-        temp = f"v{n}"
-        indent = re.match(r"\s*", lines[reg_idx]).group(0)
-        lines[reg_idx] = f"{indent}.locals {n + 1}"
-    else:
-        total = int(directive.split()[1])
-        # one String argument + optional this register
-        params = 1 if static_method else 2
-        local_count = total - params
-        if local_count < 0:
-            print(f"invalid .registers in {path.name}#{method_name}", file=sys.stderr)
-            sys.exit(52)
-        temp = f"v{local_count}"
-        indent = re.match(r"\s*", lines[reg_idx]).group(0)
-        lines[reg_idx] = f"{indent}.registers {total + 1}"
-
-    tag = f"hypermos_fcm_no_defer_{method_name.lower()}"
-    inject = [
-        "",
-        "    # hypermos_fcm_no_defer",
-        f"    if-eqz {arg_reg}, :{tag}_continue",
-    ]
-    for action in actions:
-        inject += [
-            f'    const-string {temp}, "{action}"',
-            f"    invoke-virtual {{{temp}, {arg_reg}}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z",
-            f"    move-result {temp}",
-            f"    if-nez {temp}, :{tag}_allow",
-        ]
-    inject += [
-        f"    goto :{tag}_continue",
-        f":{tag}_allow",
-        f"    const/4 {temp}, 0x0",
-        f"    return {temp}",
-        f":{tag}_continue",
-    ]
-
-    lines[reg_idx + 1:reg_idx + 1] = inject
-    replacement = head + "\n" + "\n".join(lines)
-    text = text[:m.start()] + replacement + text[m.end():]
-    path.write_text(text, encoding="utf-8")
-    patched += 1
-    verified += 1
-
-if found != len(targets):
-    print(
-        f"required Greeze FCM defer gates missing: found={found}/{len(targets)}",
-        file=sys.stderr,
-    )
-    sys.exit(53)
-
-if verified != len(targets):
-    print(
-        f"Greeze FCM defer verification incomplete: verified={verified}/{len(targets)}",
-        file=sys.stderr,
-    )
-    sys.exit(54)
-
-print(f"HyperMOS FCM Greeze delta patched={patched} verified={verified}")
-PY
-  if [ $? -ne 0 ]; then
-    err "CN Notification Fix: FCM Greeze defer patch failed"
-    return 1
-  fi
-  log "[PATCH] Greeze GCM reconnect/heartbeat defer -> disabled"
-
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
     [ -f "$i" ] || continue
     sed -i '/Lmiui\/drm\/DrmBroadcast;->getInstance/{N;N;N;N;d}' "$i"
@@ -1007,83 +867,6 @@ apply_framework_disable_secure_flag() {
   log "Disable secure flag patches applied to framework.jar (Android 16)"
 }
 
-# Route Android Credential Manager's OEM chooser to the Google Password Manager UI.
-# We only replace the OEM component string inside IntentFactory; Android's original
-# enabled/exported checks and IntentCreationResult bookkeeping remain intact.
-apply_framework_passkey() {
-  local decompile_dir="$1"
-  local target
-  target=$(find "$decompile_dir" -type f -path '*/android/credentials/selection/IntentFactory.smali' -print -quit)
-
-  if [ -z "$target" ] || [ ! -f "$target" ]; then
-    err "Passkey: IntentFactory.smali not found"
-    return 1
-  fi
-
-  PASSKEY_INTENT_FACTORY="$target" python3 <<'PY'
-from pathlib import Path
-import os
-import re
-import sys
-
-path = Path(os.environ["PASSKEY_INTENT_FACTORY"])
-text = path.read_text(encoding="utf-8")
-
-m = re.search(
-    r"(?ms)^\.method\b[^\n]*\bgetOemOverrideComponentName\([^\n]*\)Landroid/content/ComponentName;\s*$.*?^\.end method\s*$",
-    text,
-)
-if not m:
-    print("getOemOverrideComponentName not found", file=sys.stderr)
-    sys.exit(81)
-
-method = m.group(0)
-component = "com.google.android.gms/.identitycredentials.ui.CredentialChooserActivity"
-
-if f'const-string' in method and component in method:
-    sys.exit(0)
-
-lines = method.splitlines()
-inserted = False
-for i, line in enumerate(lines):
-    if "Landroid/content/res/Resources;->getString(I)Ljava/lang/String;" not in line:
-        continue
-    # The result register carries config_oemCredentialManagerDialogComponent.
-    for j in range(i + 1, min(i + 5, len(lines))):
-        mm = re.match(r"\s*move-result-object\s+([vp]\d+)\s*$", lines[j])
-        if mm:
-            reg = mm.group(1)
-            indent = re.match(r"\s*", lines[j]).group(0)
-            lines.insert(j + 1, f'{indent}const-string {reg}, "{component}"')
-            inserted = True
-            break
-    if inserted:
-        break
-
-if not inserted:
-    print("OEM credential component resource read not found", file=sys.stderr)
-    sys.exit(82)
-
-replacement = "\n".join(lines)
-text = text[:m.start()] + replacement + text[m.end():]
-
-check = re.search(
-    r"(?ms)^\.method\b[^\n]*\bgetOemOverrideComponentName\([^\n]*\)Landroid/content/ComponentName;\s*$.*?^\.end method\s*$",
-    text,
-)
-if not check or component not in check.group(0):
-    print("IntentFactory Passkey verification failed", file=sys.stderr)
-    sys.exit(83)
-
-path.write_text(text, encoding="utf-8")
-PY
-  [ $? -eq 0 ] || {
-    err "Passkey: IntentFactory patch failed"
-    return 1
-  }
-  log "[PATCH] Credential Manager OEM UI -> Google"
-}
-
 # Main framework patching function (Android 16)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
@@ -1101,20 +884,16 @@ patch_framework() {
   # framework.jar signature bypass is always applied.
   # Keep services.jar / miui-services.jar signature bypass flag-controlled,
   # so they remain stock unless explicitly requested elsewhere.
-  apply_framework_signature_patches "$decompile_dir" || return 1
+  apply_framework_signature_patches "$decompile_dir"
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
-    apply_framework_disable_secure_flag "$decompile_dir" || return 1
-  fi
-
-  if [ "$FEATURE_PASSKEY" -eq 1 ]; then
-    apply_framework_passkey "$decompile_dir" || return 1
+    apply_framework_disable_secure_flag "$decompile_dir"
   fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
-  recompile_jar "$framework_path" > /dev/null || { err "framework.jar recompile failed"; return 1; }
+  recompile_jar "$framework_path" > /dev/null
 
   rm -rf "$decompile_dir" "$WORK_DIR/framework"
 
@@ -1244,128 +1023,6 @@ apply_services_disable_secure_flag() {
   log "Disable secure flag patches applied to services.jar (Android 16)"
 }
 
-# Force the hybrid Credential Manager provider used by RequestSession to GMS.
-# This is scoped to the Credential Manager session constructor and does not alter
-# package identity, build region, or other services.
-apply_services_passkey() {
-  local decompile_dir="$1"
-  local target
-  target=$(find "$decompile_dir" -type f -path '*/com/android/server/credentials/RequestSession.smali' -print -quit)
-
-  if [ -z "$target" ] || [ ! -f "$target" ]; then
-    err "Passkey: RequestSession.smali not found"
-    return 1
-  fi
-
-  PASSKEY_REQUEST_SESSION="$target" python3 <<'PY'
-from pathlib import Path
-import os
-import re
-import sys
-
-path = Path(os.environ["PASSKEY_REQUEST_SESSION"])
-text = path.read_text(encoding="utf-8")
-field = "Lcom/android/server/credentials/RequestSession;->mHybridService:Ljava/lang/String;"
-service = "com.google.android.gms/.auth.api.credentials.credman.service.RemoteService"
-
-if field not in text:
-    print("RequestSession.mHybridService field not found", file=sys.stderr)
-    sys.exit(84)
-
-methods = list(re.finditer(
-    r"(?ms)^\.method\b[^\n]* constructor <init>\([^\n]*\)V\s*$.*?^\.end method\s*$",
-    text,
-))
-if not methods:
-    print("RequestSession constructor not found", file=sys.stderr)
-    sys.exit(85)
-
-patched = 0
-
-def parse_params(desc):
-    out = []
-    i = 0
-    while i < len(desc):
-        start = i
-        while i < len(desc) and desc[i] == '[':
-            i += 1
-        if i >= len(desc):
-            break
-        if desc[i] == 'L':
-            end = desc.find(';', i)
-            if end < 0:
-                raise ValueError("bad descriptor")
-            i = end + 1
-        else:
-            i += 1
-        out.append(desc[start:i])
-    return out
-
-for m in reversed(methods):
-    method = m.group(0)
-    # Patch the constructor that initializes/uses mHybridService.
-    if field not in method and "SessionLifetime" not in method:
-        continue
-    if service in method:
-        continue
-
-    lines = method.splitlines()
-    header = lines[0]
-    reg_idx = next(
-        (i for i, line in enumerate(lines)
-         if line.strip().startswith(".locals") or line.strip().startswith(".registers")),
-        None,
-    )
-    if reg_idx is None:
-        print("RequestSession constructor register directive missing", file=sys.stderr)
-        sys.exit(86)
-
-    directive = lines[reg_idx].strip()
-    indent = re.match(r"\s*", lines[reg_idx]).group(0)
-    if directive.startswith(".locals"):
-        n = int(directive.split()[1])
-        temp = f"v{n}"
-        lines[reg_idx] = f"{indent}.locals {n + 1}"
-    else:
-        total = int(directive.split()[1])
-        desc = header.split("<init>(", 1)[1].split(")", 1)[0]
-        params = parse_params(desc)
-        param_regs = 1 + sum(2 if p in ("J", "D") else 1 for p in params)  # this + args
-        locals_count = total - param_regs
-        if locals_count < 0:
-            print("invalid RequestSession .registers", file=sys.stderr)
-            sys.exit(87)
-        temp = f"v{locals_count}"
-        lines[reg_idx] = f"{indent}.registers {total + 1}"
-
-    returns = [i for i, line in enumerate(lines) if line.strip() == "return-void"]
-    if not returns:
-        print("RequestSession constructor return missing", file=sys.stderr)
-        sys.exit(88)
-    r = returns[-1]
-    lines[r:r] = [
-        f'    const-string {temp}, "{service}"',
-        f"    iput-object {temp}, p0, {field}",
-        "",
-    ]
-    replacement = "\n".join(lines)
-    text = text[:m.start()] + replacement + text[m.end():]
-    patched += 1
-
-if patched == 0 and service not in text:
-    print("no RequestSession constructor patched", file=sys.stderr)
-    sys.exit(89)
-
-path.write_text(text, encoding="utf-8")
-print(f"RequestSession Passkey constructors patched={patched}")
-PY
-  [ $? -eq 0 ] || {
-    err "Passkey: RequestSession patch failed"
-    return 1
-  }
-  log "[PATCH] Credential Manager hybrid provider -> GMS"
-}
-
 # Main services patching function (Android 16)
 patch_services() {
   local services_path="$work_dir/build/baserom/images/system/system/framework/services.jar"
@@ -1397,22 +1054,18 @@ patch_services() {
 
   # Apply feature-specific patches based on flags
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_services_signature_patches "$decompile_dir" || return 1
+    apply_services_signature_patches "$decompile_dir"
   fi
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
-    apply_services_disable_secure_flag "$decompile_dir" || return 1
-  fi
-
-  if [ "$FEATURE_PASSKEY" -eq 1 ]; then
-    apply_services_passkey "$decompile_dir" || return 1
+    apply_services_disable_secure_flag "$decompile_dir"
   fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$services_path" > /dev/null || { err "services.jar recompile failed"; return 1; }
+    recompile_jar "$services_path" > /dev/null
 
     rm -rf "$decompile_dir" "$WORK_DIR/services"
     log "Completed services.jar patching"
@@ -1487,153 +1140,6 @@ apply_miui_services_floating() {
   done
 }
 
-# Redirect Xiaomi's resolved long-press power shortcut to MiCTS.
-# The patch is applied inside ShortCutActionsUtils.triggerFunction(), after Xiaomi has
-# already recognized the key gesture. If MiCTS cannot launch, the original assistant
-# call is allowed to continue (fail-open).
-apply_miui_services_micts_power_key() {
-  local decompile_dir="$1"
-  local target
-  target=$(find "$decompile_dir" -type f \
-    -path '*/com/miui/server/input/util/ShortCutActionsUtils.smali' \
-    -print -quit)
-
-  if [ -z "$target" ] || [ ! -f "$target" ]; then
-    err "MiCTS power key: ShortCutActionsUtils.smali not found"
-    return 1
-  fi
-
-  if ! grep -q 'Lcom/hypermos/micts/PowerTrigger;->trigger' "$target"; then
-    MICTS_TARGET="$target" python3 <<'PY'
-from pathlib import Path
-import os
-import re
-import sys
-
-path = Path(os.environ["MICTS_TARGET"])
-lines = path.read_text(encoding="utf-8").splitlines()
-
-method_ranges = []
-i = 0
-while i < len(lines):
-    s = lines[i].strip()
-    if s.startswith(".method") and " triggerFunction(" in s and s.endswith(")Z"):
-        j = i + 1
-        while j < len(lines) and not lines[j].strip().startswith(".end method"):
-            j += 1
-        if j >= len(lines):
-            print("unterminated triggerFunction method", file=sys.stderr)
-            sys.exit(2)
-        method_ranges.append((i, j))
-        i = j + 1
-    else:
-        i += 1
-
-if not method_ranges:
-    print("triggerFunction methods not found", file=sys.stderr)
-    sys.exit(3)
-
-patterns = (
-    ("voice", "->launchVoiceAssistant(Ljava/lang/String;Landroid/os/Bundle;)Z"),
-    ("google", "->launchGoogleSearch(Ljava/lang/String;)Z"),
-)
-
-candidates = []
-serial = 0
-for start, end in method_ranges:
-    for idx in range(start, end):
-        line = lines[idx]
-        kind = None
-        for candidate_kind, pattern in patterns:
-            if pattern in line and "invoke-" in line:
-                kind = candidate_kind
-                break
-        if kind is None:
-            continue
-
-        reg_match = re.search(r"\{([^}]*)\}", line)
-        if not reg_match:
-            print(f"cannot parse invoke registers at line {idx + 1}", file=sys.stderr)
-            sys.exit(4)
-        regs = [r.strip() for r in reg_match.group(1).split(",") if r.strip()]
-        if len(regs) < 2:
-            print(f"unexpected invoke register list at line {idx + 1}", file=sys.stderr)
-            sys.exit(5)
-        action_reg = regs[1]
-
-        move_idx = None
-        result_reg = None
-        for j in range(idx + 1, min(idx + 5, end)):
-            m = re.match(r"\s*move-result\s+([vp]\d+)\s*$", lines[j])
-            if m:
-                move_idx = j
-                result_reg = m.group(1)
-                break
-        if move_idx is None or result_reg is None:
-            print(f"move-result missing after {kind} invoke", file=sys.stderr)
-            sys.exit(6)
-
-        serial += 1
-        label = f":hypermos_micts_after_{kind}_{serial}"
-        candidates.append((idx, move_idx, action_reg, result_reg, label, kind))
-
-if not candidates:
-    print("MiCTS target invokes not found in triggerFunction", file=sys.stderr)
-    sys.exit(7)
-
-# Apply from the bottom of the file upward so saved indexes remain valid.
-for invoke_idx, move_idx, action_reg, result_reg, label, kind in sorted(
-    candidates, key=lambda item: item[0], reverse=True
-):
-    indent = re.match(r"\s*", lines[invoke_idx]).group(0)
-    injection = [
-        f"{indent}iget-object {result_reg}, p0, Lcom/miui/server/input/util/ShortCutActionsUtils;->mContext:Landroid/content/Context;",
-        f"{indent}invoke-static {{{result_reg}, {action_reg}}}, Lcom/hypermos/micts/PowerTrigger;->trigger(Landroid/content/Context;Ljava/lang/String;)Z",
-        f"{indent}move-result {result_reg}",
-        f"{indent}if-nez {result_reg}, {label}",
-    ]
-
-    lines[move_idx + 1:move_idx + 1] = [f"{indent}{label}"]
-    lines[invoke_idx:invoke_idx] = injection
-
-out = "\n".join(lines) + "\n"
-
-if "Lcom/hypermos/micts/PowerTrigger;->trigger" not in out:
-    print("MiCTS injection verification failed", file=sys.stderr)
-    sys.exit(8)
-
-path.write_text(out, encoding="utf-8")
-print(f"patched {len(candidates)} Xiaomi shortcut dispatch path(s)")
-PY
-    if [ $? -ne 0 ]; then
-      err "MiCTS power key: ShortCutActionsUtils patch failed"
-      return 1
-    fi
-  else
-    log "[PATCH] MiCTS power key already present"
-  fi
-
-  local helper_src="$SCRIPT_DIR/micts/PowerTrigger.smali"
-  if [ ! -f "$helper_src" ]; then
-    err "MiCTS power key: helper missing at $helper_src"
-    return 1
-  fi
-
-  local smali_root
-  smali_root="${target%/com/miui/server/input/util/ShortCutActionsUtils.smali}"
-  local helper_dst="$smali_root/com/hypermos/micts/PowerTrigger.smali"
-
-  mkdir -p "$(dirname "$helper_dst")"
-  cp -f "$helper_src" "$helper_dst"
-
-  if ! grep -q 'com.parallelc.micts.ui.activity.MainActivity' "$helper_dst"; then
-    err "MiCTS power key: helper verification failed"
-    return 1
-  fi
-
-  log "[PATCH] Long press power -> MiCTS (fallback: original Xiaomi action)"
-}
-
 # Main miui-services patching function (Android 16)
 patch_miui_services() {
   local miui_services_path="$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
@@ -1664,36 +1170,32 @@ patch_miui_services() {
   fi
 
   # Existing HyperMOS patches
-  apply_miui_services_floating "$decompile_dir" || return 1
-  apply_miui_services_contentextension "$decompile_dir" || return 1
+  apply_miui_services_floating "$decompile_dir"
+  apply_miui_services_contentextension "$decompile_dir"
 
   # Feature-specific patches
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_miui_services_signature_patches "$decompile_dir" || return 1
+    apply_miui_services_signature_patches "$decompile_dir"
   fi
 
   if [[ $regionTYPE == *"Global"* ]];then
-    apply_miui_services_global_patch "$decompile_dir" || return 1
+    apply_miui_services_global_patch "$decompile_dir"
   else
     if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
       apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
     fi
-    apply_miui_services_gboard "$decompile_dir" || return 1
+    apply_miui_services_gboard "$decompile_dir"
   fi
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
-    apply_miui_services_disable_secure_flag "$decompile_dir" || return 1
-  fi
-
-  if [ "$FEATURE_MICTS_POWER_KEY" -eq 1 ]; then
-    apply_miui_services_micts_power_key "$decompile_dir" || return 1
+    apply_miui_services_disable_secure_flag "$decompile_dir"
   fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$miui_services_path" > /dev/null || { err "miui-services.jar recompile failed"; return 1; }
+    recompile_jar "$miui_services_path" > /dev/null
 
     rm -rf "$decompile_dir" "$WORK_DIR/miui-services"
     log "Completed miui-services.jar patching"
@@ -1771,18 +1273,18 @@ patch_miui_framework() {
   fi
 
   # Existing HyperMOS Gboard patch
-  apply_miui_framework_gboard "$decompile_dir" || return 1
+  apply_miui_framework_gboard "$decompile_dir"
 
   # CN notification related xBuild substitutions are only enabled by the feature flag.
   if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
-    apply_miui_framework_cn_notification_fix "$decompile_dir" || return 1
+    apply_miui_framework_cn_notification_fix "$decompile_dir"
   fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$miui_framework_path" > /dev/null || { err "miui-framework.jar recompile failed"; return 1; }
+    recompile_jar "$miui_framework_path" > /dev/null
 
     rm -rf "$decompile_dir" "$WORK_DIR/miui-framework"
     log "Completed miui-framework.jar patching"
@@ -1794,39 +1296,17 @@ patch_miui_framework() {
 # Main function
 # Parse requested features, then initialize environment and tools.
 parse_feature_flags "$@" || exit 1
-init_env || { err "FAST-FAIL: init_env failed"; exit 1; }
-ensure_tools || { err "FAST-FAIL: required tools unavailable"; exit 1; }
+init_env
+ensure_tools || exit 1
 
-# Patch requested JARs. Every stage is required on the A16 HyperMOS stack:
-# never continue with a half-patched ROM.
-patch_framework || { err "FAST-FAIL: framework.jar patch failed"; exit 1; }
-patch_services || { err "FAST-FAIL: services.jar patch failed"; exit 1; }
-patch_miui_services || { err "FAST-FAIL: miui-services.jar patch failed"; exit 1; }
-patch_miui_framework || { err "FAST-FAIL: miui-framework.jar patch failed"; exit 1; }
+# Patch requested JARs
+patch_framework
+patch_services
+patch_miui_services
+patch_miui_framework
 
-# Add patched JARs only after all four stages completed successfully.
-install_patched_jar() {
-  local src="$1"
-  local dst="$2"
-  local label="$3"
-
-  if [ ! -s "$src" ]; then
-    err "FAST-FAIL: $label output missing or empty: $src"
-    exit 1
-  fi
-
-  mv -f "$src" "$dst" || {
-    err "FAST-FAIL: failed to install patched $label"
-    exit 1
-  }
-
-  if [ ! -s "$dst" ]; then
-    err "FAST-FAIL: installed $label is missing or empty"
-    exit 1
-  fi
-}
-
-install_patched_jar "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar" "framework.jar"
-install_patched_jar "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar" "services.jar"
-install_patched_jar "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar" "miui-services.jar"
-install_patched_jar "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar" "miui-framework.jar"
+# Add patched JARs
+mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
+mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
+mv -f "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
+mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
