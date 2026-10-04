@@ -32,6 +32,12 @@ jobs:
         with:
           gradle-version: '9.7.1'
 
+      - name: Fetch DuckDetector SDK
+        run: |
+          mkdir -p TNM/app/libs
+          curl -L --fail --retry 3             "https://github.com/eltavine/Duck-Detector-Refactoring/releases/download/nightly/duckdetector-sdk-f894d834.aar"             -o TNM/app/libs/duckdetector-sdk.aar
+          test -s TNM/app/libs/duckdetector-sdk.aar
+
       - name: Build signed debug APK
         working-directory: TNM
         env:

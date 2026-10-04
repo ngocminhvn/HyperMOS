@@ -16,8 +16,8 @@ android {
         applicationId = "com.android.trinhngocminh"
         minSdk = 33
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.9-material3"
+        versionCode = 6
+        versionName = "1.0-duck"
         buildConfigField("String", "DRIVE_API_KEY", "\"$escapedDriveApiKey\"")
     }
 
@@ -47,4 +47,11 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3:1.4.0")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
+    implementation(files("libs/duckdetector-sdk.aar"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
+    implementation("androidx.annotation:annotation:1.11.0")
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+    implementation("com.github.Tencent.soter:soter-core:2.0.7")
 }
