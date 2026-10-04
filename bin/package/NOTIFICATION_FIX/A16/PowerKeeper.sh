@@ -17,7 +17,10 @@ dir=$(dirname "$apk")
 rm -rf "$tmp"
 mkdir -p "$tmp/out" "$tmp/final"
 
-$APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null
+if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null; then
+  error "NOTIFICATION_FIX: PowerKeeper decode failed"
+  exit 1
+fi
 
 # PenguinOS A16 notification behavior:
 # MilletConfig follows the MIUI path instead of the China-only international flag.
@@ -343,7 +346,9 @@ targets = (
     "updateGmsNetWork",
     "updateGoogleReletivesWakelock",
 )
+required = {"updateFrameworkGmsNetStatus"}
 patched = 0
+verified = 0
 
 for name in targets:
     pat = re.compile(
@@ -351,11 +356,15 @@ for name in targets:
     )
     m = pat.search(text)
     if not m:
-        print(f"optional PowerKeeper method missing: {name}(Z)V")
+        if name in required:
+            print(f"required PowerKeeper FCM target missing: {name}(Z)V", file=sys.stderr)
+            sys.exit(42)
+        print(f"optional legacy PowerKeeper method missing: {name}(Z)V")
         continue
 
     method = m.group(0)
     if "hypermos_fcm_unrestrict" in method:
+        verified += 1
         continue
 
     head, body = method.split("\n", 1)
@@ -380,22 +389,31 @@ for name in targets:
     replacement = head + "\n" + "\n".join(lines)
     text = text[:m.start()] + replacement + text[m.end():]
     patched += 1
+    verified += 1
 
-if patched == 0:
-    # updateFrameworkGmsNetStatus exists on the 4.2.00 baseline. Fail if absolutely none
-    # of the known gates exist, because that means Xiaomi changed the class shape.
-    if not any(f"{name}(Z)V" in text for name in targets):
-        print("no known GmsObserver FCM delta methods found", file=sys.stderr)
-        sys.exit(42)
+if verified == 0:
+    print("no verified GmsObserver FCM delta target", file=sys.stderr)
+    sys.exit(43)
+
+required_check = re.search(
+    r"(?ms)^\.method\b[^\n]*\bupdateFrameworkGmsNetStatus\(Z\)V\s*$.*?^\.end method\s*$",
+    text,
+)
+if not required_check or "hypermos_fcm_unrestrict" not in required_check.group(0):
+    print("updateFrameworkGmsNetStatus patch verification failed", file=sys.stderr)
+    sys.exit(44)
 
 open(path, "w", encoding="utf-8").write(text)
-print(f"HyperMOS FCM delta patched methods={patched}")
+print(f"HyperMOS FCM delta patched={patched} verified={verified}")
 PY
 
 mods "PowerKeeper GmsObserver -> FCM network/alarm/wakelock unrestricted"
 
 name=$(basename "$apk")
-$APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null
+if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null; then
+  error "NOTIFICATION_FIX: PowerKeeper rebuild failed"
+  exit 1
+fi
 
 [[ -s "$tmp/final/$name" ]] || {
   error "NOTIFICATION_FIX: PowerKeeper rebuild failed"
