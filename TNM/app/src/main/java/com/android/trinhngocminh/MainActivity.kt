@@ -3,6 +3,7 @@ package com.android.trinhngocminh
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -52,6 +53,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -96,6 +99,7 @@ import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
+import top.yukonga.miuix.kmp.theme.defaultTextStyles
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,7 +113,29 @@ class MainActivity : ComponentActivity() {
                     isDark = systemDark,
                 )
             }
-            MiuixTheme(controller = controller) { Home() }
+            val baseTextStyles = remember { defaultTextStyles() }
+            val systemTextStyles = remember {
+                baseTextStyles.copy(
+                    main = baseTextStyles.main.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    paragraph = baseTextStyles.paragraph.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    body1 = baseTextStyles.body1.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    body2 = baseTextStyles.body2.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    button = baseTextStyles.button.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold),
+                    footnote1 = baseTextStyles.footnote1.copy(fontFamily = FontFamily.Default),
+                    footnote2 = baseTextStyles.footnote2.copy(fontFamily = FontFamily.Default),
+                    headline1 = baseTextStyles.headline1.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    headline2 = baseTextStyles.headline2.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    subtitle = baseTextStyles.subtitle.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold),
+                    title1 = baseTextStyles.title1.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    title2 = baseTextStyles.title2.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    title3 = baseTextStyles.title3.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                    title4 = baseTextStyles.title4.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium),
+                )
+            }
+            MiuixTheme(
+                controller = controller,
+                textStyles = systemTextStyles,
+            ) { Home() }
         }
     }
 
@@ -120,6 +146,12 @@ class MainActivity : ComponentActivity() {
         var driveFiles by remember { mutableStateOf<List<DriveFile>>(emptyList()) }
         var driveLoading by remember { mutableStateOf(false) }
         var driveError by remember { mutableStateOf<String?>(null) }
+        var downloadingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+        var downloadStatus by remember { mutableStateOf("") }
+        var fcmDialog by remember { mutableStateOf(false) }
+        var fcmSnapshot by remember {
+            mutableStateOf(FcmDiagnostics.read(this@MainActivity))
+        }
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
         var systemDialog by remember { mutableStateOf(false) }
@@ -214,6 +246,16 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(selectedTab) {
             if (selectedTab == 1) {
                 refreshDrive()
+            }
+            if (selectedTab == 2) {
+                fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
+            }
+        }
+
+        LaunchedEffect(fcmDialog) {
+            while (fcmDialog) {
+                fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
+                delay(1000)
             }
         }
 
@@ -384,6 +426,31 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    item(key = "stats3") {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            StatCard(
+                                modifier = Modifier.weight(1f),
+                                title = "Công suất",
+                                value = info?.batteryPower ?: "—",
+                                imageVector = MiuixIcons.Tune,
+                                accent = Color(0xFFAF52DE),
+                            )
+                            StatCard(
+                                modifier = Modifier.weight(1f),
+                                title = "Nhiệt GPU",
+                                value = info?.gpuTemp ?: "—",
+                                imageVector = MiuixIcons.Settings,
+                                accent = Color(0xFF5AC8FA),
+                            )
+                        }
+                    }
+
                     item(key = "cpuChart") {
                         Spacer(Modifier.height(10.dp))
                         CpuChart(
@@ -405,24 +472,55 @@ class MainActivity : ComponentActivity() {
                         ) {
                             BasicComponent(
                                 title = "TNM Downloads",
-                                summary = "Tự động đọc file từ folder Drive đã cấu hình",
+                                summary = if (driveLoading) {
+                                    "Đang làm mới danh sách…"
+                                } else {
+                                    "Tự động đọc file từ folder Drive"
+                                },
                                 startAction = {
                                     FeatureIcon(MiuixIcons.Download, Color(0xFF3482FF))
+                                },
+                                endActions = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(MiuixTheme.colorScheme.surfaceContainerHigh),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        IconButton(
+                                            onClick = {
+                                                if (!driveLoading) refreshDrive()
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = MiuixIcons.Refresh,
+                                                contentDescription = "Làm mới",
+                                                tint = MiuixTheme.colorScheme.onBackground,
+                                            )
+                                        }
+                                    }
                                 },
                             )
                         }
                     }
 
-                    item(key = "driveRefresh") {
-                        Spacer(Modifier.height(10.dp))
-                        Button(
-                            enabled = !driveLoading,
-                            onClick = { refreshDrive() },
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .fillMaxWidth(),
-                        ) {
-                            Text(if (driveLoading) "Đang tải danh sách…" else "Làm mới")
+                    if (downloadStatus.isNotBlank()) {
+                        item(key = "downloadStatus") {
+                            Spacer(Modifier.height(10.dp))
+                            Card(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .fillMaxWidth(),
+                            ) {
+                                BasicComponent(
+                                    title = "Tải xuống",
+                                    summary = downloadStatus,
+                                    startAction = {
+                                        FeatureIcon(MiuixIcons.Download, Color(0xFF34C759))
+                                    },
+                                )
+                            }
                         }
                     }
 
@@ -466,8 +564,19 @@ class MainActivity : ComponentActivity() {
                             Spacer(Modifier.height(if (index == 0) 10.dp else 8.dp))
                             DownloadFileRow(
                                 file = file,
+                                isDownloading = file.id in downloadingIds,
                                 onDownload = {
-                                    message = DriveDownloads.enqueue(this@MainActivity, file)
+                                    if (file.id !in downloadingIds) {
+                                        downloadingIds = downloadingIds + file.id
+                                        downloadStatus = "Đang tải ${file.name}…"
+                                        scope.launch {
+                                            val result = withContext(Dispatchers.IO) {
+                                                DriveDownloads.download(this@MainActivity, file)
+                                            }
+                                            downloadStatus = result
+                                            downloadingIds = downloadingIds - file.id
+                                        }
+                                    }
                                 },
                             )
                         }
@@ -500,6 +609,23 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onClick = { thermalDialog = true },
                                 holdDownState = thermalDialog,
+                            )
+                            ArrowPreference(
+                                title = "FCM / độ trễ thông báo",
+                                summary = if (fcmSnapshot.enabled) {
+                                    val avg = FcmDiagnostics.formatDelay(fcmSnapshot.averageDelayMs)
+                                    "Đang theo dõi · FCM mẫu: ${fcmSnapshot.fcmSamples} · TB: $avg"
+                                } else {
+                                    "Chưa cấp quyền truy cập thông báo"
+                                },
+                                startAction = {
+                                    FeatureIcon(MiuixIcons.Info, Color(0xFF34C759))
+                                },
+                                onClick = {
+                                    fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
+                                    fcmDialog = true
+                                },
+                                holdDownState = fcmDialog,
                             )
                         }
                     }
@@ -636,10 +762,58 @@ class MainActivity : ComponentActivity() {
                     DetailRow("Android", info?.android ?: "—")
                     DetailRow("HyperOS", info?.hyperos ?: "—")
                     DetailRow("Nhiệt pin", info?.batteryTemp ?: "—")
+                    DetailRow("Công suất pin", info?.batteryPower ?: "—")
                     DetailRow("Nhiệt SoC / CPU", info?.socTemp ?: "—")
                     DetailRow("Nhiệt GPU", info?.gpuTemp ?: "—")
                     DetailRow("Thermal", info?.thermal ?: "—")
                     DetailRow("Root", info?.root ?: "—")
+                }
+            }
+
+            OverlayDialog(
+                title = "FCM / độ trễ thông báo",
+                summary = "TNM ưu tiên timestamp FCM nếu notification có google.sent_time; nếu không chỉ là ước tính theo notification.when.",
+                show = fcmDialog,
+                onDismissRequest = { fcmDialog = false },
+            ) {
+                Card {
+                    DetailRow(
+                        "Notification Access",
+                        if (fcmSnapshot.enabled) "Đã cấp" else "Chưa cấp",
+                    )
+                    DetailRow(
+                        "Mẫu FCM",
+                        fcmSnapshot.fcmSamples.toString(),
+                    )
+                    DetailRow(
+                        "Độ trễ FCM trung bình",
+                        FcmDiagnostics.formatDelay(fcmSnapshot.averageDelayMs),
+                    )
+                    fcmSnapshot.latest.take(6).forEach { sample ->
+                        DetailRow(
+                            sample.packageName,
+                            "${FcmDiagnostics.formatDelay(sample.delayMs)} · ${sample.source}",
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (fcmSnapshot.enabled) "Mở cài đặt quyền" else "Cấp quyền Notification Access")
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        FcmDiagnostics.clear(this@MainActivity)
+                        fcmSnapshot = FcmDiagnostics.read(this@MainActivity)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Xóa lịch sử")
                 }
             }
 
@@ -1021,6 +1195,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun DownloadFileRow(
         file: DriveFile,
+        isDownloading: Boolean,
         onDownload: () -> Unit,
     ) {
         Card(
@@ -1050,8 +1225,11 @@ class MainActivity : ComponentActivity() {
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
-                Button(onClick = onDownload) {
-                    Text("Tải")
+                Button(
+                    enabled = !isDownloading,
+                    onClick = onDownload,
+                ) {
+                    Text(if (isDownloading) "Đang tải" else "Tải")
                 }
             }
         }
