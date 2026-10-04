@@ -16,8 +16,8 @@ android {
         applicationId = "com.android.trinhngocminh"
         minSdk = 33
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.7-test"
+        versionCode = 4
+        versionName = "0.8-test"
         buildConfigField("String", "DRIVE_API_KEY", "\"$escapedDriveApiKey\"")
     }
 
