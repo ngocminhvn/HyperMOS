@@ -5,6 +5,7 @@ import com.eltavine.duckdetector.core.evidence.DetectionSeverity
 import com.eltavine.duckdetector.core.evidence.InfoKind
 import com.eltavine.duckdetector.core.report.ReportBlock
 import com.eltavine.duckdetector.sdk.DuckDetector
+import kotlinx.coroutines.flow.collect
 
 data class DuckDetectorItem(
     val id: String,
@@ -29,51 +30,43 @@ data class DuckScanSnapshot(
 }
 
 object DuckDetectorBridge {
-    suspend fun scan(context: Context): DuckScanSnapshot {
+    suspend fun scan(context: Context): DuckScanSnapshot =
+        scanStreaming(context) { _, _, _ -> }
+
+    suspend fun scanStreaming(
+        context: Context,
+        onProgress: (snapshot: DuckScanSnapshot, done: Int, total: Int) -> Unit,
+    ): DuckScanSnapshot {
         return try {
             val packageVisibility = DuckDetector.packageVisibility(context)
-            val results = DuckDetector.scan(context)
+            val total = DuckDetector.detectors.size
+            val items = mutableListOf<DuckDetectorItem>()
+            var done = 0
 
-            val items = results.map { result ->
-                val report = result.report
-                val details = buildList {
-                    report.quickFacts.forEach { fact ->
-                        add("${fact.label}: ${fact.value}")
-                    }
-                    report.blocks.forEach { block ->
-                        when (block) {
-                            is ReportBlock.Rows -> {
-                                if (block.title.isNotBlank()) add("§ ${block.title}")
-                                block.rows.forEach { row ->
-                                    val suffix = row.detail?.takeIf { it.isNotBlank() }
-                                        ?.let { " — $it" }
-                                        .orEmpty()
-                                    add("${row.label}: ${row.value}$suffix")
-                                }
-                            }
-                            is ReportBlock.Bullets -> {
-                                if (block.title.isNotBlank()) add("§ ${block.title}")
-                                block.items.forEach { add("• $it") }
-                            }
-                            is ReportBlock.Verbatim -> {
-                                if (block.title.isNotBlank()) add("§ ${block.title}")
-                                block.lines.forEach { add(it) }
-                            }
-                        }
-                    }
-                }
+            val initial = snapshot(
+                items = items,
+                packageVisibility = packageVisibility.scope.name,
+                visiblePackages = packageVisibility.visiblePackageCount,
+                suspiciouslyLowPackages = packageVisibility.suspiciouslyLow,
+            )
+            onProgress(initial, 0, total)
 
-                DuckDetectorItem(
-                    id = result.id.value,
-                    title = report.title.ifBlank { prettyName(result.id.value) },
-                    verdict = report.verdict.ifBlank { result.status.severity.name },
-                    severity = result.status.severity,
-                    infoKind = result.status.infoKind,
-                    details = details,
+            DuckDetector.results(context).collect { result ->
+                items += result.toItem()
+                done += 1
+                onProgress(
+                    snapshot(
+                        items = items,
+                        packageVisibility = packageVisibility.scope.name,
+                        visiblePackages = packageVisibility.visiblePackageCount,
+                        suspiciouslyLowPackages = packageVisibility.suspiciouslyLow,
+                    ),
+                    done,
+                    total,
                 )
             }
 
-            DuckScanSnapshot(
+            snapshot(
                 items = items,
                 packageVisibility = packageVisibility.scope.name,
                 visiblePackages = packageVisibility.visiblePackageCount,
@@ -88,6 +81,57 @@ object DuckDetectorBridge {
                 error = t.message ?: t.javaClass.simpleName,
             )
         }
+    }
+
+    private fun snapshot(
+        items: List<DuckDetectorItem>,
+        packageVisibility: String,
+        visiblePackages: Int,
+        suspiciouslyLowPackages: Boolean,
+    ): DuckScanSnapshot = DuckScanSnapshot(
+        items = items.toList(),
+        packageVisibility = packageVisibility,
+        visiblePackages = visiblePackages,
+        suspiciouslyLowPackages = suspiciouslyLowPackages,
+    )
+
+    private fun com.eltavine.duckdetector.core.report.DetectorResult.toItem(): DuckDetectorItem {
+        val report = report
+        val details = buildList {
+            report.quickFacts.forEach { fact ->
+                add("${fact.label}: ${fact.value}")
+            }
+            report.blocks.forEach { block ->
+                when (block) {
+                    is ReportBlock.Rows -> {
+                        if (block.title.isNotBlank()) add("§ ${block.title}")
+                        block.rows.forEach { row ->
+                            val suffix = row.detail?.takeIf { it.isNotBlank() }
+                                ?.let { " — $it" }
+                                .orEmpty()
+                            add("${row.label}: ${row.value}$suffix")
+                        }
+                    }
+                    is ReportBlock.Bullets -> {
+                        if (block.title.isNotBlank()) add("§ ${block.title}")
+                        block.items.forEach { add("• $it") }
+                    }
+                    is ReportBlock.Verbatim -> {
+                        if (block.title.isNotBlank()) add("§ ${block.title}")
+                        block.lines.forEach { add(it) }
+                    }
+                }
+            }
+        }
+
+        return DuckDetectorItem(
+            id = id.value,
+            title = report.title.ifBlank { prettyName(id.value) },
+            verdict = report.verdict.ifBlank { status.severity.name },
+            severity = status.severity,
+            infoKind = status.infoKind,
+            details = details,
+        )
     }
 
     private fun prettyName(id: String): String = id
