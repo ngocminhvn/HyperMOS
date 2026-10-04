@@ -326,6 +326,74 @@ PY
 
 mods "PowerKeeper GmsObserver -> dedicated GMS limiter disabled"
 
+# HyperMOS FCM Live delta from HyperTweak/HyperOS_FCM_Live:
+# keep Xiaomi's logic but always report GMS as unrestricted for the network/alarm/wakelock
+# toggles that exist on this PowerKeeper build. Missing legacy methods are allowed.
+GMS_SMALI="$gms_smali" python3 <<'PY'
+import os
+import re
+import sys
+
+path = os.environ["GMS_SMALI"]
+text = open(path, "r", encoding="utf-8").read()
+
+targets = (
+    "updateFrameworkGmsNetStatus",
+    "updateGmsAlarm",
+    "updateGmsNetWork",
+    "updateGoogleReletivesWakelock",
+)
+patched = 0
+
+for name in targets:
+    pat = re.compile(
+        rf"(?ms)^\.method\b([^\n]*)\b{re.escape(name)}\(Z\)V\s*$.*?^\.end method\s*$"
+    )
+    m = pat.search(text)
+    if not m:
+        print(f"optional PowerKeeper method missing: {name}(Z)V")
+        continue
+
+    method = m.group(0)
+    if "hypermos_fcm_unrestrict" in method:
+        continue
+
+    head, body = method.split("\n", 1)
+    static_method = " static " in f" {head} "
+    bool_reg = "p0" if static_method else "p1"
+
+    lines = body.splitlines()
+    reg_idx = next(
+        (i for i, line in enumerate(lines)
+         if line.strip().startswith(".locals") or line.strip().startswith(".registers")),
+        None,
+    )
+    if reg_idx is None:
+        print(f"register directive missing in {name}(Z)V", file=sys.stderr)
+        sys.exit(41)
+
+    lines[reg_idx + 1:reg_idx + 1] = [
+        "",
+        "    # hypermos_fcm_unrestrict",
+        f"    const/4 {bool_reg}, 0x0",
+    ]
+    replacement = head + "\n" + "\n".join(lines)
+    text = text[:m.start()] + replacement + text[m.end():]
+    patched += 1
+
+if patched == 0:
+    # updateFrameworkGmsNetStatus exists on the 4.2.00 baseline. Fail if absolutely none
+    # of the known gates exist, because that means Xiaomi changed the class shape.
+    if not any(f"{name}(Z)V" in text for name in targets):
+        print("no known GmsObserver FCM delta methods found", file=sys.stderr)
+        sys.exit(42)
+
+open(path, "w", encoding="utf-8").write(text)
+print(f"HyperMOS FCM delta patched methods={patched}")
+PY
+
+mods "PowerKeeper GmsObserver -> FCM network/alarm/wakelock unrestricted"
+
 name=$(basename "$apk")
 $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null
 
