@@ -1101,10 +1101,10 @@ patch_framework() {
   # framework.jar signature bypass is always applied.
   # Keep services.jar / miui-services.jar signature bypass flag-controlled,
   # so they remain stock unless explicitly requested elsewhere.
-  apply_framework_signature_patches "$decompile_dir"
+  apply_framework_signature_patches "$decompile_dir" || return 1
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
-    apply_framework_disable_secure_flag "$decompile_dir"
+    apply_framework_disable_secure_flag "$decompile_dir" || return 1
   fi
 
   if [ "$FEATURE_PASSKEY" -eq 1 ]; then
@@ -1114,7 +1114,7 @@ patch_framework() {
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
-  recompile_jar "$framework_path" > /dev/null
+  recompile_jar "$framework_path" > /dev/null || { err "framework.jar recompile failed"; return 1; }
 
   rm -rf "$decompile_dir" "$WORK_DIR/framework"
 
@@ -1397,11 +1397,11 @@ patch_services() {
 
   # Apply feature-specific patches based on flags
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_services_signature_patches "$decompile_dir"
+    apply_services_signature_patches "$decompile_dir" || return 1
   fi
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
-    apply_services_disable_secure_flag "$decompile_dir"
+    apply_services_disable_secure_flag "$decompile_dir" || return 1
   fi
 
   if [ "$FEATURE_PASSKEY" -eq 1 ]; then
@@ -1412,7 +1412,7 @@ patch_services() {
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$services_path" > /dev/null
+    recompile_jar "$services_path" > /dev/null || { err "services.jar recompile failed"; return 1; }
 
     rm -rf "$decompile_dir" "$WORK_DIR/services"
     log "Completed services.jar patching"
@@ -1664,25 +1664,25 @@ patch_miui_services() {
   fi
 
   # Existing HyperMOS patches
-  apply_miui_services_floating "$decompile_dir"
-  apply_miui_services_contentextension "$decompile_dir"
+  apply_miui_services_floating "$decompile_dir" || return 1
+  apply_miui_services_contentextension "$decompile_dir" || return 1
 
   # Feature-specific patches
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_miui_services_signature_patches "$decompile_dir"
+    apply_miui_services_signature_patches "$decompile_dir" || return 1
   fi
 
   if [[ $regionTYPE == *"Global"* ]];then
-    apply_miui_services_global_patch "$decompile_dir"
+    apply_miui_services_global_patch "$decompile_dir" || return 1
   else
     if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
       apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
     fi
-    apply_miui_services_gboard "$decompile_dir"
+    apply_miui_services_gboard "$decompile_dir" || return 1
   fi
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
-    apply_miui_services_disable_secure_flag "$decompile_dir"
+    apply_miui_services_disable_secure_flag "$decompile_dir" || return 1
   fi
 
   if [ "$FEATURE_MICTS_POWER_KEY" -eq 1 ]; then
@@ -1693,7 +1693,7 @@ patch_miui_services() {
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$miui_services_path" > /dev/null
+    recompile_jar "$miui_services_path" > /dev/null || { err "miui-services.jar recompile failed"; return 1; }
 
     rm -rf "$decompile_dir" "$WORK_DIR/miui-services"
     log "Completed miui-services.jar patching"
@@ -1771,18 +1771,18 @@ patch_miui_framework() {
   fi
 
   # Existing HyperMOS Gboard patch
-  apply_miui_framework_gboard "$decompile_dir"
+  apply_miui_framework_gboard "$decompile_dir" || return 1
 
   # CN notification related xBuild substitutions are only enabled by the feature flag.
   if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
-    apply_miui_framework_cn_notification_fix "$decompile_dir"
+    apply_miui_framework_cn_notification_fix "$decompile_dir" || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$miui_framework_path" > /dev/null
+    recompile_jar "$miui_framework_path" > /dev/null || { err "miui-framework.jar recompile failed"; return 1; }
 
     rm -rf "$decompile_dir" "$WORK_DIR/miui-framework"
     log "Completed miui-framework.jar patching"
@@ -1794,8 +1794,8 @@ patch_miui_framework() {
 # Main function
 # Parse requested features, then initialize environment and tools.
 parse_feature_flags "$@" || exit 1
-init_env
-ensure_tools || exit 1
+init_env || { err "FAST-FAIL: init_env failed"; exit 1; }
+ensure_tools || { err "FAST-FAIL: required tools unavailable"; exit 1; }
 
 # Patch requested JARs. Every stage is required on the A16 HyperMOS stack:
 # never continue with a half-patched ROM.
