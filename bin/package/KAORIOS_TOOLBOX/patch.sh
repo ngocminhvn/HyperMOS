@@ -44,7 +44,7 @@ for required in "$PATCHER" "$BAKSMALI" "$SMALI" "$DRIVER_DEX" "$TOOLBOX_APK" "$P
     exit 1
   fi
 done
-for cmd in java python3 unzip zip git sha256sum find sort; do
+for cmd in java python3 unzip zip git sha256sum find sort xargs; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     error "KAORIOS: missing host tool: $cmd"
     exit 1
@@ -255,6 +255,20 @@ verify_framework_final() {
   verify_hook "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali"     'KaoriosHook;->initGenerateSoftwareKeyPair' "Play Integrity/keybox keypair hook"
   verify_hook "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali"     'KaoriosHook;->CertificateChainIfNeeded' "Play Integrity/keybox certificate hook"
 
+  require_one_target "$root" "android/security/kaorios/KaoriosHook.smali" "KaoriosHook framework driver"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;' "driver keypair implementation"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;' "driver certificate implementation"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "driver system-feature implementation"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;' "driver Settings call implementation"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'initSystemServer()V' "driver SystemServer implementation"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'shouldHideAppListForCaller(ILjava/lang/String;I)Z' "driver app-visibility implementation"
+
   python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null
   info "KAORIOS: framework hooks verified (Play Integrity/keybox + system feature spoof)"
 }
@@ -318,7 +332,7 @@ patch_archive() {
   local artifact="$1" kind="$2"
   local root="$TEMP_ROOT/$kind"
   local raw="$root/raw" smali="$root/smali" snapshot="$root/before.hashes"
-  local built="$root/built" candidate="$root/candidate"
+  local built="$root/built" candidate="$root/candidate.zip"
 
   rm -rf "$root"
   mkdir -p "$root"
