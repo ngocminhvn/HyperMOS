@@ -19,6 +19,15 @@ data class DeviceInfo(
     val storage: String,
     val android: String,
     val hyperos: String,
+    val board: String,
+    val hardware: String,
+    val abi: String,
+    val cpuCores: String,
+    val fingerprint: String,
+    val securityPatch: String,
+    val kernel: String,
+    val uptime: String,
+    val buildType: String,
     val batteryTemp: String,
     val batteryPower: String,
     val socTemp: String,
@@ -193,6 +202,33 @@ object SystemInfo {
         }
     }
 
+    private fun uptimeText(): String {
+        val seconds = read("/proc/uptime")
+            .substringBefore(' ')
+            .toDoubleOrNull()
+            ?.toLong()
+            ?: return "—"
+        val days = seconds / 86_400
+        val hours = (seconds % 86_400) / 3_600
+        val minutes = (seconds % 3_600) / 60
+        return buildString {
+            if (days > 0) append("${days}d ")
+            if (hours > 0 || days > 0) append("${hours}h ")
+            append("${minutes}m")
+        }.trim()
+    }
+
+    private fun kernelVersion(): String {
+        val proc = read("/proc/version")
+        if (proc.isNotBlank()) {
+            return proc
+                .substringAfter("Linux version ", proc)
+                .substringBefore(' ')
+                .ifBlank { proc.take(80) }
+        }
+        return prop("ro.kernel.version").ifBlank { "—" }
+    }
+
     private fun selinuxMode(): String {
         val enforce = read("/sys/fs/selinux/enforce")
         if (enforce == "1") return "Enforcing"
@@ -285,6 +321,15 @@ object SystemInfo {
             storage = "%.0f GB".format(totalStorage),
             android = "Android ${Build.VERSION.RELEASE} · SDK ${Build.VERSION.SDK_INT}",
             hyperos = hyper,
+            board = Build.BOARD.ifBlank { prop("ro.product.board") }.ifBlank { "—" },
+            hardware = Build.HARDWARE.ifBlank { prop("ro.hardware") }.ifBlank { "—" },
+            abi = Build.SUPPORTED_ABIS.joinToString(", ").ifBlank { "—" },
+            cpuCores = Runtime.getRuntime().availableProcessors().toString(),
+            fingerprint = Build.FINGERPRINT.ifBlank { "—" },
+            securityPatch = Build.VERSION.SECURITY_PATCH.ifBlank { "—" },
+            kernel = kernelVersion(),
+            uptime = uptimeText(),
+            buildType = "${Build.TYPE} · ${Build.TAGS}",
             batteryTemp = "—",
             batteryPower = "—",
             socTemp = "—",
