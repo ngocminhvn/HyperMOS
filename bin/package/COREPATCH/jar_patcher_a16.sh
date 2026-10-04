@@ -21,6 +21,19 @@ FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_DISABLE_SECURE_FLAG=0
 FEATURE_MICTS_POWER_KEY=0
 FEATURE_PASSKEY=0
+FEATURE_KAORIOS_K1=0
+
+# Kaorios Toolbox v2.0.6.0 release payloads.
+# HyperMOS owns the A16 patch logic; no upstream/Kousei patch script is executed.
+KAORIOS_VERSION="2.0.6.0"
+KAORIOS_DRIVER_URL="https://github.com/hzzmonetvn/Kaorios-Toolbox/releases/download/v2.0.6.0/classes.dex"
+KAORIOS_DRIVER_SHA256="f122b4600535dd48776865e7ba174cf701bc4df79524d25a44f2f92bd9820497"
+KAORIOS_APK_URL="https://github.com/hzzmonetvn/Kaorios-Toolbox/releases/download/v2.0.6.0/KaoriosToolbox-fix_update_sign.apk"
+KAORIOS_APK_SHA256="132b15368f51c2b9c19b0f7a961435744d1ac284d29188d355e8a50a0a32001c"
+KAORIOS_CACHE_DIR="$work_dir/build/kaorios-v2060"
+KAORIOS_DRIVER="$KAORIOS_CACHE_DIR/classes.dex"
+KAORIOS_APK="$KAORIOS_CACHE_DIR/KaoriosToolbox.apk"
+KAORIOS_READY=0
 
 parse_feature_flags() {
   while [ $# -gt 0 ]; do
@@ -40,6 +53,9 @@ parse_feature_flags() {
       --passkey)
         FEATURE_PASSKEY=1
         ;;
+      --kaorios-k1)
+        FEATURE_KAORIOS_K1=1
+        ;;
       *)
         err "Unknown Android 16 COREPATCH option: $1"
         return 1
@@ -54,12 +70,14 @@ parse_feature_flags() {
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
   [ "$FEATURE_MICTS_POWER_KEY" -eq 1 ] && log "  [PATCH] Long Press Power -> MiCTS"
   [ "$FEATURE_PASSKEY" -eq 1 ] && log "  [PATCH] Google Passkey / Credential Manager"
+  [ "$FEATURE_KAORIOS_K1" -eq 1 ] && log "  [PATCH] Kaorios K1: Instrumentation + Keystore + driver dex"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ] &&
      [ "$FEATURE_MICTS_POWER_KEY" -eq 0 ] &&
-     [ "$FEATURE_PASSKEY" -eq 0 ]; then
+     [ "$FEATURE_PASSKEY" -eq 0 ] &&
+     [ "$FEATURE_KAORIOS_K1" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
 }
