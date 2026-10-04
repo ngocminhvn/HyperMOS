@@ -100,44 +100,13 @@ install_font_theme() {
     #
     # Keep the stock ROM font XML/configs untouched. These aliases live only
     # inside the MTZ and are populated from the selected SF Pro/Roboto VF.
-    # HyperOS 3 does not route every UI surface through Roboto-Regular.
-    # Xiaomi also asks for MiSans/MiLan/Mitype/RobotoVF aliases depending on
-    # framework, SystemUI and app. Keep the stock ROM font files untouched;
-    # these aliases exist only inside the selectable MTZ.
-    #
-    # Alias names are aligned with the HyperOS font maps used by the
-    # BEACHEADVN stock-tool build and PenguinOS. This makes Apply actually
-    # replace the runtime sans font instead of silently falling back to stock.
+    # A Xiaomi font MTZ should carry one canonical Latin font payload.
+    # ThemeManager extracts fonts/Roboto-Regular.ttf and then creates the
+    # runtime symlinks (Miui*, Roboto-* and MI_Theme_VF.ttf) under
+    # /data/system/theme/fonts. Duplicating the same VF under every alias
+    # bloats the MTZ and bypasses Xiaomi's normal apply path.
     local runtime_fonts=(
-        MI_Theme_VF.ttf
-
-        MiSansVF.ttf
-        MiSansLatinVF.ttf
-        MiSansVF_Overlay.ttf
-        MiLanProVF.ttf
-        MitypeVF.ttf
-        MitypeMonoVF.ttf
-
-        RobotoVF.ttf
         Roboto-Regular.ttf
-        RobotoStatic-Regular.ttf
-        Roboto-Italic.ttf
-        Roboto-Bold.ttf
-        Roboto-BoldItalic.ttf
-        Roboto-Light.ttf
-        Roboto-LightItalic.ttf
-        Roboto-Medium.ttf
-        Roboto-MediumItalic.ttf
-        Roboto-Black.ttf
-        Roboto-BlackItalic.ttf
-        Roboto-Thin.ttf
-        Roboto-ThinItalic.ttf
-
-        Miui-Regular.ttf
-        Miui-Bold.ttf
-        MiuiEx-Regular.ttf
-        MiuiEx-Bold.ttf
-        MiuiEx-Light.ttf
     )
 
     local runtime_font
@@ -220,6 +189,7 @@ data["description"] = f"{title} Variable font"
 data["author"] = author
 data["designer"] = author
 data["version"] = "1.0"
+data["fontWeight"] = "100,150,200,250,300,350,400,450,500,550,600,650,700,800,900"
 
 for key, value in (("titles", title), ("authors", author), ("designers", author)):
     obj = data.get(key)
@@ -254,13 +224,8 @@ PY
         fi
     done
 
-    # MI_Theme_VF.ttf is the key marker used by Xiaomi's variable-font path.
-    if ! unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
-        | grep -qx "fonts/MI_Theme_VF.ttf"; then
-        mods "Font $title theme: ERROR (MI_Theme_VF.ttf missing)"
-        return 1
-    fi
-
+    # MI_Theme_VF.ttf must NOT be pre-packed here. ThemeManager creates the
+    # runtime link when the resource exposes a non-empty fontWeight list.
     if ! python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$theme_id" "$title" <<'PYVERIFY'
 import json
 import sys
@@ -275,6 +240,7 @@ ok = (
     and str(data.get("downloadPath", "")).endswith(f"/{theme_id}.mtz")
     and str(data.get("contentPath", "")).endswith(f"/{theme_id}.mtz")
     and str(data.get("metaPath", "")).endswith(f"/{theme_id}.mrm")
+    and bool(str(data.get("fontWeight", "")).strip())
 )
 raise SystemExit(0 if ok else 1)
 PYVERIFY
