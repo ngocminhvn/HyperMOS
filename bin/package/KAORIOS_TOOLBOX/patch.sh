@@ -265,6 +265,8 @@ verify_framework_final() {
   verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
     'filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;' "driver Settings call implementation"
   verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'filterSettingsQueryResult(Landroid/database/Cursor;Landroid/net/Uri;Ljava/lang/String;[Ljava/lang/String;)Landroid/database/Cursor;' "driver Settings query implementation"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
     'initSystemServer()V' "driver SystemServer implementation"
   verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
     'shouldHideAppListForCaller(ILjava/lang/String;I)Z' "driver app-visibility implementation"
