@@ -4,7 +4,7 @@ set -euo pipefail
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
-src="$work_dir/bin/modfile/UpdateFile/TNM_Hosts/tnm-hosts.rc"
+src="$work_dir/bin/modfile/UpdateFile/TNM/tnm-hosts.rc"
 images="$work_dir/build/baserom/images"
 
 if [[ ! -f "$src" ]]; then
