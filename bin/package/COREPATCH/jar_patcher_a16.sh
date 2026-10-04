@@ -20,6 +20,7 @@ FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_DISABLE_SECURE_FLAG=0
 FEATURE_MICTS_POWER_KEY=0
+FEATURE_PASSKEY=0
 
 parse_feature_flags() {
   while [ $# -gt 0 ]; do
@@ -36,6 +37,9 @@ parse_feature_flags() {
       --micts-power-key)
         FEATURE_MICTS_POWER_KEY=1
         ;;
+      --passkey)
+        FEATURE_PASSKEY=1
+        ;;
       *)
         err "Unknown Android 16 COREPATCH option: $1"
         return 1
@@ -49,11 +53,13 @@ parse_feature_flags() {
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
   [ "$FEATURE_MICTS_POWER_KEY" -eq 1 ] && log "  [PATCH] Long Press Power -> MiCTS"
+  [ "$FEATURE_PASSKEY" -eq 1 ] && log "  [PATCH] Google Passkey / Credential Manager"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ] &&
-     [ "$FEATURE_MICTS_POWER_KEY" -eq 0 ]; then
+     [ "$FEATURE_MICTS_POWER_KEY" -eq 0 ] &&
+     [ "$FEATURE_PASSKEY" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
 }
@@ -988,6 +994,83 @@ apply_framework_disable_secure_flag() {
   log "Disable secure flag patches applied to framework.jar (Android 16)"
 }
 
+# Route Android Credential Manager's OEM chooser to the Google Password Manager UI.
+# We only replace the OEM component string inside IntentFactory; Android's original
+# enabled/exported checks and IntentCreationResult bookkeeping remain intact.
+apply_framework_passkey() {
+  local decompile_dir="$1"
+  local target
+  target=$(find "$decompile_dir" -type f -path '*/android/credentials/selection/IntentFactory.smali' -print -quit)
+
+  if [ -z "$target" ] || [ ! -f "$target" ]; then
+    err "Passkey: IntentFactory.smali not found"
+    return 1
+  fi
+
+  PASSKEY_INTENT_FACTORY="$target" python3 <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+path = Path(os.environ["PASSKEY_INTENT_FACTORY"])
+text = path.read_text(encoding="utf-8")
+
+m = re.search(
+    r"(?ms)^\.method\b[^\n]*\bgetOemOverrideComponentName\([^\n]*\)Landroid/content/ComponentName;\s*$.*?^\.end method\s*$",
+    text,
+)
+if not m:
+    print("getOemOverrideComponentName not found", file=sys.stderr)
+    sys.exit(81)
+
+method = m.group(0)
+component = "com.google.android.gms/.identitycredentials.ui.CredentialChooserActivity"
+
+if f'const-string' in method and component in method:
+    sys.exit(0)
+
+lines = method.splitlines()
+inserted = False
+for i, line in enumerate(lines):
+    if "Landroid/content/res/Resources;->getString(I)Ljava/lang/String;" not in line:
+        continue
+    # The result register carries config_oemCredentialManagerDialogComponent.
+    for j in range(i + 1, min(i + 5, len(lines))):
+        mm = re.match(r"\s*move-result-object\s+([vp]\d+)\s*$", lines[j])
+        if mm:
+            reg = mm.group(1)
+            indent = re.match(r"\s*", lines[j]).group(0)
+            lines.insert(j + 1, f'{indent}const-string {reg}, "{component}"')
+            inserted = True
+            break
+    if inserted:
+        break
+
+if not inserted:
+    print("OEM credential component resource read not found", file=sys.stderr)
+    sys.exit(82)
+
+replacement = "\n".join(lines)
+text = text[:m.start()] + replacement + text[m.end():]
+
+check = re.search(
+    r"(?ms)^\.method\b[^\n]*\bgetOemOverrideComponentName\([^\n]*\)Landroid/content/ComponentName;\s*$.*?^\.end method\s*$",
+    text,
+)
+if not check or component not in check.group(0):
+    print("IntentFactory Passkey verification failed", file=sys.stderr)
+    sys.exit(83)
+
+path.write_text(text, encoding="utf-8")
+PY
+  [ $? -eq 0 ] || {
+    err "Passkey: IntentFactory patch failed"
+    return 1
+  }
+  log "[PATCH] Credential Manager OEM UI -> Google"
+}
+
 # Main framework patching function (Android 16)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
@@ -1009,6 +1092,10 @@ patch_framework() {
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
     apply_framework_disable_secure_flag "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_PASSKEY" -eq 1 ]; then
+    apply_framework_passkey "$decompile_dir" || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
@@ -1144,6 +1231,128 @@ apply_services_disable_secure_flag() {
   log "Disable secure flag patches applied to services.jar (Android 16)"
 }
 
+# Force the hybrid Credential Manager provider used by RequestSession to GMS.
+# This is scoped to the Credential Manager session constructor and does not alter
+# package identity, build region, or other services.
+apply_services_passkey() {
+  local decompile_dir="$1"
+  local target
+  target=$(find "$decompile_dir" -type f -path '*/com/android/server/credentials/RequestSession.smali' -print -quit)
+
+  if [ -z "$target" ] || [ ! -f "$target" ]; then
+    err "Passkey: RequestSession.smali not found"
+    return 1
+  fi
+
+  PASSKEY_REQUEST_SESSION="$target" python3 <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+path = Path(os.environ["PASSKEY_REQUEST_SESSION"])
+text = path.read_text(encoding="utf-8")
+field = "Lcom/android/server/credentials/RequestSession;->mHybridService:Ljava/lang/String;"
+service = "com.google.android.gms/.auth.api.credentials.credman.service.RemoteService"
+
+if field not in text:
+    print("RequestSession.mHybridService field not found", file=sys.stderr)
+    sys.exit(84)
+
+methods = list(re.finditer(
+    r"(?ms)^\.method\b[^\n]* constructor <init>\([^\n]*\)V\s*$.*?^\.end method\s*$",
+    text,
+))
+if not methods:
+    print("RequestSession constructor not found", file=sys.stderr)
+    sys.exit(85)
+
+patched = 0
+
+def parse_params(desc):
+    out = []
+    i = 0
+    while i < len(desc):
+        start = i
+        while i < len(desc) and desc[i] == '[':
+            i += 1
+        if i >= len(desc):
+            break
+        if desc[i] == 'L':
+            end = desc.find(';', i)
+            if end < 0:
+                raise ValueError("bad descriptor")
+            i = end + 1
+        else:
+            i += 1
+        out.append(desc[start:i])
+    return out
+
+for m in reversed(methods):
+    method = m.group(0)
+    # Patch the constructor that initializes/uses mHybridService.
+    if field not in method and "SessionLifetime" not in method:
+        continue
+    if service in method:
+        continue
+
+    lines = method.splitlines()
+    header = lines[0]
+    reg_idx = next(
+        (i for i, line in enumerate(lines)
+         if line.strip().startswith(".locals") or line.strip().startswith(".registers")),
+        None,
+    )
+    if reg_idx is None:
+        print("RequestSession constructor register directive missing", file=sys.stderr)
+        sys.exit(86)
+
+    directive = lines[reg_idx].strip()
+    indent = re.match(r"\s*", lines[reg_idx]).group(0)
+    if directive.startswith(".locals"):
+        n = int(directive.split()[1])
+        temp = f"v{n}"
+        lines[reg_idx] = f"{indent}.locals {n + 1}"
+    else:
+        total = int(directive.split()[1])
+        desc = header.split("<init>(", 1)[1].split(")", 1)[0]
+        params = parse_params(desc)
+        param_regs = 1 + sum(2 if p in ("J", "D") else 1 for p in params)  # this + args
+        locals_count = total - param_regs
+        if locals_count < 0:
+            print("invalid RequestSession .registers", file=sys.stderr)
+            sys.exit(87)
+        temp = f"v{locals_count}"
+        lines[reg_idx] = f"{indent}.registers {total + 1}"
+
+    returns = [i for i, line in enumerate(lines) if line.strip() == "return-void"]
+    if not returns:
+        print("RequestSession constructor return missing", file=sys.stderr)
+        sys.exit(88)
+    r = returns[-1]
+    lines[r:r] = [
+        f'    const-string {temp}, "{service}"',
+        f"    iput-object {temp}, p0, {field}",
+        "",
+    ]
+    replacement = "\n".join(lines)
+    text = text[:m.start()] + replacement + text[m.end():]
+    patched += 1
+
+if patched == 0 and service not in text:
+    print("no RequestSession constructor patched", file=sys.stderr)
+    sys.exit(89)
+
+path.write_text(text, encoding="utf-8")
+print(f"RequestSession Passkey constructors patched={patched}")
+PY
+  [ $? -eq 0 ] || {
+    err "Passkey: RequestSession patch failed"
+    return 1
+  }
+  log "[PATCH] Credential Manager hybrid provider -> GMS"
+}
+
 # Main services patching function (Android 16)
 patch_services() {
   local services_path="$work_dir/build/baserom/images/system/system/framework/services.jar"
@@ -1180,6 +1389,10 @@ patch_services() {
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
     apply_services_disable_secure_flag "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_PASSKEY" -eq 1 ]; then
+    apply_services_passkey "$decompile_dir" || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
