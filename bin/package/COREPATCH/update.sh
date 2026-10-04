@@ -24,7 +24,8 @@ elif [[ $AndroidVER == "16" ]];then
         --cn-notification-fix \
         --disable-secure-flag \
         --micts-power-key \
-        --passkey; then
+        --passkey \
+        --kaorios-k1; then
         error "COREPATCH A16 failed"
         exit 1
     fi
