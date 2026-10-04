@@ -708,6 +708,7 @@ $decompile_dir/smali*/com/android/server/am/PreStartFeedbackImpl.smali
 $decompile_dir/smali*/com/android/server/am/ProcessManagerService.smali
 $decompile_dir/smali*/com/android/server/am/ProcessPolicy.smali
 $decompile_dir/smali*/com/android/server/am/ProcessSceneCleaner.smali
+$decompile_dir/smali*/com/android/server/alarm/AlarmManagerServiceStubImpl.smali
 $decompile_dir/smali*/com/android/server/audio/AudioServiceStubImpl.smali
 $decompile_dir/smali*/com/android/server/clipboard/ClipboardChecker.smali
 $decompile_dir/smali*/com/android/server/clipboard/ClipboardServiceStubImpl.smali
@@ -732,6 +733,7 @@ $decompile_dir/smali*/com/android/server/wm/MiuiSplitInputMethodImpl.smali
 $decompile_dir/smali*/com/android/server/wm/WindowManagerServiceImpl.smali
 $decompile_dir/smali*/com/android/server/DeviceIdleControllerStubImpl.smali
 $decompile_dir/smali*/com/android/server/ForceDarkAppListManager.smali
+$decompile_dir/smali*/com/android/server/AppOpsServiceStubImpl.smali
 $decompile_dir/smali*/com/miui/server/greeze/PolicyManager.smali
 $decompile_dir/smali*/com/miui/server/security/AppBehaviorService.smali
 $decompile_dir/smali*/com/miui/server/smartpower/policy/SmartArtRuntimePolicy.smali
