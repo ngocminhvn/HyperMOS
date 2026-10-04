@@ -844,6 +844,7 @@ actions = (
 
 patched = 0
 found = 0
+verified = 0
 
 for rel, method_name in targets:
     matches = list(root.glob(f"smali*/{rel}"))
@@ -863,6 +864,7 @@ for rel, method_name in targets:
     found += 1
     method = m.group(0)
     if "hypermos_fcm_no_defer" in method:
+        verified += 1
         continue
 
     head, body = method.split("\n", 1)
@@ -923,12 +925,23 @@ for rel, method_name in targets:
     text = text[:m.start()] + replacement + text[m.end():]
     path.write_text(text, encoding="utf-8")
     patched += 1
+    verified += 1
 
-if found == 0:
-    print("no known Greeze FCM defer gates found", file=sys.stderr)
+if found != len(targets):
+    print(
+        f"required Greeze FCM defer gates missing: found={found}/{len(targets)}",
+        file=sys.stderr,
+    )
     sys.exit(53)
 
-print(f"HyperMOS FCM Greeze delta patched={patched} found={found}")
+if verified != len(targets):
+    print(
+        f"Greeze FCM defer verification incomplete: verified={verified}/{len(targets)}",
+        file=sys.stderr,
+    )
+    sys.exit(54)
+
+print(f"HyperMOS FCM Greeze delta patched={patched} verified={verified}")
 PY
   if [ $? -ne 0 ]; then
     err "CN Notification Fix: FCM Greeze defer patch failed"
