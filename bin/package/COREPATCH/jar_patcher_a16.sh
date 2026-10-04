@@ -1575,6 +1575,158 @@ PY
   log "[KAORIOS] K1 framework patch -> Done"
 }
 
+
+verify_kaorios_framework_artifact() {
+  local jar="$1"
+  [ -s "$jar" ] || {
+    err "[KAORIOS] patched framework artifact missing: $jar"
+    return 1
+  }
+
+  local root="$KAORIOS_CACHE_DIR/framework_artifact_verify"
+  rm -rf "$root"
+  mkdir -p "$root/input" "$root/smali"
+
+  if ! unzip -q "$jar" 'classes*.dex' -d "$root/input"; then
+    err "[KAORIOS] cannot extract framework DEX files for verification"
+    return 1
+  fi
+
+  local dex count=0 driver_matches=0
+  for dex in "$root/input"/classes*.dex; do
+    [ -f "$dex" ] || continue
+    count=$((count + 1))
+
+    local hash
+    hash=$(sha256sum "$dex" | awk '{print $1}')
+    [ "$hash" = "$KAORIOS_DRIVER_SHA256" ] && \
+      driver_matches=$((driver_matches + 1))
+
+    local name
+    name=$(basename "$dex" .dex)
+    if ! java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api "$API_LEVEL" \
+        "$dex" -o "$root/smali/$name" >/dev/null; then
+      err "[KAORIOS] artifact baksmali failed: $(basename "$dex")"
+      return 1
+    fi
+  done
+
+  [ "$count" -gt 0 ] || {
+    err "[KAORIOS] patched framework contains no classes*.dex"
+    return 1
+  }
+  [ "$driver_matches" -eq 1 ] || {
+    err "[KAORIOS] release driver DEX count is $driver_matches, expected 1"
+    return 1
+  }
+
+  KAORIOS_VERIFY_ROOT="$root/smali" python3 <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+root = Path(os.environ["KAORIOS_VERIFY_ROOT"])
+HOOK = "Landroid/security/kaorios/KaoriosHook;"
+
+def fail(msg):
+    print(f"[KAORIOS] artifact verify: {msg}", file=sys.stderr)
+    raise SystemExit(120)
+
+def one(rel):
+    suffix = "/" + rel
+    matches = [
+        p for p in root.rglob(Path(rel).name)
+        if str(p).replace("\\", "/").endswith(suffix)
+    ]
+    if len(matches) != 1:
+        fail(f"{rel}: expected one file, found {len(matches)}")
+    return matches[0]
+
+def method(text, sig, label):
+    rx = re.compile(
+        r"(?ms)^\.method[^\n]*" + re.escape(sig)
+        + r"[^\n]*\n.*?^\.end method\s*$"
+    )
+    matches = list(rx.finditer(text))
+    if len(matches) != 1:
+        fail(f"{label}: {sig} count={len(matches)}")
+    return matches[0].group(0)
+
+# Driver ABI must be present once in the rebuilt artifact.
+driver = one("android/security/kaorios/KaoriosHook.smali")
+driver_text = driver.read_text(encoding="utf-8")
+for sig in (
+    "initContext(Landroid/content/Context;)V",
+    "initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;",
+    "CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;",
+):
+    if sig not in driver_text:
+        fail(f"driver ABI missing {sig}")
+
+# Instrumentation: one initContext call for every Application return.
+inst = one("android/app/Instrumentation.smali").read_text(encoding="utf-8")
+for sig in (
+    "newApplication(Ljava/lang/Class;Landroid/content/Context;)Landroid/app/Application;",
+    "newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;",
+):
+    body = method(inst, sig, "Instrumentation")
+    returns = len(re.findall(r"(?m)^\s*return-object\s+[vp]\d+\s*$", body))
+    hooks = body.count(HOOK + "->initContext(Landroid/content/Context;)V")
+    if returns < 1 or hooks != returns:
+        fail(f"Instrumentation hooks={hooks} returns={returns} for {sig}")
+
+# KeyPairGenerator: exactly one software-key hook.
+gen = one(
+    "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali"
+).read_text(encoding="utf-8")
+body = method(
+    gen,
+    "generateKeyPair()Ljava/security/KeyPair;",
+    "AndroidKeyStoreKeyPairGeneratorSpi",
+)
+target = (
+    HOOK
+    + "->initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;"
+)
+if body.count(target) != 1:
+    fail("generateKeyPair hook count != 1")
+
+# Certificate chain: every injected hook must directly feed its return-object.
+spi = one(
+    "android/security/keystore2/AndroidKeyStoreSpi.smali"
+).read_text(encoding="utf-8")
+body = method(
+    spi,
+    "engineGetCertificateChain(Ljava/lang/String;)[Ljava/security/cert/Certificate;",
+    "AndroidKeyStoreSpi",
+)
+target = (
+    HOOK
+    + "->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)"
+    + "[Ljava/security/cert/Certificate;"
+)
+hooks = body.count(target)
+if hooks < 1:
+    fail("certificate-chain hook missing")
+pairs = list(re.finditer(
+    r"invoke-static(?:/range)?\s*\{(?P<arr>[vp]\d+)"
+    r"(?:\s*\.\.\s*(?P=arr))?\},\s*"
+    + re.escape(target)
+    + r"\s+move-result-object\s+(?P=arr)"
+    r"\s+return-object\s+(?P=arr)",
+    body,
+))
+if len(pairs) != hooks:
+    fail(f"certificate-chain dataflow mismatch {len(pairs)}/{hooks}")
+
+print("[KAORIOS] rebuilt framework artifact verifier: PASS")
+PY
+  local status=$?
+  rm -rf "$root"
+  [ "$status" -eq 0 ] || return 1
+}
+
 # Main framework patching function (Android 16)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
@@ -1610,6 +1762,13 @@ patch_framework() {
   # modify_invoke_custom_methods "$decompile_dir"
 
   recompile_jar "$framework_path" > /dev/null || { err "framework.jar recompile failed"; return 1; }
+
+  if [ "$FEATURE_KAORIOS_K1" -eq 1 ]; then
+    verify_kaorios_framework_artifact "$WORK_DIR/framework_patched.jar" || {
+      err "[KAORIOS] rebuilt framework verification failed"
+      return 1
+    }
+  fi
 
   rm -rf "$decompile_dir" "$WORK_DIR/framework"
 
