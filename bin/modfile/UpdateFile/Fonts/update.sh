@@ -92,19 +92,14 @@ install_font_theme() {
         return 1
     }
 
-    # HyperOS/MIUI ThemeManager does not treat a variable theme font as only
-    # Roboto-Regular.ttf. When a font advertises a fontWeightList it fans the
-    # same source font out to the Xiaomi runtime aliases below and, crucially,
-    # creates MI_Theme_VF.ttf. Settings/FontSettings uses MI_Theme_VF.ttf to
-    # detect a variable theme font and to keep weight changes smooth.
+    # Xiaomi's font-theme path uses one canonical payload:
+    # fonts/Roboto-Regular.ttf. ThemeManager extracts that file at Apply time
+    # and creates the runtime symlinks (Miui*, Roboto-* and MI_Theme_VF.ttf)
+    # under /data/system/theme/fonts. A non-empty fontWeight resource field is
+    # what marks the theme as variable-font capable.
     #
-    # Keep the stock ROM font XML/configs untouched. These aliases live only
-    # inside the MTZ and are populated from the selected SF Pro/Roboto VF.
-    # A Xiaomi font MTZ should carry one canonical Latin font payload.
-    # ThemeManager extracts fonts/Roboto-Regular.ttf and then creates the
-    # runtime symlinks (Miui*, Roboto-* and MI_Theme_VF.ttf) under
-    # /data/system/theme/fonts. Duplicating the same VF under every alias
-    # bloats the MTZ and bypasses Xiaomi's normal apply path.
+    # Do not pre-pack the runtime aliases: doing so only duplicates the same
+    # variable font many times and can make SF-Pro.mtz enormous.
     local runtime_fonts=(
         Roboto-Regular.ttf
     )
@@ -181,6 +176,7 @@ data["downloadPath"] = f"{theme_runtime_root}/{theme_id}.mtz"
 data["metaPath"] = f"{font_meta_root}/{theme_id}.mrm"
 data["contentPath"] = f"{theme_runtime_root}/{theme_id}.mtz"
 data["status"] = 1
+data["platform"] = 8
 data["hash"] = "0"
 data["size"] = 0
 data["updatedTime"] = 0
@@ -223,6 +219,12 @@ PY
             return 1
         fi
     done
+
+    if unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
+        | grep -qx "fonts/MI_Theme_VF.ttf"; then
+        mods "Font $title theme: ERROR (runtime alias packed into MTZ)"
+        return 1
+    fi
 
     # MI_Theme_VF.ttf must NOT be pre-packed here. ThemeManager creates the
     # runtime link when the resource exposes a non-empty fontWeight list.
