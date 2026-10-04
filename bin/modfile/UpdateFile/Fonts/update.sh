@@ -1,7 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
-rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
+rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt")
 
 FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
 SF_FONT="$FONT_SOURCE/SF-Pro.ttf"
@@ -61,8 +64,8 @@ install_font_theme() {
     local local_id="$5"
 
     [ -s "$font_file" ] || {
-        mods "Font $title theme: SKIP"
-        return 0
+        error "Font $title payload missing or empty: $font_file"
+        return 1
     }
 
     local theme_target
@@ -126,8 +129,12 @@ install_font_theme() {
 </theme>
 EOF
 
-    printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=' \
-        | base64 -d > "$tmp/preview/preview_fonts_0.png" 2>/dev/null || true
+    if ! printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=' \
+        | base64 -d > "$tmp/preview/preview_fonts_0.png" 2>/dev/null; then
+        rm -rf "$tmp"
+        error "Font $title theme: preview generation failed"
+        return 1
+    fi
 
     (
         cd "$tmp" || exit 1
@@ -259,7 +266,10 @@ PYVERIFY
         return 1
     fi
 
-    chmod 0644 "$theme_target/$theme_id.mtz" 2>/dev/null || true
+    chmod 0644 "$theme_target/$theme_id.mtz" || {
+        error "Font $title theme: chmod failed"
+        return 1
+    }
     mods "Font $title runtime: OK ($theme_runtime_root/$theme_id.mtz)"
     mods "Font $title theme: OK (MTZ + metadata + runtime path verified)"
     return 0
@@ -268,8 +278,8 @@ PYVERIFY
 
 install_ios_emoji() {
     [ -s "$IOS_EMOJI_FONT" ] || {
-        mods "Emoji iOS: SKIP"
-        return 0
+        error "Emoji iOS payload missing or empty: $IOS_EMOJI_FONT"
+        return 1
     }
 
     local target
@@ -293,29 +303,31 @@ install_ios_emoji() {
     return 1
 }
 
-font_failed=0
-
 case "$rom_os" in
     OS1|OS2|OS3|OS4)
-        install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010" || font_failed=1
+        install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010" || {
+            error "FAST-FAIL: SF Pro integration failed"
+            exit 1
+        }
 
-        ROBOTO_FONT=$(prepare_roboto_variable || true)
-        if [ -n "$ROBOTO_FONT" ]; then
-            install_font_theme "$ROBOTO_FONT" "Roboto" "Roboto" "Google" "10011" || font_failed=1
-        else
-            mods "Font Roboto theme: ERROR"
-            font_failed=1
+        if ! ROBOTO_FONT=$(prepare_roboto_variable); then
+            error "FAST-FAIL: Roboto-VF.ttf missing or empty"
+            exit 1
         fi
+        install_font_theme "$ROBOTO_FONT" "Roboto" "Roboto" "Google" "10011" || {
+            error "FAST-FAIL: Roboto integration failed"
+            exit 1
+        }
         ;;
     *)
-        mods "Font SF Pro theme: SKIP"
-        mods "Font Roboto theme: SKIP"
+        mods "Fonts: unsupported ROM $rom_os -> skipped"
+        exit 0
         ;;
 esac
 
-install_ios_emoji || font_failed=1
-
-if [ "$font_failed" -ne 0 ]; then
-    error "Fonts integration failed"
+install_ios_emoji || {
+    error "FAST-FAIL: iOS Emoji integration failed"
     exit 1
-fi
+}
+
+mods "Fonts integration -> Done"
