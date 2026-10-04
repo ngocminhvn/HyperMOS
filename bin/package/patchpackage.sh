@@ -4,8 +4,14 @@ source $work_dir/functions.sh
 mods "Add Package..."
 target_dir="$work_dir/bin/package/"
 
+# HyperMOS owns signature/CorePatch/FLAG_SECURE first.
 bash $target_dir/COREPATCH/update.sh
 bash $target_dir/DISABLE_AVB/DISABLEavb.sh
 bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh
+
+# Kaorios must see the final framework/services state from the patches above.
+# It only adds Kaorios v2.0.6.0 hooks; it does not duplicate FLAG_SECURE/CorePatch.
+bash $target_dir/KAORIOS_TOOLBOX/patch.sh
+
 bash $target_dir/RefreshRate/1hz.sh
 mods "Add Package Done"
