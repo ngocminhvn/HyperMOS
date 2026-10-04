@@ -59,3 +59,10 @@ Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 bu
 
 - Kaorios Toolbox: `hzzmonetvn/Kaorios-Toolbox`
 - Maintained guide: `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.0_VI.md`
+
+
+## AdvancedPolicy / SELinux
+
+Upstream includes `script/check-advanced-policy-sepolicy.py` as a read-only deployment checker. This integration does not invent Xiaomi-specific SELinux rules during the build, because the correct SettingsProvider domain and split-policy layout must come from the actual ROM; broad guessed rules can cause policy compilation failure or a boot loop.
+
+After the first boot, use the upstream checker/logcat to confirm the AdvancedPolicy Binder path. If there is a real SELinux denial, add the smallest device-specific rule for the observed domain.
