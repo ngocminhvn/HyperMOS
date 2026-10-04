@@ -13,13 +13,19 @@ elif [[ $AndroidVER == "14" ]];then
 elif [[ $AndroidVER == "15" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a15.sh
 elif [[ $AndroidVER == "16" ]];then
+    A16_PATCHER="$work_dir/bin/package/COREPATCH/jar_patcher_a16.sh"
+    if ! bash -n "$A16_PATCHER"; then
+        error "COREPATCH A16 syntax preflight failed"
+        exit 1
+    fi
+
     # HyperMOS A16 test stack on the #48/#49 base:
     # - disable signature verification
     # - disable secure flag
     # - PenguinOS-style CN notification policy
     # - PolicyManager.CN_MODEL=false is applied inside the CN notification patch
     # - long press power -> MiCTS (fail-open to the original Xiaomi action)
-    if ! bash "$work_dir/bin/package/COREPATCH/jar_patcher_a16.sh" \
+    if ! bash "$A16_PATCHER" \
         --disable-signature-verification \
         --cn-notification-fix \
         --disable-secure-flag \
