@@ -8,7 +8,6 @@ MAP_RULE_A = {
     r"^/odm(/.*)?": "u:object_r:vendor_file:s0",
     r"^/vendor(/.*)?": "u:object_r:vendor_file:s0",
     r"^/product(/.*)?": "u:object_r:system_file:s0",
-    r"^/system_ext/xbin/xeutoolbox": "u:object_r:xeutoolbox_exec:s0",
     r"^/system_ext(/.*)?": "u:object_r:system_file:s0",
     r"^/mi_ext(/.*)?": "u:object_r:system_file:s0",
     r"^/system(/.*)?": "u:object_r:system_file:s0",
