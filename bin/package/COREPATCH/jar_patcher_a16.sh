@@ -815,6 +815,121 @@ PY
   fi
   log "[PATCH] PolicyManager.CN_MODEL=false -> Done"
 
+  # HyperMOS FCM Live delta: do not defer Google's reconnect/heartbeat broadcasts.
+  # Only patch the two narrow boolean gates used by Xiaomi Greeze. Keep all other
+  # Greeze/SmartPower behavior stock.
+  DECOMPILE_DIR="$decompile_dir" python3 <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+root = Path(os.environ["DECOMPILE_DIR"])
+targets = (
+    ("com/miui/server/greeze/GreezeManagerService.smali", "deferBroadcastForMiui"),
+    ("com/miui/server/greeze/DomesticPolicyManager.smali", "deferBroadcast"),
+)
+actions = (
+    "com.google.android.intent.action.GCM_RECONNECT",
+    "com.google.android.gcm.DISCONNECTED",
+    "com.google.android.gcm.CONNECTED",
+    "com.google.android.gms.gcm.HEARTBEAT_ALARM",
+)
+
+patched = 0
+found = 0
+
+for rel, method_name in targets:
+    matches = list(root.glob(f"smali*/{rel}"))
+    if not matches:
+        print(f"optional FCM gate class missing: {rel}")
+        continue
+    path = matches[0]
+    text = path.read_text(encoding="utf-8")
+
+    pat = re.compile(
+        rf"(?ms)^\.method\b([^\n]*)\b{re.escape(method_name)}\(Ljava/lang/String;\)Z\s*$.*?^\.end method\s*$"
+    )
+    m = pat.search(text)
+    if not m:
+        print(f"optional FCM gate missing: {path.name}#{method_name}(String)")
+        continue
+    found += 1
+    method = m.group(0)
+    if "hypermos_fcm_no_defer" in method:
+        continue
+
+    head, body = method.split("\n", 1)
+    static_method = " static " in f" {head} "
+    arg_reg = "p0" if static_method else "p1"
+    lines = body.splitlines()
+
+    reg_idx = next(
+        (i for i, line in enumerate(lines)
+         if line.strip().startswith(".locals") or line.strip().startswith(".registers")),
+        None,
+    )
+    if reg_idx is None:
+        print(f"register directive missing in {path.name}#{method_name}", file=sys.stderr)
+        sys.exit(51)
+
+    directive = lines[reg_idx].strip()
+    if directive.startswith(".locals"):
+        n = int(directive.split()[1])
+        temp = f"v{n}"
+        indent = re.match(r"\s*", lines[reg_idx]).group(0)
+        lines[reg_idx] = f"{indent}.locals {n + 1}"
+    else:
+        total = int(directive.split()[1])
+        # one String argument + optional this register
+        params = 1 if static_method else 2
+        local_count = total - params
+        if local_count < 0:
+            print(f"invalid .registers in {path.name}#{method_name}", file=sys.stderr)
+            sys.exit(52)
+        temp = f"v{local_count}"
+        indent = re.match(r"\s*", lines[reg_idx]).group(0)
+        lines[reg_idx] = f"{indent}.registers {total + 1}"
+
+    tag = f"hypermos_fcm_no_defer_{method_name.lower()}"
+    inject = [
+        "",
+        "    # hypermos_fcm_no_defer",
+        f"    if-eqz {arg_reg}, :{tag}_continue",
+    ]
+    for action in actions:
+        inject += [
+            f'    const-string {temp}, "{action}"',
+            f"    invoke-virtual {{{temp}, {arg_reg}}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z",
+            f"    move-result {temp}",
+            f"    if-nez {temp}, :{tag}_allow",
+        ]
+    inject += [
+        f"    goto :{tag}_continue",
+        f":{tag}_allow",
+        f"    const/4 {temp}, 0x0",
+        f"    return {temp}",
+        f":{tag}_continue",
+    ]
+
+    lines[reg_idx + 1:reg_idx + 1] = inject
+    replacement = head + "\n" + "\n".join(lines)
+    text = text[:m.start()] + replacement + text[m.end():]
+    path.write_text(text, encoding="utf-8")
+    patched += 1
+
+if found == 0:
+    print("no known Greeze FCM defer gates found", file=sys.stderr)
+    sys.exit(53)
+
+print(f"HyperMOS FCM Greeze delta patched={patched} found={found}")
+PY
+  if [ $? -ne 0 ]; then
+    err "CN Notification Fix: FCM Greeze defer patch failed"
+    return 1
+  fi
+  log "[PATCH] Greeze GCM reconnect/heartbeat defer -> disabled"
+
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
     [ -f "$i" ] || continue
     sed -i '/Lmiui\/drm\/DrmBroadcast;->getInstance/{N;N;N;N;d}' "$i"
