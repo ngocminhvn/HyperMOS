@@ -323,10 +323,21 @@ verify_framework_final() {
   verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
     'shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z' "driver dev-status implementation"
 
-  python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null || {
-    error "KAORIOS: final verification failed: framework hook verifier"
-    return 1
-  }
+  # AdvancedPolicy Binder payload is only required by the Android 17 path.
+  # Android 13-16 still verify the caller/callee hooks, but must not fail just
+  # because the pinned v2.0.6.0 driver omits AdvancedPolicyService/Snapshot.
+  if [[ "$ANDROID_VER" == "17" ]]; then
+    python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null || {
+      error "KAORIOS: final verification failed: framework hook verifier"
+      return 1
+    }
+  else
+    python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" --skip-advanced-policy >/dev/null || {
+      error "KAORIOS: final verification failed: framework hook verifier"
+      return 1
+    }
+    info "KAORIOS: framework hook verifier passed (AdvancedPolicy check skipped on Android $ANDROID_VER)"
+  fi
 
   # Android 17 is the only generation with the Kaorios Build spoof.
   if [[ "$ANDROID_VER" == "17" ]]; then
