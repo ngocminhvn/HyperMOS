@@ -57,7 +57,8 @@ ensure_micts() {
   local tmp="$MICTS_CACHE.tmp"
   rm -f "$tmp"
 
-  if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 20       -o "$tmp" "$MICTS_URL"; then
+  if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 \
+      -o "$tmp" "$MICTS_URL"; then
     rm -f "$tmp"
     error "downloadapp: failed to download MiCTS v$MICTS_VERSION"
     return 1
