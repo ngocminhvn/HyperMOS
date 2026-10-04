@@ -107,7 +107,6 @@ It allows additional grants on top of privapp-permissions-platform.xml
     <permission name="android.permission.GET_PACKAGE_SIZE"/>
     <permission name="com.google.android.gms.WRITE_VERIFY_APPS_CONSENT"/>
     <permission name="com.google.android.gms.auth.permission.GOOGLE_ACCOUNT_CHANGE"/>
-    <permission name="com.google.android.partnersetup.permission.WRITE_APP_PROVIDER"/>
     <permission name="com.sec.android.provider.badge.permission.READ"/>
     <permission name="com.sec.android.provider.badge.permission.WRITE"/>
     <permission name="com.htc.launcher.permission.READ_SETTINGS"/>

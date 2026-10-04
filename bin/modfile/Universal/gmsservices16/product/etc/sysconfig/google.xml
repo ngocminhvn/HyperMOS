@@ -67,7 +67,6 @@
     <!-- Allow SetupWizard keeping at unrestricted mode of Battery usage. -->
     <bg-restriction-exemption package="com.google.android.setupwizard"/>
     <bg-restriction-exemption package="com.google.android.apps.automotive.templates.host"/>
-    <bg-restriction-exemption package="com.google.android.apps.setupwizard.searchselector"/>
 
     <!-- These Google applications all handle URLs to their websites by default -->
 
@@ -101,9 +100,7 @@
     <backup-transport-whitelisted-service
         service="com.google.android.gms/.backup.component.D2dTransportService" />
     <backup-transport-whitelisted-service
-        service="com.google.android.apps.restore/.transport.BackupTransportService" />
     <backup-transport-whitelisted-service
-        service="com.google.android.apps.restore/.transport.D2dTransportService" />
 
 
     <!-- Specify the explicit set of other applications that AI services are allowed to

@@ -65,7 +65,6 @@ This XML file declares which platform apps that need to access internal APIs.
   <hidden-api-whitelisted-app package="com.google.android.car.usb.aoap.host" />
   <hidden-api-whitelisted-app package="com.google.android.car.vms.subscriber" />
   <hidden-api-whitelisted-app package="com.google.android.carrier" />
-  <hidden-api-whitelisted-app package="com.google.android.carriersetup" />
   <hidden-api-whitelisted-app package="com.google.android.connectivitymonitor" />
   <hidden-api-whitelisted-app package="com.google.android.edu.harnesssettings" />
   <hidden-api-whitelisted-app package="com.google.android.ext.services" />
@@ -76,7 +75,6 @@ This XML file declares which platform apps that need to access internal APIs.
   <hidden-api-whitelisted-app package="com.google.android.hiddenmenu" />
   <hidden-api-whitelisted-app package="com.google.android.permissioncontroller" />
   <hidden-api-whitelisted-app package="com.google.android.partner.provisioning" />
-  <hidden-api-whitelisted-app package="com.google.android.partnersetup" />
   <hidden-api-whitelisted-app package="com.google.android.pixel.setupwizard" />
   <hidden-api-whitelisted-app package="com.google.android.preloaded_drawable_viewer" />
   <hidden-api-whitelisted-app package="com.google.android.printservice.recommendation" />
