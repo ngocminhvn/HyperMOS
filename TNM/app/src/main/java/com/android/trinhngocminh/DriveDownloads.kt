@@ -1,10 +1,10 @@
 package com.android.trinhngocminh
 
-import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Environment
+import android.provider.MediaStore
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -126,7 +126,7 @@ object DriveDownloads {
         }
     }
 
-    fun enqueue(context: Context, file: DriveFile): String {
+    fun download(context: Context, file: DriveFile): String {
         val key = apiKey()
         if (key.isBlank()) return "API key chưa được cấu hình"
 
@@ -134,27 +134,67 @@ object DriveDownloads {
             return "File Google Docs/Sheets/Slides chưa hỗ trợ tải trực tiếp"
         }
 
+        var targetUri: Uri? = null
         return try {
             val url =
                 "https://www.googleapis.com/drive/v3/files/${Uri.encode(file.id)}" +
                     "?alt=media&key=${Uri.encode(key)}"
-            val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle(file.name)
-                .setDescription("TNM · Google Drive")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setAllowedOverMetered(true)
-                .setAllowedOverRoaming(true)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, file.name)
 
-            request.addRequestHeader("X-Android-Package", context.packageName)
-            certSha1(context)?.let {
-                request.addRequestHeader("X-Android-Cert", it.replace(":", ""))
+            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 20_000
+                readTimeout = 60_000
+                setRequestProperty("Accept", "*/*")
+                applyGoogleHeaders(context, this)
             }
 
-            val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            manager.enqueue(request)
-            "Đã thêm ${file.name} vào hàng đợi tải xuống"
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val error = connection.errorStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    .orEmpty()
+                return "Drive tải thất bại HTTP $code" +
+                    if (error.isNotBlank()) ": ${error.take(160)}" else ""
+            }
+
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(
+                    MediaStore.MediaColumns.MIME_TYPE,
+                    file.mimeType.ifBlank { "application/octet-stream" },
+                )
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/TNM")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+
+            val collection = MediaStore.Downloads.getContentUri(
+                MediaStore.VOLUME_EXTERNAL_PRIMARY
+            )
+            targetUri = context.contentResolver.insert(collection, values)
+                ?: return "Không tạo được file trong Downloads/TNM"
+
+            val output = context.contentResolver.openOutputStream(targetUri!!)
+                ?: return "Không mở được file đích"
+
+            connection.inputStream.use { input ->
+                output.use { out ->
+                    input.copyTo(out, 256 * 1024)
+                }
+            }
+
+            val done = ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+            }
+            context.contentResolver.update(targetUri!!, done, null, null)
+            "Đã tải ${file.name} vào Downloads/TNM"
         } catch (t: Throwable) {
+            targetUri?.let {
+                try {
+                    context.contentResolver.delete(it, null, null)
+                } catch (_: Throwable) {
+                }
+            }
             "Không thể tải: ${t.message ?: t.javaClass.simpleName}"
         }
     }
