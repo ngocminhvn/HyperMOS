@@ -1784,14 +1784,36 @@ parse_feature_flags "$@" || exit 1
 init_env
 ensure_tools || exit 1
 
-# Patch requested JARs
-patch_framework
-patch_services
-patch_miui_services
-patch_miui_framework
+# Patch requested JARs. Every stage is required on the A16 HyperMOS stack:
+# never continue with a half-patched ROM.
+patch_framework || { err "FAST-FAIL: framework.jar patch failed"; exit 1; }
+patch_services || { err "FAST-FAIL: services.jar patch failed"; exit 1; }
+patch_miui_services || { err "FAST-FAIL: miui-services.jar patch failed"; exit 1; }
+patch_miui_framework || { err "FAST-FAIL: miui-framework.jar patch failed"; exit 1; }
 
-# Add patched JARs
-mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
-mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
-mv -f "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
-mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
+# Add patched JARs only after all four stages completed successfully.
+install_patched_jar() {
+  local src="$1"
+  local dst="$2"
+  local label="$3"
+
+  if [ ! -s "$src" ]; then
+    err "FAST-FAIL: $label output missing or empty: $src"
+    exit 1
+  fi
+
+  mv -f "$src" "$dst" || {
+    err "FAST-FAIL: failed to install patched $label"
+    exit 1
+  }
+
+  if [ ! -s "$dst" ]; then
+    err "FAST-FAIL: installed $label is missing or empty"
+    exit 1
+  fi
+}
+
+install_patched_jar "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar" "framework.jar"
+install_patched_jar "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar" "services.jar"
+install_patched_jar "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar" "miui-services.jar"
+install_patched_jar "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar" "miui-framework.jar"
