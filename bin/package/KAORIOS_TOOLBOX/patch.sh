@@ -4,6 +4,20 @@ set -euo pipefail
 # HyperMOS integration for Kaorios Toolbox v2.0.6.0.
 # Intentionally DOES NOT implement Kaorios FLAG_SECURE or CorePatch.
 # HyperMOS owns those patches already.
+#
+# Applied Kaorios features (per the upstream Patch_Guide_2.0.6.0_VI):
+#   - process/context initialisation (ActivityThread + Instrumentation);
+#   - Play Integrity / keybox keystore hooks;
+#   - ApplicationPackageManager.hasSystemFeature(...) spoof;
+#   - SystemServer initialisation;
+#   - ComputerEngine package visibility + installer-source hooks;
+#   - SettingsProvider.call()/query() per-app Settings spoof;
+#   - Settings$NameValueCache dev-status hook (hide Developer options / ADB);
+#   - Android 17 Build / Build$VERSION spoof (Android 17 only, like upstream).
+# Skipped on purpose: FLAG_SECURE, CorePatch, and the kaorios_advanced_policy
+# SELinux rules (see README - the ROM domain and split-policy layout must be
+# observed on the real device first; guessed allow rules can break policy
+# compilation or cause a boot loop).
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
@@ -17,10 +31,16 @@ DRIVER_DEX="$KAORIOS_DIR/classes.dex"
 TOOLBOX_APK="$KAORIOS_DIR/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
+DEVSTATUS_PATCHER="$SCRIPT_DIR/patch-settings-namevaluecache.py"
+BUILD_SPOOF_VERIFIER="$SCRIPT_DIR/verify-build-spoof-a17.py"
 
 # Pin the payloads currently reviewed in this repository.
 DRIVER_GIT_BLOB="1544b86b8703d03c43244d5599eaf180b59441fd"
-TOOLBOX_GIT_BLOB="671ac13591765709ff15081634227833289a363e"
+TOOLBOX_GIT_BLOB="671ac1357400a54adfc442c58496bd69e1d4d60c"
+
+# Set to 1 once the dev-status hook is confirmed present in the framework smali,
+# so final artifact verification knows whether that target must be checked.
+NVC_APPLIED=0
 
 ANDROID_VER=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")
 SDK_LEVEL=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")
@@ -38,7 +58,7 @@ if [[ ! "$SDK_LEVEL" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-for required in "$PATCHER" "$BAKSMALI" "$SMALI" "$DRIVER_DEX" "$TOOLBOX_APK" "$PERMISSION_XML" "$VALIDATE_KEYBOX"; do
+for required in "$PATCHER" "$BAKSMALI" "$SMALI" "$DRIVER_DEX" "$TOOLBOX_APK" "$PERMISSION_XML" "$VALIDATE_KEYBOX" "$DEVSTATUS_PATCHER" "$BUILD_SPOOF_VERIFIER"; do
   if [[ ! -f "$required" ]]; then
     error "KAORIOS: missing required file: $required"
     exit 1
@@ -221,6 +241,38 @@ ensure_no_existing_driver() {
   fi
 }
 
+# Per-app "hide Developer options / ADB". Upstream documents this target as an
+# optional, per-ROM manual patch, so the module is fail-closed: an unrecognised
+# layout leaves the smali untouched instead of producing a broken method.
+#   KAORIOS_SKIP_DEVSTATUS=1    skip the patch entirely
+#   KAORIOS_STRICT_DEVSTATUS=1  turn a skipped layout into a hard build failure
+apply_devstatus_patch() {
+  local root="$1" rc=0
+  if [[ "${KAORIOS_SKIP_DEVSTATUS:-0}" == "1" ]]; then
+    warn "KAORIOS: dev-status (Developer options/ADB) patch skipped by KAORIOS_SKIP_DEVSTATUS"
+    return 0
+  fi
+  if [[ "${KAORIOS_STRICT_DEVSTATUS:-0}" == "1" ]]; then
+    python3 "$DEVSTATUS_PATCHER" "$root" --strict || rc=$?
+  else
+    python3 "$DEVSTATUS_PATCHER" "$root" || rc=$?
+  fi
+  case "$rc" in
+    0)
+      NVC_APPLIED=1
+      info "KAORIOS: Settings\$NameValueCache dev-status hook applied"
+      ;;
+    3)
+      warn "KAORIOS: Settings\$NameValueCache layout unsupported; hiding Developer options/ADB stays unavailable (set KAORIOS_STRICT_DEVSTATUS=1 to fail the build instead)"
+      ;;
+    *)
+      error "KAORIOS: dev-status patcher failed (rc=$rc)"
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 update_archive_dexes() {
   local original="$1" built="$2" candidate="$3"
   local dex
@@ -270,8 +322,32 @@ verify_framework_final() {
     'initSystemServer()V' "driver SystemServer implementation"
   verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
     'shouldHideAppListForCaller(ILjava/lang/String;I)Z' "driver app-visibility implementation"
+  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+    'shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z' "driver dev-status implementation"
 
-  python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null
+  python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null || {
+    error "KAORIOS: final verification failed: framework hook verifier"
+    return 1
+  }
+
+  # Android 17 is the only generation with the Kaorios Build spoof.
+  if [[ "$ANDROID_VER" == "17" ]]; then
+    python3 "$BUILD_SPOOF_VERIFIER" "$root" >/dev/null || {
+      error "KAORIOS: final verification failed: Android 17 Build spoof"
+      return 1
+    }
+    info "KAORIOS: Android 17 Build/Build\$VERSION spoof verified"
+  fi
+
+  # Only assert the dev-status hook when this build actually injected it.
+  if (( NVC_APPLIED == 1 )); then
+    python3 "$DEVSTATUS_PATCHER" "$root" --verify-only >/dev/null || {
+      error "KAORIOS: final verification failed: dev-status (Developer options/ADB) hook"
+      return 1
+    }
+    info "KAORIOS: dev-status (Developer options/ADB) hook verified"
+  fi
+
   info "KAORIOS: framework hooks verified (Play Integrity/keybox + system feature spoof)"
 }
 
@@ -280,8 +356,14 @@ verify_services_final() {
   require_services_targets "$root"
   verify_hook "$root" "com/android/server/pm/ComputerEngine.smali"     'KaoriosHook;->shouldHideAppListForCaller' "ComputerEngine app visibility"
   verify_hook "$root" "com/android/server/SystemServer.smali"     'KaoriosHook;->initSystemServer()V' "SystemServer init"
-  python3 "$SCRIPT_DIR/verify-services-a17-hooks.py" "$root" >/dev/null
-  python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$root" >/dev/null
+  python3 "$SCRIPT_DIR/verify-services-a17-hooks.py" "$root" >/dev/null || {
+    error "KAORIOS: final verification failed: services hook verifier"
+    return 1
+  }
+  python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$root" >/dev/null || {
+    error "KAORIOS: final verification failed: SystemServer hook verifier"
+    return 1
+  }
   info "KAORIOS: services hooks verified"
 }
 
@@ -299,7 +381,10 @@ verify_settings_final() {
       return 1
     }
   fi
-  python3 "$SCRIPT_DIR/verify-settingsprovider-a17-hooks.py" "$root" >/dev/null
+  python3 "$SCRIPT_DIR/verify-settingsprovider-a17-hooks.py" "$root" >/dev/null || {
+    error "KAORIOS: final verification failed: SettingsProvider hook verifier"
+    return 1
+  }
   info "KAORIOS: Settings spoof hooks verified"
 }
 
@@ -353,9 +438,23 @@ patch_archive() {
 
   snapshot_hashes "$smali" "$snapshot"
 
-  if ! python3 "$PATCHER" "$smali" --android-version "$ANDROID_VER" --mode 1 --no-delay; then
+  # mode 3 = hooks + Build spoof (Android 17 only). Every other artifact and
+  # generation uses mode 1 (hooks only); the Build spoof starts at Android 17.
+  local patch_mode=1
+  if [[ "$kind" == "framework" && "$ANDROID_VER" == "17" ]]; then
+    patch_mode=3
+    info "KAORIOS: Android 17 framework - applying hooks + Build spoof (mode 3)"
+  fi
+
+  if ! python3 "$PATCHER" "$smali" --android-version "$ANDROID_VER" --mode "$patch_mode" --no-delay; then
     error "KAORIOS: patcher failed for $kind"
     return 1
+  fi
+
+  # Optional per-app "hide Developer options / ADB" hook. Runs before the DEX
+  # rebuild so the modified file is assembled into the artifact.
+  if [[ "$kind" == "framework" ]]; then
+    apply_devstatus_patch "$smali" || return 1
   fi
 
   rebuild_changed_dexes "$smali" "$snapshot" "$built"
@@ -410,16 +509,17 @@ validate_optional_keybox_input() {
   fi
 }
 
-mods "Kaorios Toolbox v2.0.6.0 (hooks only; HyperMOS owns FLAG_SECURE/CorePatch)"
+mods "Kaorios Toolbox v2.0.6.0 (hooks + keybox + Settings/feature spoof + hide Developer options; HyperMOS owns FLAG_SECURE/CorePatch)"
 
 FRAMEWORK_JAR=$(find_unique_artifact   "framework.jar"   "$work_dir/build/baserom/images/system/system/framework/framework.jar")
 SERVICES_JAR=$(find_unique_artifact   "services.jar"   "$work_dir/build/baserom/images/system/system/framework/services.jar")
 SETTINGS_PROVIDER=$(find_unique_artifact "SettingsProvider.apk" "")
 
 validate_optional_keybox_input
+
 patch_archive "$FRAMEWORK_JAR" framework
 patch_archive "$SERVICES_JAR" services
 patch_archive "$SETTINGS_PROVIDER" settings
 install_toolbox
 
-mods "Kaorios Toolbox done: Play Integrity/keybox hooks + Settings spoof + system feature spoof"
+mods "Kaorios Toolbox done: Play Integrity/keybox hooks + Settings spoof + system feature spoof + hide Developer options/ADB"
