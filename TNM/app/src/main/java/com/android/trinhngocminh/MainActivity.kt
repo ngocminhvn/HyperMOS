@@ -61,6 +61,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -162,8 +163,11 @@ class MainActivity : ComponentActivity() {
         var driveLoading by remember { mutableStateOf(false) }
         var driveError by remember { mutableStateOf<String?>(null) }
         var downloadingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-        var downloadStatus by remember { mutableStateOf("") }
         var pendingDownload by remember { mutableStateOf<DriveFile?>(null) }
+        var downloadBytes by remember { mutableStateOf(0L) }
+        var downloadTotalBytes by remember { mutableStateOf<Long?>(null) }
+        var downloadFinishedUri by remember { mutableStateOf<Uri?>(null) }
+        var downloadErrorMessage by remember { mutableStateOf<String?>(null) }
 
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
@@ -175,6 +179,8 @@ class MainActivity : ComponentActivity() {
 
         var duckScan by remember { mutableStateOf<DuckScanSnapshot?>(null) }
         var duckScanning by remember { mutableStateOf(false) }
+        var duckDone by remember { mutableStateOf(0) }
+        var duckTotal by remember { mutableStateOf(0) }
         var selectedDuckItem by remember { mutableStateOf<DuckDetectorItem?>(null) }
 
         var message by remember { mutableStateOf("") }
@@ -209,23 +215,50 @@ class MainActivity : ComponentActivity() {
             if (duckScanning) return
             scope.launch {
                 duckScanning = true
-                duckScan = withContext(Dispatchers.IO) {
-                    DuckDetectorBridge.scan(this@MainActivity)
+                duckDone = 0
+                duckTotal = DuckDetector.detectors.size
+                try {
+                    duckScan = DuckDetectorBridge.scanStreaming(
+                        context = this@MainActivity,
+                    ) { snapshot, done, total ->
+                        duckScan = snapshot
+                        duckDone = done
+                        duckTotal = total
+                    }
+                } finally {
+                    duckScanning = false
                 }
-                duckScanning = false
             }
         }
 
         fun startDownload(file: DriveFile) {
             if (file.id in downloadingIds) return
             downloadingIds = downloadingIds + file.id
-            downloadStatus = "Đang tải ${file.name}…"
+            downloadBytes = 0L
+            downloadTotalBytes = file.sizeBytes
+            downloadFinishedUri = null
+            downloadErrorMessage = null
+
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
-                    DriveDownloads.download(this@MainActivity, file)
+                    DriveDownloads.download(
+                        context = this@MainActivity,
+                        file = file,
+                    ) { bytes, total ->
+                        scope.launch {
+                            downloadBytes = bytes
+                            downloadTotalBytes = total ?: file.sizeBytes
+                        }
+                    }
                 }
-                downloadStatus = result
+
                 downloadingIds = downloadingIds - file.id
+                if (result.error == null && result.uri != null) {
+                    downloadBytes = downloadTotalBytes ?: downloadBytes
+                    downloadFinishedUri = result.uri
+                } else {
+                    downloadErrorMessage = result.message
+                }
             }
         }
 
@@ -364,7 +397,6 @@ class MainActivity : ComponentActivity() {
                     files = driveFiles,
                     loading = driveLoading,
                     error = driveError,
-                    status = downloadStatus,
                     downloadingIds = downloadingIds,
                     onRefresh = { refreshDrive() },
                     onDownload = { file -> pendingDownload = file },
@@ -376,12 +408,13 @@ class MainActivity : ComponentActivity() {
                     message = message,
                     duckScan = duckScan,
                     duckScanning = duckScanning,
+                    duckDone = duckDone,
+                    duckTotal = duckTotal,
                     onFont = { fontDialog = true },
                     onThermal = { thermalDialog = true },
                     onSystemInfo = { systemDialog = true },
                     onIntegrity = {
                         integrityDialog = true
-                        if (duckScan == null) runDuckScan()
                     },
                     onFcm = {
                         GmsFcmDiagnostics.open(this@MainActivity)?.let { message = it }
@@ -392,47 +425,162 @@ class MainActivity : ComponentActivity() {
 
         pendingDownload?.let { file ->
             val downloading = file.id in downloadingIds
+            val finishedUri = downloadFinishedUri
+            val total = downloadTotalBytes
+            val progress = if (total != null && total > 0L) {
+                (downloadBytes.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+            } else {
+                null
+            }
+            val percent = progress?.let { (it * 100f).toInt().coerceIn(0, 100) }
+
             AlertDialog(
                 onDismissRequest = {
-                    if (!downloading) pendingDownload = null
+                    if (!downloading) {
+                        pendingDownload = null
+                        downloadFinishedUri = null
+                        downloadErrorMessage = null
+                    }
                 },
                 icon = { Icon(Icons.Rounded.Download, contentDescription = null) },
-                title = { Text("Tải file?") },
+                title = {
+                    Text(
+                        when {
+                            downloading -> "Đang tải"
+                            finishedUri != null -> "Tải hoàn tất"
+                            downloadErrorMessage != null -> "Tải thất bại"
+                            else -> "Tải file?"
+                        }
+                    )
+                },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             file.name,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            DriveDownloads.formatSize(file.sizeBytes),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "File sẽ được lưu vào Downloads/TNM.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+
+                        when {
+                            downloading -> {
+                                if (progress != null) {
+                                    LinearProgressIndicator(
+                                        progress = { progress },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text(
+                                            "${percent ?: 0}%",
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            "${DriveDownloads.formatSize(downloadBytes)} / ${DriveDownloads.formatSize(total)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                } else {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    Text(
+                                        DriveDownloads.formatSize(downloadBytes),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+
+                            finishedUri != null -> {
+                                LinearProgressIndicator(
+                                    progress = { 1f },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    "100% · Đã lưu vào Downloads/TNM",
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+
+                            downloadErrorMessage != null -> {
+                                Text(
+                                    downloadErrorMessage ?: "Không thể tải file",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+
+                            else -> {
+                                Text(
+                                    DriveDownloads.formatSize(file.sizeBytes),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    "File sẽ được lưu vào Downloads/TNM.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 },
                 dismissButton = {
-                    OutlinedButton(
-                        enabled = !downloading,
-                        onClick = { pendingDownload = null },
-                    ) {
-                        Text("Hủy")
+                    if (!downloading) {
+                        OutlinedButton(
+                            onClick = {
+                                pendingDownload = null
+                                downloadFinishedUri = null
+                                downloadErrorMessage = null
+                            },
+                        ) {
+                            Text(if (finishedUri != null) "Đóng" else "Hủy")
+                        }
                     }
                 },
                 confirmButton = {
-                    Button(
-                        enabled = !downloading,
-                        onClick = {
-                            pendingDownload = null
-                            startDownload(file)
-                        },
-                    ) {
-                        Text("Tải xuống")
+                    when {
+                        downloading -> {
+                            FilledTonalButton(
+                                enabled = false,
+                                onClick = {},
+                            ) {
+                                Text("${percent ?: 0}%")
+                            }
+                        }
+
+                        finishedUri != null && file.name.endsWith(".apk", ignoreCase = true) -> {
+                            Button(
+                                onClick = {
+                                    val error = DriveDownloads.installApk(
+                                        this@MainActivity,
+                                        finishedUri,
+                                    )
+                                    if (error != null) {
+                                        downloadErrorMessage = error
+                                    }
+                                },
+                            ) {
+                                Text("Cài đặt")
+                            }
+                        }
+
+                        downloadErrorMessage != null -> {
+                            Button(
+                                onClick = { startDownload(file) },
+                            ) {
+                                Text("Thử lại")
+                            }
+                        }
+
+                        else -> {
+                            Button(
+                                onClick = { startDownload(file) },
+                            ) {
+                                Text("Tải xuống")
+                            }
+                        }
                     }
                 },
             )
@@ -570,51 +718,59 @@ class MainActivity : ComponentActivity() {
         }
 
         if (integrityDialog) {
+            val alerts = duckScan
+                ?.items
+                .orEmpty()
+                .filter {
+                    it.severity == DetectionSeverity.DANGER ||
+                        it.severity == DetectionSeverity.WARNING
+                }
+
             AlertDialog(
-                onDismissRequest = {
-                    if (!duckScanning) integrityDialog = false
-                },
+                onDismissRequest = { integrityDialog = false },
                 icon = { Icon(Icons.Rounded.Security, null) },
                 title = { Text("DuckDetector Integrity") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            "Quét Boot/AVB, Root, Mount, Zygisk, LSPosed, TEE, Custom ROM, Virtualization và các dấu hiệu hệ thống khác.",
+                            "Chỉ hiện detector có WARNING hoặc DANGER. Các mục ALL CLEAR/CLEAN được ẩn.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
 
-                        when {
-                            duckScanning -> {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(26.dp),
-                                        strokeWidth = 3.dp,
-                                    )
-                                    Text("Đang chạy các detector…")
-                                }
+                        if (duckScanning) {
+                            val progress = if (duckTotal > 0) {
+                                duckDone.toFloat() / duckTotal.toFloat()
+                            } else {
+                                0f
                             }
+                            LinearProgressIndicator(
+                                progress = { progress.coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                "Đang quét nền: $duckDone/$duckTotal detector",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
 
-                            duckScan?.error != null -> {
-                                Text(
-                                    "Lỗi: ${duckScan?.error}",
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
+                        duckScan?.error?.let { error ->
+                            Text(
+                                "Lỗi: $error",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
 
-                            duckScan != null -> {
-                                val scan = duckScan!!
-                                Text(
-                                    "Packages: ${scan.visiblePackages} · ${scan.packageVisibility}" +
-                                        if (scan.suspiciouslyLowPackages) " · suspiciously low" else "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                        if (duckScan != null) {
+                            val scan = duckScan!!
+                            Text(
+                                "Package visibility: ${scan.visiblePackages} · ${scan.packageVisibility}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
 
+                            if (alerts.isNotEmpty()) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -622,20 +778,18 @@ class MainActivity : ComponentActivity() {
                                     SummaryBadge(
                                         modifier = Modifier.weight(1f),
                                         label = "Danger",
-                                        value = scan.dangerCount,
+                                        value = alerts.count {
+                                            it.severity == DetectionSeverity.DANGER
+                                        },
                                         color = MaterialTheme.colorScheme.errorContainer,
                                     )
                                     SummaryBadge(
                                         modifier = Modifier.weight(1f),
                                         label = "Warning",
-                                        value = scan.warningCount,
+                                        value = alerts.count {
+                                            it.severity == DetectionSeverity.WARNING
+                                        },
                                         color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    )
-                                    SummaryBadge(
-                                        modifier = Modifier.weight(1f),
-                                        label = "Clear",
-                                        value = scan.clearCount,
-                                        color = MaterialTheme.colorScheme.primaryContainer,
                                     )
                                 }
 
@@ -643,24 +797,29 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.heightIn(max = 390.dp),
                                     verticalArrangement = Arrangement.spacedBy(7.dp),
                                 ) {
-                                    items(scan.items, key = { it.id }) { item ->
+                                    items(alerts, key = { it.id }) { item ->
                                         DuckDetectorRow(
                                             item = item,
                                             onClick = { selectedDuckItem = item },
                                         )
                                     }
                                 }
+                            } else if (!duckScanning && duckScan?.error == null) {
+                                Text(
+                                    "Không có cảnh báo cần hiển thị.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-
-                            else -> {
-                                Text("Chưa có kết quả quét.")
-                            }
+                        } else if (!duckScanning) {
+                            Text(
+                                "Nhấn Quét để bắt đầu. Có thể đóng cửa sổ hoặc chuyển tab; quá trình quét vẫn tiếp tục trong nền.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 },
                 dismissButton = {
                     OutlinedButton(
-                        enabled = !duckScanning,
                         onClick = { integrityDialog = false },
                     ) {
                         Text("Đóng")
@@ -1142,7 +1301,6 @@ class MainActivity : ComponentActivity() {
         files: List<DriveFile>,
         loading: Boolean,
         error: String?,
-        status: String,
         downloadingIds: Set<String>,
         onRefresh: () -> Unit,
         onDownload: (DriveFile) -> Unit,
@@ -1223,34 +1381,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (status.isNotBlank()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(Icons.Rounded.Info, contentDescription = null)
-                            Text(
-                                text = status,
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
 
             if (error != null) {
                 item {
@@ -1367,6 +1497,8 @@ class MainActivity : ComponentActivity() {
         message: String,
         duckScan: DuckScanSnapshot?,
         duckScanning: Boolean,
+        duckDone: Int,
+        duckTotal: Int,
         onFont: () -> Unit,
         onThermal: () -> Unit,
         onSystemInfo: () -> Unit,
@@ -1407,12 +1539,13 @@ class MainActivity : ComponentActivity() {
             }
             item {
                 val summary = when {
-                    duckScanning -> "Đang quét DuckDetector…"
-                    duckScan?.error != null -> "DuckDetector lỗi · chạm để thử lại"
+                    duckScanning -> "Đang quét nền $duckDone/$duckTotal…"
+                    duckScan?.error != null -> "DuckDetector lỗi · chạm để xem"
                     duckScan != null -> {
-                        "Danger ${duckScan.dangerCount} · Warning ${duckScan.warningCount} · Clear ${duckScan.clearCount}"
+                        val alerts = duckScan.dangerCount + duckScan.warningCount
+                        "Đã quét · $alerts cảnh báo"
                     }
-                    else -> "DuckDetector SDK · Boot · Root · Mount · TEE · Zygisk"
+                    else -> "DuckDetector SDK · nhấn để mở và quét"
                 }
                 ToolCard(
                     icon = Icons.Rounded.Security,
