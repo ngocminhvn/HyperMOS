@@ -37,8 +37,17 @@ import re
 import sys
 
 root = Path(os.environ["SYSTEMUI_OUT"])
-scheduler_files = list(root.glob("smali*/com/android/systemui/statusbar/notification/collection/coordinator/FoldCoordinator.smali"))
-util_files = list(root.glob("smali*/com/android/systemui/statusbar/notification/utils/NotificationUtil.smali"))
+scheduler_suffix = "/com/android/systemui/statusbar/notification/collection/coordinator/FoldCoordinator.smali"
+util_suffix = "/com/android/systemui/statusbar/notification/utils/NotificationUtil.smali"
+
+scheduler_files = [
+    p for p in root.rglob("FoldCoordinator.smali")
+    if str(p).replace("\\", "/").endswith(scheduler_suffix)
+]
+util_files = [
+    p for p in root.rglob("NotificationUtil.smali")
+    if str(p).replace("\\", "/").endswith(util_suffix)
+]
 
 patched_scheduler = 0
 patched_writer = 0
