@@ -1102,6 +1102,177 @@ PY
   log "[PATCH] Credential Manager OEM UI -> Google"
 }
 
+
+# ----------------------------------------------
+# Kaorios Toolbox v2.0.6.0 — HyperMOS-native K1 payload
+# ----------------------------------------------
+# K1 preloads Toolbox as a normal product app and appends the official
+# release driver DEX to framework.jar. No old Kousei/Kaorios patch script runs.
+
+kaorios_fetch_verified() {
+  local url="$1"
+  local expected="$2"
+  local dst="$3"
+  local label="$4"
+  local tmp="${dst}.part"
+
+  if [ -s "$dst" ]; then
+    local have
+    have=$(sha256sum "$dst" | awk '{print $1}')
+    if [ "$have" = "$expected" ]; then
+      log "[KAORIOS] $label cache verified"
+      return 0
+    fi
+    warn "[KAORIOS] $label cache hash mismatch; refreshing"
+    rm -f "$dst"
+  fi
+
+  command -v curl >/dev/null 2>&1 || {
+    err "[KAORIOS] curl is required"
+    return 1
+  }
+
+  mkdir -p "$(dirname "$dst")"
+  rm -f "$tmp"
+  if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 \
+      "$url" -o "$tmp"; then
+    err "[KAORIOS] failed to download $label"
+    rm -f "$tmp"
+    return 1
+  fi
+
+  local got
+  got=$(sha256sum "$tmp" | awk '{print $1}')
+  if [ "$got" != "$expected" ]; then
+    err "[KAORIOS] $label SHA-256 mismatch: $got"
+    rm -f "$tmp"
+    return 1
+  fi
+
+  mv -f "$tmp" "$dst" || return 1
+  [ -s "$dst" ] || {
+    err "[KAORIOS] staged $label is missing or empty"
+    return 1
+  }
+  log "[KAORIOS] $label downloaded + SHA-256 verified"
+}
+
+prepare_kaorios_k1_payloads() {
+  [ "$KAORIOS_READY" -eq 1 ] && return 0
+
+  mkdir -p "$KAORIOS_CACHE_DIR"
+  kaorios_fetch_verified \
+    "$KAORIOS_DRIVER_URL" "$KAORIOS_DRIVER_SHA256" \
+    "$KAORIOS_DRIVER" "classes.dex" || return 1
+  kaorios_fetch_verified \
+    "$KAORIOS_APK_URL" "$KAORIOS_APK_SHA256" \
+    "$KAORIOS_APK" "Toolbox APK" || return 1
+
+  if ! unzip -tq "$KAORIOS_APK" >/dev/null 2>&1; then
+    err "[KAORIOS] Toolbox APK is invalid"
+    return 1
+  fi
+
+  local verify_dir="$KAORIOS_CACHE_DIR/driver_verify"
+  rm -rf "$verify_dir"
+  mkdir -p "$verify_dir"
+  if ! java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api "$API_LEVEL" \
+      "$KAORIOS_DRIVER" -o "$verify_dir" >/dev/null; then
+    err "[KAORIOS] cannot disassemble release classes.dex"
+    return 1
+  fi
+
+  local hook="$verify_dir/android/security/kaorios/KaoriosHook.smali"
+  [ -f "$hook" ] || {
+    err "[KAORIOS] KaoriosHook.smali missing from release driver"
+    return 1
+  }
+
+  local required=(
+    'initContext(Landroid/content/Context;)V'
+    'initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;'
+    'CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;'
+  )
+  local sig
+  for sig in "${required[@]}"; do
+    grep -Fq -- "$sig" "$hook" || {
+      err "[KAORIOS] driver ABI missing: $sig"
+      return 1
+    }
+  done
+  rm -rf "$verify_dir"
+
+  # K1 intentionally avoids privapp-permissions as a boot variable.
+  local product="$work_dir/build/baserom/images/product"
+  [ -d "$product" ] || {
+    err "[KAORIOS] product partition tree not found"
+    return 1
+  }
+  local app_dir="$product/app/KaoriosToolbox"
+  mkdir -p "$app_dir"
+  cp -f "$KAORIOS_APK" "$app_dir/KaoriosToolbox.apk" || {
+    err "[KAORIOS] failed to preload Toolbox APK"
+    return 1
+  }
+  chmod 0644 "$app_dir/KaoriosToolbox.apk" || return 1
+
+  local apk_hash
+  apk_hash=$(sha256sum "$app_dir/KaoriosToolbox.apk" | awk '{print $1}')
+  [ "$apk_hash" = "$KAORIOS_APK_SHA256" ] || {
+    err "[KAORIOS] preloaded Toolbox APK hash mismatch"
+    return 1
+  }
+
+  KAORIOS_READY=1
+  log "[KAORIOS] K1 payloads ready; Toolbox is non-privileged"
+}
+
+append_kaorios_driver_dex() {
+  local decompile_dir="$1"
+  prepare_kaorios_k1_payloads || return 1
+
+  local existing
+  existing=$(find "$decompile_dir" -type f \
+    -path '*/android/security/kaorios/KaoriosHook.smali' -print -quit)
+  [ -z "$existing" ] || {
+    err "[KAORIOS] KaoriosHook class already exists: $existing"
+    return 1
+  }
+
+  local max=0 d n
+  [ -d "$decompile_dir/smali" ] && max=1
+  for d in "$decompile_dir"/smali_classes*; do
+    [ -d "$d" ] || continue
+    n="${d##*/smali_classes}"
+    [[ "$n" =~ ^[0-9]+$ ]] || continue
+    (( n > max )) && max="$n"
+  done
+  [ "$max" -gt 0 ] || {
+    err "[KAORIOS] no framework smali DEX trees found"
+    return 1
+  }
+
+  local next=$((max + 1))
+  local dst="$decompile_dir/classes${next}.dex"
+  [ ! -e "$dst" ] || {
+    err "[KAORIOS] target driver DEX already exists: $dst"
+    return 1
+  }
+
+  cp -f "$KAORIOS_DRIVER" "$dst" || {
+    err "[KAORIOS] failed to append driver DEX"
+    return 1
+  }
+
+  local got
+  got=$(sha256sum "$dst" | awk '{print $1}')
+  [ "$got" = "$KAORIOS_DRIVER_SHA256" ] || {
+    err "[KAORIOS] appended driver DEX hash mismatch"
+    return 1
+  }
+  log "[KAORIOS] driver appended as $(basename "$dst")"
+}
+
 # Main framework patching function (Android 16)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
