@@ -100,9 +100,27 @@ install_font_theme() {
     #
     # Keep the stock ROM font XML/configs untouched. These aliases live only
     # inside the MTZ and are populated from the selected SF Pro/Roboto VF.
+    # HyperOS 3 does not route every UI surface through Roboto-Regular.
+    # Xiaomi also asks for MiSans/MiLan/Mitype/RobotoVF aliases depending on
+    # framework, SystemUI and app. Keep the stock ROM font files untouched;
+    # these aliases exist only inside the selectable MTZ.
+    #
+    # Alias names are aligned with the HyperOS font maps used by the
+    # BEACHEADVN stock-tool build and PenguinOS. This makes Apply actually
+    # replace the runtime sans font instead of silently falling back to stock.
     local runtime_fonts=(
         MI_Theme_VF.ttf
+
+        MiSansVF.ttf
+        MiSansLatinVF.ttf
+        MiSansVF_Overlay.ttf
+        MiLanProVF.ttf
+        MitypeVF.ttf
+        MitypeMonoVF.ttf
+
+        RobotoVF.ttf
         Roboto-Regular.ttf
+        RobotoStatic-Regular.ttf
         Roboto-Italic.ttf
         Roboto-Bold.ttf
         Roboto-BoldItalic.ttf
@@ -114,6 +132,7 @@ install_font_theme() {
         Roboto-BlackItalic.ttf
         Roboto-Thin.ttf
         Roboto-ThinItalic.ttf
+
         Miui-Regular.ttf
         Miui-Bold.ttf
         MiuiEx-Regular.ttf
