@@ -3,6 +3,7 @@ set -euo pipefail
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
+androidVER="$(cat "$work_dir/bin/ddevice/androidver.txt" 2>/dev/null || true)"
 
 SRC_DIR="$work_dir/bin/modfile/Universal/downloadapp"
 DEST_ROOT="$work_dir/build/baserom/images/product/data-app"
@@ -68,7 +69,11 @@ ensure_micts() {
   MICTS_SELECTED="$MICTS_CACHE"
 }
 
-ensure_micts || exit 1
+if [[ "$androidVER" == "16" ]]; then
+  ensure_micts || exit 1
+else
+  info "downloadapp: Android $androidVER -> skip automatic MiCTS preload"
+fi
 
 shopt -s nullglob
 apks=("$SRC_DIR"/*.apk)
