@@ -745,14 +745,11 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
   for i in $class; do
     [ -f "$i" ] || continue
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
-    sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
+    sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/Build;->IS_MIUI:Z|g' "$i"
   done
-  # HyperMOS A/B test: keep stock PolicyManager.CN_MODEL behavior.
-  # Disabled: do NOT force PolicyManager.CN_MODEL=false.
-  if false; then
-  # ZKOS/FrameworkPatcher behavior: keep the ROM region as CN, but make
-  # Xiaomi Greeze use the non-CN policy path. This avoids changing
-  # ro.miui.region and keeps the rest of Xiaomi regional behavior intact.
+  # PenguinOS A16 behavior uses the MIUI path for CN background policy.
+  # HyperMOS additionally forces Greeze PolicyManager.CN_MODEL=false without
+  # changing ro.miui.region, so the rest of Xiaomi regional behavior stays CN.
   local policy_file
   policy_file=$(find "$decompile_dir" -type f -path '*/com/miui/server/greeze/PolicyManager.smali' -print -quit)
   if [ -z "$policy_file" ] || [ ! -f "$policy_file" ]; then
@@ -809,7 +806,6 @@ PY
     return 1
   fi
   log "[PATCH] PolicyManager.CN_MODEL=false -> Done"
-  fi
 
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
     [ -f "$i" ] || continue
