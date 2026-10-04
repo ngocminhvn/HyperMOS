@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -11,7 +13,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,7 +46,6 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material3.AlertDialog
@@ -95,15 +96,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.eltavine.duckdetector.core.evidence.DetectionSeverity
+import com.eltavine.duckdetector.core.evidence.InfoKind
+import com.eltavine.duckdetector.sdk.DuckDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    private var duckSampler: WebView? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DuckDetector.captureLaunchEvidence(intent)
         enableEdgeToEdge()
+
         setContent {
             val dark = isSystemInDarkTheme()
             val scheme = if (Build.VERSION.SDK_INT >= 31) {
@@ -115,6 +123,29 @@ class MainActivity : ComponentActivity() {
                 AppContent()
             }
         }
+
+        duckSampler = DuckDetector.createProcMountSampler(this)
+        duckSampler?.let { sampler ->
+            addContentView(
+                sampler,
+                ViewGroup.LayoutParams(1, 1),
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        DuckDetector.captureLaunchEvidence(intent)
+    }
+
+    override fun onDestroy() {
+        duckSampler?.let { sampler ->
+            (sampler.parent as? ViewGroup)?.removeView(sampler)
+            sampler.destroy()
+        }
+        duckSampler = null
+        super.onDestroy()
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -132,6 +163,7 @@ class MainActivity : ComponentActivity() {
         var driveError by remember { mutableStateOf<String?>(null) }
         var downloadingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
         var downloadStatus by remember { mutableStateOf("") }
+        var pendingDownload by remember { mutableStateOf<DriveFile?>(null) }
 
         var fontDialog by remember { mutableStateOf(false) }
         var thermalDialog by remember { mutableStateOf(false) }
@@ -140,7 +172,10 @@ class MainActivity : ComponentActivity() {
         var powerDialog by remember { mutableStateOf(false) }
         var confirmRebootDialog by remember { mutableStateOf(false) }
         var pendingReboot by remember { mutableStateOf<RebootTarget?>(null) }
-        var integrity by remember { mutableStateOf(IntegrityDiagnostics.read()) }
+
+        var duckScan by remember { mutableStateOf<DuckScanSnapshot?>(null) }
+        var duckScanning by remember { mutableStateOf(false) }
+        var selectedDuckItem by remember { mutableStateOf<DuckDetectorItem?>(null) }
 
         var message by remember { mutableStateOf("") }
         var selectedThermal by remember { mutableStateOf(ThermalManager.selected(this)) }
@@ -167,6 +202,30 @@ class MainActivity : ComponentActivity() {
                 info = withContext(Dispatchers.IO) {
                     SystemInfo.readRealtime(this@MainActivity, current)
                 }
+            }
+        }
+
+        fun runDuckScan() {
+            if (duckScanning) return
+            scope.launch {
+                duckScanning = true
+                duckScan = withContext(Dispatchers.IO) {
+                    DuckDetectorBridge.scan(this@MainActivity)
+                }
+                duckScanning = false
+            }
+        }
+
+        fun startDownload(file: DriveFile) {
+            if (file.id in downloadingIds) return
+            downloadingIds = downloadingIds + file.id
+            downloadStatus = "Đang tải ${file.name}…"
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    DriveDownloads.download(this@MainActivity, file)
+                }
+                downloadStatus = result
+                downloadingIds = downloadingIds - file.id
             }
         }
 
@@ -240,10 +299,7 @@ class MainActivity : ComponentActivity() {
                 TopAppBar(
                     title = {
                         Column {
-                            Text(
-                                text = pageTitle,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                            Text(pageTitle, fontWeight = FontWeight.SemiBold)
                             if (selectedTab != 0) {
                                 Text(
                                     text = if (selectedTab == 1) "Google Drive" else "HyperMOS Control",
@@ -259,7 +315,7 @@ class MainActivity : ComponentActivity() {
                                 startActivity(
                                     Intent(
                                         Intent.ACTION_VIEW,
-                                        Uri.parse("https://github.com/ngocminhvn/HyperMOS")
+                                        Uri.parse("https://github.com/ngocminhvn/HyperMOS"),
                                     )
                                 )
                             }
@@ -302,6 +358,7 @@ class MainActivity : ComponentActivity() {
                     cpuHistory = cpuHistory,
                     message = message,
                 )
+
                 1 -> DownloadsPage(
                     modifier = Modifier.padding(padding),
                     files = driveFiles,
@@ -310,30 +367,21 @@ class MainActivity : ComponentActivity() {
                     status = downloadStatus,
                     downloadingIds = downloadingIds,
                     onRefresh = { refreshDrive() },
-                    onDownload = { file ->
-                        if (file.id !in downloadingIds) {
-                            downloadingIds = downloadingIds + file.id
-                            downloadStatus = "Đang tải ${file.name}…"
-                            scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    DriveDownloads.download(this@MainActivity, file)
-                                }
-                                downloadStatus = result
-                                downloadingIds = downloadingIds - file.id
-                            }
-                        }
-                    },
+                    onDownload = { file -> pendingDownload = file },
                 )
+
                 else -> ToolsPage(
                     modifier = Modifier.padding(padding),
                     info = info,
                     message = message,
+                    duckScan = duckScan,
+                    duckScanning = duckScanning,
                     onFont = { fontDialog = true },
                     onThermal = { thermalDialog = true },
                     onSystemInfo = { systemDialog = true },
                     onIntegrity = {
-                        integrity = IntegrityDiagnostics.read()
                         integrityDialog = true
+                        if (duckScan == null) runDuckScan()
                     },
                     onFcm = {
                         GmsFcmDiagnostics.open(this@MainActivity)?.let { message = it }
@@ -342,13 +390,61 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        pendingDownload?.let { file ->
+            val downloading = file.id in downloadingIds
+            AlertDialog(
+                onDismissRequest = {
+                    if (!downloading) pendingDownload = null
+                },
+                icon = { Icon(Icons.Rounded.Download, contentDescription = null) },
+                title = { Text("Tải file?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            file.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            DriveDownloads.formatSize(file.sizeBytes),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "File sẽ được lưu vào Downloads/TNM.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        enabled = !downloading,
+                        onClick = { pendingDownload = null },
+                    ) {
+                        Text("Hủy")
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        enabled = !downloading,
+                        onClick = {
+                            pendingDownload = null
+                            startDownload(file)
+                        },
+                    ) {
+                        Text("Tải xuống")
+                    }
+                },
+            )
+        }
+
         if (fontDialog) {
             AlertDialog(
                 onDismissRequest = { fontDialog = false },
                 title = { Text("Font") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Dùng font hệ thống mặc định của Material 3 hoặc chọn file .ttf/.otf để áp dụng cho ROM.")
+                        Text("Chọn file .ttf/.otf để áp dụng cho ROM.")
                         Button(
                             onClick = {
                                 fontPicker.launch(
@@ -433,23 +529,36 @@ class MainActivity : ComponentActivity() {
         if (systemDialog) {
             AlertDialog(
                 onDismissRequest = { systemDialog = false },
+                icon = { Icon(Icons.Rounded.Info, null) },
                 title = { Text("Thông tin hệ thống") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        InfoLine("Thiết bị", info?.device ?: "—")
-                        InfoLine("SoC", info?.soc ?: "—")
-                        InfoLine("CPU", info?.cpuCurrent ?: "—")
-                        InfoLine("CPU max", info?.cpuMax ?: "—")
-                        InfoLine("RAM", info?.ram ?: "—")
-                        InfoLine("Bộ nhớ", info?.storage ?: "—")
-                        InfoLine("Android", info?.android ?: "—")
-                        InfoLine("HyperOS", info?.hyperos ?: "—")
-                        InfoLine("Pin", info?.batteryTemp ?: "—")
-                        InfoLine("Công suất", info?.batteryPower ?: "—")
-                        InfoLine("Nhiệt SoC", info?.socTemp ?: "—")
-                        InfoLine("Nhiệt GPU", info?.gpuTemp ?: "—")
-                        InfoLine("Thermal", info?.thermal ?: "—")
-                        InfoLine("Root", info?.root ?: "—")
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 520.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        item { InfoLine("Thiết bị", info?.device ?: "—") }
+                        item { InfoLine("SoC", info?.soc ?: "—") }
+                        item { InfoLine("Board", info?.board ?: "—") }
+                        item { InfoLine("Hardware", info?.hardware ?: "—") }
+                        item { InfoLine("ABI", info?.abi ?: "—") }
+                        item { InfoLine("CPU cores", info?.cpuCores ?: "—") }
+                        item { InfoLine("CPU hiện tại", info?.cpuCurrent ?: "—") }
+                        item { InfoLine("CPU max", info?.cpuMax ?: "—") }
+                        item { InfoLine("RAM", info?.ram ?: "—") }
+                        item { InfoLine("Bộ nhớ", info?.storage ?: "—") }
+                        item { InfoLine("Android", info?.android ?: "—") }
+                        item { InfoLine("HyperOS", info?.hyperos ?: "—") }
+                        item { InfoLine("Security patch", info?.securityPatch ?: "—") }
+                        item { InfoLine("Kernel", info?.kernel ?: "—") }
+                        item { InfoLine("Build", info?.buildType ?: "—") }
+                        item { InfoLine("Uptime", info?.uptime ?: "—") }
+                        item { InfoLine("Fingerprint", info?.fingerprint ?: "—") }
+                        item { InfoLine("Pin", info?.batteryTemp ?: "—") }
+                        item { InfoLine("Công suất", info?.batteryPower ?: "—") }
+                        item { InfoLine("Nhiệt SoC", info?.socTemp ?: "—") }
+                        item { InfoLine("Nhiệt GPU", info?.gpuTemp ?: "—") }
+                        item { InfoLine("Thermal", info?.thermal ?: "—") }
+                        item { InfoLine("Root", info?.root ?: "—") }
                     }
                 },
                 confirmButton = {
@@ -462,30 +571,143 @@ class MainActivity : ComponentActivity() {
 
         if (integrityDialog) {
             AlertDialog(
-                onDismissRequest = { integrityDialog = false },
+                onDismissRequest = {
+                    if (!duckScanning) integrityDialog = false
+                },
                 icon = { Icon(Icons.Rounded.Security, null) },
-                title = { Text("Integrity") },
+                title = { Text("DuckDetector Integrity") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            integrity.summary,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        InfoLine("Verified Boot", integrity.verifiedBoot)
-                        InfoLine("Bootloader", integrity.bootloader)
-                        InfoLine("VBMeta", integrity.vbmeta)
-                        InfoLine("Build tags", integrity.buildTags)
-                        InfoLine("Root", integrity.root)
-                        HorizontalDivider()
-                        Text(
-                            "Đây là kiểm tra cục bộ. Nó không phải verdict BASIC / DEVICE / STRONG của Google Play Integrity.",
+                            "Quét Boot/AVB, Root, Mount, Zygisk, LSPosed, TEE, Custom ROM, Virtualization và các dấu hiệu hệ thống khác.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+
+                        when {
+                            duckScanning -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(26.dp),
+                                        strokeWidth = 3.dp,
+                                    )
+                                    Text("Đang chạy các detector…")
+                                }
+                            }
+
+                            duckScan?.error != null -> {
+                                Text(
+                                    "Lỗi: ${duckScan?.error}",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+
+                            duckScan != null -> {
+                                val scan = duckScan!!
+                                Text(
+                                    "Packages: ${scan.visiblePackages} · ${scan.packageVisibility}" +
+                                        if (scan.suspiciouslyLowPackages) " · suspiciously low" else "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    SummaryBadge(
+                                        modifier = Modifier.weight(1f),
+                                        label = "Danger",
+                                        value = scan.dangerCount,
+                                        color = MaterialTheme.colorScheme.errorContainer,
+                                    )
+                                    SummaryBadge(
+                                        modifier = Modifier.weight(1f),
+                                        label = "Warning",
+                                        value = scan.warningCount,
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    )
+                                    SummaryBadge(
+                                        modifier = Modifier.weight(1f),
+                                        label = "Clear",
+                                        value = scan.clearCount,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                    )
+                                }
+
+                                LazyColumn(
+                                    modifier = Modifier.heightIn(max = 390.dp),
+                                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                                ) {
+                                    items(scan.items, key = { it.id }) { item ->
+                                        DuckDetectorRow(
+                                            item = item,
+                                            onClick = { selectedDuckItem = item },
+                                        )
+                                    }
+                                }
+                            }
+
+                            else -> {
+                                Text("Chưa có kết quả quét.")
+                            }
+                        }
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        enabled = !duckScanning,
+                        onClick = { integrityDialog = false },
+                    ) {
+                        Text("Đóng")
                     }
                 },
                 confirmButton = {
-                    FilledTonalButton(onClick = { integrityDialog = false }) {
+                    Button(
+                        enabled = !duckScanning,
+                        onClick = { runDuckScan() },
+                    ) {
+                        Text(if (duckScan == null) "Quét" else "Quét lại")
+                    }
+                },
+            )
+        }
+
+        selectedDuckItem?.let { item ->
+            AlertDialog(
+                onDismissRequest = { selectedDuckItem = null },
+                title = { Text(item.title) },
+                text = {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 520.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        item {
+                            DetectorStatusHeader(item)
+                        }
+                        if (item.details.isEmpty()) {
+                            item {
+                                Text(
+                                    "Detector không trả thêm dòng chi tiết.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            items(item.details.take(120)) { line ->
+                                Text(
+                                    line,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { selectedDuckItem = null }) {
                         Text("Đóng")
                     }
                 },
@@ -573,9 +795,7 @@ class MainActivity : ComponentActivity() {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                DeviceHero(info)
-            }
+            item { DeviceHero(info) }
 
             if (message.isNotBlank()) {
                 item {
@@ -590,9 +810,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            item {
-                SectionTitle("Realtime")
-            }
+            item { SectionTitle("Realtime") }
 
             item {
                 Row(
@@ -702,6 +920,7 @@ class MainActivity : ComponentActivity() {
                             CircleShape,
                         )
                 )
+
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -735,7 +954,11 @@ class MainActivity : ComponentActivity() {
                             Text(
                                 text = "${info?.hyperos ?: "HyperOS"} · ${info?.android ?: "Android"}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (dark) Color.White.copy(alpha = 0.72f) else Color(0xFF343840),
+                                color = if (dark) {
+                                    Color.White.copy(alpha = 0.72f)
+                                } else {
+                                    Color(0xFF343840)
+                                },
                             )
                         }
                     }
@@ -993,10 +1216,7 @@ class MainActivity : ComponentActivity() {
                                     strokeWidth = 2.dp,
                                 )
                             } else {
-                                Icon(
-                                    Icons.Rounded.Refresh,
-                                    contentDescription = "Làm mới",
-                                )
+                                Icon(Icons.Rounded.Refresh, contentDescription = "Làm mới")
                             }
                         }
                     }
@@ -1019,16 +1239,11 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Icon(
-                                Icons.Rounded.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
+                            Icon(Icons.Rounded.Info, contentDescription = null)
                             Text(
                                 text = status,
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -1046,32 +1261,19 @@ class MainActivity : ComponentActivity() {
                             containerColor = MaterialTheme.colorScheme.errorContainer,
                         ),
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.Top,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(
-                                Icons.Rounded.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                "Không tải được danh sách",
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
                             )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Không tải được danh sách",
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                )
-                                Text(
-                                    error,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                            Text(
+                                error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
@@ -1086,7 +1288,6 @@ class MainActivity : ComponentActivity() {
                         Text(
                             "Folder Drive hiện chưa có file",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                 }
@@ -1133,7 +1334,6 @@ class MainActivity : ComponentActivity() {
                                     text = DriveDownloads.formatSize(file.sizeBytes),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
                                 )
                             }
 
@@ -1165,6 +1365,8 @@ class MainActivity : ComponentActivity() {
         modifier: Modifier,
         info: DeviceInfo?,
         message: String,
+        duckScan: DuckScanSnapshot?,
+        duckScanning: Boolean,
         onFont: () -> Unit,
         onThermal: () -> Unit,
         onSystemInfo: () -> Unit,
@@ -1204,10 +1406,18 @@ class MainActivity : ComponentActivity() {
                 )
             }
             item {
+                val summary = when {
+                    duckScanning -> "Đang quét DuckDetector…"
+                    duckScan?.error != null -> "DuckDetector lỗi · chạm để thử lại"
+                    duckScan != null -> {
+                        "Danger ${duckScan.dangerCount} · Warning ${duckScan.warningCount} · Clear ${duckScan.clearCount}"
+                    }
+                    else -> "DuckDetector SDK · Boot · Root · Mount · TEE · Zygisk"
+                }
                 ToolCard(
                     icon = Icons.Rounded.Security,
-                    title = "Integrity",
-                    summary = "Verified Boot · Bootloader · VBMeta · Root",
+                    title = "Integrity Scan",
+                    summary = summary,
                     onClick = onIntegrity,
                 )
             }
@@ -1215,7 +1425,7 @@ class MainActivity : ComponentActivity() {
                 ToolCard(
                     icon = Icons.Rounded.Info,
                     title = "Thông tin hệ thống",
-                    summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"}",
+                    summary = "${info?.storage ?: "—"} · ${info?.soc ?: "—"} · ${info?.kernel ?: "—"}",
                     onClick = onSystemInfo,
                 )
             }
@@ -1236,6 +1446,116 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun DuckDetectorRow(
+        item: DuckDetectorItem,
+        onClick: () -> Unit,
+    ) {
+        val container = when (item.severity) {
+            DetectionSeverity.DANGER -> MaterialTheme.colorScheme.errorContainer
+            DetectionSeverity.WARNING -> MaterialTheme.colorScheme.tertiaryContainer
+            DetectionSeverity.ALL_CLEAR -> MaterialTheme.colorScheme.primaryContainer
+            DetectionSeverity.INFO -> MaterialTheme.colorScheme.surfaceVariant
+        }
+        val content = when (item.severity) {
+            DetectionSeverity.DANGER -> MaterialTheme.colorScheme.onErrorContainer
+            DetectionSeverity.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
+            DetectionSeverity.ALL_CLEAR -> MaterialTheme.colorScheme.onPrimaryContainer
+            DetectionSeverity.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+        Card(
+            onClick = onClick,
+            colors = CardDefaults.cardColors(containerColor = container),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    item.title,
+                    fontWeight = FontWeight.SemiBold,
+                    color = content,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    detectorStatusLabel(item),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = content.copy(alpha = 0.78f),
+                    maxLines = 1,
+                )
+                Text(
+                    item.verdict,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = content.copy(alpha = 0.88f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun DetectorStatusHeader(item: DuckDetectorItem) {
+        val color = when (item.severity) {
+            DetectionSeverity.DANGER -> MaterialTheme.colorScheme.error
+            DetectionSeverity.WARNING -> MaterialTheme.colorScheme.tertiary
+            DetectionSeverity.ALL_CLEAR -> MaterialTheme.colorScheme.primary
+            DetectionSeverity.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                detectorStatusLabel(item),
+                color = color,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(item.verdict)
+            HorizontalDivider()
+        }
+    }
+
+    private fun detectorStatusLabel(item: DuckDetectorItem): String {
+        return when (item.severity) {
+            DetectionSeverity.DANGER -> "DANGER"
+            DetectionSeverity.WARNING -> "WARNING"
+            DetectionSeverity.ALL_CLEAR -> "ALL CLEAR"
+            DetectionSeverity.INFO -> when (item.infoKind) {
+                InfoKind.ERROR -> "INFO · ERROR"
+                InfoKind.SUPPORT -> "INFO · UNSUPPORTED"
+                null -> "INFO"
+            }
+        }
+    }
+
+    @Composable
+    private fun SummaryBadge(
+        modifier: Modifier,
+        label: String,
+        value: Int,
+        color: Color,
+    ) {
+        Column(
+            modifier = modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(color)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                value.toString(),
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+
+    @Composable
     private fun ToolCard(
         icon: ImageVector,
         title: String,
@@ -1247,7 +1567,13 @@ class MainActivity : ComponentActivity() {
                 headlineContent = {
                     Text(title, fontWeight = FontWeight.Medium)
                 },
-                supportingContent = { Text(summary) },
+                supportingContent = {
+                    Text(
+                        summary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 leadingContent = {
                     Box(
                         modifier = Modifier
@@ -1312,20 +1638,23 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun InfoLine(title: String, value: String) {
-        Row(
+    private fun InfoLine(
+        title: String,
+        value: String,
+    ) {
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 title,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(0.44f),
             )
             Text(
                 value,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(0.56f),
             )
         }
     }
