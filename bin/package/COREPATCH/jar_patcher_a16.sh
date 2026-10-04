@@ -1273,6 +1273,308 @@ append_kaorios_driver_dex() {
   log "[KAORIOS] driver appended as $(basename "$dst")"
 }
 
+
+apply_framework_kaorios_k1() {
+  local decompile_dir="$1"
+  prepare_kaorios_k1_payloads || return 1
+
+  KAORIOS_FRAMEWORK_ROOT="$decompile_dir" python3 <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+root = Path(os.environ["KAORIOS_FRAMEWORK_ROOT"])
+HOOK = "Landroid/security/kaorios/KaoriosHook;"
+
+def fail(msg, code=100):
+    print(f"[KAORIOS] {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+def find_exact(rel):
+    suffix = "/" + rel
+    matches = [
+        p for p in root.rglob(Path(rel).name)
+        if str(p).replace("\\", "/").endswith(suffix)
+    ]
+    if len(matches) != 1:
+        fail(f"expected exactly one {rel}, found {len(matches)}")
+    return matches[0]
+
+def method_span(text, signature, label):
+    rx = re.compile(
+        r"(?m)^\.method[^\n]*" + re.escape(signature) + r"[^\n]*(?:\n|$)"
+    )
+    matches = list(rx.finditer(text))
+    if len(matches) != 1:
+        fail(f"{label}: expected one {signature}, found {len(matches)}")
+    end = re.search(r"(?m)^\s*\.end method\s*$", text[matches[0].end():])
+    if end is None:
+        fail(f"{label}: unterminated {signature}")
+    return matches[0].start(), matches[0].end() + end.end()
+
+def canonicalize_param_aliases(body, registers, param_count):
+    first = registers - param_count
+    if first < 0:
+        fail(f"invalid .registers {registers} for {param_count} params")
+    for p in range(param_count - 1, -1, -1):
+        body = re.sub(
+            rf"(?<![A-Za-z0-9_])v{first+p}(?![0-9])",
+            f"p{p}",
+            body,
+        )
+    return body
+
+def unique_label(base, body):
+    label = base
+    index = 1
+    while re.search(rf"(?m)^\s*{re.escape(label)}\s*$", body):
+        label = f"{base}_{index}"
+        index += 1
+    return label
+
+# Instrumentation.initContext before every Application return path.
+inst_path = find_exact("android/app/Instrumentation.smali")
+inst = inst_path.read_text(encoding="utf-8")
+
+def patch_instrumentation_method(text, signature, explicit_args, context_arg_index):
+    start, end = method_span(text, signature, "Instrumentation")
+    body = text[start:end]
+    target = HOOK + "->initContext(Landroid/content/Context;)V"
+
+    returns = list(
+        re.finditer(r"(?m)^(?P<indent>\s*)return-object\s+[vp]\d+\s*$", body)
+    )
+    if not returns:
+        fail(f"Instrumentation {signature}: no return-object")
+
+    existing = body.count(target)
+    if existing:
+        if existing != len(returns):
+            fail(
+                f"Instrumentation {signature}: partial existing hook "
+                f"{existing}/{len(returns)}"
+            )
+        return text
+
+    header = body.splitlines()[0]
+    is_static = bool(re.search(r"\bstatic\b", header))
+    context_p = context_arg_index if is_static else context_arg_index + 1
+    context_reg = f"p{context_p}"
+    param_count = explicit_args + (0 if is_static else 1)
+
+    directive = re.search(r"(?m)^\s*\.(locals|registers)\s+(\d+)\b", body)
+    if not directive:
+        fail(f"Instrumentation {signature}: register directive missing")
+
+    count = int(directive.group(2))
+    if directive.group(1) == "locals":
+        physical = count + context_p
+    else:
+        physical = count - param_count + context_p
+    if physical < 0:
+        fail(f"Instrumentation {signature}: invalid register layout")
+
+    opcode = "invoke-static/range" if physical > 15 else "invoke-static"
+    regs = (
+        f"{{{context_reg} .. {context_reg}}}"
+        if physical > 15
+        else f"{{{context_reg}}}"
+    )
+    call = f"{opcode} {regs}, {target}"
+
+    patched = body
+    for match in reversed(returns):
+        inject = f"{match.group('indent')}{call}\n\n"
+        patched = patched[:match.start()] + inject + patched[match.start():]
+
+    if patched.count(target) != len(returns):
+        fail(f"Instrumentation {signature}: hook verification failed")
+    return text[:start] + patched + text[end:]
+
+inst = patch_instrumentation_method(
+    inst,
+    "newApplication(Ljava/lang/Class;Landroid/content/Context;)Landroid/app/Application;",
+    2,
+    1,
+)
+inst = patch_instrumentation_method(
+    inst,
+    "newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;",
+    3,
+    2,
+)
+inst_path.write_text(inst, encoding="utf-8")
+
+# AndroidKeyStoreKeyPairGeneratorSpi.generateKeyPair.
+gen_path = find_exact(
+    "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali"
+)
+gen = gen_path.read_text(encoding="utf-8")
+gen_sig = "generateKeyPair()Ljava/security/KeyPair;"
+start, end = method_span(gen, gen_sig, "AndroidKeyStoreKeyPairGeneratorSpi")
+body = gen[start:end]
+target = (
+    HOOK
+    + "->initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;"
+)
+
+if target not in body:
+    reg = re.search(
+        r"(?m)^(?P<indent>\s*)\.(?P<kind>registers|locals)\s+"
+        r"(?P<num>\d+)(?P<tail>[^\n]*)$",
+        body,
+    )
+    if not reg:
+        fail("generateKeyPair: register directive missing")
+
+    kind = reg.group("kind")
+    old = int(reg.group("num"))
+    new = old + 1
+
+    if kind == "registers":
+        body = canonicalize_param_aliases(body, old, 1)
+        reg = re.search(
+            r"(?m)^(?P<indent>\s*)\.(?P<kind>registers|locals)\s+"
+            r"(?P<num>\d+)(?P<tail>[^\n]*)$",
+            body,
+        )
+        scratch = f"v{new - 2}"
+        p0_physical = new - 1
+    else:
+        scratch = f"v{old}"
+        p0_physical = old + 1
+
+    label = unique_label(":cond_hypermos_kaorios_gen_stock", body)
+    opcode = "invoke-static/range" if p0_physical > 15 else "invoke-static"
+    regs = "{p0 .. p0}" if p0_physical > 15 else "{p0}"
+    call = f"{opcode} {regs}, {target}"
+
+    replacement = (
+        f"{reg.group('indent')}.{kind} {new}{reg.group('tail')}\n\n"
+        f"    {call}\n"
+        f"    move-result-object {scratch}\n\n"
+        f"    if-eqz {scratch}, {label}\n"
+        f"    return-object {scratch}\n\n"
+        f"    {label}"
+    )
+    body = body[:reg.start()] + replacement + body[reg.end():]
+    gen = gen[:start] + body + gen[end:]
+
+start, end = method_span(gen, gen_sig, "AndroidKeyStoreKeyPairGeneratorSpi")
+if gen[start:end].count(target) != 1:
+    fail("generateKeyPair: post-patch hook count != 1")
+gen_path.write_text(gen, encoding="utf-8")
+
+# AndroidKeyStoreSpi.engineGetCertificateChain.
+spi_path = find_exact("android/security/keystore2/AndroidKeyStoreSpi.smali")
+spi = spi_path.read_text(encoding="utf-8")
+spi_sig = (
+    "engineGetCertificateChain(Ljava/lang/String;)"
+    "[Ljava/security/cert/Certificate;"
+)
+start, end = method_span(spi, spi_sig, "AndroidKeyStoreSpi")
+body = spi[start:end]
+chain_target = (
+    HOOK
+    + "->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)"
+    + "[Ljava/security/cert/Certificate;"
+)
+
+if chain_target not in body:
+    leaf = re.compile(
+        r"(?P<aput>aput-object\s+[vp]\d+,\s*(?P<array>[vp]\d+),\s*[vp]\d+)"
+        r"(?P<gap>(?:[ \t]*\.(?:line|local|end local|restart local)[^\n]*\n"
+        r"|[ \t]*\n)*)"
+        r"[ \t]*(?P<ret>return-object\s+(?P=array))"
+    )
+    matches = list(leaf.finditer(body))
+    if not matches:
+        fail("engineGetCertificateChain: leaf-array return not found")
+
+    returns = re.findall(r"\breturn-object\s+([vp]\d+)", body)
+    if len(returns) == 3 and len(matches) == 1:
+        null_reg = returns[0]
+        if (
+            returns != [null_reg, matches[0].group("array"), null_reg]
+            or not re.search(
+                rf"const/4\s+{re.escape(null_reg)},\s*0x0\b",
+                body[:matches[0].start()],
+            )
+        ):
+            fail("engineGetCertificateChain: unsupported three-return layout")
+    elif len(returns) != len(matches):
+        fail(
+            "engineGetCertificateChain: unsupported layout "
+            f"returns={len(returns)} leaf={len(matches)}"
+        )
+
+    directive = re.search(r"(?m)^\s*\.(registers|locals)\s+(\d+)\b", body)
+    if not directive:
+        fail("engineGetCertificateChain: register directive missing")
+    count = int(directive.group(2))
+    param_base = count - 2 if directive.group(1) == "registers" else count
+
+    patched = body
+    for match in reversed(matches):
+        array = match.group("array")
+        physical = (
+            param_base + int(array[1:])
+            if array.startswith("p")
+            else int(array[1:])
+        )
+        opcode = "invoke-static/range" if physical > 15 else "invoke-static"
+        regs = (
+            f"{{{array} .. {array}}}"
+            if physical > 15
+            else f"{{{array}}}"
+        )
+        inject = (
+            f"{opcode} {regs}, {chain_target}\n"
+            f"    move-result-object {array}\n    "
+        )
+        patched = (
+            patched[:match.start("ret")]
+            + inject
+            + patched[match.start("ret"):]
+        )
+    body = patched
+    spi = spi[:start] + body + spi[end:]
+
+start, end = method_span(spi, spi_sig, "AndroidKeyStoreSpi")
+body = spi[start:end]
+hook_count = body.count(chain_target)
+if hook_count < 1:
+    fail("engineGetCertificateChain: Kaorios hook missing")
+
+pairs = list(
+    re.finditer(
+        r"invoke-static(?:/range)?\s*\{(?P<arr>[vp]\d+)"
+        r"(?:\s*\.\.\s*(?P=arr))?\},\s*"
+        + re.escape(chain_target)
+        + r"\s+move-result-object\s+(?P=arr)"
+        r"\s+return-object\s+(?P=arr)",
+        body,
+    )
+)
+if len(pairs) != hook_count:
+    fail(
+        "engineGetCertificateChain: hook/return dataflow mismatch "
+        f"{len(pairs)}/{hook_count}"
+    )
+
+spi_path.write_text(spi, encoding="utf-8")
+print("[KAORIOS] K1 smali verifier: PASS")
+PY
+  [ $? -eq 0 ] || {
+    err "[KAORIOS] K1 framework smali patch failed"
+    return 1
+  }
+
+  append_kaorios_driver_dex "$decompile_dir" || return 1
+  log "[KAORIOS] K1 framework patch -> Done"
+}
+
 # Main framework patching function (Android 16)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
@@ -1298,6 +1600,10 @@ patch_framework() {
 
   if [ "$FEATURE_PASSKEY" -eq 1 ]; then
     apply_framework_passkey "$decompile_dir" || return 1
+  fi
+
+  if [ "$FEATURE_KAORIOS_K1" -eq 1 ]; then
+    apply_framework_kaorios_k1 "$decompile_dir" || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
