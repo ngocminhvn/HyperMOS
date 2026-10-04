@@ -114,12 +114,6 @@
     </install-in-user-type>
 
     <!--  Google Search (GoogleSearchPrebuilt) -->
-    <install-in-user-type package="com.google.android.googlequicksearchbox">
-        <install-in user-type="FULL" />
-        <install-in user-type="PROFILE" />
-        <do-not-install-in user-type="android.os.usertype.profile.CLONE" />
-        <do-not-install-in user-type="android.os.usertype.profile.PRIVATE" />
-    </install-in-user-type>
 
     <!-- Maps (Maps) -->
     <install-in-user-type package="com.google.android.apps.maps">

@@ -79,7 +79,6 @@
     <app-link package="com.google.android.talk" />
     <app-link package="com.google.android.apps.photos" />
     <app-link package="com.google.android.apps.youtube.music" />
-    <app-link package="com.google.android.googlequicksearchbox" />
 
     <!-- Apps below are optional on GMS devices -->
     <app-link package="com.google.android.apps.tycho" />
@@ -129,7 +128,6 @@
     <allow-association target="com.google.android.as.oss" allowed="com.google.android.apps.nexuslauncher" />
 
     <!-- Google app can bind to the open-source network component. -->
-    <allow-association target="com.google.android.as.oss" allowed="com.google.android.googlequicksearchbox" />
 
     <!-- Gboard can bind to the AI services open-source network component. -->
     <allow-association target="com.google.android.as.oss" allowed="com.google.android.inputmethod.latin" />
