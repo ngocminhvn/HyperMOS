@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# HyperMOS integration for Kaorios Toolbox v2.0.6.0.
+# Intentionally DOES NOT implement Kaorios FLAG_SECURE or CorePatch.
+# HyperMOS owns those patches already.
+
+work_dir=$(pwd)
+source "$work_dir/functions.sh"
+
+KAORIOS_DIR="$work_dir/bin/package/KAORIOS_TOOLBOX"
+SCRIPT_DIR="$KAORIOS_DIR/script"
+PATCHER="$SCRIPT_DIR/kaorios_patcher.py"
+BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
+SMALI="$work_dir/bin/apktool/smaliv2.jar"
+DRIVER_DEX="$KAORIOS_DIR/classes.dex"
+TOOLBOX_APK="$KAORIOS_DIR/KaoriosToolbox.apk"
+PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
+VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
+
+# Pin the payloads currently reviewed in this repository.
+DRIVER_GIT_BLOB="1544b86b8703d03c43244d5599eaf180b59441fd"
+TOOLBOX_GIT_BLOB="671ac13591765709ff15081634227833289a363e"
+
+ANDROID_VER=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")
+SDK_LEVEL=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")
+
+case "$ANDROID_VER" in
+  13|14|15|16|17) ;;
+  *)
+    error "KAORIOS: unsupported Android version: $ANDROID_VER"
+    exit 1
+    ;;
+esac
+
+if [[ ! "$SDK_LEVEL" =~ ^[0-9]+$ ]]; then
+  error "KAORIOS: invalid SDK level: $SDK_LEVEL"
+  exit 1
+fi
+
+for required in "$PATCHER" "$BAKSMALI" "$SMALI" "$DRIVER_DEX" "$TOOLBOX_APK" "$PERMISSION_XML" "$VALIDATE_KEYBOX"; do
+  if [[ ! -f "$required" ]]; then
+    error "KAORIOS: missing required file: $required"
+    exit 1
+  fi
+done
+for cmd in java python3 unzip zip git sha256sum find sort; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    error "KAORIOS: missing host tool: $cmd"
+    exit 1
+  fi
+done
+
+verify_git_blob() {
+  local file="$1" expected="$2" label="$3" actual
+  actual=$(git hash-object "$file")
+  if [[ "$actual" != "$expected" ]]; then
+    error "KAORIOS: $label payload hash changed: $actual (expected $expected)"
+    exit 1
+  fi
+  info "KAORIOS: verified pinned $label payload"
+}
+
+verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework DEX"
+verify_git_blob "$TOOLBOX_APK" "$TOOLBOX_GIT_BLOB" "Toolbox APK"
+
+TEMP_ROOT="$work_dir/jar_temp/kaorios-v2060"
+rm -rf "$TEMP_ROOT"
+mkdir -p "$TEMP_ROOT"
+cleanup() {
+  rm -rf "$TEMP_ROOT"
+}
+trap cleanup EXIT
+
+run_baksmali() {
+  local dex="$1" out="$2"
+  rm -rf "$out"
+  mkdir -p "$out"
+  java -jar "$BAKSMALI" d --api "$SDK_LEVEL" "$dex" -o "$out"
+}
+
+run_smali() {
+  local src="$1" out="$2"
+  rm -f "$out"
+  java -jar "$SMALI" a --api "$SDK_LEVEL" "$src" -o "$out"
+  [[ -s "$out" ]]
+}
+
+tree_hash() {
+  local root="$1"
+  (
+    cd "$root"
+    find . -type f -print0 | sort -z | xargs -0 sha256sum
+  ) | sha256sum | awk '{print $1}'
+}
+
+extract_all_dex() {
+  local archive="$1" raw="$2"
+  rm -rf "$raw"
+  mkdir -p "$raw"
+  unzip -j -o "$archive" 'classes*.dex' -d "$raw" >/dev/null
+  compgen -G "$raw/classes*.dex" >/dev/null || {
+    error "KAORIOS: no classes*.dex in $archive"
+    return 1
+  }
+}
+
+disassemble_all() {
+  local raw="$1" smali_root="$2" dex
+  rm -rf "$smali_root"
+  mkdir -p "$smali_root"
+  shopt -s nullglob
+  for dex in "$raw"/classes*.dex; do
+    run_baksmali "$dex" "$smali_root/$(basename "$dex").out"
+  done
+  shopt -u nullglob
+}
+
+snapshot_hashes() {
+  local root="$1" file="$2" dir
+  : > "$file"
+  shopt -s nullglob
+  for dir in "$root"/classes*.dex.out; do
+    printf '%s|%s\n' "$(basename "$dir")" "$(tree_hash "$dir")" >> "$file"
+  done
+  shopt -u nullglob
+}
+
+old_hash() {
+  local snapshot="$1" name="$2"
+  awk -F'|' -v n="$name" '$1==n {print $2; exit}' "$snapshot"
+}
+
+require_one_target() {
+  local root="$1" rel="$2" label="$3"
+  local matches=()
+  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$root" -type f -path "*/$rel" -print0)
+  if (( ${#matches[@]} != 1 )); then
+    error "KAORIOS: expected exactly one $label ($rel), found ${#matches[@]}"
+    return 1
+  fi
+}
+
+require_framework_targets() {
+  local root="$1"
+  require_one_target "$root" "android/app/ActivityThread.smali" "ActivityThread"
+  require_one_target "$root" "android/app/Instrumentation.smali" "Instrumentation"
+  require_one_target "$root" "android/app/ApplicationPackageManager.smali" "ApplicationPackageManager"
+  require_one_target "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" "AndroidKeyStoreKeyPairGeneratorSpi"
+  require_one_target "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" "AndroidKeyStoreSpi"
+}
+
+require_services_targets() {
+  local root="$1"
+  require_one_target "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine"
+  require_one_target "$root" "com/android/server/SystemServer.smali" "SystemServer"
+}
+
+require_settings_targets() {
+  local root="$1"
+  require_one_target "$root" "com/android/providers/settings/SettingsProvider.smali" "SettingsProvider"
+}
+
+rebuild_changed_dexes() {
+  local smali_root="$1" snapshot="$2" built="$3"
+  local dir name before after changed=0
+  rm -rf "$built"
+  mkdir -p "$built"
+  shopt -s nullglob
+  for dir in "$smali_root"/classes*.dex.out; do
+    name=$(basename "$dir")
+    before=$(old_hash "$snapshot" "$name")
+    after=$(tree_hash "$dir")
+    if [[ -z "$before" ]]; then
+      error "KAORIOS: missing pre-patch hash for $name"
+      return 1
+    fi
+    if [[ "$before" != "$after" ]]; then
+      run_smali "$dir" "$built/${name%.out}"
+      info "KAORIOS: rebuilt changed DEX ${name%.out}"
+      changed=$((changed + 1))
+    fi
+  done
+  shopt -u nullglob
+  if (( changed == 0 )); then
+    error "KAORIOS: patcher reported success but no owner DEX changed"
+    return 1
+  fi
+}
+
+next_dex_name() {
+  local raw="$1" dex base n max=0
+  shopt -s nullglob
+  for dex in "$raw"/classes*.dex; do
+    base=$(basename "$dex")
+    if [[ "$base" == "classes.dex" ]]; then
+      n=1
+    elif [[ "$base" =~ ^classes([0-9]+)\.dex$ ]]; then
+      n="${BASH_REMATCH[1]}"
+    else
+      continue
+    fi
+    (( n > max )) && max=$n
+  done
+  shopt -u nullglob
+  n=$((max + 1))
+  if (( n == 1 )); then
+    printf 'classes.dex\n'
+  else
+    printf 'classes%d.dex\n' "$n"
+  fi
+}
+
+ensure_no_existing_driver() {
+  local smali_root="$1"
+  local matches=()
+  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$smali_root" -type f -path '*/android/security/kaorios/KaoriosHook.smali' -print0)
+  if (( ${#matches[@]} != 0 )); then
+    error "KAORIOS: framework already contains KaoriosHook; refusing duplicate framework driver"
+    return 1
+  fi
+}
+
+update_archive_dexes() {
+  local original="$1" built="$2" candidate="$3"
+  local dex
+  cp -f "$original" "$candidate"
+  shopt -s nullglob
+  for dex in "$built"/classes*.dex; do
+    (
+      cd "$built"
+      zip -q -0 "$candidate" "$(basename "$dex")"
+    )
+  done
+  shopt -u nullglob
+  unzip -tq "$candidate" >/dev/null
+}
+
+verify_hook() {
+  local root="$1" rel="$2" needle="$3" label="$4"
+  local file
+  file=$(find "$root" -type f -path "*/$rel" -print -quit)
+  if [[ -z "$file" ]] || ! grep -Fq -- "$needle" "$file"; then
+    error "KAORIOS: final verification failed: $label"
+    return 1
+  fi
+}
+
+verify_framework_final() {
+  local root="$1"
+  require_framework_targets "$root"
+  verify_hook "$root" "android/app/ActivityThread.smali"     'KaoriosHook;->initActivityThread(Ljava/lang/Object;)V' "ActivityThread init"
+  verify_hook "$root" "android/app/Instrumentation.smali"     'KaoriosHook;->initContext(Landroid/content/Context;)V' "Instrumentation initContext"
+  verify_hook "$root" "android/app/ApplicationPackageManager.smali"     'KaoriosHook;->hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "system feature spoof"
+  verify_hook "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali"     'KaoriosHook;->initGenerateSoftwareKeyPair' "Play Integrity/keybox keypair hook"
+  verify_hook "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali"     'KaoriosHook;->CertificateChainIfNeeded' "Play Integrity/keybox certificate hook"
+
+  python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null
+  info "KAORIOS: framework hooks verified (Play Integrity/keybox + system feature spoof)"
+}
+
+verify_services_final() {
+  local root="$1"
+  require_services_targets "$root"
+  verify_hook "$root" "com/android/server/pm/ComputerEngine.smali"     'KaoriosHook;->shouldHideAppListForCaller' "ComputerEngine app visibility"
+  verify_hook "$root" "com/android/server/SystemServer.smali"     'KaoriosHook;->initSystemServer()V' "SystemServer init"
+  python3 "$SCRIPT_DIR/verify-services-a17-hooks.py" "$root" >/dev/null
+  python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$root" >/dev/null
+  info "KAORIOS: services hooks verified"
+}
+
+verify_settings_final() {
+  local root="$1" file
+  require_settings_targets "$root"
+  file=$(find "$root" -type f -path '*/com/android/providers/settings/SettingsProvider.smali' -print -quit)
+  grep -Fq -- 'KaoriosHook;->filterSettingsCall' "$file" || {
+    error "KAORIOS: SettingsProvider call() spoof hook missing"
+    return 1
+  }
+  if grep -Fq -- 'query(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;' "$file"; then
+    grep -Fq -- 'KaoriosHook;->filterSettingsQueryResult' "$file" || {
+      error "KAORIOS: SettingsProvider query() exists but query spoof hook is missing"
+      return 1
+    }
+  fi
+  python3 "$SCRIPT_DIR/verify-settingsprovider-a17-hooks.py" "$root" >/dev/null
+  info "KAORIOS: Settings spoof hooks verified"
+}
+
+verify_candidate() {
+  local candidate="$1" kind="$2" root="$3"
+  local raw="$root/verify-raw" smali="$root/verify-smali"
+  extract_all_dex "$candidate" "$raw"
+  disassemble_all "$raw" "$smali"
+  case "$kind" in
+    framework) verify_framework_final "$smali" ;;
+    services) verify_services_final "$smali" ;;
+    settings) verify_settings_final "$smali" ;;
+  esac
+}
+
+find_unique_artifact() {
+  local name="$1" preferred="$2"
+  if [[ -n "$preferred" && -f "$preferred" ]]; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+  local matches=()
+  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$work_dir/build/baserom/images" -type f -name "$name" -print0)
+  if (( ${#matches[@]} != 1 )); then
+    error "KAORIOS: expected one $name, found ${#matches[@]}"
+    return 1
+  fi
+  printf '%s\n' "${matches[0]}"
+}
+
+patch_archive() {
+  local artifact="$1" kind="$2"
+  local root="$TEMP_ROOT/$kind"
+  local raw="$root/raw" smali="$root/smali" snapshot="$root/before.hashes"
+  local built="$root/built" candidate="$root/candidate"
+
+  rm -rf "$root"
+  mkdir -p "$root"
+
+  extract_all_dex "$artifact" "$raw"
+  disassemble_all "$raw" "$smali"
+
+  case "$kind" in
+    framework)
+      require_framework_targets "$smali"
+      ensure_no_existing_driver "$smali"
+      ;;
+    services) require_services_targets "$smali" ;;
+    settings) require_settings_targets "$smali" ;;
+  esac
+
+  snapshot_hashes "$smali" "$snapshot"
+
+  if ! python3 "$PATCHER" "$smali" --android-version "$ANDROID_VER" --mode 1 --no-delay; then
+    error "KAORIOS: patcher failed for $kind"
+    return 1
+  fi
+
+  rebuild_changed_dexes "$smali" "$snapshot" "$built"
+
+  if [[ "$kind" == "framework" ]]; then
+    local driver_name
+    driver_name=$(next_dex_name "$raw")
+    cp -f "$DRIVER_DEX" "$built/$driver_name"
+    info "KAORIOS: framework driver staged as $driver_name"
+  fi
+
+  update_archive_dexes "$artifact" "$built" "$candidate"
+  verify_candidate "$candidate" "$kind" "$root"
+
+  cp -f "$candidate" "$artifact"
+  info "KAORIOS: installed verified $kind artifact"
+}
+
+install_toolbox() {
+  local sys_ext="$work_dir/build/baserom/images/system_ext"
+  if [[ ! -d "$sys_ext" ]]; then
+    error "KAORIOS: system_ext partition directory missing"
+    return 1
+  fi
+
+  local app_dir="$sys_ext/priv-app/KaoriosToolbox"
+  local perm_dir="$sys_ext/etc/permissions"
+  mkdir -p "$app_dir" "$perm_dir"
+  cp -f "$TOOLBOX_APK" "$app_dir/KaoriosToolbox.apk"
+  cp -f "$PERMISSION_XML" "$perm_dir/com.kousei.kaorios.xml"
+  chmod 0644 "$app_dir/KaoriosToolbox.apk" "$perm_dir/com.kousei.kaorios.xml"
+  info "KAORIOS: Toolbox installed as system_ext priv-app"
+}
+
+validate_optional_keybox_input() {
+  # Never bake an attestation private key into a public ROM repository.
+  # If a builder supplies one for validation, only validate its structure.
+  local keybox="${KAORIOS_KEYBOX_XML:-}"
+  if [[ -z "$keybox" && -f "$KAORIOS_DIR/keybox.xml" ]]; then
+    keybox="$KAORIOS_DIR/keybox.xml"
+  fi
+  if [[ -n "$keybox" ]]; then
+    if [[ ! -f "$keybox" ]]; then
+      error "KAORIOS: KAORIOS_KEYBOX_XML does not exist: $keybox"
+      return 1
+    fi
+    python3 "$VALIDATE_KEYBOX" "$keybox" >/dev/null || {
+      error "KAORIOS: supplied keybox XML failed structural validation"
+      return 1
+    }
+    warn "KAORIOS: keybox validated but intentionally NOT embedded; import it in Toolbox at runtime"
+  fi
+}
+
+mods "Kaorios Toolbox v2.0.6.0 (hooks only; HyperMOS owns FLAG_SECURE/CorePatch)"
+
+FRAMEWORK_JAR=$(find_unique_artifact   "framework.jar"   "$work_dir/build/baserom/images/system/system/framework/framework.jar")
+SERVICES_JAR=$(find_unique_artifact   "services.jar"   "$work_dir/build/baserom/images/system/system/framework/services.jar")
+SETTINGS_PROVIDER=$(find_unique_artifact "SettingsProvider.apk" "")
+
+validate_optional_keybox_input
+patch_archive "$FRAMEWORK_JAR" framework
+patch_archive "$SERVICES_JAR" services
+patch_archive "$SETTINGS_PROVIDER" settings
+install_toolbox
+
+mods "Kaorios Toolbox done: Play Integrity/keybox hooks + Settings spoof + system feature spoof"
