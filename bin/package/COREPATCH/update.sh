@@ -17,10 +17,12 @@ elif [[ $AndroidVER == "16" ]];then
     # - disable secure flag
     # - PenguinOS-style CN notification policy
     # - PolicyManager.CN_MODEL=false is applied inside the CN notification patch
+    # - long press power -> MiCTS (fail-open to the original Xiaomi action)
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a16.sh \
         --disable-signature-verification \
         --cn-notification-fix \
-        --disable-secure-flag
+        --disable-secure-flag \
+        --micts-power-key
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh
 fi
