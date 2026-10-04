@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 # SPDX-License-Identifier: GPL-3.0
 
 work_dir=$(pwd)
@@ -18,12 +19,15 @@ elif [[ $AndroidVER == "16" ]];then
     # - PenguinOS-style CN notification policy
     # - PolicyManager.CN_MODEL=false is applied inside the CN notification patch
     # - long press power -> MiCTS (fail-open to the original Xiaomi action)
-    bash $work_dir/bin/package/COREPATCH/jar_patcher_a16.sh \
+    if ! bash "$work_dir/bin/package/COREPATCH/jar_patcher_a16.sh" \
         --disable-signature-verification \
         --cn-notification-fix \
         --disable-secure-flag \
         --micts-power-key \
-        --passkey
+        --passkey; then
+        error "COREPATCH A16 failed"
+        exit 1
+    fi
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh
 fi
