@@ -1,72 +1,54 @@
-work_dir=$(pwd) 
-source $work_dir/functions.sh
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Define ROM infomation
-androidVer=$(cat $work_dir/bin/ddevice/androidver.txt)
-rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt)
-deviceTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
+work_dir=$(pwd)
+source "$work_dir/functions.sh"
+
+rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt")
 MAIN_FOLDER="$work_dir/build/baserom/images"
 
-BOOT_SOURCE="$work_dir/bin/modfile/UpdateFile/Boot"
-MEDIA_TARGET="$work_dir/build/baserom/images/product/media"
+BOOT_SOURCE="$work_dir/bin/modfile/UpdateFile/Boot/bootanimation.zip"
+MEDIA_TARGET="$MAIN_FOLDER/product/media"
+BOOT_TARGET="$MEDIA_TARGET/bootanimation.zip"
 
-mods "Copy Boot Media"
+mods "Boot Animation"
 
-# Đã loại bỏ điều kiện check deviceTYPE == "China" ở đây
-if [[ $rom_os == "MIUI" ]];then
-    mods "Detect MIUI! Skipping..."
-elif [[ $rom_os == "OS1" ]] && [[ $androidVer -le "13" ]];then
-    mods "Detect HyperOS A13! Skipping..."
-elif [[ $rom_os == "OS1" ]] && [[ $androidVer -le "14" ]];then
-    mods "Detect HyperOS! Skipping..."
-elif [[ $rom_os == "OS2" ]] && [[ $androidVer -le "14" ]];then
-    mods "Detect HyperOS! Skipping..."
-elif [[ $rom_os == "OS2" ]] && [[ $androidVer -le "15" ]];then
-    mods "Detect HyperOS! Skipping..."
-elif [[ $rom_os == "OS3" ]] && [[ $androidVer -le "16" ]];then
-    mods "Detect HyperOS OS3! Copying files..."
-    
-    # Đảm bảo thư mục đích product/media tồn tại
-    mkdir -p "$MEDIA_TARGET"
+case "$rom_os" in
+    OS3|OS4)
+        ;;
+    *)
+        mods "Boot Animation: $rom_os -> skipped"
+        exit 0
+        ;;
+esac
 
-    # Kiểm tra và copy file bootanimation.zip kèm log
-    if [ -f "$BOOT_SOURCE/bootanimation.zip" ]; then
-        cp -rf "$BOOT_SOURCE/bootanimation.zip" "$MEDIA_TARGET/"
-        echo " -> [Boot Media] Copied bootanimation.zip thành công!"
-    else
-        echo " -> ❌ Không tìm thấy bootanimation.zip trong thư mục Boot!"
-    fi
-
-    # Kiểm tra và copy file bootaudio.mp3 kèm log
-    if [ -f "$BOOT_SOURCE/bootaudio.mp3" ]; then
-        cp -rf "$BOOT_SOURCE/bootaudio.mp3" "$MEDIA_TARGET/"
-        echo " -> [Boot Media] Copied bootaudio.mp3 thành công!"
-    else
-        echo " -> ❌ Không tìm thấy bootaudio.mp3 trong thư mục Boot!"
-    fi
-
-elif [[ $rom_os == "OS4" ]] && [[ $androidVer -le "17" ]];then
-    mods "Detect HyperOS OS3! Copying files..."
-    
-    # Đảm bảo thư mục đích product/media tồn tại
-    mkdir -p "$MEDIA_TARGET"
-
-    # Kiểm tra và copy file bootanimation.zip kèm log
-    if [ -f "$BOOT_SOURCE/bootanimation.zip" ]; then
-        cp -rf "$BOOT_SOURCE/bootanimation.zip" "$MEDIA_TARGET/"
-        echo " -> [Boot Media] Copied bootanimation.zip thành công!"
-    else
-        echo " -> ❌ Không tìm thấy bootanimation.zip trong thư mục Boot!"
-    fi
-
-    # Kiểm tra và copy file bootaudio.mp3 kèm log
-    if [ -f "$BOOT_SOURCE/bootaudio.mp3" ]; then
-        cp -rf "$BOOT_SOURCE/bootaudio.mp3" "$MEDIA_TARGET/"
-        echo " -> [Boot Media] Copied bootaudio.mp3 thành công!"
-    else
-        echo " -> ❌ Không tìm thấy bootaudio.mp3 trong thư mục Boot!"
-    fi
-
+if [[ ! -s "$BOOT_SOURCE" ]]; then
+    error "Boot Animation: bootanimation.zip missing or empty"
+    exit 1
 fi
 
-mods "Boot Done"
+if ! unzip -tq "$BOOT_SOURCE" >/dev/null 2>&1; then
+    error "Boot Animation: bootanimation.zip is not a valid ZIP"
+    exit 1
+fi
+
+mkdir -p "$MEDIA_TARGET"
+
+if ! cp -f "$BOOT_SOURCE" "$BOOT_TARGET"; then
+    error "Boot Animation: failed to copy bootanimation.zip"
+    exit 1
+fi
+
+chmod 0644 "$BOOT_TARGET"
+
+if [[ ! -s "$BOOT_TARGET" ]]; then
+    error "Boot Animation: installed bootanimation.zip missing or empty"
+    exit 1
+fi
+
+if ! cmp -s "$BOOT_SOURCE" "$BOOT_TARGET"; then
+    error "Boot Animation: copy verification failed"
+    exit 1
+fi
+
+mods "Boot Animation -> product/media/bootanimation.zip Done"
