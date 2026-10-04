@@ -163,6 +163,178 @@ with open(path, "w", encoding="utf-8") as fh:
     fh.write(out)
 PY
 
+
+# HyperMOS FCM v2:
+# 1) Whenever PowerKeeper regenerates MILLET_NO_RESTRICT_APP, preserve its
+#    generated list and append Google Play services if it is missing.
+#    Millet/Greezer remains enabled for every other application.
+active_smali=$(find "$tmp/out" -type f -path '*/com/miui/powerkeeper/controller/ActiveStateController.smali' -print -quit)
+[[ -n "$active_smali" && -f "$active_smali" ]] || {
+  error "NOTIFICATION_FIX: ActiveStateController.smali not found"
+  exit 1
+}
+
+ACTIVE_SMALI="$active_smali" python3 <<'PY'
+import os
+import re
+import sys
+
+path = os.environ["ACTIVE_SMALI"]
+with open(path, "r", encoding="utf-8") as fh:
+    text = fh.read()
+
+m = re.search(
+    r"(?ms)^\.method\b[^\n]*\bdealNoRestrictApp\(\)V\s*$.*?^\.end method\s*$",
+    text,
+)
+if not m:
+    print("dealNoRestrictApp()V not found", file=sys.stderr)
+    sys.exit(20)
+
+method = m.group(0)
+if "MILLET_NO_RESTRICT_APP" not in method:
+    print("MILLET_NO_RESTRICT_APP not referenced in dealNoRestrictApp()", file=sys.stderr)
+    sys.exit(21)
+
+if ":hypermos_gms_millet_done" in method:
+    sys.exit(0)
+
+locals_m = re.search(r"(?m)^(\s*)\.locals\s+(\d+)\s*$", method)
+if not locals_m:
+    print("dealNoRestrictApp() does not use .locals", file=sys.stderr)
+    sys.exit(22)
+
+old_locals = int(locals_m.group(2))
+v_key = f"v{old_locals}"
+v_value = f"v{old_locals + 1}"
+v_tmp = f"v{old_locals + 2}"
+
+method = (
+    method[:locals_m.start()]
+    + f"{locals_m.group(1)}.locals {old_locals + 3}"
+    + method[locals_m.end():]
+)
+
+lines = method.splitlines(keepends=True)
+put_idx = None
+resolver_reg = None
+
+for i, line in enumerate(lines):
+    if (
+        "Landroid/provider/Settings$System;->putString(" in line
+        and "Ljava/lang/String;Ljava/lang/String;)Z" in line
+    ):
+        nearby = "".join(lines[max(0, i - 12):i + 1])
+        if "MILLET_NO_RESTRICT_APP" not in nearby:
+            continue
+        regs_m = re.search(r"\{([^}]*)\}", line)
+        if not regs_m:
+            continue
+        regs = [x.strip() for x in regs_m.group(1).split(",")]
+        if len(regs) != 3:
+            continue
+        resolver_reg = regs[0]
+        put_idx = i
+        break
+
+if put_idx is None or resolver_reg is None:
+    print("MILLET Settings.System.putString() site not found", file=sys.stderr)
+    sys.exit(23)
+
+patch = f"""
+    # HyperMOS: keep GMS in Xiaomi's hidden no-restrict package set.
+    const-string {v_key}, "MILLET_NO_RESTRICT_APP"
+    invoke-static {{{resolver_reg}, {v_key}}}, Landroid/provider/Settings$System;->getString(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;
+    move-result-object {v_value}
+
+    invoke-static {{{v_value}}}, Landroid/text/TextUtils;->isEmpty(Ljava/lang/CharSequence;)Z
+    move-result {v_tmp}
+    if-nez {v_tmp}, :hypermos_gms_millet_empty
+
+    const-string {v_key}, "com.google.android.gms"
+    invoke-virtual {{{v_value}, {v_key}}}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z
+    move-result {v_tmp}
+    if-nez {v_tmp}, :hypermos_gms_millet_done
+
+    const-string {v_key}, ",com.google.android.gms"
+    invoke-virtual {{{v_value}, {v_key}}}, Ljava/lang/String;->concat(Ljava/lang/String;)Ljava/lang/String;
+    move-result-object {v_value}
+    goto :hypermos_gms_millet_write
+
+:hypermos_gms_millet_empty
+    const-string {v_value}, "com.google.android.gms"
+
+:hypermos_gms_millet_write
+    const-string {v_key}, "MILLET_NO_RESTRICT_APP"
+    invoke-static {{{resolver_reg}, {v_key}, {v_value}}}, Landroid/provider/Settings$System;->putString(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
+
+:hypermos_gms_millet_done
+"""
+
+lines.insert(put_idx + 1, patch)
+patched_method = "".join(lines)
+text = text[:m.start()] + patched_method + text[m.end():]
+
+if text.count(":hypermos_gms_millet_done") != 2:
+    print("MILLET patch verification failed", file=sys.stderr)
+    sys.exit(24)
+
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
+
+mods "PowerKeeper MILLET -> keep com.google.android.gms no-restrict"
+
+# 2) Disable only PowerKeeper's dedicated GMS firewall/DNS controller.
+#    Do not disable generic PowerKeeper, DeviceIdle, Millet or Greezer.
+gms_smali=$(find "$tmp/out" -type f -path '*/com/miui/powerkeeper/utils/GmsObserver.smali' -print -quit)
+[[ -n "$gms_smali" && -f "$gms_smali" ]] || {
+  error "NOTIFICATION_FIX: GmsObserver.smali not found"
+  exit 1
+}
+
+GMS_SMALI="$gms_smali" python3 <<'PY'
+import os
+import re
+import sys
+
+path = os.environ["GMS_SMALI"]
+with open(path, "r", encoding="utf-8") as fh:
+    text = fh.read()
+
+m = re.search(
+    r"(?ms)^(\.method\b[^\n]*\bisGmsControlEnabled\(\)Z\s*$).*?^\.end method\s*$",
+    text,
+)
+if not m:
+    print("GmsObserver.isGmsControlEnabled()Z not found", file=sys.stderr)
+    sys.exit(30)
+
+replacement = (
+    m.group(1)
+    + "\n    .locals 1\n\n"
+      "    # HyperMOS: never enable Xiaomi's dedicated GMS firewall/DNS limiter.\n"
+      "    const/4 v0, 0x0\n"
+      "    return v0\n"
+      ".end method"
+)
+
+text = text[:m.start()] + replacement + text[m.end():]
+
+check = re.search(
+    r"(?ms)^\.method\b[^\n]*\bisGmsControlEnabled\(\)Z\s*$.*?^\.end method\s*$",
+    text,
+)
+if not check or "const/4 v0, 0x0" not in check.group(0):
+    print("GmsObserver patch verification failed", file=sys.stderr)
+    sys.exit(31)
+
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
+
+mods "PowerKeeper GmsObserver -> dedicated GMS limiter disabled"
+
 name=$(basename "$apk")
 $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null
 
