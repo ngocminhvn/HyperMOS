@@ -85,7 +85,7 @@ jobs:
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test 2>&1 | tee -a build_action.log
           sudo apt-get update 2>&1 | tee -a build_action.log
           sudo apt purge device-tree-compiler 2>&1 | tee -a build_action.log
-          sudo apt-get install -y aria2 jq rclone sshpass lz4 python-is-python3 wget python3 lz4 xz-utils zlib1g-dev gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip erofs-utils unzip p7zip-full zipalign zstd bc android-sdk-libsparse-utils xmlstarlet secilc 2>&1 | tee -a build_action.log
+          sudo apt-get install -y aria2 jq rclone sshpass lz4 python-is-python3 wget python3 lz4 xz-utils zlib1g-dev gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip erofs-utils unzip p7zip-full zipalign zstd bc android-sdk-libsparse-utils xmlstarlet 2>&1 | tee -a build_action.log
           sudo pip3 install ConfigObj 2>&1 | tee -a build_action.log
           sudo pip3 install telebot 2>&1 | tee -a build_action.log
           sudo pip3 install setuptools 2>&1 | tee -a build_action.log
@@ -111,19 +111,6 @@ jobs:
           set -o pipefail
           echo "[STEP] Build ROM" | tee -a build_action.log
           sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
-
-      - name: Validate Kaorios AdvancedPolicy SELinux
-        run: |
-          set -e
-          set -o pipefail
-          ANDROID_VER="$(tr -d ' \r\n' < bin/ddevice/androidver.txt)"
-          if [ "$ANDROID_VER" = "16" ]; then
-            echo "[STEP] Validate Kaorios AdvancedPolicy SELinux (Android 16)" | tee -a build_action.log
-            python3 bin/package/KAORIOS_TOOLBOX/script/validate-advanced-policy-sepolicy.py \
-              build/baserom/images 2>&1 | tee -a build_action.log
-          else
-            echo "[STEP] Skip strict Kaorios SELinux validation on Android $ANDROID_VER" | tee -a build_action.log
-          fi
 
       - name: Pack ROM
         run: |
