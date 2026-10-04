@@ -65,11 +65,6 @@ if [[ ! -f "$GBOARD" ]]; then
   exit 1
 fi
 
-VELVET_CTS="$GMS_SOURCE/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
-if [[ ! -f "$VELVET_CTS" ]]; then
-  echo "[ERROR] GoogleVelvet_CTS.apk not found: $VELVET_CTS"
-  exit 1
-fi
 
 cp -rf "$GMS_SOURCE/product/." "$MAIN_FOLDER/product/"
 cp -rf "$GMS_SOURCE/system_ext/." "$MAIN_FOLDER/system_ext/"
