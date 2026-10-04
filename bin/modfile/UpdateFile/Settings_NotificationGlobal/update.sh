@@ -41,12 +41,23 @@ root = Path(os.environ["SETTINGS_OUT"])
 # ------------------------------------------------------------------
 # 1) HyperOS NotificationMoreSettings / Badge
 # ------------------------------------------------------------------
-base_files = list(root.glob("smali*/com/android/settings/notification/BaseNotificationSettings.smali"))
-if not base_files:
-    print("BaseNotificationSettings.smali not found", file=sys.stderr)
+base_suffix = "/com/android/settings/notification/BaseNotificationSettings.smali"
+base_files = [
+    p for p in root.rglob("BaseNotificationSettings.smali")
+    if str(p).replace("\\", "/").endswith(base_suffix)
+]
+if len(base_files) != 1:
+    print(
+        f"BaseNotificationSettings target count unexpected: {len(base_files)}",
+        file=sys.stderr,
+    )
+    for p in root.rglob("BaseNotificationSettings.smali"):
+        print(f"candidate: {p}", file=sys.stderr)
     sys.exit(61)
+
 base = base_files[0]
-smali_root = Path(str(base).split("/com/android/settings/notification/BaseNotificationSettings.smali")[0])
+base_norm = str(base).replace("\\", "/")
+smali_root = Path(base_norm[:-len(base_suffix)])
 
 listener = smali_root / "com/android/settings/notification/HyperMosNotificationListener.smali"
 listener.parent.mkdir(parents=True, exist_ok=True)
@@ -122,17 +133,22 @@ listener.write_text(r'''.class public final Lcom/android/settings/notification/H
 ''', encoding="utf-8")
 
 channel_files = []
-for rel in (
-    "com/android/settings/notification/ChannelNotificationSettings.smali",
-    "com/android/settings/notification/app/ChannelNotificationSettings.smali",
-):
-    channel_files += list(root.glob(f"smali*/{rel}"))
+for path in root.rglob("ChannelNotificationSettings.smali"):
+    text = path.read_text(encoding="utf-8")
+    if (
+        "Lcom/android/settings/notification/BaseNotificationSettings;" in text
+        and re.search(
+            r"(?ms)^\.method\b[^\n]*\bremoveDefaultPrefs\(\)V\s*$.*?^\.end method\s*$",
+            text,
+        )
+    ):
+        channel_files.append(path)
 
-if len(channel_files) != 2:
-    print(
-        f"expected both ChannelNotificationSettings variants, found={len(channel_files)}",
-        file=sys.stderr,
-    )
+channel_files = sorted(set(channel_files))
+if not channel_files:
+    print("no compatible ChannelNotificationSettings target found", file=sys.stderr)
+    for p in root.rglob("ChannelNotificationSettings.smali"):
+        print(f"candidate: {p}", file=sys.stderr)
     sys.exit(62)
 
 helper_template = r'''
@@ -232,9 +248,15 @@ for path in channel_files:
 # 2) Passkey UI: only make Credential Manager Settings evaluate the
 #    international-build gate as true. Do not globally spoof region.
 # ------------------------------------------------------------------
-credential_files = list(root.glob("smali*/com/android/settings/applications/credentials/**/*.smali"))
-credential_files += list(root.glob("smali*/com/android/settings/applications/credentials/*.smali"))
-credential_files = list(dict.fromkeys(credential_files))
+credential_files = [
+    p for p in root.rglob("*.smali")
+    if "/com/android/settings/applications/credentials/" in str(p).replace("\\", "/")
+]
+credential_files = sorted(set(credential_files))
+
+if not credential_files:
+    print("Passkey Settings credential package not found", file=sys.stderr)
+    sys.exit(66)
 
 intl_reads = 0
 pat = re.compile(
@@ -254,14 +276,18 @@ if intl_reads == 0:
     print("Passkey Settings international-build gates not found", file=sys.stderr)
     sys.exit(66)
 
-if patched_channels != 2:
+if patched_channels != len(channel_files):
     print(
-        f"notification channel patch verification failed: {patched_channels}/2",
+        f"notification channel patch verification failed: "
+        f"{patched_channels}/{len(channel_files)}",
         file=sys.stderr,
     )
     sys.exit(67)
 
-print(f"notification channel variants patched={patched_channels}; passkey Settings gates={intl_reads}")
+print(
+    f"notification channel variants patched={patched_channels}; "
+    f"passkey Settings gates={intl_reads}"
+)
 PY
 
 name=$(basename "$apk")
