@@ -25,7 +25,10 @@ rm -rf "$tmp"
 mkdir -p "$tmp/out" "$tmp/final"
 
 mods "SystemUI: disabling China notification folding"
-$APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null
+if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null; then
+  error "SystemUI Notification Global: decode failed"
+  exit 1
+fi
 
 SYSTEMUI_OUT="$tmp/out" python3 <<'PY'
 from pathlib import Path
@@ -39,6 +42,15 @@ util_files = list(root.glob("smali*/com/android/systemui/statusbar/notification/
 
 patched_scheduler = 0
 patched_writer = 0
+verified_scheduler = 0
+verified_writer = 0
+
+if len(scheduler_files) != 1:
+    print(f"FoldCoordinator target count unexpected: {len(scheduler_files)}", file=sys.stderr)
+    sys.exit(70)
+if len(util_files) != 1:
+    print(f"NotificationUtil target count unexpected: {len(util_files)}", file=sys.stderr)
+    sys.exit(71)
 
 # Block the fold scheduler. This prevents both immediate fold and the historical
 # timeout that can later move notifications into "More notifications".
@@ -49,10 +61,12 @@ for path in scheduler_files:
         text,
     ))
     if not methods:
-        continue
+        print("scheduleHistoryNotification()V target not found", file=sys.stderr)
+        sys.exit(72)
     for m in reversed(methods):
         method = m.group(0)
         if "hypermos_no_notification_fold" in method:
+            verified_scheduler += 1
             continue
         lines = method.splitlines()
         reg_idx = next(
@@ -71,6 +85,7 @@ for path in scheduler_files:
         replacement = "\n".join(lines)
         text = text[:m.start()] + replacement + text[m.end():]
         patched_scheduler += 1
+        verified_scheduler += 1
     path.write_text(text, encoding="utf-8")
 
 # Force NotificationUtil.setFold(..., false) while preserving the method body,
@@ -81,9 +96,13 @@ for path in util_files:
         r"(?ms)^\.method\b[^\n]*\bsetFold\([^\n]*\)V\s*$.*?^\.end method\s*$",
         text,
     ))
+    if not methods:
+        print("NotificationUtil.setFold(... )V target not found", file=sys.stderr)
+        sys.exit(73)
     for m in reversed(methods):
         method = m.group(0)
         if "hypermos_force_unfold" in method:
+            verified_writer += 1
             continue
         header = method.splitlines()[0]
         sig_m = re.search(r"setFold\((.*)\)V", header)
@@ -136,18 +155,27 @@ for path in util_files:
         replacement = "\n".join(lines)
         text = text[:m.start()] + replacement + text[m.end():]
         patched_writer += 1
+        verified_writer += 1
     path.write_text(text, encoding="utf-8")
 
-if patched_scheduler == 0 and patched_writer == 0:
-    # Some OS3 SystemUI builds do not contain the OS4 fold pipeline. In that case
-    # there is nothing to patch and the build remains valid.
-    print("HyperMOS: fold pipeline not present on this MiuiSystemUI; skipped")
-else:
-    print(f"HyperMOS notification fold: scheduler={patched_scheduler} writer={patched_writer}")
+if verified_scheduler == 0:
+    print("FoldCoordinator patch verification failed", file=sys.stderr)
+    sys.exit(74)
+if verified_writer == 0:
+    print("NotificationUtil.setFold patch verification failed", file=sys.stderr)
+    sys.exit(75)
+
+print(
+    f"HyperMOS notification fold: scheduler={patched_scheduler}/{verified_scheduler} "
+    f"writer={patched_writer}/{verified_writer}"
+)
 PY
 
 name=$(basename "$apk")
-$APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null
+if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null; then
+  error "SystemUI Notification Global: rebuild failed"
+  exit 1
+fi
 
 [[ -s "$tmp/final/$name" ]] || {
   error "SystemUI Notification Global: rebuild failed"
