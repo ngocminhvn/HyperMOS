@@ -25,7 +25,10 @@ rm -rf "$tmp"
 mkdir -p "$tmp/out" "$tmp/final"
 
 mods "Settings: restoring notification channel controls + Passkey UI"
-$APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null
+if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null; then
+  error "Settings Notification/Passkey: decode failed"
+  exit 1
+fi
 
 SETTINGS_OUT="$tmp/out" python3 <<'PY'
 from pathlib import Path
@@ -125,8 +128,11 @@ for rel in (
 ):
     channel_files += list(root.glob(f"smali*/{rel}"))
 
-if not channel_files:
-    print("ChannelNotificationSettings smali not found", file=sys.stderr)
+if len(channel_files) != 2:
+    print(
+        f"expected both ChannelNotificationSettings variants, found={len(channel_files)}",
+        file=sys.stderr,
+    )
     sys.exit(62)
 
 helper_template = r'''
@@ -248,11 +254,21 @@ if intl_reads == 0:
     print("Passkey Settings international-build gates not found", file=sys.stderr)
     sys.exit(66)
 
+if patched_channels != 2:
+    print(
+        f"notification channel patch verification failed: {patched_channels}/2",
+        file=sys.stderr,
+    )
+    sys.exit(67)
+
 print(f"notification channel variants patched={patched_channels}; passkey Settings gates={intl_reads}")
 PY
 
 name=$(basename "$apk")
-$APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null
+if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null; then
+  error "Settings Notification/Passkey: rebuild failed"
+  exit 1
+fi
 
 [[ -s "$tmp/final/$name" ]] || {
   error "Settings Notification/Passkey: rebuild failed"
