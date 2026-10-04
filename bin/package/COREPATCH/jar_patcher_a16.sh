@@ -1200,7 +1200,10 @@ prepare_kaorios_k1_payloads() {
       return 1
     }
   done
-  rm -rf "$verify_dir"
+
+  # Keep the verified driver smali tree for duplicate-class checks against the
+  # exact target framework before appending the raw DEX.
+  # It is refreshed on every build by the rm -rf above.
 
   # K1 intentionally avoids privapp-permissions as a boot variable.
   local product="$work_dir/build/baserom/images/product"
@@ -1231,11 +1234,64 @@ append_kaorios_driver_dex() {
   local decompile_dir="$1"
   prepare_kaorios_k1_payloads || return 1
 
-  local existing
-  existing=$(find "$decompile_dir" -type f \
-    -path '*/android/security/kaorios/KaoriosHook.smali' -print -quit)
-  [ -z "$existing" ] || {
-    err "[KAORIOS] KaoriosHook class already exists: $existing"
+  local driver_tree="$KAORIOS_CACHE_DIR/driver_verify"
+  [ -d "$driver_tree" ] || {
+    err "[KAORIOS] verified driver smali tree is missing"
+    return 1
+  }
+
+  DRIVER_TREE="$driver_tree" FRAMEWORK_TREE="$decompile_dir" python3 <<'PY'
+from pathlib import Path
+import os
+import sys
+
+driver = Path(os.environ["DRIVER_TREE"])
+framework = Path(os.environ["FRAMEWORK_TREE"])
+
+framework_by_rel = {}
+for path in framework.rglob("*.smali"):
+    normalized = str(path).replace("\\", "/")
+    marker = None
+    for token in ("/smali/", "/smali_classes"):
+        pos = normalized.find(token)
+        if pos >= 0:
+            marker = pos
+            break
+    if marker is None:
+        continue
+
+    tail = normalized[marker + 1:]
+    if tail.startswith("smali/"):
+        rel = tail[len("smali/"):]
+    else:
+        slash = tail.find("/")
+        if slash < 0:
+            continue
+        rel = tail[slash + 1:]
+    framework_by_rel.setdefault(rel, []).append(path)
+
+duplicates = []
+count = 0
+for path in driver.rglob("*.smali"):
+    rel = path.relative_to(driver).as_posix()
+    count += 1
+    if rel in framework_by_rel:
+        duplicates.append((rel, framework_by_rel[rel]))
+
+if count == 0:
+    print("[KAORIOS] driver contains no smali classes", file=sys.stderr)
+    sys.exit(130)
+
+if duplicates:
+    print("[KAORIOS] duplicate driver/framework classes detected:", file=sys.stderr)
+    for rel, owners in duplicates[:20]:
+        print(f"  {rel}: {owners}", file=sys.stderr)
+    sys.exit(131)
+
+print(f"[KAORIOS] driver duplicate-class check: PASS ({count} classes)")
+PY
+  [ $? -eq 0 ] || {
+    err "[KAORIOS] driver duplicate-class check failed"
     return 1
   }
 
