@@ -1215,6 +1215,16 @@ apply_miui_framework_gboard() {
   # Add Gboard
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/android/inputmethodservice/InputMethodServiceInjector.smali"
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/android/view/inputmethod/InputMethodManagerStubImpl.smali"
+  # FrameworkPatcher compatibility: treat Gboard as the Baidu IME replacement
+  # in Xiaomi's display/input-specific path too.
+  local display_info_file
+  display_info_file=$(find "$decompile_dir" -type f -path '*/android/view/DisplayInfoInjector$2.smali' -print -quit)
+  if [ -n "$display_info_file" ] && [ -f "$display_info_file" ]; then
+    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$display_info_file"
+    log "[PATCH] DisplayInfoInjector\$2 -> Gboard"
+  else
+    warn "DisplayInfoInjector\$2.smali not found; skipping Gboard compatibility patch"
+  fi
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/android/internal/os/AnrEnhanceImpl.smali"
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/miui/util/HapticFeedbackUtil.smali"
 
