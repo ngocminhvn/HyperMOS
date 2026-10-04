@@ -22,7 +22,8 @@ elif [[ $AndroidVER == "16" ]];then
         --disable-signature-verification \
         --cn-notification-fix \
         --disable-secure-flag \
-        --micts-power-key
+        --micts-power-key \
+        --passkey
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh
 fi
