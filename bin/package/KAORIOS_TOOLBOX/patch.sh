@@ -14,10 +14,9 @@ set -euo pipefail
 #   - SettingsProvider.call()/query() per-app Settings spoof;
 #   - Settings$NameValueCache dev-status hook (hide Developer options / ADB);
 #   - Android 17 Build / Build$VERSION spoof (Android 17 only, like upstream).
-# Skipped on purpose: FLAG_SECURE, CorePatch, and the kaorios_advanced_policy
-# SELinux rules (see README - the ROM domain and split-policy layout must be
-# observed on the real device first; guessed allow rules can break policy
-# compilation or cause a boot loop).
+#   - kaorios_advanced_policy SELinux service rules, derived from the ROM's own
+#     seapp_contexts and split-policy layout (fail-closed; see README).
+# Skipped on purpose: FLAG_SECURE and CorePatch.
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
