@@ -54,6 +54,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -90,6 +91,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -924,98 +926,234 @@ class MainActivity : ComponentActivity() {
     ) {
         LazyColumn(
             modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(
+                start = 14.dp,
+                end = 14.dp,
+                top = 12.dp,
+                bottom = 22.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
-                Card {
-                    ListItem(
-                        headlineContent = {
-                            Text("TNM Downloads", fontWeight = FontWeight.SemiBold)
-                        },
-                        supportingContent = {
-                            Text(if (loading) "Đang làm mới…" else "Google Drive folder")
-                        },
-                        leadingContent = {
-                            Icon(Icons.Rounded.Download, contentDescription = null)
-                        },
-                        trailingContent = {
-                            IconButton(onClick = onRefresh, enabled = !loading) {
-                                if (loading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(22.dp),
-                                        strokeWidth = 2.dp,
-                                    )
-                                } else {
-                                    Icon(Icons.Rounded.Refresh, contentDescription = "Làm mới")
-                                }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(15.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Rounded.Download,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = "TNM Downloads",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                            Text(
+                                text = when {
+                                    loading -> "Đang cập nhật danh sách…"
+                                    files.isEmpty() -> "Google Drive · Chưa có file"
+                                    else -> "Google Drive · ${files.size} file"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        FilledTonalIconButton(
+                            enabled = !loading,
+                            onClick = onRefresh,
+                        ) {
+                            if (loading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Rounded.Refresh,
+                                    contentDescription = "Làm mới",
+                                )
                             }
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    )
+                        }
+                    }
                 }
             }
 
             if (status.isNotBlank()) {
                 item {
-                    Card {
-                        ListItem(
-                            headlineContent = { Text("Tải xuống") },
-                            supportingContent = { Text(status) },
-                            leadingContent = { Icon(Icons.Rounded.Info, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        )
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                Icons.Rounded.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            Text(
+                                text = status,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
 
             if (error != null) {
                 item {
-                    Card {
-                        ListItem(
-                            headlineContent = { Text("Không tải được danh sách") },
-                            supportingContent = { Text(error) },
-                            leadingContent = { Icon(Icons.Rounded.Info, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        )
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                Icons.Rounded.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Không tải được danh sách",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                Text(
+                                    error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             } else if (!loading && files.isEmpty()) {
                 item {
-                    Text(
-                        "Chưa có file trong folder Drive.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 28.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Folder Drive hiện chưa có file",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             } else {
                 items(files, key = { it.id }) { file ->
-                    Card {
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    file.name,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 2,
+                    val downloading = file.id in downloadingIds
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(22.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Download,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 )
-                            },
-                            supportingContent = {
-                                Text(DriveDownloads.formatSize(file.sizeBytes))
-                            },
-                            leadingContent = {
-                                Icon(Icons.Rounded.Download, null)
-                            },
-                            trailingContent = {
-                                FilledTonalButton(
-                                    enabled = file.id !in downloadingIds,
-                                    onClick = { onDownload(file) },
-                                ) {
-                                    Text(
-                                        if (file.id in downloadingIds) "Đang tải" else "Tải"
+                            }
+
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    text = file.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = DriveDownloads.formatSize(file.sizeBytes),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+
+                            FilledTonalIconButton(
+                                enabled = !downloading,
+                                onClick = { onDownload(file) },
+                            ) {
+                                if (downloading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Rounded.Download,
+                                        contentDescription = "Tải ${file.name}",
                                     )
                                 }
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        )
+                            }
+                        }
                     }
                 }
             }
