@@ -20,6 +20,7 @@ data class DeviceInfo(
     val android: String,
     val hyperos: String,
     val batteryTemp: String,
+    val batteryPower: String,
     val socTemp: String,
     val gpuTemp: String,
     val root: String,
@@ -142,6 +143,56 @@ object SystemInfo {
         return temperatureValue(sysfs)
     }
 
+
+    private fun batteryPower(context: Context): String {
+        return try {
+            val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            val currentUa = batteryManager
+                .getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                .takeIf { it != Int.MIN_VALUE && it != 0 }
+                ?.toLong()
+                ?: readFirst(
+                    "/sys/class/power_supply/battery/current_now",
+                    "/sys/class/power_supply/bms/current_now",
+                ).toLongOrNull()
+                ?: return "—"
+
+            val batteryIntent = context.registerReceiver(
+                null,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            )
+            val voltageMv = batteryIntent
+                ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, Int.MIN_VALUE)
+                ?.takeIf { it != Int.MIN_VALUE && it > 0 }
+                ?.toLong()
+                ?: readFirst(
+                    "/sys/class/power_supply/battery/voltage_now",
+                    "/sys/class/power_supply/bms/voltage_now",
+                ).toLongOrNull()?.let { raw ->
+                    if (raw > 100_000L) raw / 1000L else raw
+                }
+                ?: return "—"
+
+            val status = batteryIntent?.getIntExtra(
+                BatteryManager.EXTRA_STATUS,
+                BatteryManager.BATTERY_STATUS_UNKNOWN,
+            ) ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+
+            val wattsAbs = kotlin.math.abs(currentUa.toDouble()) / 1_000_000.0 *
+                (voltageMv.toDouble() / 1000.0)
+
+            val sign = when (status) {
+                BatteryManager.BATTERY_STATUS_CHARGING,
+                BatteryManager.BATTERY_STATUS_FULL,
+                -> "+"
+                else -> "-"
+            }
+            String.format(Locale.US, "%s%.2f W", sign, wattsAbs)
+        } catch (_: Throwable) {
+            "—"
+        }
+    }
+
     private fun selinuxMode(): String {
         val enforce = read("/sys/fs/selinux/enforce")
         if (enforce == "1") return "Enforcing"
@@ -235,6 +286,7 @@ object SystemInfo {
             android = "Android ${Build.VERSION.RELEASE} · SDK ${Build.VERSION.SDK_INT}",
             hyperos = hyper,
             batteryTemp = "—",
+            batteryPower = "—",
             socTemp = "—",
             gpuTemp = "—",
             root = if (RootShell.hasRoot()) "Có" else "Không",
@@ -250,6 +302,7 @@ object SystemInfo {
             cpuCurrent = cpuCurrentGHz(),
             ram = ramUsage(context),
             batteryTemp = batteryTemp(context),
+            batteryPower = batteryPower(context),
             socTemp = tempFor("cpu", "soc", "ap", "quiet_therm"),
             gpuTemp = tempFor("gpu"),
             thermal = thermal.first,
