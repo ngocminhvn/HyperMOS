@@ -14,6 +14,7 @@ MICTS_NAME="MiCTS_${MICTS_VERSION}.apk"
 MICTS_URL="https://github.com/parallelcc/MiCTS/releases/download/v${MICTS_VERSION}/${MICTS_NAME}"
 MICTS_SHA256="4680d24112fbf0d7ff5bbc055b760f2d67173d7d5879ec5411540d5caa7a97b8"
 MICTS_CACHE="$CACHE_DIR/$MICTS_NAME"
+MICTS_SELECTED=""
 
 ensure_micts() {
   local local_micts=""
@@ -25,7 +26,7 @@ ensure_micts() {
   if (( ${#candidates[@]} > 0 )); then
     local_micts="${candidates[0]}"
     mods "downloadapp: using local MiCTS -> $(basename "$local_micts")"
-    printf '%s\n' "$local_micts"
+    MICTS_SELECTED="$local_micts"
     return 0
   fi
 
@@ -36,7 +37,7 @@ ensure_micts() {
     cached_sha="$(sha256sum "$MICTS_CACHE" | awk '{print $1}')"
     if [[ "$cached_sha" == "$MICTS_SHA256" ]]; then
       mods "downloadapp: using cached $MICTS_NAME"
-      printf '%s\n' "$MICTS_CACHE"
+      MICTS_SELECTED="$MICTS_CACHE"
       return 0
     fi
     rm -f "$MICTS_CACHE"
@@ -64,17 +65,17 @@ ensure_micts() {
   mv -f "$tmp" "$MICTS_CACHE"
   chmod 0644 "$MICTS_CACHE"
   mods "downloadapp: MiCTS v$MICTS_VERSION verified"
-  printf '%s\n' "$MICTS_CACHE"
+  MICTS_SELECTED="$MICTS_CACHE"
 }
 
-micts_apk="$(ensure_micts)" || exit 1
+ensure_micts || exit 1
 
 shopt -s nullglob
 apks=("$SRC_DIR"/*.apk)
 shopt -u nullglob
 
 # If the repository does not contain a local MiCTS APK, stage the pinned cached release.
-if [[ "$micts_apk" == "$MICTS_CACHE" ]]; then
+if [[ "$MICTS_SELECTED" == "$MICTS_CACHE" ]]; then
   apks+=("$MICTS_CACHE")
 fi
 
