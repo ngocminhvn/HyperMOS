@@ -2,6 +2,7 @@ package com.android.trinhngocminh
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
@@ -21,6 +22,12 @@ data class DriveFile(
 
 data class DriveLoadResult(
     val files: List<DriveFile>,
+    val error: String? = null,
+)
+
+data class DriveDownloadResult(
+    val uri: Uri? = null,
+    val message: String,
     val error: String? = null,
 )
 
@@ -184,19 +191,34 @@ object DriveDownloads {
         return null to message
     }
 
-    fun download(context: Context, file: DriveFile): String {
+    fun download(
+        context: Context,
+        file: DriveFile,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> },
+    ): DriveDownloadResult {
         val key = apiKey()
-        if (key.isBlank()) return "API key chưa được cấu hình"
+        if (key.isBlank()) {
+            return DriveDownloadResult(
+                message = "API key chưa được cấu hình",
+                error = "API key chưa được cấu hình",
+            )
+        }
 
         if (file.mimeType.startsWith("application/vnd.google-apps.")) {
-            return "File Google Docs/Sheets/Slides chưa hỗ trợ tải trực tiếp"
+            return DriveDownloadResult(
+                message = "File Google Docs/Sheets/Slides chưa hỗ trợ tải trực tiếp",
+                error = "Loại file chưa hỗ trợ",
+            )
         }
 
         var targetUri: Uri? = null
         return try {
             val opened = openMediaConnection(context, file, key)
             val connection = opened.first
-                ?: return opened.second ?: "Không mở được kết nối tải Drive"
+                ?: return DriveDownloadResult(
+                    message = opened.second ?: "Không mở được kết nối tải Drive",
+                    error = opened.second ?: "Không mở được kết nối tải Drive",
+                )
 
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
@@ -212,14 +234,43 @@ object DriveDownloads {
                 MediaStore.VOLUME_EXTERNAL_PRIMARY
             )
             targetUri = context.contentResolver.insert(collection, values)
-                ?: return "Không tạo được file trong Downloads/TNM"
+                ?: return DriveDownloadResult(
+                    message = "Không tạo được file trong Downloads/TNM",
+                    error = "Không tạo được file đích",
+                )
 
             val output = context.contentResolver.openOutputStream(targetUri!!)
-                ?: return "Không mở được file đích"
+                ?: return DriveDownloadResult(
+                    message = "Không mở được file đích",
+                    error = "Không mở được file đích",
+                )
+
+            val totalBytes = file.sizeBytes
+                ?.takeIf { it > 0 }
+                ?: connection.contentLengthLong.takeIf { it > 0 }
+
+            val buffer = ByteArray(256 * 1024)
+            var downloaded = 0L
+            var lastProgressAt = 0L
+            onProgress(0L, totalBytes)
 
             connection.inputStream.use { input ->
                 output.use { out ->
-                    input.copyTo(out, 256 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        out.write(buffer, 0, count)
+                        downloaded += count
+
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastProgressAt >= 150L ||
+                            (totalBytes != null && downloaded >= totalBytes)
+                        ) {
+                            onProgress(downloaded, totalBytes)
+                            lastProgressAt = now
+                        }
+                    }
+                    out.flush()
                 }
             }
             connection.disconnect()
@@ -228,7 +279,12 @@ object DriveDownloads {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
             }
             context.contentResolver.update(targetUri!!, done, null, null)
-            "Đã tải ${file.name} vào Downloads/TNM"
+            onProgress(downloaded, totalBytes)
+
+            DriveDownloadResult(
+                uri = targetUri,
+                message = "Đã tải ${file.name} vào Downloads/TNM",
+            )
         } catch (t: Throwable) {
             targetUri?.let {
                 try {
@@ -236,7 +292,24 @@ object DriveDownloads {
                 } catch (_: Throwable) {
                 }
             }
-            "Không thể tải: ${t.message ?: t.javaClass.simpleName}"
+            DriveDownloadResult(
+                message = "Không thể tải: ${t.message ?: t.javaClass.simpleName}",
+                error = t.message ?: t.javaClass.simpleName,
+            )
+        }
+    }
+
+    fun installApk(context: Context, uri: Uri): String? {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            null
+        } catch (t: Throwable) {
+            "Không mở được trình cài đặt: ${t.message ?: t.javaClass.simpleName}"
         }
     }
 
