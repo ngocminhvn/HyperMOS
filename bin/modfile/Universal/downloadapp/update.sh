@@ -3,7 +3,11 @@ set -euo pipefail
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
-androidVER="$(cat "$work_dir/bin/ddevice/androidver.txt" 2>/dev/null || true)"
+[[ -f "$work_dir/bin/ddevice/androidver.txt" ]] || {
+  error "downloadapp: androidver.txt missing"
+  exit 1
+}
+androidVER="$(cat "$work_dir/bin/ddevice/androidver.txt")"
 
 SRC_DIR="$work_dir/bin/modfile/Universal/downloadapp"
 DEST_ROOT="$work_dir/build/baserom/images/product/data-app"
@@ -16,6 +20,11 @@ MICTS_URL="https://github.com/parallelcc/MiCTS/releases/download/v${MICTS_VERSIO
 MICTS_SHA256="4680d24112fbf0d7ff5bbc055b760f2d67173d7d5879ec5411540d5caa7a97b8"
 MICTS_CACHE="$CACHE_DIR/$MICTS_NAME"
 MICTS_SELECTED=""
+
+[[ -d "$SRC_DIR" ]] || {
+  error "downloadapp: source directory missing: $SRC_DIR"
+  exit 1
+}
 
 ensure_micts() {
   local local_micts=""
@@ -70,7 +79,14 @@ ensure_micts() {
 }
 
 if [[ "$androidVER" == "16" ]]; then
-  ensure_micts || exit 1
+  ensure_micts || {
+    error "FAST-FAIL: MiCTS preload preparation failed"
+    exit 1
+  }
+  [[ -n "$MICTS_SELECTED" && -s "$MICTS_SELECTED" ]] || {
+    error "downloadapp: MiCTS selected payload missing or empty"
+    exit 1
+  }
 else
   info "downloadapp: Android $androidVER -> skip automatic MiCTS preload"
 fi
@@ -110,6 +126,13 @@ for apk in "${apks[@]}"; do
 
   if [[ ! -s "$dest_dir/$file" ]]; then
     error "downloadapp: failed to stage $file"
+    exit 1
+  fi
+
+  src_size=$(stat -c '%s' "$apk")
+  dst_size=$(stat -c '%s' "$dest_dir/$file")
+  if [[ "$src_size" != "$dst_size" ]]; then
+    error "downloadapp: staged size mismatch for $file ($src_size != $dst_size)"
     exit 1
   fi
 
