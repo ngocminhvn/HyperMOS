@@ -126,6 +126,64 @@ object DriveDownloads {
         }
     }
 
+    private fun openMediaConnection(
+        context: Context,
+        file: DriveFile,
+        key: String,
+    ): Pair<HttpURLConnection?, String?> {
+        val publicUrl =
+            "https://drive.usercontent.google.com/download" +
+                "?id=${Uri.encode(file.id)}&export=download&confirm=t"
+
+        fun open(url: String, googleApiHeaders: Boolean): HttpURLConnection {
+            return (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = true
+                connectTimeout = 20_000
+                readTimeout = 60_000
+                setRequestProperty("Accept", "*/*")
+                setRequestProperty(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36",
+                )
+                if (googleApiHeaders) {
+                    applyGoogleHeaders(context, this)
+                }
+            }
+        }
+
+        fun isHtml(connection: HttpURLConnection): Boolean {
+            val type = connection.contentType.orEmpty().lowercase(Locale.ROOT)
+            return type.contains("text/html")
+        }
+
+        // Public Drive endpoint handles large public files better than files.get?alt=media.
+        var connection = open(publicUrl, false)
+        var code = connection.responseCode
+        if (code in 200..299 && !isHtml(connection)) {
+            return connection to null
+        }
+        connection.disconnect()
+
+        // Fallback to Drive API media endpoint.
+        val apiUrl =
+            "https://www.googleapis.com/drive/v3/files/${Uri.encode(file.id)}" +
+                "?alt=media&key=${Uri.encode(key)}"
+        connection = open(apiUrl, true)
+        code = connection.responseCode
+        if (code in 200..299 && !isHtml(connection)) {
+            return connection to null
+        }
+
+        val message = when (code) {
+            401, 403 -> "Drive từ chối tải (HTTP $code). Kiểm tra file/folder đang để Anyone with the link."
+            404 -> "Không tìm thấy file trên Drive."
+            else -> "Drive tải thất bại HTTP $code."
+        }
+        connection.disconnect()
+        return null to message
+    }
+
     fun download(context: Context, file: DriveFile): String {
         val key = apiKey()
         if (key.isBlank()) return "API key chưa được cấu hình"
@@ -136,27 +194,9 @@ object DriveDownloads {
 
         var targetUri: Uri? = null
         return try {
-            val url =
-                "https://www.googleapis.com/drive/v3/files/${Uri.encode(file.id)}" +
-                    "?alt=media&key=${Uri.encode(key)}"
-
-            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 20_000
-                readTimeout = 60_000
-                setRequestProperty("Accept", "*/*")
-                applyGoogleHeaders(context, this)
-            }
-
-            val code = connection.responseCode
-            if (code !in 200..299) {
-                val error = connection.errorStream
-                    ?.bufferedReader()
-                    ?.use { it.readText() }
-                    .orEmpty()
-                return "Drive tải thất bại HTTP $code" +
-                    if (error.isNotBlank()) ": ${error.take(160)}" else ""
-            }
+            val opened = openMediaConnection(context, file, key)
+            val connection = opened.first
+                ?: return opened.second ?: "Không mở được kết nối tải Drive"
 
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
@@ -182,6 +222,7 @@ object DriveDownloads {
                     input.copyTo(out, 256 * 1024)
                 }
             }
+            connection.disconnect()
 
             val done = ContentValues().apply {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
