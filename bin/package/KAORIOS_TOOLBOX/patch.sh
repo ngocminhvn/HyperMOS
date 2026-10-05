@@ -31,6 +31,92 @@ PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
 DEVSTATUS_PATCHER="$SCRIPT_DIR/patch-settings-namevaluecache.py"
 BUILD_SPOOF_VERIFIER="$SCRIPT_DIR/verify-build-spoof-a17.py"
+CONFIG="$KAORIOS_DIR/config.sh"
+
+if [[ ! -f "$CONFIG" ]]; then
+  error "KAORIOS: missing config: $CONFIG"
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "$CONFIG"
+
+is_enabled() {
+  case "${1,,}" in
+    1|true|yes|on) return 0 ;;
+    0|false|no|off) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+validate_bool() {
+  local name="$1" value="${!1}"
+  case "${value,,}" in
+    1|true|yes|on|0|false|no|off) ;;
+    *)
+      error "KAORIOS: invalid boolean $name=$value"
+      exit 1
+      ;;
+  esac
+}
+
+for flag in \
+  KAORIOS_MASTER \
+  KAORIOS_ENABLE_ACTIVITY_THREAD \
+  KAORIOS_ENABLE_INSTRUMENTATION \
+  KAORIOS_ENABLE_KEYBOX \
+  KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF \
+  KAORIOS_ENABLE_SYSTEM_SERVER \
+  KAORIOS_ENABLE_HIDDEN_APP \
+  KAORIOS_ENABLE_INSTALLER_SOURCE \
+  KAORIOS_ENABLE_SETTINGS_SPOOF \
+  KAORIOS_ENABLE_DEVSTATUS \
+  KAORIOS_ENABLE_BUILD_SPOOF \
+  KAORIOS_INSTALL_TOOLBOX \
+  KAORIOS_VALIDATE_KEYBOX \
+  KAORIOS_DEVSTATUS_STRICT; do
+  validate_bool "$flag"
+done
+
+if ! is_enabled "$KAORIOS_MASTER"; then
+  mods "Kaorios Toolbox disabled by config"
+  exit 0
+fi
+
+export KAORIOS_ENABLE_HIDDEN_APP KAORIOS_ENABLE_INSTALLER_SOURCE
+
+framework_callsite_features_enabled() {
+  is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD" ||
+  is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION" ||
+  is_enabled "$KAORIOS_ENABLE_KEYBOX" ||
+  is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"
+}
+
+services_features_enabled() {
+  is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER" ||
+  is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" ||
+  is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"
+}
+
+framework_driver_needed() {
+  framework_callsite_features_enabled ||
+  services_features_enabled ||
+  is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF" ||
+  is_enabled "$KAORIOS_ENABLE_DEVSTATUS"
+}
+
+build_spoof_enabled_for_target() {
+  [[ "$ANDROID_VER" == "17" ]] && is_enabled "$KAORIOS_ENABLE_BUILD_SPOOF"
+}
+
+framework_archive_needed() {
+  framework_driver_needed || build_spoof_enabled_for_target
+}
+
+archive_patch_needed() {
+  framework_archive_needed ||
+  services_features_enabled ||
+  is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"
+}
 
 # Pin the payloads currently reviewed in this repository.
 DRIVER_GIT_BLOB="1544b86b8703d03c43244d5599eaf180b59441fd"
