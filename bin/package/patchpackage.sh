@@ -20,8 +20,4 @@ fi
 # Keep stock framework/MiuiHome behavior here to avoid unnecessary CTS hooks.
 
 bash $target_dir/RefreshRate/1hz.sh
-if ! bash "$target_dir/ResetProp/update.sh"; then
-  error "Fake Lock: validation or installation failed; aborting package stage"
-  exit 1
-fi
 mods "Add Package Done"
