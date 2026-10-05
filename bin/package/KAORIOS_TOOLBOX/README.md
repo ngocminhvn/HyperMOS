@@ -76,6 +76,24 @@ Required final feature checks include:
 - `hasSystemFeature` for system-feature spoofing;
 - `filterSettingsCall` and, when present, `filterSettingsQueryResult` for Settings spoofing.
 
+## SettingsProvider platform signing
+
+Kaorios Settings spoof modifies `SettingsProvider.apk`, so HyperMOS only installs the patched APK when it can be re-signed with the exact stock platform signer.
+
+CI accepts two GitHub Actions secrets:
+
+- `KAORIOS_PLATFORM_PK8_B64` — base64 of the legitimate ROM platform private key (`platform.pk8`).
+- `KAORIOS_PLATFORM_CERT_B64` — base64 of the matching `platform.x509.pem`.
+
+The build decodes them only into `$RUNNER_TEMP`; they are never committed to the repository. After patching, HyperMOS runs `zipalign`, signs the candidate with `apksigner`, then compares the SHA-256 signer certificate digest of the new APK against the original stock `SettingsProvider.apk`.
+
+- No key/cert supplied: keep stock `SettingsProvider.apk` and skip only Settings spoof.
+- Only one secret supplied / invalid file: fail the build.
+- Signer digest mismatch: fail the build and refuse the modified APK.
+- Exact signer match: install the verified patched `SettingsProvider.apk`.
+
+A platform private key cannot be recovered from the stock APK or certificate. Do not commit or source proprietary signing keys from untrusted locations.
+
 ## Keybox handling
 
 No private attestation keybox is stored in this public repository.
