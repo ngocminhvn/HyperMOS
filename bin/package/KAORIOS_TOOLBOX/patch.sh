@@ -142,18 +142,49 @@ if [[ ! "$SDK_LEVEL" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-for required in "$PATCHER" "$BAKSMALI" "$SMALI" "$DRIVER_DEX" "$TOOLBOX_APK" "$PERMISSION_XML" "$VALIDATE_KEYBOX" "$DEVSTATUS_PATCHER" "$BUILD_SPOOF_VERIFIER"; do
-  if [[ ! -f "$required" ]]; then
-    error "KAORIOS: missing required file: $required"
+require_file() {
+  local path="$1" label="$2"
+  if [[ ! -f "$path" ]]; then
+    error "KAORIOS: missing $label: $path"
     exit 1
   fi
-done
-for cmd in java python3 unzip zip git sha256sum find sort xargs; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    error "KAORIOS: missing host tool: $cmd"
+}
+
+if archive_patch_needed; then
+  require_file "$PATCHER" "patcher"
+  require_file "$BAKSMALI" "baksmali"
+  require_file "$SMALI" "smali"
+fi
+if framework_driver_needed; then
+  require_file "$DRIVER_DEX" "framework driver DEX"
+fi
+if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
+  require_file "$TOOLBOX_APK" "Toolbox APK"
+  require_file "$PERMISSION_XML" "Toolbox privapp permission XML"
+fi
+if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
+  require_file "$VALIDATE_KEYBOX" "keybox validator"
+fi
+if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
+  require_file "$DEVSTATUS_PATCHER" "dev-status patcher"
+fi
+if build_spoof_enabled_for_target; then
+  require_file "$BUILD_SPOOF_VERIFIER" "Build spoof verifier"
+fi
+
+if archive_patch_needed; then
+  for cmd in java python3 unzip zip git sha256sum find sort xargs; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      error "KAORIOS: missing host tool: $cmd"
+      exit 1
+    fi
+  done
+elif is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
+  command -v python3 >/dev/null 2>&1 || {
+    error "KAORIOS: missing host tool: python3"
     exit 1
-  fi
-done
+  }
+fi
 
 verify_git_blob() {
   local file="$1" expected="$2" label="$3" actual
@@ -165,8 +196,12 @@ verify_git_blob() {
   info "KAORIOS: verified pinned $label payload"
 }
 
-verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework DEX"
-verify_git_blob "$TOOLBOX_APK" "$TOOLBOX_GIT_BLOB" "Toolbox APK"
+if framework_driver_needed; then
+  verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework DEX"
+fi
+if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
+  verify_git_blob "$TOOLBOX_APK" "$TOOLBOX_GIT_BLOB" "Toolbox APK"
+fi
 
 TEMP_ROOT="$work_dir/jar_temp/kaorios-v2060"
 rm -rf "$TEMP_ROOT"
