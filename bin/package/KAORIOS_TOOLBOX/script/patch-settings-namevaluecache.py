@@ -159,6 +159,98 @@ def _hook_pattern(roundtrip: bool = False) -> re.Pattern[str]:
     )
 
 
+def _parameter_aliases(body: str) -> dict[str, set[str]]:
+    """Return p-register names and their equivalent v-register aliases."""
+    locals_match = LOCALS_RE.search(body)
+    if locals_match is not None:
+        first_param = int(locals_match.group(1))
+    else:
+        registers_match = REGISTERS_RE.search(body)
+        if registers_match is None:
+            raise UnsupportedLayout("neither .locals nor .registers directive found in target method")
+        first_param = int(registers_match.group(1)) - PARAM_COUNT
+    return {
+        "p1": {"p1", f"v{first_param + 1}"},
+        "p2": {"p2", f"v{first_param + 2}"},
+        "p3": {"p3", f"v{first_param + 3}"},
+    }
+
+
+def _significant_lines(text: str) -> list[str]:
+    """Strip formatting/debug directives while preserving opcodes and labels."""
+    result: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.split("#", 1)[0].strip()
+        if not stripped or stripped.startswith("."):
+            continue
+        result.append(stripped)
+    return result
+
+
+def _verify_roundtrip_block(body: str) -> tuple[str, str]:
+    """Verify the hook semantically after smali -> DEX -> baksmali round-trip."""
+    head = _body_start(body)
+    lines = _significant_lines(body[head:])
+    preview = " | ".join(lines[:8])
+    if len(lines) < 7:
+        raise VerifyError(f"round-trip dev-status hook is truncated; head={preview}")
+
+    aliases = _parameter_aliases(body)
+
+    first = re.fullmatch(r"if-eqz\\s+([^,]+),\\s*(:[A-Za-z0-9_]+)", lines[0])
+    if first is None or first.group(1) not in aliases["p2"]:
+        raise VerifyError(f"round-trip dev-status first branch is invalid; head={preview}")
+    stock_label = first.group(2)
+
+    range_call = re.fullmatch(
+        r"invoke-static/range\\s*\\{([^ ]+)\\s*\\.\\.\\s*([^ }]+)\\},\\s*" + re.escape(HOOK),
+        lines[1],
+    )
+    normal_call = re.fullmatch(
+        r"invoke-static\\s*\\{([^}]*)\\},\\s*" + re.escape(HOOK),
+        lines[1],
+    )
+    if range_call is not None:
+        if range_call.group(1) not in aliases["p1"] or range_call.group(2) not in aliases["p3"]:
+            raise VerifyError(f"round-trip dev-status hook arguments are invalid; head={preview}")
+    elif normal_call is not None:
+        regs = [part.strip() for part in normal_call.group(1).split(",")]
+        if (
+            len(regs) != 3
+            or regs[0] not in aliases["p1"]
+            or regs[1] not in aliases["p2"]
+            or regs[2] not in aliases["p3"]
+        ):
+            raise VerifyError(f"round-trip dev-status hook arguments are invalid; head={preview}")
+    else:
+        raise VerifyError(f"round-trip dev-status hook call is invalid; head={preview}")
+
+    move = re.fullmatch(r"move-result\\s+(v\\d+)", lines[2])
+    if move is None:
+        raise VerifyError(f"round-trip dev-status move-result is invalid; head={preview}")
+    scratch = move.group(1)
+
+    if re.fullmatch(
+        r"if-eqz\\s+" + re.escape(scratch) + r",\\s*" + re.escape(stock_label),
+        lines[3],
+    ) is None:
+        raise VerifyError(f"round-trip dev-status second branch is invalid; head={preview}")
+
+    if re.fullmatch(
+        r"const-string(?:/jumbo)?\\s+" + re.escape(scratch) + r',\\s*"0"',
+        lines[4],
+    ) is None:
+        raise VerifyError(f"round-trip dev-status hidden value is invalid; head={preview}")
+
+    if re.fullmatch(r"return-object\\s+" + re.escape(scratch), lines[5]) is None:
+        raise VerifyError(f"round-trip dev-status return is invalid; head={preview}")
+
+    if lines[6] != stock_label:
+        raise VerifyError(f"round-trip dev-status stock label is invalid; head={preview}")
+
+    return stock_label, scratch
+
+
 def _has_stock_instruction(body: str, label: str) -> bool:
     """Require a real opcode after the stock label, not just another label/end marker."""
     definition = re.search(r"(?m)^[ \t]*" + re.escape(label) + r"[ \t]*\r?\n", body)
@@ -181,20 +273,24 @@ def verify(text: str, *, roundtrip: bool = False) -> None:
     if hook_count != 1:
         raise VerifyError(f"expected exactly one dev-status hook call, found {hook_count}")
 
-    match = _hook_pattern(roundtrip=roundtrip).search(body)
-    if match is None:
-        raise VerifyError("dev-status hook block does not match the required fail-closed structure")
-    label = match.group("stock") if roundtrip else LABEL
+    if roundtrip:
+        label, _scratch = _verify_roundtrip_block(body)
+    else:
+        match = _hook_pattern(roundtrip=False).search(body)
+        if match is None:
+            raise VerifyError("dev-status hook block does not match the required fail-closed structure")
+        label = LABEL
+        head = _body_start(body)
+        if match.start() < head or body[head:match.start()].strip():
+            raise VerifyError("dev-status hook block is not at the head of the method body")
+        if match.group("scratch") != SCRATCH:
+            raise VerifyError(f"dev-status hook must use {SCRATCH} as scratch register, found {match.group('scratch')}")
+
     label_definitions = re.findall(r"(?m)^[ \t]*" + re.escape(label) + r"[ \t]*\r?$", body)
     if len(label_definitions) != 1:
         raise VerifyError(f"expected exactly one stock label definition for {label}, found {len(label_definitions)}")
     if not _has_stock_instruction(body, label):
         raise VerifyError("stock implementation is missing after the dev-status bypass label")
-    head = _body_start(body)
-    if match.start() < head or body[head:match.start()].strip():
-        raise VerifyError("dev-status hook block is not at the head of the method body")
-    if not roundtrip and match.group("scratch") != SCRATCH:
-        raise VerifyError(f"dev-status hook must use {SCRATCH} as scratch register, found {match.group('scratch')}")
 
 
 def patch(text: str) -> tuple[str, bool]:
