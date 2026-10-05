@@ -92,9 +92,16 @@ if [ ! -f "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/META-INF/fas
 fi
 
 find "out/${os_type}_${device_code}_${base_rom_code}" -exec touch {} +
+if ! command -v 7zz >/dev/null 2>&1; then
+    echo "[ERROR] 7zz is required for multi-threaded ROM ZIP packaging"
+    exit 1
+fi
 pushd "out/${os_type}_${device_code}_${base_rom_code}/" || exit 1
-zip -r "${os_type}_${device_code}_${base_rom_code}.zip" ./*
-mv "${os_type}_${device_code}_${base_rom_code}.zip" ../
+archive="${os_type}_${device_code}_${base_rom_code}.zip"
+rm -f "$archive"
+echo "[REPACK] - Creating ROM ZIP with 7zz (Deflate, mx=1, multithreaded)"
+7zz a -tzip -mx=1 -mmt=on "$archive" ./*
+mv "$archive" ../
 popd || exit 1
 
 # Build output filename:
