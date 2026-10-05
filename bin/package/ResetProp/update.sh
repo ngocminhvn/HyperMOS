@@ -11,4 +11,4 @@ esac
 
 mods "Fake Lock: late-boot property overrides"
 python3 "$work_dir/bin/package/ResetProp/install.py" "$work_dir"
-mods "Fake Lock installed; activates after sys.boot_completed=1"
+mods "Fake Lock installed; starts immediately at sys.boot_completed=1 (0s startup delay)"
