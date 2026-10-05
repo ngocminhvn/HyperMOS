@@ -14,10 +14,6 @@ if [ "${1:-}" = "setup" ]; then
         exit 1
     fi
 
-    # Accept both a full URL and a hostname/path from GitHub Secrets.
-    # Example accepted values:
-    #   https://ngocminhvn.github.io/rclone.conf
-    #   ngocminhvn.github.io/rclone.conf
     RCLONE_TOKEN_PATH="$(printf '%s' "$RCLONE_TOKEN_PATH" | xargs)"
 
     case "$RCLONE_TOKEN_PATH" in
