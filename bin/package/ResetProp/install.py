@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install runtime fake-lock actions only after split SELinux policy compiles."""
+"""Install late-boot fake-lock services only after split SELinux policy compiles."""
 from __future__ import annotations
 
 import argparse
@@ -11,14 +11,13 @@ import subprocess
 import tempfile
 
 PROPERTIES = {
-    "ro.boot.flash.locked": "1",
     "ro.boot.vbmeta.device_state": "locked",
     "ro.boot.verifiedbootstate": "green",
     "ro.secureboot.lockstate": "locked",
 }
 DOMAIN = "hypermos_fake_lock"
 EXEC = DOMAIN + "_exec"
-MARKER = "; HyperMOS Fake Lock v3"
+MARKER = "; HyperMOS Fake Lock v2"
 PAYLOAD_BLOB = "dd58ca45deae0c2c0e9704d46d8c63adb061c473"
 
 
@@ -55,10 +54,6 @@ def policy_block(property_types: set[str]) -> str:
         f"(typeattributeset system_file_type ({EXEC}))",
         f"(allow init {DOMAIN} (process (transition)))",
         f"(allow {DOMAIN} init (process (sigchld)))",
-        # Android creates property areas mode 0444. The pinned payload's
-        # writable mapping opens them O_RDWR (ELF offsets 0x8cb8..0x8cbc),
-        # requiring DAC_OVERRIDE even as uid 0. MAC access remains type-scoped.
-        f"(allow {DOMAIN} {DOMAIN} (capability (dac_override)))",
         f"(allow init {EXEC} (file (read open getattr execute map)))",
         f"(allow {DOMAIN} {EXEC} (file (read open getattr execute map entrypoint)))",
         f"(allow {DOMAIN} properties_device (dir (search read open getattr)))",
@@ -74,20 +69,12 @@ def policy_block(property_types: set[str]) -> str:
 
 
 def init_rc() -> str:
-    lines = [
-        "# HyperMOS Fake Lock: runtime properties only; never relock hardware.",
-        "# Bounded synchronous execution before zygote/framework startup.",
-        "service hypermos_fake_lock /system_ext/xbin/xeutoolbox -n -f /system_ext/etc/hypermos-fake-lock.prop",
-        "    disabled", "    oneshot", "    user root", "    group root",
-        "    capabilities DAC_OVERRIDE",
-        f"    seclabel u:r:{DOMAIN}:s0", "    timeout_period 5", "",
-        "on post-fs-data",
-        "    exec_start hypermos_fake_lock",
-        "",
-        "# Reinforce once more after Xiaomi services finish booting; no intentional delay.",
-        "on property:sys.boot_completed=1",
-        "    exec_start hypermos_fake_lock",
-    ]
+    lines = ["# HyperMOS Fake Lock: software properties only; never relock hardware.",
+             "service hypermos_fake_lock /system_ext/xbin/xeutoolbox -n -f /system_ext/etc/hypermos-fake-lock.prop",
+                  "    class late_start", "    disabled", "    oneshot",
+                  "    user root", "    group root", f"    seclabel u:r:{DOMAIN}:s0",
+                  "    timeout_period 5", "",
+                  "on property:sys.boot_completed=1", "    start hypermos_fake_lock"]
     return "\n".join(lines) + "\n"
 
 
@@ -131,20 +118,6 @@ def replace_entry(path: Path, key: str, entry: str) -> None:
     path.write_text("\n".join([*lines, entry]) + "\n")
 
 
-def inject_xiaomi_prop_whitelist(images: Path) -> int:
-    """Expose spoofed boot/unlock keys through Xiaomi's custom-property whitelist."""
-    count = 0
-    for path in images.rglob("cust_prop_white_keys_list"):
-        old = path.read_text(errors="ignore").splitlines()
-        existing = {line.strip() for line in old if line.strip()}
-        additions = [name for name in PROPERTIES if name not in existing]
-        if not additions:
-            continue
-        path.write_text("\n".join([*old, *additions]) + "\n")
-        count += 1
-    return count
-
-
 def install(workspace: Path) -> None:
     images = workspace / "build/baserom/images"
     package = workspace / "bin/package/ResetProp"
@@ -160,16 +133,7 @@ def install(workspace: Path) -> None:
     compiler = shutil.which("secilc")
     if not compiler:
         raise ValueError("secilc is required to validate Fake Lock before installing it")
-    # Mirror init's loaded context inputs. A recursive glob also finds backup
-    # or recovery contexts which are not present in /dev/__properties__.
-    system = images / "system/system/etc/selinux"
-    if not system.is_dir():
-        system = images / "system/etc/selinux"
-    contexts = [path for path in [system / "plat_property_contexts",
-        images / "system_ext/etc/selinux/system_ext_property_contexts",
-        images / "product/etc/selinux/product_property_contexts",
-        images / "vendor/etc/selinux/vendor_property_contexts",
-        images / "odm/etc/selinux/odm_property_contexts"] if path.is_file()]
+    contexts = list(images.rglob("*_property_contexts"))
     types = {select_context(name, contexts) for name in PROPERTIES}
     with tempfile.TemporaryDirectory(prefix="hypermos-fake-lock-") as scratch:
         candidate = Path(scratch) / "system_ext_sepolicy.cil"
@@ -188,20 +152,15 @@ def install(workspace: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     target.chmod(0o755)
-    props = images / "system_ext/etc/hypermos-fake-lock.prop"
-    props.parent.mkdir(parents=True, exist_ok=True)
-    props.write_text("".join(f"{key}={value}\n" for key, value in PROPERTIES.items()))
-    props.chmod(0o644)
     rc = images / "system_ext/etc/init/hypermos-fake-lock.rc"
     rc.parent.mkdir(parents=True, exist_ok=True)
     rc.write_text(init_rc())
     rc.chmod(0o644)
+    props = images / "system_ext/etc/hypermos-fake-lock.prop"
+    props.write_text("".join(f"{key}={value}\n" for key, value in PROPERTIES.items()))
+    props.chmod(0o644)
     config = images / "config"
     replace_entry(config / "system_ext_file_contexts", "/system_ext/xbin/xeutoolbox",
-                  f"/system_ext/xbin/xeutoolbox u:object_r:{EXEC}:s0")
-    # libselinux uses this on-device copy for restorecon, independently of the
-    # host repacker config. A stock label here would undo the helper context.
-    replace_entry(policy.parent / "system_ext_file_contexts", "/system_ext/xbin/xeutoolbox",
                   f"/system_ext/xbin/xeutoolbox u:object_r:{EXEC}:s0")
     replace_entry(config / "system_ext_fs_config", "system_ext/xbin/xeutoolbox",
                   "system_ext/xbin/xeutoolbox 0 0 0755")
@@ -209,16 +168,12 @@ def install(workspace: Path) -> None:
                   "system_ext/etc/init/hypermos-fake-lock.rc 0 0 0644")
     replace_entry(config / "system_ext_fs_config", "system_ext/etc/hypermos-fake-lock.prop",
                   "system_ext/etc/hypermos-fake-lock.prop 0 0 0644")
-    whitelist_count = inject_xiaomi_prop_whitelist(images)
     policy.write_bytes(new_policy)
     # Change the platform-side fingerprint so stock vendor precompiled policy
     # cannot conceal the new domain. Android init will compile the checked CIL.
     fingerprint = hashlib.sha256(new_policy).hexdigest()
     (policy.parent / "system_ext_sepolicy_and_mapping.sha256").write_text(fingerprint + "\n")
-    print(
-        "Fake Lock: split policy compiled; early post-fs-data + boot-complete resetprop installed; "
-        f"{len(PROPERTIES)} properties, {whitelist_count} Xiaomi whitelist file(s) updated"
-    )
+    print("Fake Lock: split policy compiled; ARM64 helper, labels and late-boot services installed")
 
 
 if __name__ == "__main__":
