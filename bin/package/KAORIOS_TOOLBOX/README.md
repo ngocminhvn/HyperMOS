@@ -64,7 +64,7 @@ Kaorios therefore patches and verifies the final framework/services state instea
 
 `patch.sh`:
 
-- pins the reviewed `classes.dex` and `KaoriosToolbox.apk` Git blobs;
+- pins the reviewed `KaoriosToolbox.apk` Git blob; `classes.dex` is intentionally not hash-pinned so it can be updated independently;
 - decompiles every `classes*.dex` separately;
 - requires the expected target classes before modifying anything;
 - uses upstream `kaorios_patcher.py --mode 1` for hook targets and `--mode 2` for the Android 17 Build spoof targets;
