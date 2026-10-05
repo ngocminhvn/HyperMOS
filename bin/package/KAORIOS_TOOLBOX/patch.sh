@@ -712,7 +712,9 @@ patch_archive() {
   case "$kind" in
     framework)
       require_framework_targets "$smali"
-      ensure_no_existing_driver "$smali"
+      if framework_driver_needed; then
+        ensure_no_existing_driver "$smali"
+      fi
       ;;
     services) require_services_targets "$smali" ;;
     settings) require_settings_targets "$smali" ;;
@@ -720,28 +722,10 @@ patch_archive() {
 
   snapshot_hashes "$smali" "$snapshot"
 
-  # mode 3 = hooks + Build spoof (Android 17 only). Every other artifact and
-  # generation uses mode 1 (hooks only); the Build spoof starts at Android 17.
-  local patch_mode=1
-  if [[ "$kind" == "framework" && "$ANDROID_VER" == "17" ]]; then
-    patch_mode=3
-    info "KAORIOS: Android 17 framework - applying hooks + Build spoof (mode 3)"
-  fi
-
-  if ! python3 "$PATCHER" "$smali" --android-version "$ANDROID_VER" --mode "$patch_mode" --no-delay; then
-    error "KAORIOS: patcher failed for $kind"
-    return 1
-  fi
-
-  # Optional per-app "hide Developer options / ADB" hook. Runs before the DEX
-  # rebuild so the modified file is assembled into the artifact.
-  if [[ "$kind" == "framework" ]]; then
-    apply_devstatus_patch "$smali" || return 1
-  fi
-
+  patch_selected_targets "$kind" "$smali"
   rebuild_changed_dexes "$smali" "$snapshot" "$built"
 
-  if [[ "$kind" == "framework" ]]; then
+  if [[ "$kind" == "framework" ]] && framework_driver_needed; then
     local driver_name
     driver_name=$(next_dex_name "$raw")
     cp -f "$DRIVER_DEX" "$built/$driver_name"
@@ -791,17 +775,40 @@ validate_optional_keybox_input() {
   fi
 }
 
-mods "Kaorios Toolbox v2.0.6.0 (hooks + keybox + Settings/feature spoof + hide Developer options; HyperMOS owns FLAG_SECURE/CorePatch)"
+mods "Kaorios Toolbox v2.0.6.0 (per-feature config; HyperMOS owns FLAG_SECURE/CorePatch)"
 
-FRAMEWORK_JAR=$(find_unique_artifact   "framework.jar"   "$work_dir/build/baserom/images/system/system/framework/framework.jar")
-SERVICES_JAR=$(find_unique_artifact   "services.jar"   "$work_dir/build/baserom/images/system/system/framework/services.jar")
-SETTINGS_PROVIDER=$(find_unique_artifact "SettingsProvider.apk" "")
+info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
+info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
+info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, SettingsSpoof=$KAORIOS_ENABLE_SETTINGS_SPOOF, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
+info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
 
-validate_optional_keybox_input
+if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
+  validate_optional_keybox_input
+fi
 
-patch_archive "$FRAMEWORK_JAR" framework
-patch_archive "$SERVICES_JAR" services
-patch_archive "$SETTINGS_PROVIDER" settings
-install_toolbox
+if framework_archive_needed; then
+  FRAMEWORK_JAR=$(find_unique_artifact "framework.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar")
+  patch_archive "$FRAMEWORK_JAR" framework
+fi
 
-mods "Kaorios Toolbox done: Play Integrity/keybox hooks + Settings spoof + system feature spoof + hide Developer options/ADB"
+if services_features_enabled; then
+  SERVICES_JAR=$(find_unique_artifact "services.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar")
+  patch_archive "$SERVICES_JAR" services
+fi
+
+if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+  SETTINGS_PROVIDER=$(find_unique_artifact "SettingsProvider.apk" "")
+  patch_archive "$SETTINGS_PROVIDER" settings
+fi
+
+if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
+  install_toolbox
+fi
+
+if ! archive_patch_needed &&
+   ! is_enabled "$KAORIOS_INSTALL_TOOLBOX" &&
+   ! is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
+  info "KAORIOS: all feature switches are OFF; nothing to do"
+fi
+
+mods "Kaorios Toolbox done with selected config"
