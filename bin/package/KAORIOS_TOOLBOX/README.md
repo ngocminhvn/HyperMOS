@@ -12,6 +12,8 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - `SystemServer` initialization;
 - `ComputerEngine` package visibility / installer-source hooks;
 - `SettingsProvider.call()/query()` per-app Settings spoof hooks;
+- optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
+- Android 17 `Build` / `Build$VERSION` spoof;
 - Toolbox APK as a `system_ext` priv-app.
 
 Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here because HyperMOS already owns those patches in `bin/package/COREPATCH`.
@@ -62,7 +64,7 @@ Kaorios therefore patches and verifies the final framework/services state instea
 - pins the reviewed `classes.dex` and `KaoriosToolbox.apk` Git blobs;
 - decompiles every `classes*.dex` separately;
 - requires the expected target classes before modifying anything;
-- uses upstream `kaorios_patcher.py --mode 1`;
+- uses upstream `kaorios_patcher.py --mode 1` for hook targets and `--mode 2` for the Android 17 Build spoof targets;
 - rebuilds only DEX files whose smali tree actually changed;
 - appends the Kaorios framework DEX to a new free `classesN.dex` slot;
 - re-disassembles the candidate artifacts and verifies the required hooks before replacing ROM files;
