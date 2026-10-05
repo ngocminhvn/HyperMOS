@@ -8,7 +8,7 @@ set -euo pipefail
 # Intentionally DOES NOT implement Kaorios FLAG_SECURE or CorePatch.
 # HyperMOS owns those patches already.
 #
-# Applied Kaorios features (per the upstream Patch_Guide_2.0.6.0_VI):
+# Applied Kaorios features (per the upstream Patch_Guide_2.0.6.1_VI):
 #   - process/context initialisation (ActivityThread + Instrumentation);
 #   - Play Integrity / keybox keystore hooks;
 #   - ApplicationPackageManager.hasSystemFeature(...) spoof;
@@ -751,7 +751,7 @@ validate_optional_keybox_input() {
   fi
 }
 
-mods "Kaorios Toolbox v2.0.6.0 (per-feature config; HyperMOS owns FLAG_SECURE/CorePatch)"
+mods "Kaorios Toolbox upstream 2.0.6.1 integration (payload pinned separately; HyperMOS owns FLAG_SECURE/CorePatch)"
 
 info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
 info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
