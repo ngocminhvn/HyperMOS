@@ -143,19 +143,34 @@ def _hook_block(newline: str) -> str:
     )
 
 
-def _hook_pattern() -> re.Pattern[str]:
+def _hook_pattern(roundtrip: bool = False) -> re.Pattern[str]:
+    """Match the injected block, optionally tolerating baksmali label renaming."""
+    label = r"(?P<stock>:[A-Za-z0-9_]+)" if roundtrip else re.escape(LABEL)
+    second_label = r"(?P=stock)" if roundtrip else re.escape(LABEL)
     return re.compile(
-        r"if-eqz\s+p2,\s*" + re.escape(LABEL) + r"\s*(?:\r?\n)+"
-        r"\s*invoke-static/range\s*\{p1\s*\.\.\s*p3\},\s*" + re.escape(HOOK) + r"\s*(?:\r?\n)+"
-        r"\s*move-result\s+(?P<scratch>v\d+)\s*(?:\r?\n)+"
-        r"\s*if-eqz\s+(?P=scratch),\s*" + re.escape(LABEL) + r"\s*(?:\r?\n)+"
-        r"\s*const-string\s+(?P=scratch),\s*\"0\"\s*(?:\r?\n)+"
-        r"\s*return-object\s+(?P=scratch)\s*(?:\r?\n)+"
-        r"\s*" + re.escape(LABEL) + r"\b"
+        r"(?m)^[ \t]*if-eqz[ \t]+p2,[ \t]*" + label + r"[ \t]*\r?\n"
+        r"^[ \t]*invoke-static/range[ \t]*\{p1[ \t]*\.\.[ \t]*p3\},[ \t]*" + re.escape(HOOK) + r"[ \t]*\r?\n"
+        r"^[ \t]*move-result[ \t]+(?P<scratch>v\d+)[ \t]*\r?\n"
+        r"^[ \t]*if-eqz[ \t]+(?P=scratch),[ \t]*" + second_label + r"[ \t]*\r?\n"
+        r"^[ \t]*const-string[ \t]+(?P=scratch),[ \t]*\"0\"[ \t]*\r?\n"
+        r"^[ \t]*return-object[ \t]+(?P=scratch)[ \t]*\r?\n"
+        r"^[ \t]*" + second_label + r"[ \t]*\r?\n"
     )
 
 
-def verify(text: str) -> None:
+def _has_stock_instruction(body: str, label: str) -> bool:
+    """Require a real opcode after the stock label, not just another label/end marker."""
+    definition = re.search(r"(?m)^[ \t]*" + re.escape(label) + r"[ \t]*\r?\n", body)
+    if definition is None:
+        return False
+    for line in body[definition.end():].splitlines():
+        stripped = line.split("#", 1)[0].strip()
+        if stripped and not stripped.startswith((".", ":")):
+            return True
+    return False
+
+
+def verify(text: str, *, roundtrip: bool = False) -> None:
     """Assert the method carries exactly one correctly placed Kaorios dev-status hook."""
     start, end = _method_span(text)
     body = text[start:end]
@@ -165,17 +180,19 @@ def verify(text: str) -> None:
     if hook_count != 1:
         raise VerifyError(f"expected exactly one dev-status hook call, found {hook_count}")
 
-    label_count = body.count(LABEL)
-    if label_count != 3:
-        raise VerifyError(f"expected {LABEL} to appear exactly 3 times, found {label_count}")
-
-    match = _hook_pattern().search(body)
+    match = _hook_pattern(roundtrip=roundtrip).search(body)
     if match is None:
         raise VerifyError("dev-status hook block does not match the required fail-closed structure")
+    label = match.group("stock") if roundtrip else LABEL
+    label_definitions = re.findall(r"(?m)^[ \t]*" + re.escape(label) + r"[ \t]*\r?$", body)
+    if len(label_definitions) != 1:
+        raise VerifyError(f"expected exactly one stock label definition for {label}, found {len(label_definitions)}")
+    if not _has_stock_instruction(body, label):
+        raise VerifyError("stock implementation is missing after the dev-status bypass label")
     head = _body_start(body)
     if match.start() < head or body[head:match.start()].strip():
         raise VerifyError("dev-status hook block is not at the head of the method body")
-    if match.group("scratch") != SCRATCH:
+    if not roundtrip and match.group("scratch") != SCRATCH:
         raise VerifyError(f"dev-status hook must use {SCRATCH} as scratch register, found {match.group('scratch')}")
 
 
@@ -211,6 +228,11 @@ def main() -> int:
     )
     parser.add_argument("path", type=Path, help="decompiled framework smali tree, or the target .smali file")
     parser.add_argument("--verify-only", action="store_true", help="verify without modifying")
+    parser.add_argument(
+        "--verify-roundtrip",
+        action="store_true",
+        help="verify semantic hook structure after smali/baksmali label renaming",
+    )
     parser.add_argument("--strict", action="store_true", help="treat SKIP conditions as hard failures")
     args = parser.parse_args()
 
@@ -232,7 +254,7 @@ def main() -> int:
 
     if args.verify_only:
         try:
-            verify(text)
+            verify(text, roundtrip=args.verify_roundtrip)
         except (UnsupportedLayout, VerifyError) as error:
             print(f"ERROR: {error}", file=sys.stderr)
             return 1

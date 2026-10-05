@@ -350,7 +350,7 @@ verify_framework_final() {
 
   # Only assert the dev-status hook when this build actually injected it.
   if (( NVC_APPLIED == 1 )); then
-    python3 "$DEVSTATUS_PATCHER" "$root" --verify-only >/dev/null || {
+    python3 "$DEVSTATUS_PATCHER" "$root" --verify-only --verify-roundtrip >/dev/null || {
       error "KAORIOS: final verification failed: dev-status (Developer options/ADB) hook"
       return 1
     }
