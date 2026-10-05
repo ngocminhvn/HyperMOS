@@ -494,51 +494,111 @@ verify_hook() {
   fi
 }
 
+verify_advanced_policy_payload() {
+  local root="$1"
+  local rel
+  for rel in \
+    'android/security/kaorios/settings/IAdvancedPolicyService.smali' \
+    'android/security/kaorios/settings/IAdvancedPolicyService$Stub.smali' \
+    'android/security/kaorios/settings/IAdvancedPolicyService$Stub$Proxy.smali' \
+    'android/security/kaorios/settings/AdvancedPolicyClient.smali' \
+    'android/security/kaorios/settings/AdvancedPolicyService.smali' \
+    'android/security/kaorios/settings/AdvancedPolicySnapshot.smali' \
+    'android/security/kaorios/settings/ServiceManagerBridge.smali' \
+    'android/security/kaorios/settings/SettingDecisionParcel.smali'; do
+    require_one_target "$root" "$rel" "AdvancedPolicy payload"
+  done
+}
+
 verify_framework_final() {
   local root="$1"
   require_framework_targets "$root"
-  verify_hook "$root" "android/app/ActivityThread.smali"     'KaoriosHook;->initActivityThread(Ljava/lang/Object;)V' "ActivityThread init"
-  verify_hook "$root" "android/app/Instrumentation.smali"     'KaoriosHook;->initContext(Landroid/content/Context;)V' "Instrumentation initContext"
-  verify_hook "$root" "android/app/ApplicationPackageManager.smali"     'KaoriosHook;->hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "system feature spoof"
-  verify_hook "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali"     'KaoriosHook;->initGenerateSoftwareKeyPair' "Play Integrity/keybox keypair hook"
-  verify_hook "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali"     'KaoriosHook;->CertificateChainIfNeeded' "Play Integrity/keybox certificate hook"
 
-  require_one_target "$root" "android/security/kaorios/KaoriosHook.smali" "KaoriosHook framework driver"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;' "driver keypair implementation"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;' "driver certificate implementation"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "driver system-feature implementation"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;' "driver Settings call implementation"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'filterSettingsQueryResult(Landroid/database/Cursor;Landroid/net/Uri;Ljava/lang/String;[Ljava/lang/String;)Landroid/database/Cursor;' "driver Settings query implementation"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'initSystemServer()V' "driver SystemServer implementation"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'shouldHideAppListForCaller(ILjava/lang/String;I)Z' "driver app-visibility implementation"
-  verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-    'shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z' "driver dev-status implementation"
-
-  # AdvancedPolicy Binder payload is only required by the Android 17 path.
-  # Android 13-16 still verify the caller/callee hooks, but must not fail just
-  # because the pinned v2.0.6.0 driver omits AdvancedPolicyService/Snapshot.
-  if [[ "$ANDROID_VER" == "17" ]]; then
-    python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null || {
-      error "KAORIOS: final verification failed: framework hook verifier"
-      return 1
-    }
-  else
-    python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" --skip-advanced-policy >/dev/null || {
-      error "KAORIOS: final verification failed: framework hook verifier"
-      return 1
-    }
-    info "KAORIOS: framework hook verifier passed (AdvancedPolicy check skipped on Android $ANDROID_VER)"
+  if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
+    verify_hook "$root" "android/app/ActivityThread.smali" \
+      'KaoriosHook;->initActivityThread(Ljava/lang/Object;)V' "ActivityThread init"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
+    verify_hook "$root" "android/app/Instrumentation.smali" \
+      'KaoriosHook;->initContext(Landroid/content/Context;)V' "Instrumentation initContext"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
+    verify_hook "$root" "android/app/ApplicationPackageManager.smali" \
+      'KaoriosHook;->hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "system feature spoof"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
+    verify_hook "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" \
+      'KaoriosHook;->initGenerateSoftwareKeyPair' "Play Integrity/keybox keypair hook"
+    verify_hook "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" \
+      'KaoriosHook;->CertificateChainIfNeeded' "Play Integrity/keybox certificate hook"
   fi
 
-  # Android 17 is the only generation with the Kaorios Build spoof.
-  if [[ "$ANDROID_VER" == "17" ]]; then
+  if framework_driver_needed; then
+    require_one_target "$root" "android/security/kaorios/KaoriosHook.smali" "KaoriosHook framework driver"
+
+    if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'initActivityThread(Ljava/lang/Object;)V' "driver ActivityThread implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'initContext(Landroid/content/Context;)V' "driver context implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;' "driver keypair implementation"
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;' "driver certificate implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "driver system-feature implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;' "driver Settings call implementation"
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'filterSettingsQueryResult(Landroid/database/Cursor;Landroid/net/Uri;Ljava/lang/String;[Ljava/lang/String;)Landroid/database/Cursor;' "driver Settings query implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'initSystemServer()V' "driver SystemServer implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'shouldHideAppListForCaller(ILjava/lang/String;I)Z' "driver app-visibility implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'filterInstallerPackageName(Landroid/content/ContentResolver;IILjava/lang/String;Ljava/lang/String;)Ljava/lang/String;' "driver installer-source implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z' "driver dev-status implementation"
+    fi
+
+    if [[ "$ANDROID_VER" == "17" ]]; then
+      verify_advanced_policy_payload "$root"
+    fi
+  fi
+
+  # The upstream verifier also validates the ActivityThread caller. Only run it
+  # when that caller is enabled; partial configs use the targeted checks above.
+  if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
+    if [[ "$ANDROID_VER" == "17" ]]; then
+      python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null || {
+        error "KAORIOS: final verification failed: framework hook verifier"
+        return 1
+      }
+    else
+      python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" --skip-advanced-policy >/dev/null || {
+        error "KAORIOS: final verification failed: framework hook verifier"
+        return 1
+      }
+    fi
+  fi
+
+  if build_spoof_enabled_for_target; then
     python3 "$BUILD_SPOOF_VERIFIER" "$root" >/dev/null || {
       error "KAORIOS: final verification failed: Android 17 Build spoof"
       return 1
@@ -546,7 +606,6 @@ verify_framework_final() {
     info "KAORIOS: Android 17 Build/Build\$VERSION spoof verified"
   fi
 
-  # Only assert the dev-status hook when this build actually injected it.
   if (( NVC_APPLIED == 1 )); then
     python3 "$DEVSTATUS_PATCHER" "$root" --verify-only --verify-roundtrip >/dev/null || {
       error "KAORIOS: final verification failed: dev-status (Developer options/ADB) hook"
@@ -555,23 +614,39 @@ verify_framework_final() {
     info "KAORIOS: dev-status (Developer options/ADB) hook verified"
   fi
 
-  info "KAORIOS: framework hooks verified (Play Integrity/keybox + system feature spoof)"
+  info "KAORIOS: enabled framework features verified"
 }
 
 verify_services_final() {
-  local root="$1"
+  local root="$1" file
   require_services_targets "$root"
-  verify_hook "$root" "com/android/server/pm/ComputerEngine.smali"     'KaoriosHook;->shouldHideAppListForCaller' "ComputerEngine app visibility"
-  verify_hook "$root" "com/android/server/SystemServer.smali"     'KaoriosHook;->initSystemServer()V' "SystemServer init"
-  python3 "$SCRIPT_DIR/verify-services-a17-hooks.py" "$root" >/dev/null || {
-    error "KAORIOS: final verification failed: services hook verifier"
-    return 1
-  }
-  python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$root" >/dev/null || {
-    error "KAORIOS: final verification failed: SystemServer hook verifier"
-    return 1
-  }
-  info "KAORIOS: services hooks verified"
+
+  if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
+    file=$(find "$root" -type f -path '*/com/android/server/pm/ComputerEngine.smali' -print -quit)
+    python3 "$SCRIPT_DIR/patch-services-a17.py" "$file" --check-only >/dev/null || {
+      error "KAORIOS: final verification failed: ComputerEngine hooks"
+      return 1
+    }
+    if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP"; then
+      verify_hook "$root" "com/android/server/pm/ComputerEngine.smali" \
+        'KaoriosHook;->shouldHideAppListForCaller' "ComputerEngine app visibility"
+      python3 "$SCRIPT_DIR/verify-services-a17-hooks.py" "$root" >/dev/null || {
+        error "KAORIOS: final verification failed: services hook verifier"
+        return 1
+      }
+    fi
+  fi
+
+  if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+    verify_hook "$root" "com/android/server/SystemServer.smali" \
+      'KaoriosHook;->initSystemServer()V' "SystemServer init"
+    python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$root" >/dev/null || {
+      error "KAORIOS: final verification failed: SystemServer hook verifier"
+      return 1
+    }
+  fi
+
+  info "KAORIOS: enabled services features verified"
 }
 
 verify_settings_final() {
