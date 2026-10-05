@@ -282,22 +282,102 @@ require_one_target() {
 
 require_framework_targets() {
   local root="$1"
-  require_one_target "$root" "android/app/ActivityThread.smali" "ActivityThread"
-  require_one_target "$root" "android/app/Instrumentation.smali" "Instrumentation"
-  require_one_target "$root" "android/app/ApplicationPackageManager.smali" "ApplicationPackageManager"
-  require_one_target "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" "AndroidKeyStoreKeyPairGeneratorSpi"
-  require_one_target "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" "AndroidKeyStoreSpi"
+  if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
+    require_one_target "$root" "android/app/ActivityThread.smali" "ActivityThread"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
+    require_one_target "$root" "android/app/Instrumentation.smali" "Instrumentation"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
+    require_one_target "$root" "android/app/ApplicationPackageManager.smali" "ApplicationPackageManager"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
+    require_one_target "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" "AndroidKeyStoreKeyPairGeneratorSpi"
+    require_one_target "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" "AndroidKeyStoreSpi"
+  fi
+  if build_spoof_enabled_for_target; then
+    require_one_target "$root" "android/os/Build.smali" "Build"
+    require_one_target "$root" 'android/os/Build$VERSION.smali' 'Build$VERSION'
+  fi
 }
 
 require_services_targets() {
   local root="$1"
-  require_one_target "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine"
-  require_one_target "$root" "com/android/server/SystemServer.smali" "SystemServer"
+  if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
+    require_one_target "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+    require_one_target "$root" "com/android/server/SystemServer.smali" "SystemServer"
+  fi
 }
 
 require_settings_targets() {
   local root="$1"
-  require_one_target "$root" "com/android/providers/settings/SettingsProvider.smali" "SettingsProvider"
+  if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+    require_one_target "$root" "com/android/providers/settings/SettingsProvider.smali" "SettingsProvider"
+  fi
+}
+
+find_target_file() {
+  local root="$1" rel="$2" label="$3" file
+  require_one_target "$root" "$rel" "$label" || return 1
+  file=$(find "$root" -type f -path "*/$rel" -print -quit)
+  printf '%s\n' "$file"
+}
+
+patch_target_file() {
+  local root="$1" rel="$2" label="$3" mode="${4:-1}" file
+  file=$(find_target_file "$root" "$rel" "$label") || return 1
+  if ! python3 "$PATCHER" "$file" --android-version "$ANDROID_VER" --mode "$mode" --no-delay; then
+    error "KAORIOS: patcher failed for $label"
+    return 1
+  fi
+}
+
+patch_selected_targets() {
+  local kind="$1" root="$2"
+  case "$kind" in
+    framework)
+      if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
+        patch_target_file "$root" "android/app/ActivityThread.smali" "ActivityThread" 1
+      fi
+      if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
+        patch_target_file "$root" "android/app/Instrumentation.smali" "Instrumentation" 1
+      fi
+      if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
+        patch_target_file "$root" "android/app/ApplicationPackageManager.smali" "ApplicationPackageManager" 1
+      fi
+      if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
+        patch_target_file "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" "AndroidKeyStoreKeyPairGeneratorSpi" 1
+        patch_target_file "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" "AndroidKeyStoreSpi" 1
+      fi
+      if build_spoof_enabled_for_target; then
+        info "KAORIOS: Android 17 Build spoof enabled"
+        patch_target_file "$root" "android/os/Build.smali" "Build" 2
+        patch_target_file "$root" 'android/os/Build$VERSION.smali' 'Build$VERSION' 2
+      fi
+      if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
+        apply_devstatus_patch "$root" || return 1
+      fi
+      ;;
+    services)
+      if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
+        patch_target_file "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine" 1
+      fi
+      if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+        patch_target_file "$root" "com/android/server/SystemServer.smali" "SystemServer" 1
+      fi
+      ;;
+    settings)
+      if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+        patch_target_file "$root" "com/android/providers/settings/SettingsProvider.smali" "SettingsProvider" 1
+      fi
+      ;;
+    *)
+      error "KAORIOS: unknown patch kind: $kind"
+      return 1
+      ;;
+  esac
 }
 
 rebuild_changed_dexes() {
@@ -322,8 +402,7 @@ rebuild_changed_dexes() {
   done
   shopt -u nullglob
   if (( changed == 0 )); then
-    error "KAORIOS: patcher reported success but no owner DEX changed"
-    return 1
+    info "KAORIOS: no owner DEX changed; final candidate verification will decide validity"
   fi
 }
 
