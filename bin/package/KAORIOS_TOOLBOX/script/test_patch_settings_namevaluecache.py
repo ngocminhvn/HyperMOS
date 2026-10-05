@@ -56,6 +56,29 @@ class NameValueCacheVerifierTests(unittest.TestCase):
         )
         self.verify_roundtrip(smali(block))
 
+    def test_roundtrip_v_register_aliases_and_directives_pass(self):
+        block = f"""    .line 100
+    if-eqz v6, :cond_9
+    .line 101
+    invoke-static/range {{v5 .. v7}}, {HOOK}
+    .local v3, "tmp":Z
+    move-result v3
+    if-eqz v3, :cond_9
+    const-string/jumbo v3, "0"
+    return-object v3
+
+    :cond_9
+"""
+        self.verify_roundtrip(smali(block))
+
+    def test_roundtrip_wrong_parameter_alias_fails(self):
+        block = hook_block(":cond_8", "v3").replace(
+            "if-eqz p2, :cond_8",
+            "if-eqz v5, :cond_8",
+        )
+        with self.assertRaises(MODULE.VerifyError):
+            self.verify_roundtrip(smali(block))
+
     def test_different_branch_labels_fail(self):
         block = hook_block(":cond_2", "v3").replace("if-eqz v3, :cond_2", "if-eqz v3, :cond_3")
         with self.assertRaises(MODULE.VerifyError):
