@@ -13,6 +13,19 @@ BOOT_TARGET="$MEDIA_TARGET/bootanimation.zip"
 
 mods "Boot Animation"
 
+# Install custom boot media by default; allow a stock-animation diagnostic build.
+case "${HYPERMOS_CUSTOM_BOOTANIMATION:-true}" in
+    1|true|yes|on) ;;
+    0|false|no|off)
+        mods "Boot Animation: custom animation disabled; keeping stock"
+        exit 0
+        ;;
+    *)
+        error "Boot Animation: invalid HYPERMOS_CUSTOM_BOOTANIMATION value"
+        exit 1
+        ;;
+esac
+
 case "$rom_os" in
     OS3|OS4)
         ;;

@@ -16,8 +16,10 @@ KAORIOS_ENABLE_SYSTEM_SERVER="${KAORIOS_ENABLE_SYSTEM_SERVER:-true}"
 KAORIOS_ENABLE_HIDDEN_APP="${KAORIOS_ENABLE_HIDDEN_APP:-true}"
 KAORIOS_ENABLE_INSTALLER_SOURCE="${KAORIOS_ENABLE_INSTALLER_SOURCE:-true}"
 
-# SettingsProvider.apk per-app Settings spoof.
-KAORIOS_ENABLE_SETTINGS_SPOOF="${KAORIOS_ENABLE_SETTINGS_SPOOF:-true}"
+# SettingsProvider.apk per-app Settings spoof. Keep stock APK by default:
+# replacing DEX invalidates its signature; ZIP/smali checks cannot validate boot.
+# Enable only with a verified ROM signing/deployment process.
+KAORIOS_ENABLE_SETTINGS_SPOOF="${KAORIOS_ENABLE_SETTINGS_SPOOF:-false}"
 
 # Optional framework features already integrated on main.
 KAORIOS_ENABLE_DEVSTATUS="${KAORIOS_ENABLE_DEVSTATUS:-true}"

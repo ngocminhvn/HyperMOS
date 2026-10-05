@@ -20,7 +20,11 @@ Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here bec
 
 ## Per-feature config
 
-Edit `config.sh` to enable/disable each feature independently. Defaults are `true` so the normal main build retains the currently integrated Kaorios feature set.
+Edit `config.sh` to enable/disable each feature independently. Settings spoof defaults to `false` so the Kaorios stage preserves the input `SettingsProvider.apk`; the other feature defaults remain `true`.
+
+The current archive updater replaces DEX without signing APKs. Keeping the original manifest/resources or passing the smali verifier does not preserve a valid APK signature. Enable Settings spoof only with a verified ROM signing/deployment process. The Xiaomi 15 Pro Android 16 / OS3 bootloop reported for build #59 is not yet confirmed by device logs; host verification does not establish boot compatibility.
+
+Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/update.sh`. Set `HYPERMOS_CUSTOM_BOOTANIMATION=false` in the build environment to preserve the base ROM animation for diagnostics.
 
 | Switch | Effect |
 |---|---|
