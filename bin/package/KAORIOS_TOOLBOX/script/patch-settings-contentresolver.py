@@ -38,14 +38,14 @@ LABEL = ":cond_hypermos_settings_call_stock"
 PARAM_COUNT = 5  # p0=this, p1=authority, p2=method, p3=arg, p4=extras
 
 CLASS_RE = re.compile(
-    r"(?m)^\\.class[^\\r\\n]*" + re.escape(CLASS_DESC) + r"[ \\t]*(?:\\r?\\n|$)"
+    r"(?m)^\.class[^\r\n]*" + re.escape(CLASS_DESC) + r"[ \t]*(?:\r?\n|$)"
 )
 METHOD_RE = re.compile(
-    r"(?m)^\\.method[^\\r\\n]*" + re.escape(METHOD_ANCHOR) + r"[ \\t]*(?:\\r?\\n|$)"
+    r"(?m)^\.method[^\r\n]*" + re.escape(METHOD_ANCHOR) + r"[ \t]*(?:\r?\n|$)"
 )
-METHOD_END_RE = re.compile(r"(?m)^[ \\t]*\\.end method[ \\t]*(?:\\r?\\n|$)")
-LOCALS_RE = re.compile(r"(?m)^[ \\t]*\\.locals[ \\t]+(\\d+)[ \\t]*(?:\\r?\\n|$)")
-REGISTERS_RE = re.compile(r"(?m)^[ \\t]*\\.registers[ \\t]+(\\d+)[ \\t]*(?:\\r?\\n|$)")
+METHOD_END_RE = re.compile(r"(?m)^[ \t]*\.end method[ \t]*(?:\r?\n|$)")
+LOCALS_RE = re.compile(r"(?m)^[ \t]*\.locals[ \t]+(\d+)[ \t]*(?:\r?\n|$)")
+REGISTERS_RE = re.compile(r"(?m)^[ \t]*\.registers[ \t]+(\d+)[ \t]*(?:\r?\n|$)")
 
 
 class UnsupportedLayout(ValueError):
@@ -158,12 +158,12 @@ def verify(text: str, *, roundtrip: bool = False) -> None:
     aliases = parameter_aliases(body)
 
     range_call = re.fullmatch(
-        r"invoke-static/range\\s*\\{([^ ]+)\\s*\\.\\.\\s*([^ }]+)\\},\\s*"
+        r"invoke-static/range\s*\{([^ ]+)\s*\.\.\s*([^ }]+)\},\s*"
         + re.escape(HOOK),
         code[0],
     )
     normal_call = re.fullmatch(
-        r"invoke-static\\s*\\{([^}]*)\\},\\s*" + re.escape(HOOK),
+        r"invoke-static\s*\{([^}]*)\},\s*" + re.escape(HOOK),
         code[0],
     )
     if range_call is not None:
@@ -184,20 +184,20 @@ def verify(text: str, *, roundtrip: bool = False) -> None:
     else:
         raise VerifyError("ContentResolver Settings hook is not at method head")
 
-    move = re.fullmatch(r"move-result-object\\s+(v\\d+)", code[1])
+    move = re.fullmatch(r"move-result-object\s+(v\d+)", code[1])
     if move is None:
         raise VerifyError("ContentResolver hook result register missing")
     scratch = move.group(1)
 
     branch = re.fullmatch(
-        r"if-eqz\\s+" + re.escape(scratch) + r",\\s*(:[A-Za-z0-9_]+)",
+        r"if-eqz\s+" + re.escape(scratch) + r",\s*(:[A-Za-z0-9_]+)",
         code[2],
     )
     if branch is None:
         raise VerifyError("ContentResolver stock branch missing")
     stock_label = branch.group(1)
 
-    if re.fullmatch(r"return-object\\s+" + re.escape(scratch), code[3]) is None:
+    if re.fullmatch(r"return-object\s+" + re.escape(scratch), code[3]) is None:
         raise VerifyError("ContentResolver override is not returned")
 
     if code[4] != stock_label:
