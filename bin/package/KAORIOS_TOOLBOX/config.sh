@@ -16,13 +16,6 @@ KAORIOS_ENABLE_SYSTEM_SERVER="${KAORIOS_ENABLE_SYSTEM_SERVER:-true}"
 KAORIOS_ENABLE_HIDDEN_APP="${KAORIOS_ENABLE_HIDDEN_APP:-true}"
 KAORIOS_ENABLE_INSTALLER_SOURCE="${KAORIOS_ENABLE_INSTALLER_SOURCE:-true}"
 
-# Per-app Settings.* reads via framework NameValueCache (stock provider APK).
-KAORIOS_ENABLE_SETTINGS_SPOOF="${KAORIOS_ENABLE_SETTINGS_SPOOF:-true}"
-
-# Direct Android 16 ContentResolver.call("settings", ...) interception is broader
-# than NameValueCache and is disabled by default for VNeID-sensitive builds.
-KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF="${KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF:-false}"
-
 # Optional framework features already integrated on main.
 KAORIOS_ENABLE_DEVSTATUS="${KAORIOS_ENABLE_DEVSTATUS:-true}"
 KAORIOS_ENABLE_BUILD_SPOOF="${KAORIOS_ENABLE_BUILD_SPOOF:-true}"
