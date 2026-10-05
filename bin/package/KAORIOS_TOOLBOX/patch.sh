@@ -3,7 +3,7 @@ set -euo pipefail
 
 # HyperMOS integration for Kaorios Toolbox.
 # Upstream-owned scripts are vendored byte-for-byte from Kaorios upstream.
-# HyperMOS-only behavior is kept outside those files in hypermos-kaorios-adapter.py.
+# MOD-only behavior is kept outside those files in mod-kaorios-adapter.py.
 # Upstream script snapshot: 8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4
 # Intentionally DOES NOT implement Kaorios FLAG_SECURE or CorePatch.
 # HyperMOS owns those patches already.
@@ -26,7 +26,7 @@ source "$work_dir/functions.sh"
 KAORIOS_DIR="$work_dir/bin/package/KAORIOS_TOOLBOX"
 SCRIPT_DIR="$KAORIOS_DIR/script"
 PATCHER="$SCRIPT_DIR/kaorios_patcher.py"
-HYPERMOS_ADAPTER="$SCRIPT_DIR/hypermos-kaorios-adapter.py"
+MOD_ADAPTER="$SCRIPT_DIR/mod-kaorios-adapter.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
 SMALI="$work_dir/bin/apktool/smaliv2.jar"
 DRIVER_DEX="$KAORIOS_DIR/classes.dex"
@@ -166,7 +166,7 @@ if archive_patch_needed; then
   require_file "$SMALI" "smali"
 fi
 if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-  require_file "$HYPERMOS_ADAPTER" "HyperMOS Kaorios adapter"
+  require_file "$MOD_ADAPTER" "MOD Kaorios adapter"
 fi
 if framework_driver_needed; then
   require_file "$DRIVER_DEX" "framework driver DEX"
@@ -358,10 +358,10 @@ patch_target_file() {
 patch_computer_engine() {
   local root="$1" file
   file=$(find_target_file "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine") || return 1
-  if ! python3 "$HYPERMOS_ADAPTER" "$file" \
+  if ! python3 "$MOD_ADAPTER" "$file" \
     --hidden-app "$KAORIOS_ENABLE_HIDDEN_APP" \
     --installer-source "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-    error "KAORIOS: HyperMOS adapter failed for ComputerEngine"
+    error "KAORIOS: MOD adapter failed for ComputerEngine"
     return 1
   fi
 }
@@ -677,7 +677,7 @@ verify_services_final() {
 
   if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
     file=$(find "$root" -type f -path '*/com/android/server/pm/ComputerEngine.smali' -print -quit)
-    python3 "$HYPERMOS_ADAPTER" "$file" \
+    python3 "$MOD_ADAPTER" "$file" \
       --hidden-app "$KAORIOS_ENABLE_HIDDEN_APP" \
       --installer-source "$KAORIOS_ENABLE_INSTALLER_SOURCE" \
       --check-only >/dev/null || {

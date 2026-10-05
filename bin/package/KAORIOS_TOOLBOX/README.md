@@ -4,7 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. HyperMOS-specific ComputerEngine feature selection lives only in `script/hypermos-kaorios-adapter.py`; Settings spoof/dev-status helpers remain HyperMOS-local and do not modify the upstream patcher. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
+Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific ComputerEngine feature selection lives only in `script/mod-kaorios-adapter.py`; Settings spoof/dev-status helpers remain HyperMOS-local and do not modify the upstream patcher. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
 
 
 ## Scope

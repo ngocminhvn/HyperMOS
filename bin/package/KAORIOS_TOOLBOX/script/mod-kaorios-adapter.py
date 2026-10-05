@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""HyperMOS-only adapter around unmodified Kaorios upstream patchers.
+"""MOD-only adapter around unmodified Kaorios upstream patchers.
 
-Keep HyperMOS policy/config logic out of upstream-owned files so Kaorios scripts
+Keep MOD policy/config logic out of upstream-owned files so Kaorios scripts
 can be replaced wholesale on update. If upstream changes the private
 ComputerEngine helper API, this adapter fails closed and becomes the single
 compatibility layer that needs updating.
@@ -43,7 +43,7 @@ def _services_module():
         if not callable(getattr(module, name, None)):
             raise RuntimeError(
                 f"upstream patch-services-a17.py no longer exposes {name}; "
-                "update hypermos-kaorios-adapter.py for the new upstream layout"
+                "update mod-kaorios-adapter.py for the new upstream layout"
             )
     return module
 
@@ -60,7 +60,7 @@ def _installer_module(services, text: str):
     module = _load("patch-installer-source.py", "kaorios_upstream_installer")
     if not callable(getattr(module, "patch", None)) or not callable(getattr(module, "verify", None)):
         raise RuntimeError(
-            "upstream patch-installer-source.py API changed; update hypermos-kaorios-adapter.py"
+            "upstream patch-installer-source.py API changed; update mod-kaorios-adapter.py"
         )
     return module
 
@@ -97,7 +97,7 @@ def patch_selected(text: str, *, hidden_app: bool, installer_source: bool) -> tu
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="HyperMOS compatibility adapter for Kaorios ComputerEngine hooks."
+        description="MOD compatibility adapter for Kaorios ComputerEngine hooks."
     )
     parser.add_argument("smali", type=Path)
     parser.add_argument("--hidden-app", required=True, type=_parse_bool)
