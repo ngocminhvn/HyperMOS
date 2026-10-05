@@ -36,6 +36,7 @@ def hook_block(label=":cond_0", scratch="v0"):
     if-eqz {scratch}, {label}
     const-string {scratch}, \"0\"
     return-object {scratch}
+
 {label}"""
 
 
@@ -47,6 +48,13 @@ class NameValueCacheVerifierTests(unittest.TestCase):
         source = smali(hook_block(MODULE.LABEL, MODULE.SCRATCH))
         MODULE.verify(source)
         self.verify_roundtrip(smali(hook_block(":cond_2", "v3")))
+
+    def test_roundtrip_without_blank_line_passes(self):
+        block = hook_block(":cond_17", "v2").replace(
+            "return-object v2\\n\\n:cond_17",
+            "return-object v2\\n:cond_17",
+        )
+        self.verify_roundtrip(smali(block))
 
     def test_different_branch_labels_fail(self):
         block = hook_block(":cond_2", "v3").replace("if-eqz v3, :cond_2", "if-eqz v3, :cond_3")
