@@ -1,0 +1,62 @@
+.class public final Landroid/security/kaorios/HyperMOSSettingsSpoof;
+.super Ljava/lang/Object;
+
+# Caller-side bridge. Never modify the SettingsProvider APK for this backend.
+.field private static final sActive:Ljava/lang/ThreadLocal;
+
+.method static constructor <clinit>()V
+    .locals 1
+    new-instance v0, Ljava/lang/ThreadLocal;
+    invoke-direct {v0}, Ljava/lang/ThreadLocal;-><init>()V
+    sput-object v0, Landroid/security/kaorios/HyperMOSSettingsSpoof;->sActive:Ljava/lang/ThreadLocal;
+    return-void
+.end method
+
+.method public static getOverride(Ljava/lang/String;Ljava/lang/String;I)Landroid/os/Bundle;
+    .locals 4
+
+    :try_start
+    # Restrict this hook to ordinary application UIDs reading their own user.
+    # System processes and foreign Binder identities always read stock values.
+    invoke-static {}, Landroid/os/Process;->myUid()I
+    move-result v0
+    const v1, 0x186a0
+    rem-int v2, v0, v1
+    const/16 v3, 0x2710
+    if-lt v2, v3, :stock
+    const/16 v3, 0x4e1f
+    if-gt v2, v3, :stock
+    div-int v2, v0, v1
+    if-ne p2, v2, :stock
+    invoke-static {}, Landroid/os/Binder;->getCallingUid()I
+    move-result v1
+    if-ne v0, v1, :stock
+
+    sget-object v3, Landroid/security/kaorios/HyperMOSSettingsSpoof;->sActive:Ljava/lang/ThreadLocal;
+    invoke-virtual {v3}, Ljava/lang/ThreadLocal;->get()Ljava/lang/Object;
+    move-result-object v0
+    if-nez v0, :stock
+    sget-object v0, Ljava/lang/Boolean;->TRUE:Ljava/lang/Boolean;
+    invoke-virtual {v3, v0}, Ljava/lang/ThreadLocal;->set(Ljava/lang/Object;)V
+    :try_end
+    .catchall {:try_start .. :try_end} :unavailable
+
+    :policy_start
+    invoke-static {p0, p1}, Landroid/security/kaorios/KaoriosHook;->filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;
+    move-result-object v0
+    :policy_end
+    .catchall {:policy_start .. :policy_end} :policy_error
+    invoke-virtual {v3}, Ljava/lang/ThreadLocal;->remove()V
+    return-object v0
+
+    :policy_error
+    move-exception v0
+    invoke-virtual {v3}, Ljava/lang/ThreadLocal;->remove()V
+    goto :stock
+
+    :unavailable
+    move-exception v0
+    :stock
+    const/4 v0, 0x0
+    return-object v0
+.end method

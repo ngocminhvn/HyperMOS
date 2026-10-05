@@ -11,7 +11,7 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - `ApplicationPackageManager.hasSystemFeature(...)` spoof hook;
 - `SystemServer` initialization;
 - `ComputerEngine` package visibility / installer-source hooks;
-- `SettingsProvider.call()/query()` per-app Settings spoof hooks;
+- framework `Settings$NameValueCache` per-app Settings spoof hook;
 - optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
 - Android 17 `Build` / `Build$VERSION` spoof;
 - Toolbox APK as a `system_ext` priv-app.
@@ -20,9 +20,11 @@ Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here bec
 
 ## Per-feature config
 
-Edit `config.sh` to enable/disable each feature independently. Settings spoof defaults to `false` so the Kaorios stage preserves the input `SettingsProvider.apk`; the other feature defaults remain `true`.
+Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. Settings spoof uses a framework caller hook so the Kaorios stage preserves the input `SettingsProvider.apk` without requiring the Xiaomi platform private key.
 
-The current archive updater replaces DEX without signing APKs. Keeping the original manifest/resources or passing the smali verifier does not preserve a valid APK signature. Enable Settings spoof only with a verified ROM signing/deployment process. The Xiaomi 15 Pro Android 16 / OS3 bootloop reported for build #59 is not yet confirmed by device logs; host verification does not establish boot compatibility.
+The caller backend evaluates `KaoriosHook.filterSettingsCall` before the stock NameValueCache lookup for same-user `Settings.System/Secure/Global.get*` reads by ordinary application UIDs. A returned Bundle overrides the value, including an explicit null; no decision runs the stock cache/provider path. The bridge excludes system UIDs and foreign Binder identities, prevents recursive policy evaluation, and falls back to stock if policy evaluation throws. `KAORIOS_ENABLE_SYSTEM_SERVER` must be enabled to initialize the policy service.
+
+Direct `ContentResolver.call/query`, bulk reads, system-process reads and cross-user reads are outside this backend; this is not full provider-side coverage. The original provider hooks remain in the upstream patcher sources but the main build no longer applies them. The Xiaomi 15 Pro Android 16 / OS3 bootloop reported for build #59 is not yet confirmed by device logs. Host verification does not establish device boot, Binder/SELinux access, or runtime spoof compatibility; test a configured target app after first boot.
 
 Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/update.sh`. Set `HYPERMOS_CUSTOM_BOOTANIMATION=false` in the build environment to preserve the base ROM animation for diagnostics.
 
@@ -36,7 +38,7 @@ Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/updat
 | `KAORIOS_ENABLE_SYSTEM_SERVER` | `SystemServer` initialization hook |
 | `KAORIOS_ENABLE_HIDDEN_APP` | Package visibility / hidden-app filtering in `ComputerEngine` |
 | `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
-| `KAORIOS_ENABLE_SETTINGS_SPOOF` | Per-app `SettingsProvider.call()/query()` spoof |
+| `KAORIOS_ENABLE_SETTINGS_SPOOF` | Per-app framework `Settings.*` reads; provider APK preserved |
 | `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
 | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
@@ -72,13 +74,14 @@ Kaorios therefore patches and verifies the final framework/services state instea
 - rebuilds only DEX files whose smali tree actually changed;
 - appends the Kaorios framework DEX to a new free `classesN.dex` slot;
 - re-disassembles the candidate artifacts and verifies the required hooks before replacing ROM files;
-- keeps the original manifest/resources of `SettingsProvider.apk`.
+- preserves `SettingsProvider.apk` byte-for-byte at this stage;
+- adds a caller bridge beside NameValueCache without changing its register count, and verifies the hook after DEX assembly.
 
 Required final feature checks include:
 
 - `initGenerateSoftwareKeyPair` + `CertificateChainIfNeeded` for Play Integrity/keybox;
 - `hasSystemFeature` for system-feature spoofing;
-- `filterSettingsCall` and, when present, `filterSettingsQueryResult` for Settings spoofing.
+- `filterSettingsCall`, the NameValueCache caller hook and its guarded bridge for Settings spoofing.
 
 ## Keybox handling
 

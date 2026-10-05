@@ -11,7 +11,7 @@ set -euo pipefail
 #   - ApplicationPackageManager.hasSystemFeature(...) spoof;
 #   - SystemServer initialisation;
 #   - ComputerEngine package visibility + installer-source hooks;
-#   - SettingsProvider.call()/query() per-app Settings spoof;
+#   - framework NameValueCache per-app Settings.* spoof (stock provider APK);
 #   - Settings$NameValueCache dev-status hook (hide Developer options / ADB);
 #   - Android 17 Build / Build$VERSION spoof (Android 17 only, like upstream).
 # Skipped on purpose: FLAG_SECURE, CorePatch, and SELinux policy mutation.
@@ -30,6 +30,8 @@ TOOLBOX_APK="$KAORIOS_DIR/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
 DEVSTATUS_PATCHER="$SCRIPT_DIR/patch-settings-namevaluecache.py"
+SETTINGS_CALLER_PATCHER="$SCRIPT_DIR/patch-settings-caller.py"
+SETTINGS_CALLER_BRIDGE="$KAORIOS_DIR/framework/HyperMOSSettingsSpoof.smali"
 BUILD_SPOOF_VERIFIER="$SCRIPT_DIR/verify-build-spoof-a17.py"
 CONFIG="$KAORIOS_DIR/config.sh"
 
@@ -82,6 +84,11 @@ if ! is_enabled "$KAORIOS_MASTER"; then
   exit 0
 fi
 
+if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF" && ! is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+  error "KAORIOS: caller Settings spoof requires SystemServer policy-service initialization"
+  exit 1
+fi
+
 export KAORIOS_ENABLE_HIDDEN_APP KAORIOS_ENABLE_INSTALLER_SOURCE
 
 framework_callsite_features_enabled() {
@@ -114,8 +121,7 @@ framework_archive_needed() {
 
 archive_patch_needed() {
   framework_archive_needed ||
-  services_features_enabled ||
-  is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"
+  services_features_enabled
 }
 
 # Pin the payloads currently reviewed in this repository.
@@ -167,6 +173,11 @@ if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
 fi
 if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
   require_file "$DEVSTATUS_PATCHER" "dev-status patcher"
+fi
+if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+  require_file "$SETTINGS_CALLER_PATCHER" "caller Settings patcher"
+  require_file "$DEVSTATUS_PATCHER" "NameValueCache layout helpers"
+  require_file "$SETTINGS_CALLER_BRIDGE" "caller Settings bridge"
 fi
 if build_spoof_enabled_for_target; then
   require_file "$BUILD_SPOOF_VERIFIER" "Build spoof verifier"
@@ -282,6 +293,9 @@ require_one_target() {
 
 require_framework_targets() {
   local root="$1"
+  if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+    require_one_target "$root" 'android/provider/Settings$NameValueCache.smali' "Settings NameValueCache"
+  fi
   if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
     require_one_target "$root" "android/app/ActivityThread.smali" "ActivityThread"
   fi
@@ -308,13 +322,6 @@ require_services_targets() {
   fi
   if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
     require_one_target "$root" "com/android/server/SystemServer.smali" "SystemServer"
-  fi
-}
-
-require_settings_targets() {
-  local root="$1"
-  if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-    require_one_target "$root" "com/android/providers/settings/SettingsProvider.smali" "SettingsProvider"
   fi
 }
 
@@ -359,6 +366,20 @@ patch_selected_targets() {
       if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
         apply_devstatus_patch "$root" || return 1
       fi
+      if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+        local cache_file owner bridge_rel
+        cache_file=$(find_target_file "$root" 'android/provider/Settings$NameValueCache.smali' "Settings NameValueCache") || return 1
+        bridge_rel='android/security/kaorios/HyperMOSSettingsSpoof.smali'
+        if find "$root" -type f -path "*/$bridge_rel" -print -quit | grep -q .; then
+          error "KAORIOS: caller Settings bridge already exists; refusing duplicate class"
+          return 1
+        fi
+        python3 "$SETTINGS_CALLER_PATCHER" "$cache_file" || return 1
+        owner="${cache_file%/android/provider/Settings\$NameValueCache.smali}"
+        mkdir -p "$owner/android/security/kaorios"
+        cp -f "$SETTINGS_CALLER_BRIDGE" "$owner/$bridge_rel"
+        info "KAORIOS: caller Settings.* spoof staged; provider APK remains untouched"
+      fi
       ;;
     services)
       if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
@@ -366,11 +387,6 @@ patch_selected_targets() {
       fi
       if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
         patch_target_file "$root" "com/android/server/SystemServer.smali" "SystemServer" 1
-      fi
-      ;;
-    settings)
-      if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-        patch_target_file "$root" "com/android/providers/settings/SettingsProvider.smali" "SettingsProvider" 1
       fi
       ;;
     *)
@@ -557,8 +573,9 @@ verify_framework_final() {
     if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;' "driver Settings call implementation"
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'filterSettingsQueryResult(Landroid/database/Cursor;Landroid/net/Uri;Ljava/lang/String;[Ljava/lang/String;)Landroid/database/Cursor;' "driver Settings query implementation"
+      python3 "$SETTINGS_CALLER_PATCHER" "$root" --verify-only --roundtrip || return 1
+      require_one_target "$root" "android/security/kaorios/HyperMOSSettingsSpoof.smali" "caller Settings bridge"
+      python3 "$SETTINGS_CALLER_PATCHER" "$root" --verify-bridge || return 1
     fi
     if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
@@ -649,27 +666,6 @@ verify_services_final() {
   info "KAORIOS: enabled services features verified"
 }
 
-verify_settings_final() {
-  local root="$1" file
-  require_settings_targets "$root"
-  file=$(find "$root" -type f -path '*/com/android/providers/settings/SettingsProvider.smali' -print -quit)
-  grep -Fq -- 'KaoriosHook;->filterSettingsCall' "$file" || {
-    error "KAORIOS: SettingsProvider call() spoof hook missing"
-    return 1
-  }
-  if grep -Fq -- 'query(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;' "$file"; then
-    grep -Fq -- 'KaoriosHook;->filterSettingsQueryResult' "$file" || {
-      error "KAORIOS: SettingsProvider query() exists but query spoof hook is missing"
-      return 1
-    }
-  fi
-  python3 "$SCRIPT_DIR/verify-settingsprovider-a17-hooks.py" "$root" >/dev/null || {
-    error "KAORIOS: final verification failed: SettingsProvider hook verifier"
-    return 1
-  }
-  info "KAORIOS: Settings spoof hooks verified"
-}
-
 verify_candidate() {
   local candidate="$1" kind="$2" root="$3"
   local raw="$root/verify-raw" smali="$root/verify-smali"
@@ -678,7 +674,7 @@ verify_candidate() {
   case "$kind" in
     framework) verify_framework_final "$smali" ;;
     services) verify_services_final "$smali" ;;
-    settings) verify_settings_final "$smali" ;;
+    *) error "KAORIOS: unsupported archive kind: $kind"; return 1 ;;
   esac
 }
 
@@ -717,7 +713,7 @@ patch_archive() {
       fi
       ;;
     services) require_services_targets "$smali" ;;
-    settings) require_settings_targets "$smali" ;;
+    *) error "KAORIOS: unsupported archive kind: $kind"; return 1 ;;
   esac
 
   snapshot_hashes "$smali" "$snapshot"
@@ -797,8 +793,7 @@ if services_features_enabled; then
 fi
 
 if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-  SETTINGS_PROVIDER=$(find_unique_artifact "SettingsProvider.apk" "")
-  patch_archive "$SETTINGS_PROVIDER" settings
+  info "KAORIOS: Settings spoof enabled via framework caller; SettingsProvider.apk was not patched"
 fi
 
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
