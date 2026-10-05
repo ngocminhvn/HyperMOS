@@ -1,11 +1,7 @@
 # HyperMOS / TNM hosts integration.
-# Fail-safe by design: if the data file does not exist, the bind mount fails
-# and Android continues booting with the stock /system/etc/hosts.
-#
-# TNM creates and updates /data/system/tnm/hosts in-place. Because init creates
-# the bind mount before zygote/app mount namespaces are spawned, all normal app
-# processes inherit the same hosts view without Magisk/KernelSU modules.
+# Mount is performed by tnm-hostsctl so updates can explicitly re-bind after
+# atomic file replacement. If no user hosts exists, stock Android hosts stays.
 
 on post-fs-data
     mkdir /data/system/tnm 0755 root root
-    mount none /data/system/tnm/hosts /system/etc/hosts bind
+    exec - root root -- @TNM_HOSTSCTL@ boot
