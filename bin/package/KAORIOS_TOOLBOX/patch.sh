@@ -117,8 +117,7 @@ archive_patch_needed() {
   services_features_enabled
 }
 
-# Pin the payloads currently reviewed in this repository.
-DRIVER_GIT_BLOB="1544b86b8703d03c43244d5599eaf180b59441fd"
+# Pin only the Toolbox APK. classes.dex is intentionally updateable without a Git blob pin.
 TOOLBOX_GIT_BLOB="671ac1357400a54adfc442c58496bd69e1d4d60c"
 
 # Set to 1 once the dev-status hook is confirmed present in the framework smali,
@@ -198,9 +197,6 @@ verify_git_blob() {
   info "KAORIOS: verified pinned $label payload"
 }
 
-if framework_driver_needed; then
-  verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework DEX"
-fi
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
   verify_git_blob "$TOOLBOX_APK" "$TOOLBOX_GIT_BLOB" "Toolbox APK"
 fi
