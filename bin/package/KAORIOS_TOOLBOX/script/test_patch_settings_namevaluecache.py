@@ -51,8 +51,8 @@ class NameValueCacheVerifierTests(unittest.TestCase):
 
     def test_roundtrip_without_blank_line_passes(self):
         block = hook_block(":cond_17", "v2").replace(
-            "return-object v2\\n\\n:cond_17",
-            "return-object v2\\n:cond_17",
+            "return-object v2\n\n:cond_17",
+            "return-object v2\n:cond_17",
         )
         self.verify_roundtrip(smali(block))
 
