@@ -2,21 +2,15 @@
 
 Enabled by default by the package stage. Set `HYPERMOS_FAKE_LOCK=false` in the build environment to omit it from a clean build.
 
-This restores the ARM64 `xeutoolbox` payload from the repository's earlier ResetProp implementation (Git blob `dd58ca45deae0c2c0e9704d46d8c63adb061c473`). It uses a single non-blocking, disabled/oneshot init service. When `sys.boot_completed=1` is observed, init starts the helper immediately with no intentional startup delay or `sleep`. The `timeout_period 5` entry is only a five-second watchdog that kills a stuck helper; it is not a five-second delay. The helper loads these three values serially using `-n -f`:
+This keeps the pinned ARM64 `xeutoolbox` payload but changes Fake Lock to run at `post-fs-data`, before normal apps can cache the real bootloader state. It then reinforces the same overrides once more when `sys.boot_completed=1`.
 
-```properties
-ro.boot.vbmeta.device_state=locked
-ro.boot.verifiedbootstate=green
-ro.secureboot.lockstate=locked
-```
-
-The `-n` mode avoids property-service notifications. The overrides are runtime-only. Bootloader state, AVB images, hardware attestation and the initial boot-time properties are unchanged. Apps that read before boot completion can see the original state; apps that cache it may need restarting.
+The runtime-only spoof now covers `ro.boot.flash.locked`, `ro.boot.vbmeta.device_state`, `ro.boot.verifiedbootstate`, `ro.boot.veritymode`, `ro.secureboot.lockstate`, `sys.oem_unlock_allowed`, and `ro.oem_unlock_supported`. Matching keys are also appended to Xiaomi `cust_prop_white_keys_list` files. Hardware bootloader state, AVB images and attestation hardware are still unchanged.
 
 ## Build validation
 
 `install.py` verifies the pinned ELF64/AArch64 payload, resolves the three property contexts from the extracted ROM and stages the SELinux addition. It requires `secilc` and compiles the combined platform, vendor, system_ext and available product/odm policy, using the vendor's mapping version, before writing any image files. Compilation errors abort the package stage.
 
-The service runs as root in the dedicated `hypermos_fake_lock` domain. The old implementation's `init` execution domain and `execute_no_trans` rule are not restored. CIL comments use semicolons. Execution labels and root/0755 ownership are written to the repacking config so `bin/fix_selinux.py` preserves them. The system_ext fingerprint changes to invalidate the stock precompiled-policy cache and make Android init load the policy addition.
+Each resetprop command runs as root in the dedicated `hypermos_fake_lock` domain. The helper is not executed in init's own SELinux domain. The system_ext fingerprint is changed so Android init cannot silently reuse the stock precompiled policy and miss the new domain.
 
 This follows Android init's [split-policy compilation](https://android.googlesource.com/platform/system/core/+/master/init/selinux.cpp) options, including its normal `-N` setting; it does not validate source-build neverallow assertions. [A16 init policy](https://android.googlesource.com/platform/system/sepolicy/+/refs/heads/android16-release/private/init.te) prohibits running an executable without leaving the init domain.
 
