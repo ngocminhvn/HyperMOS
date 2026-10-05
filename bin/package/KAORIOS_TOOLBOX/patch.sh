@@ -33,6 +33,14 @@ DEVSTATUS_PATCHER="$SCRIPT_DIR/patch-settings-namevaluecache.py"
 BUILD_SPOOF_VERIFIER="$SCRIPT_DIR/verify-build-spoof-a17.py"
 CONFIG="$KAORIOS_DIR/config.sh"
 
+# SettingsProvider.apk must be re-signed with the exact platform signer after
+# its DEX is modified. These paths are expected to be provided by CI/runtime;
+# private signing material must never be committed to this repository.
+KAORIOS_PLATFORM_KEY="${KAORIOS_PLATFORM_KEY:-}"
+KAORIOS_PLATFORM_CERT="${KAORIOS_PLATFORM_CERT:-}"
+APKSIGNER_BIN="${KAORIOS_APKSIGNER:-$(command -v apksigner || true)}"
+ZIPALIGN_BIN="${KAORIOS_ZIPALIGN:-$(command -v zipalign || true)}"
+
 if [[ ! -f "$CONFIG" ]]; then
   error "KAORIOS: missing config: $CONFIG"
   exit 1
@@ -484,6 +492,90 @@ update_archive_dexes() {
   unzip -tq "$candidate" >/dev/null
 }
 
+settings_signing_ready() {
+  if [[ -z "$KAORIOS_PLATFORM_KEY" && -z "$KAORIOS_PLATFORM_CERT" ]]; then
+    return 1
+  fi
+  if [[ -z "$KAORIOS_PLATFORM_KEY" || -z "$KAORIOS_PLATFORM_CERT" ]]; then
+    error "KAORIOS: SettingsProvider signing requires both KAORIOS_PLATFORM_KEY and KAORIOS_PLATFORM_CERT"
+    return 2
+  fi
+  if [[ ! -s "$KAORIOS_PLATFORM_KEY" ]]; then
+    error "KAORIOS: platform private key missing or empty: $KAORIOS_PLATFORM_KEY"
+    return 2
+  fi
+  if [[ ! -s "$KAORIOS_PLATFORM_CERT" ]]; then
+    error "KAORIOS: platform certificate missing or empty: $KAORIOS_PLATFORM_CERT"
+    return 2
+  fi
+  if [[ -z "$APKSIGNER_BIN" || ! -x "$APKSIGNER_BIN" ]]; then
+    error "KAORIOS: apksigner is required for SettingsProvider signing"
+    return 2
+  fi
+  if [[ -z "$ZIPALIGN_BIN" || ! -x "$ZIPALIGN_BIN" ]]; then
+    error "KAORIOS: zipalign is required for SettingsProvider signing"
+    return 2
+  fi
+  return 0
+}
+
+apk_signer_digests() {
+  local apk="$1" output digests
+  if ! output=$("$APKSIGNER_BIN" verify --verbose --print-certs "$apk" 2>&1); then
+    error "KAORIOS: apksigner could not verify $(basename "$apk")"
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+
+  digests=$(printf '%s\n' "$output" \
+    | awk -F': ' '/Signer #[0-9]+ certificate SHA-256 digest:/ {print tolower($2)}' \
+    | sort -u \
+    | paste -sd, -)
+
+  if [[ -z "$digests" ]]; then
+    error "KAORIOS: no signer SHA-256 digest found in $(basename "$apk")"
+    return 1
+  fi
+  printf '%s\n' "$digests"
+}
+
+sign_settings_candidate() {
+  local original="$1" candidate="$2"
+  local aligned="$candidate.aligned.apk"
+  local original_digests new_digests
+
+  original_digests=$(apk_signer_digests "$original") || return 1
+  info "KAORIOS: SettingsProvider stock signer SHA-256 = $original_digests"
+
+  rm -f "$aligned" "$aligned.idsig"
+  "$ZIPALIGN_BIN" -f -p 4 "$candidate" "$aligned" || {
+    error "KAORIOS: zipalign failed for SettingsProvider candidate"
+    return 1
+  }
+
+  "$APKSIGNER_BIN" sign \
+    --key "$KAORIOS_PLATFORM_KEY" \
+    --cert "$KAORIOS_PLATFORM_CERT" \
+    "$aligned" || {
+      error "KAORIOS: platform signing failed for SettingsProvider"
+      return 1
+    }
+
+  new_digests=$(apk_signer_digests "$aligned") || return 1
+  info "KAORIOS: SettingsProvider new signer SHA-256 = $new_digests"
+
+  if [[ "$new_digests" != "$original_digests" ]]; then
+    error "KAORIOS: SettingsProvider signer mismatch; refusing modified APK"
+    error "KAORIOS: stock=$original_digests new=$new_digests"
+    rm -f "$aligned" "$aligned.idsig"
+    return 1
+  fi
+
+  mv -f "$aligned" "$candidate"
+  rm -f "$candidate.idsig"
+  info "KAORIOS: SettingsProvider platform signature verified against stock signer"
+}
+
 verify_hook() {
   local root="$1" rel="$2" needle="$3" label="$4"
   local file
@@ -735,6 +827,10 @@ patch_archive() {
   update_archive_dexes "$artifact" "$built" "$candidate"
   verify_candidate "$candidate" "$kind" "$root"
 
+  if [[ "$kind" == "settings" ]]; then
+    sign_settings_candidate "$artifact" "$candidate" || return 1
+  fi
+
   cp -f "$candidate" "$artifact"
   info "KAORIOS: installed verified $kind artifact"
 }
@@ -797,8 +893,18 @@ if services_features_enabled; then
 fi
 
 if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-  SETTINGS_PROVIDER=$(find_unique_artifact "SettingsProvider.apk" "")
-  patch_archive "$SETTINGS_PROVIDER" settings
+  if settings_signing_ready; then
+    SETTINGS_PROVIDER=$(find_unique_artifact "SettingsProvider.apk" "")
+    patch_archive "$SETTINGS_PROVIDER" settings
+  else
+    signing_rc=$?
+    if [[ "$signing_rc" -eq 1 ]]; then
+      warn "KAORIOS: Settings spoof skipped; no platform signing key/certificate supplied. Keeping stock SettingsProvider.apk."
+    else
+      error "KAORIOS: SettingsProvider signing configuration is invalid"
+      exit 1
+    fi
+  fi
 fi
 
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
