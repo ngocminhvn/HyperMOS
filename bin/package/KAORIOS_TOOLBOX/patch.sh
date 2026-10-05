@@ -697,6 +697,19 @@ verify_candidate() {
   esac
 }
 
+preflight_framework_runtime_hooks() {
+  local root="$1"
+
+  if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
+    info "KAORIOS: preflight Android 16 Settings runtime hook"
+    if ! python3 "$SETTINGS_CONTENTRESOLVER_PATCHER" "$root" --check-layout >/dev/null; then
+      error "KAORIOS: Android 16 Settings runtime hook preflight failed; aborting package stage"
+      return 1
+    fi
+    info "KAORIOS: Android 16 Settings runtime hook preflight PASS"
+  fi
+}
+
 find_unique_artifact() {
   local name="$1" preferred="$2"
   if [[ -n "$preferred" && -f "$preferred" ]]; then
@@ -727,6 +740,7 @@ patch_archive() {
   case "$kind" in
     framework)
       require_framework_targets "$smali"
+      preflight_framework_runtime_hooks "$smali" || return 1
       if framework_driver_needed; then
         ensure_no_existing_driver "$smali"
       fi
