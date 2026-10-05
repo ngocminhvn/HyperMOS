@@ -9,6 +9,6 @@ case "${HYPERMOS_FAKE_LOCK:-true}" in
     *) error "Invalid HYPERMOS_FAKE_LOCK value"; exit 1 ;;
 esac
 
-mods "Fake Lock: late-boot property overrides"
+mods "Fake Lock: early Xiaomi-aware property overrides"
 python3 "$work_dir/bin/package/ResetProp/install.py" "$work_dir"
-mods "Fake Lock installed; starts immediately at sys.boot_completed=1 (0s startup delay)"
+mods "Fake Lock installed; post-fs-data early pass + boot-complete reinforcement (0s intentional delay)"
