@@ -2,6 +2,7 @@
 """Fail-closed Android 17 ComputerEngine package-visibility smali patcher for Kaorios HMA."""
 import argparse
 import importlib.util
+import os
 import re
 from pathlib import Path
 
@@ -282,19 +283,51 @@ def _installer_patcher(text):
     return module
 
 
+def _env_enabled(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name}: invalid boolean value {raw!r}")
+
+
 def verify(text: str) -> None:
-    _verify_visibility(text)
-    installer = _installer_patcher(text)
-    if installer is not None:
-        installer.verify(text)
+    hidden_app = _env_enabled("KAORIOS_ENABLE_HIDDEN_APP")
+    installer_source = _env_enabled("KAORIOS_ENABLE_INSTALLER_SOURCE")
+
+    if not hidden_app and not installer_source:
+        return
+
+    if hidden_app:
+        _verify_visibility(text)
+
+    if installer_source:
+        installer = _installer_patcher(text)
+        if installer is not None:
+            installer.verify(text)
 
 
 def patch(text: str) -> tuple[str, bool]:
-    patched, changed = _patch_visibility(text)
-    installer = _installer_patcher(text)
-    if installer is not None:
-        patched, installer_changed = installer.patch(patched)
-        changed = changed or installer_changed
+    hidden_app = _env_enabled("KAORIOS_ENABLE_HIDDEN_APP")
+    installer_source = _env_enabled("KAORIOS_ENABLE_INSTALLER_SOURCE")
+
+    patched = text
+    changed = False
+
+    if hidden_app:
+        patched, visibility_changed = _patch_visibility(patched)
+        changed = changed or visibility_changed
+
+    if installer_source:
+        installer = _installer_patcher(patched)
+        if installer is not None:
+            patched, installer_changed = installer.patch(patched)
+            changed = changed or installer_changed
+
     verify(patched)
     return patched, changed
 
@@ -302,8 +335,13 @@ def patch(text: str) -> tuple[str, bool]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Patch ComputerEngine in decompiled services smali.")
     parser.add_argument("smali", type=Path)
+    parser.add_argument("--check-only", action="store_true", help="Verify enabled hooks without modifying the file")
     args = parser.parse_args()
     original = args.smali.read_bytes().decode("utf-8")
+    if args.check_only:
+        verify(original)
+        print("verified")
+        return
     patched, changed = patch(original)
     if changed:
         args.smali.write_bytes(patched.encode("utf-8"))
