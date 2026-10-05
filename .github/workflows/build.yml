@@ -33,7 +33,22 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
     steps:
+      - name: Check free disk space
+        id: diskcheck
+        shell: bash
+        run: |
+          FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
+          echo "Free disk space: ${FREE_GB}GB"
+          if [ "$FREE_GB" -lt 60 ]; then
+            echo "need_cleanup=true" >> "$GITHUB_OUTPUT"
+            echo "Low disk space; cleanup/maximize will run."
+          else
+            echo "need_cleanup=false" >> "$GITHUB_OUTPUT"
+            echo "Enough disk space; skipping cleanup/maximize."
+          fi
+
       - name: Maximize build space
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
         uses: easimon/maximize-build-space@master
         with:
           swap-size-mb: 1024
@@ -43,6 +58,7 @@ jobs:
           remove-haskell: 'true'
 
       - name: Clean unused files and applications
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
         run: |
           docker rmi `docker images -q` || true
           sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/sudo apt/sources.list.d || true
