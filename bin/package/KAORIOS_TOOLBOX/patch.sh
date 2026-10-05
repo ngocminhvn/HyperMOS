@@ -440,17 +440,15 @@ ensure_no_existing_driver() {
 }
 
 # Per-app "hide Developer options / ADB". Upstream documents this target as an
-# optional, per-ROM manual patch, so the module is fail-closed: an unrecognised
-# layout leaves the smali untouched instead of producing a broken method.
-#   KAORIOS_SKIP_DEVSTATUS=1    skip the patch entirely
-#   KAORIOS_STRICT_DEVSTATUS=1  turn a skipped layout into a hard build failure
+# optional, per-ROM patch, so unsupported layouts can warn or fail via config.
+# Legacy KAORIOS_SKIP_DEVSTATUS / KAORIOS_STRICT_DEVSTATUS remain accepted.
 apply_devstatus_patch() {
   local root="$1" rc=0
-  if [[ "${KAORIOS_SKIP_DEVSTATUS:-0}" == "1" ]]; then
-    warn "KAORIOS: dev-status (Developer options/ADB) patch skipped by KAORIOS_SKIP_DEVSTATUS"
+  if ! is_enabled "$KAORIOS_ENABLE_DEVSTATUS" || [[ "${KAORIOS_SKIP_DEVSTATUS:-0}" == "1" ]]; then
+    info "KAORIOS: dev-status (Developer options/ADB) patch disabled"
     return 0
   fi
-  if [[ "${KAORIOS_STRICT_DEVSTATUS:-0}" == "1" ]]; then
+  if is_enabled "$KAORIOS_DEVSTATUS_STRICT" || [[ "${KAORIOS_STRICT_DEVSTATUS:-0}" == "1" ]]; then
     python3 "$DEVSTATUS_PATCHER" "$root" --strict || rc=$?
   else
     python3 "$DEVSTATUS_PATCHER" "$root" || rc=$?
@@ -461,7 +459,7 @@ apply_devstatus_patch() {
       info "KAORIOS: Settings\$NameValueCache dev-status hook applied"
       ;;
     3)
-      warn "KAORIOS: Settings\$NameValueCache layout unsupported; hiding Developer options/ADB stays unavailable (set KAORIOS_STRICT_DEVSTATUS=1 to fail the build instead)"
+      warn "KAORIOS: Settings\$NameValueCache layout unsupported; dev-status hook not applied"
       ;;
     *)
       error "KAORIOS: dev-status patcher failed (rc=$rc)"
