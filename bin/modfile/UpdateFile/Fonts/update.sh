@@ -10,7 +10,7 @@ FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
 SF_FONT="$FONT_SOURCE/SF-Pro.ttf"
 IOS_EMOJI_FONT="$FONT_SOURCE/NotoColorEmoji.ttf"
 
-mods "Fonts: keep original ROM fonts"
+mods "Fonts: preserve stock MiSans + integrate SF Pro/Roboto into all Xiaomi theme roots"
 
 find_theme_target() {
     local p
@@ -270,8 +270,43 @@ PYVERIFY
         error "Font $title theme: chmod failed"
         return 1
     }
+    # HyperOS may index built-in fonts from more than one partition. The HAOTIAN
+    # stock ROM exposes font metadata under both /product/media/theme and
+    # /system/media/theme. Mirror the generated resource to every real theme
+    # root so ThemeManager sees the same built-in font catalog regardless of
+    # which partition it scans first.
+    local mirror_target mirror_runtime mirror_meta
+    for mirror_target in \
+        "$work_dir/build/baserom/images/product/media/theme" \
+        "$work_dir/build/baserom/images/system_ext/media/theme" \
+        "$work_dir/build/baserom/images/system/system/media/theme" \
+        "$work_dir/build/baserom/images/system/media/theme"; do
+        [ -d "$mirror_target" ] || continue
+        [ "$mirror_target" = "$theme_target" ] && continue
+        mirror_runtime=$(theme_runtime_root_for_target "$mirror_target") || continue
+        mkdir -p "$mirror_target/.data/meta/fonts" || continue
+        cp -f "$theme_target/$theme_id.mtz" "$mirror_target/$theme_id.mtz" || continue
+        mirror_meta="$mirror_target/.data/meta/fonts/$theme_id.mrm"
+        python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$mirror_meta" "$theme_runtime_root" "$mirror_runtime" <<'PYMIRROR'
+import json
+import sys
+src, dst, old_root, new_root = sys.argv[1:5]
+with open(src, "r", encoding="utf-8-sig") as fh:
+    data = json.load(fh)
+for key in ("downloadPath", "metaPath", "contentPath"):
+    value = data.get(key)
+    if isinstance(value, str):
+        data[key] = value.replace(old_root, new_root, 1)
+with open(dst, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=4)
+    fh.write("\n")
+PYMIRROR
+        chmod 0644 "$mirror_target/$theme_id.mtz" "$mirror_meta" || true
+        mods "Font $title mirror: OK ($mirror_runtime)"
+    done
+
     mods "Font $title runtime: OK ($theme_runtime_root/$theme_id.mtz)"
-    mods "Font $title theme: OK (MTZ + metadata + runtime path verified)"
+    mods "Font $title theme: OK (MTZ + metadata mirrored to Xiaomi theme roots)"
     return 0
 
 }
