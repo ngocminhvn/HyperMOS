@@ -31,53 +31,102 @@ superSize=$(bash $work_dir/bin/getSuperSize.sh $getvar)
 repack $superSize
 repack "Super image size: ${superSize}"
 repack "Packing super.img"
+
+PACK_JOBS="${PACK_JOBS:-$(nproc)}"
+if ! [[ "$PACK_JOBS" =~ ^[0-9]+$ ]] || [ "$PACK_JOBS" -lt 1 ]; then
+    PACK_JOBS=1
+fi
+if [ "$PACK_JOBS" -gt 4 ]; then
+    PACK_JOBS=4
+fi
+
+pack_partition() {
+    local pname="$1"
+    local part_dir="$work_dir/build/baserom/images/$pname"
+    local config_dir="$work_dir/build/baserom/images/config"
+    local thisSize
+    local addSize
+
+    [ -d "$part_dir" ] || return 0
+
+    thisSize=$(du -sb "$part_dir" | awk '{print $1}')
+    if [[ "$androidVER" == "12" ]]; then
+        case "$pname" in
+            odm) addSize=104217728 ;;
+            system) addSize=114217728 ;;
+            vendor) addSize=104217728 ;;
+            system_ext) addSize=104217728 ;;
+            product) addSize=104217728 ;;
+            *) addSize=8054432 ;;
+        esac
+    else
+        case "$pname" in
+            mi_ext) addSize=100000000 ;;
+            odm) addSize=100000000 ;;
+            system) addSize=100000000 ;;
+            vendor) addSize=100000000 ;;
+            system_ext) addSize=100000000 ;;
+            product) addSize=100000000 ;;
+            *) addSize=8054432 ;;
+        esac
+    fi
+
+    thisSize=$((thisSize + addSize))
+
+    python3 "$work_dir/bin/fix_selinux.py"         "$part_dir"         "$config_dir/${pname}_fs_config"         "$config_dir/${pname}_file_contexts" >/dev/null 2>&1 || {
+            error "SELinux config generation failed for [${pname}]"
+            return 1
+        }
+
+    if [[ "$PACK_TYPE" == "EXT" ]]; then
+        make_ext4fs -J -T "$(date +%s)"             -S "$config_dir/${pname}_file_contexts"             -l "$thisSize"             -C "$config_dir/${pname}_fs_config"             -L "$pname"             -a "$pname"             "$work_dir/build/baserom/images/${pname}.img"             "$part_dir" >/dev/null 2>&1 || {
+                error "Packing [${pname}] as EXT failed"
+                return 1
+            }
+    elif [[ "$PACK_TYPE" == "EROFS" ]]; then
+        mkfs.erofs --quiet -zlz4hc,9             --mount-point "$pname"             --fs-config-file="$config_dir/${pname}_fs_config"             --file-contexts="$config_dir/${pname}_file_contexts"             "$work_dir/build/baserom/images/${pname}.img"             "$part_dir" >/dev/null 2>&1 || {
+                error "Packing [${pname}] as EROFS failed"
+                return 1
+            }
+    else
+        error "Unable to handle filesystem type: $PACK_TYPE"
+        return 1
+    fi
+
+    if [ -s "$work_dir/build/baserom/images/${pname}.img" ]; then
+        repack "Packing [${pname}.img] success"
+        return 0
+    fi
+
+    error "Packing [${pname}] failed: output image missing or empty"
+    return 1
+}
+
+repack "Packing partitions with up to ${PACK_JOBS} parallel jobs"
+pack_failed=0
+running_jobs=0
+
 for pname in ${super_list}; do
     if [ -d "$work_dir/build/baserom/images/$pname" ]; then
-        thisSize=$(du -sb $work_dir/build/baserom/images/${pname} | awk '{print $1}')
-        if [[ $androidVER == "12" ]]; then
-           case $pname in
-             odm) addSize=104217728 ;;
-             system) addSize=114217728 ;;
-             vendor) addSize=104217728 ;;
-             system_ext) addSize=104217728 ;;
-             product) addSize=104217728 ;;
-             *) addSize=8054432 ;;
-           esac
-        else
-           case $pname in
-             mi_ext) addSize=100000000 ;;
-             odm) addSize=100000000 ;;
-             system) addSize=100000000 ;;
-             vendor) addSize=100000000 ;;
-             system_ext) addSize=100000000 ;;
-             product) addSize=100000000 ;;
-             *) addSize=8054432 ;;
-           esac
-        fi
-         
-        thisSize=$(echo "$thisSize + $addSize" | bc)
-        if [[ "$PACK_TYPE" == "EXT" ]]; then
-            python3 $work_dir/bin/fix_selinux.py $work_dir/build/baserom/images/${pname} $work_dir/build/baserom/images/config/${pname}_fs_config $work_dir/build/baserom/images/config/${pname}_file_contexts >/dev/null 2>&1
-            make_ext4fs -J -T $(date +%s) -S $work_dir/build/baserom/images/config/${pname}_file_contexts -l $thisSize -C $work_dir/build/baserom/images/config/${pname}_fs_config -L ${pname} -a ${pname} $work_dir/build/baserom/images/${pname}.img $work_dir/build/baserom/images/${pname} >/dev/null 2>&1
-            if [ -f "$work_dir/build/baserom/images/${pname}.img" ]; then
-                repack "Packing [${pname}.img] success"
-            else
-                repack "Packing [${pname}] failed!"
-            fi
-        elif [[ "$PACK_TYPE" == "EROFS" ]]; then
-            python3 $work_dir/bin/fix_selinux.py $work_dir/build/baserom/images/${pname} $work_dir/build/baserom/images/config/${pname}_fs_config $work_dir/build/baserom/images/config/${pname}_file_contexts >/dev/null 2>&1
-            mkfs.erofs --quiet -zlz4hc,9 --mount-point ${pname} --fs-config-file=$work_dir/build/baserom/images/config/${pname}_fs_config --file-contexts=$work_dir/build/baserom/images/config/${pname}_file_contexts $work_dir/build/baserom/images/${pname}.img $work_dir/build/baserom/images/${pname} >/dev/null 2>&1
-            if [ -f "$work_dir/build/baserom/images/${pname}.img" ]; then
-                repack "Packing [${pname}.img] success"
-            else
-                repack "Packing [${pname}] failed!"
-            fi
-        else
-            error "Unable to handle img, exit."
-            exit
+        pack_partition "$pname" &
+        running_jobs=$((running_jobs + 1))
+
+        if [ "$running_jobs" -ge "$PACK_JOBS" ]; then
+            wait -n || pack_failed=1
+            running_jobs=$((running_jobs - 1))
         fi
     fi
 done
+
+while [ "$running_jobs" -gt 0 ]; do
+    wait -n || pack_failed=1
+    running_jobs=$((running_jobs - 1))
+done
+
+if [ "$pack_failed" -ne 0 ]; then
+    error "One or more partition repack jobs failed."
+    exit 1
+fi
 
 if grep -q "ro.build.ab_update=true" build/baserom/images/vendor/build.prop;  then
     is_ab_device=true
