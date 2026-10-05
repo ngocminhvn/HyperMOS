@@ -11,13 +11,17 @@ import subprocess
 import tempfile
 
 PROPERTIES = {
+    "ro.boot.flash.locked": "1",
     "ro.boot.vbmeta.device_state": "locked",
     "ro.boot.verifiedbootstate": "green",
+    "ro.boot.veritymode": "enforcing",
     "ro.secureboot.lockstate": "locked",
+    "sys.oem_unlock_allowed": "0",
+    "ro.oem_unlock_supported": "0",
 }
 DOMAIN = "hypermos_fake_lock"
 EXEC = DOMAIN + "_exec"
-MARKER = "; HyperMOS Fake Lock v2"
+MARKER = "; HyperMOS Fake Lock v3"
 PAYLOAD_BLOB = "dd58ca45deae0c2c0e9704d46d8c63adb061c473"
 
 
@@ -69,12 +73,20 @@ def policy_block(property_types: set[str]) -> str:
 
 
 def init_rc() -> str:
-    lines = ["# HyperMOS Fake Lock: software properties only; never relock hardware.",
-             "service hypermos_fake_lock /system_ext/xbin/xeutoolbox -n -f /system_ext/etc/hypermos-fake-lock.prop",
-                  "    class late_start", "    disabled", "    oneshot",
-                  "    user root", "    group root", f"    seclabel u:r:{DOMAIN}:s0",
-                  "    timeout_period 5", "",
-                  "on property:sys.boot_completed=1", "    start hypermos_fake_lock"]
+    commands = [
+        f"    exec u:r:{DOMAIN}:s0 root root -- /system_ext/xbin/xeutoolbox -n {key} {value}"
+        for key, value in PROPERTIES.items()
+    ]
+    lines = [
+        "# HyperMOS Fake Lock: runtime properties only; never relock hardware.",
+        "# Early pass follows BEACHEAD/Xiaomi resetprop timing so apps do not cache unlocked state.",
+        "on post-fs-data",
+        *commands,
+        "",
+        "# Reinforce once more after Xiaomi services finish booting; no intentional delay.",
+        "on property:sys.boot_completed=1",
+        *commands,
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -118,6 +130,20 @@ def replace_entry(path: Path, key: str, entry: str) -> None:
     path.write_text("\n".join([*lines, entry]) + "\n")
 
 
+def inject_xiaomi_prop_whitelist(images: Path) -> int:
+    """Expose spoofed boot/unlock keys through Xiaomi's custom-property whitelist."""
+    count = 0
+    for path in images.rglob("cust_prop_white_keys_list"):
+        old = path.read_text(errors="ignore").splitlines()
+        existing = {line.strip() for line in old if line.strip()}
+        additions = [name for name in PROPERTIES if name not in existing]
+        if not additions:
+            continue
+        path.write_text("\n".join([*old, *additions]) + "\n")
+        count += 1
+    return count
+
+
 def install(workspace: Path) -> None:
     images = workspace / "build/baserom/images"
     package = workspace / "bin/package/ResetProp"
@@ -156,9 +182,6 @@ def install(workspace: Path) -> None:
     rc.parent.mkdir(parents=True, exist_ok=True)
     rc.write_text(init_rc())
     rc.chmod(0o644)
-    props = images / "system_ext/etc/hypermos-fake-lock.prop"
-    props.write_text("".join(f"{key}={value}\n" for key, value in PROPERTIES.items()))
-    props.chmod(0o644)
     config = images / "config"
     replace_entry(config / "system_ext_file_contexts", "/system_ext/xbin/xeutoolbox",
                   f"/system_ext/xbin/xeutoolbox u:object_r:{EXEC}:s0")
@@ -166,14 +189,16 @@ def install(workspace: Path) -> None:
                   "system_ext/xbin/xeutoolbox 0 0 0755")
     replace_entry(config / "system_ext_fs_config", "system_ext/etc/init/hypermos-fake-lock.rc",
                   "system_ext/etc/init/hypermos-fake-lock.rc 0 0 0644")
-    replace_entry(config / "system_ext_fs_config", "system_ext/etc/hypermos-fake-lock.prop",
-                  "system_ext/etc/hypermos-fake-lock.prop 0 0 0644")
+    whitelist_count = inject_xiaomi_prop_whitelist(images)
     policy.write_bytes(new_policy)
     # Change the platform-side fingerprint so stock vendor precompiled policy
     # cannot conceal the new domain. Android init will compile the checked CIL.
     fingerprint = hashlib.sha256(new_policy).hexdigest()
     (policy.parent / "system_ext_sepolicy_and_mapping.sha256").write_text(fingerprint + "\n")
-    print("Fake Lock: split policy compiled; ARM64 helper, labels and late-boot services installed")
+    print(
+        "Fake Lock: split policy compiled; early post-fs-data + boot-complete resetprop installed; "
+        f"{len(PROPERTIES)} properties, {whitelist_count} Xiaomi whitelist file(s) updated"
+    )
 
 
 if __name__ == "__main__":
