@@ -242,6 +242,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path)
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument(
+        "--check-layout",
+        action="store_true",
+        help="validate the stock ContentResolver.call target/layout without requiring an existing hook",
+    )
     parser.add_argument("--roundtrip", action="store_true")
     args = parser.parse_args()
 
@@ -250,13 +255,23 @@ def main() -> int:
         if target is None:
             raise UnsupportedLayout(f"missing {TARGET_REL}")
         text = target.read_bytes().decode("utf-8")
-        if args.verify_only:
+        if args.check_layout:
+            start, end = method_span(text)
+            body = text[start:end]
+            local_slots(body)
+            if HOOK in body:
+                raise VerifyError("stock preflight target is already patched")
+            if LABEL in body:
+                raise UnsupportedLayout(f"reserved label {LABEL} already exists")
+            print(f"PREFLIGHT_OK: Android 16 ContentResolver.call layout in {target}")
+        elif args.verify_only:
             verify(text, roundtrip=args.roundtrip)
+            print(f"VERIFIED: direct Settings ContentResolver.call hook in {target}")
         else:
             result, changed = patch(text)
             if changed:
                 target.write_bytes(result.encode("utf-8"))
-        print(f"VERIFIED: direct Settings ContentResolver.call hook in {target}")
+            print(f"VERIFIED: direct Settings ContentResolver.call hook in {target}")
     except (UnsupportedLayout, VerifyError, OSError, UnicodeError) as error:
         parser.exit(1, f"ERROR: {error}\n")
     return 0
