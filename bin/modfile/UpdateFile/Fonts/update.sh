@@ -4,382 +4,270 @@ set -euo pipefail
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
-rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt")
-
+rom_os=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/rom_os.txt")
 FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
 SF_FONT="$FONT_SOURCE/SF-Pro.ttf"
+ROBOTO_FONT="$FONT_SOURCE/Roboto-VF.ttf"
 IOS_EMOJI_FONT="$FONT_SOURCE/NotoColorEmoji.ttf"
 
-mods "Fonts: preserve stock MiSans + integrate SF Pro/Roboto into all Xiaomi theme roots"
+mods "Fonts: stock MiSans + native Xiaomi font resources for SF Pro/Roboto"
 
-find_theme_target() {
+THEME_TARGET=""
+THEME_RUNTIME=""
+select_theme_root() {
     local p
+    if [ -d "$work_dir/build/baserom/images/product/media/theme" ]; then
+        THEME_TARGET="$work_dir/build/baserom/images/product/media/theme"
+        THEME_RUNTIME="/product/media/theme"
+        return 0
+    fi
     for p in \
+        "$work_dir/build/baserom/images/system/system/media/theme" \
+        "$work_dir/build/baserom/images/system/media/theme" \
+        "$work_dir/build/baserom/images/system_ext/media/theme"; do
+        [ -d "$p" ] || continue
+        THEME_TARGET="$p"
+        case "$p" in
+            *system_ext/media/theme) THEME_RUNTIME="/system_ext/media/theme" ;;
+            *) THEME_RUNTIME="/system/media/theme" ;;
+        esac
+        return 0
+    done
+    return 1
+}
+
+cleanup_legacy_generated_fonts() {
+    local root
+    for root in \
         "$work_dir/build/baserom/images/product/media/theme" \
         "$work_dir/build/baserom/images/system_ext/media/theme" \
         "$work_dir/build/baserom/images/system/system/media/theme" \
         "$work_dir/build/baserom/images/system/media/theme"; do
-        if [ -d "$p" ]; then
-            printf '%s\n' "$p"
-            return 0
-        fi
+        [ -d "$root" ] || continue
+        rm -f \
+            "$root/SF-Pro.mtz" "$root/Roboto.mtz" \
+            "$root/.data/meta/fonts/SF-Pro.mrm" \
+            "$root/.data/meta/fonts/Roboto.mrm"
     done
-    return 1
 }
 
-theme_runtime_root_for_target() {
-    local target="$1"
-    case "$target" in
-        "$work_dir/build/baserom/images/product/media/theme")
-            printf '%s\n' "/product/media/theme"
-            ;;
-        "$work_dir/build/baserom/images/system_ext/media/theme")
-            printf '%s\n' "/system_ext/media/theme"
-            ;;
-        "$work_dir/build/baserom/images/system/system/media/theme"|"$work_dir/build/baserom/images/system/media/theme")
-            printf '%s\n' "/system/media/theme"
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+write_preview_png() {
+    local out="$1"
+    printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=' \
+        | base64 -d > "$out"
 }
 
-detect_canonical_theme_runtime_root() {
-    local meta root
-    for meta in \
-        "$work_dir/build/baserom/images/product/media/theme/.data/meta/fonts/default.mrm" \
-        "$work_dir/build/baserom/images/system/system/media/theme/.data/meta/fonts/default.mrm" \
-        "$work_dir/build/baserom/images/system/media/theme/.data/meta/fonts/default.mrm" \
-        "$work_dir/build/baserom/images/system_ext/media/theme/.data/meta/fonts/default.mrm"; do
-        [ -s "$meta" ] || continue
-
-        root=$(python3 - "$meta" <<'PYROOT'
-import json
-import os
-import sys
-
-try:
-    with open(sys.argv[1], "r", encoding="utf-8-sig") as fh:
-        data = json.load(fh)
-except Exception:
-    raise SystemExit(1)
-
-for key in ("contentPath", "downloadPath", "metaPath"):
-    value = data.get(key)
-    if not isinstance(value, str) or not value.startswith("/"):
-        continue
-    if "/.data/meta/fonts/" in value:
-        print(value.split("/.data/meta/fonts/", 1)[0])
-        raise SystemExit(0)
-    if value.endswith(".mtz"):
-        print(os.path.dirname(value))
-        raise SystemExit(0)
-
-raise SystemExit(1)
-PYROOT
-        ) || root=""
-
-        if [ -n "$root" ]; then
-            printf '%s\n' "$root"
-            return 0
-        fi
-    done
-
-    # Xiaomi stock font metadata on HyperOS normally resolves through the
-    # canonical /system/media/theme namespace even when a duplicate metadata
-    # index is stored under /product. Keep that runtime contract as fallback.
-    printf '%s\n' "/system/media/theme"
-}
-
-prepare_roboto_variable() {
-    local local_font="$FONT_SOURCE/Roboto-VF.ttf"
-
-    if [ -s "$local_font" ]; then
-        printf '%s\n' "$local_font"
-        return 0
-    fi
-
-    return 1
-}
-
-install_font_theme() {
+install_xiaomi_font_resource() {
     local font_file="$1"
-    local theme_id="$2"
-    local title="$3"
-    local author="$4"
-    local local_id="$5"
+    local font_id="$2"
+    local theme_id="$3"
+    local title="$4"
+    local author="$5"
+    local weights="$6"
 
     [ -s "$font_file" ] || {
         error "Font $title payload missing or empty: $font_file"
         return 1
     }
 
-    local theme_target
-    theme_target=$(find_theme_target) || {
-        mods "Font $title theme: ERROR"
-        return 1
-    }
+    local content_fonts="$THEME_TARGET/.data/content/fonts"
+    local content_theme="$THEME_TARGET/.data/content/theme"
+    local meta_fonts="$THEME_TARGET/.data/meta/fonts"
+    local meta_theme="$THEME_TARGET/.data/meta/theme"
+    local preview_dir="$THEME_TARGET/.data/preview/theme/$theme_id"
+    mkdir -p "$content_fonts" "$content_theme" "$meta_fonts" "$meta_theme" "$preview_dir"
 
-    local ui_version=16
-    [[ "$rom_os" == "OS4" ]] && ui_version=17
+    local font_mrc="$content_fonts/$font_id.mrc"
+    local theme_mrc="$content_theme/$theme_id.mrc"
+    local font_mrm="$meta_fonts/$font_id.mrm"
+    local theme_mrm="$meta_theme/$theme_id.mrm"
 
-    # Do not derive metadata paths from the partition where we happen to write
-    # the MTZ first. Xiaomi may index the same built-in resource from /product
-    # while stock default.mrm still points to the canonical /system/media/theme
-    # runtime namespace. Follow stock metadata so Apply resolves the same path.
-    local theme_runtime_root
-    theme_runtime_root=$(detect_canonical_theme_runtime_root) || {
-        mods "Font $title theme: ERROR (cannot resolve canonical runtime root)"
-        return 1
-    }
-    mods "Font $title canonical runtime root: $theme_runtime_root"
+    # Xiaomi ThemeManager stores font payloads as raw font bytes with the .mrc
+    # extension. Do not wrap the font in MTZ/ZIP and do not mirror it elsewhere.
+    cp -f "$font_file" "$font_mrc"
+    : > "$theme_mrc"
+    chmod 0644 "$font_mrc" "$theme_mrc"
 
-    local tmp
-    tmp=$(mktemp -d) || {
-        mods "Font $title theme: ERROR"
-        return 1
-    }
+    write_preview_png "$preview_dir/preview_fonts_small_0.png"
+    cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/preview_fonts_0.png"
+    cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/en_US_fonts_small_0.png"
+    cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/en_US_fonts_0.png"
+    chmod 0644 "$preview_dir"/*.png
 
-    mkdir -p "$tmp/fonts" "$tmp/preview" "$theme_target/.data/meta/fonts" || {
-        rm -rf "$tmp"
-        mods "Font $title theme: ERROR"
-        return 1
-    }
+    local font_sha1 font_size
+    font_sha1=$(sha1sum "$font_mrc" | awk '{print $1}')
+    font_size=$(stat -c '%s' "$font_mrc")
 
-    # Xiaomi's font-theme path uses one canonical payload:
-    # fonts/Roboto-Regular.ttf. ThemeManager extracts that file at Apply time
-    # and creates the runtime symlinks (Miui*, Roboto-* and MI_Theme_VF.ttf)
-    # under /data/system/theme/fonts. A non-empty fontWeight resource field is
-    # what marks the theme as variable-font capable.
-    #
-    # Do not pre-pack the runtime aliases: doing so only duplicates the same
-    # variable font many times and can make SF-Pro.mtz enormous.
-    local runtime_fonts=(
-        Roboto-Regular.ttf
-    )
-
-    local runtime_font
-    for runtime_font in "${runtime_fonts[@]}"; do
-        cp -f "$font_file" "$tmp/fonts/$runtime_font" || {
-            rm -rf "$tmp"
-            mods "Font $title theme: ERROR"
-            return 1
-        }
-    done
-
-    cat > "$tmp/description.xml" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<theme>
-  <version>1.0</version>
-  <uiVersion>$ui_version</uiVersion>
-  <author>$author</author>
-  <designer>$author</designer>
-  <title>$title</title>
-  <fontWeight>100,150,200,250,300,350,400,450,500,550,600,650,700,800,900</fontWeight>
-  <description>$title Variable font</description>
-</theme>
-EOF
-
-    if ! printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=' \
-        | base64 -d > "$tmp/preview/preview_fonts_0.png" 2>/dev/null; then
-        rm -rf "$tmp"
-        error "Font $title theme: preview generation failed"
-        return 1
-    fi
-
-    (
-        cd "$tmp" || exit 1
-        zip -qr "$theme_target/$theme_id.mtz" description.xml fonts preview
-    ) || {
-        rm -rf "$tmp"
-        mods "Font $title theme: ERROR"
-        return 1
-    }
-
-    python3 - "$theme_target" "$theme_id" "$title" "$author" "$local_id" "$theme_runtime_root" <<'PY'
+    python3 - \
+        "$THEME_TARGET" "$THEME_RUNTIME" "$font_id" "$theme_id" \
+        "$title" "$author" "$weights" "$font_sha1" "$font_size" <<'PY'
+import copy
 import json
 import os
 import sys
 
-theme, theme_id, title, author, local_id, theme_runtime_root = sys.argv[1:7]
-src = os.path.join(theme, ".data", "meta", "fonts", "default.mrm")
-dst = os.path.join(theme, ".data", "meta", "fonts", f"{theme_id}.mrm")
+(root, runtime, font_id, theme_id, title, author, weights, font_sha1, font_size) = sys.argv[1:10]
+font_size = int(font_size)
 
-try:
-    with open(src, "r", encoding="utf-8-sig") as fh:
-        data = json.load(fh)
-except Exception:
-    data = {
-        "platform": 8,
-        "status": 1,
-        "buildInThumbnails": [],
-        "buildInPreviews": [],
-        "titles": {},
-        "authors": {},
-        "designers": {},
-        "parentResources": [],
-        "subResources": [],
-        "extraMeta": {}
+font_default = os.path.join(root, ".data", "meta", "fonts", "default.mrm")
+theme_default = os.path.join(root, ".data", "meta", "theme", "default.mrm")
+font_out = os.path.join(root, ".data", "meta", "fonts", f"{font_id}.mrm")
+theme_out = os.path.join(root, ".data", "meta", "theme", f"{theme_id}.mrm")
+
+def load_template(path, fallback):
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            value = json.load(fh)
+        return value if isinstance(value, dict) else copy.deepcopy(fallback)
+    except Exception:
+        return copy.deepcopy(fallback)
+
+base = {
+    "platform": 8,
+    "status": 1,
+    "titles": {},
+    "authors": {},
+    "designers": {},
+    "descriptions": {},
+    "parentResources": [],
+    "subResources": [],
+    "extraMeta": {},
+}
+
+font = load_template(font_default, base)
+theme = load_template(theme_default, base)
+
+font_meta_path = f"{runtime}/.data/meta/fonts/{font_id}.mrm"
+font_content_path = f"{runtime}/.data/content/fonts/{font_id}.mrc"
+theme_meta_path = f"{runtime}/.data/meta/theme/{theme_id}.mrm"
+theme_content_path = f"{runtime}/.data/content/theme/{theme_id}.mrc"
+
+for obj in (font, theme):
+    obj["onlineId"] = None
+    obj["productId"] = None
+    obj["assemblyId"] = None
+    obj["updatedTime"] = 0
+    obj["version"] = "1.0"
+    obj["status"] = 1
+    obj["title"] = title
+    obj["description"] = f"{title} Variable font"
+    obj["author"] = author
+    obj["designer"] = author
+    obj["titles"] = {"fallback": title, "en_US": title, "vi_VN": title, "zh_CN": title}
+    obj["authors"] = {"fallback": author, "en_US": author, "vi_VN": author, "zh_CN": author}
+    obj["designers"] = {"fallback": author, "en_US": author, "vi_VN": author, "zh_CN": author}
+    obj["descriptions"] = {"fallback": f"{title} Variable font"}
+    obj["builtInThumbnails"] = {
+        "fallback": ["preview_fonts_small_0.png"],
+        "en_US": ["en_US_fonts_small_0.png"],
     }
+    obj["builtInPreviews"] = {
+        "fallback": ["preview_fonts_0.png"],
+        "en_US": ["en_US_fonts_0.png"],
+    }
+    obj["thumbnails"] = []
+    obj["previews"] = []
+    obj["fontWeight"] = weights
 
-# Preserve Xiaomi's canonical runtime namespace. The physical copy used while
-# unpacking/building can live under product or system, but ThemeManager follows
-# these metadata paths when the user taps Apply.
-font_meta_root = f"{theme_runtime_root}/.data/meta/fonts"
+font["localId"] = font_id
+font["hash"] = font_sha1
+font["size"] = font_size
+font["metaPath"] = font_meta_path
+font["contentPath"] = font_content_path
+font.pop("downloadPath", None)
+font.pop("onlinePath", None)
+font["parentResources"] = [{
+    "localId": theme_id,
+    "resourceCode": "theme",
+    "extraMeta": {},
+    "metaPath": theme_meta_path,
+    "contentPath": theme_content_path,
+}]
+font["subResources"] = []
 
-data["localId"] = local_id
-data["onlineId"] = None
-data["productId"] = None
-data["downloadPath"] = f"{theme_runtime_root}/{theme_id}.mtz"
-data["metaPath"] = f"{font_meta_root}/{theme_id}.mrm"
-data["contentPath"] = f"{theme_runtime_root}/{theme_id}.mtz"
-data["status"] = 1
-data["platform"] = 8
-data["hash"] = "0"
-data["size"] = 0
-data["updatedTime"] = 0
-data["title"] = title
-data["description"] = f"{title} Variable font"
-data["author"] = author
-data["designer"] = author
-data["version"] = "1.0"
-data["fontWeight"] = "100,150,200,250,300,350,400,450,500,550,600,650,700,800,900"
+theme["localId"] = theme_id
+theme["hash"] = "0"
+theme["size"] = 0
+theme["metaPath"] = theme_meta_path
+theme["contentPath"] = theme_content_path
+theme.pop("downloadPath", None)
+theme.pop("onlinePath", None)
+theme["parentResources"] = []
+theme["subResources"] = [{
+    "localId": font_id,
+    "resourceCode": "fonts",
+    "extraMeta": {},
+    "metaPath": font_meta_path,
+    "contentPath": font_content_path,
+}]
 
-for key, value in (("titles", title), ("authors", author), ("designers", author)):
-    obj = data.get(key)
-    if not isinstance(obj, dict):
-        obj = {}
-    for locale in list(obj.keys()):
-        obj[locale] = value
-    obj.update({"en_US": value, "vi_VN": value, "zh_CN": value})
-    data[key] = obj
-
-os.makedirs(os.path.dirname(dst), exist_ok=True)
-with open(dst, "w", encoding="utf-8") as fh:
-    json.dump(data, fh, ensure_ascii=False, indent=4)
-    fh.write("\n")
+for path, data in ((font_out, font), (theme_out, theme)):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
 PY
 
-    local rc=$?
-    rm -rf "$tmp"
+    chmod 0644 "$font_mrm" "$theme_mrm"
 
-    if [ "$rc" -ne 0 ] || \
-       [ ! -s "$theme_target/$theme_id.mtz" ] || \
-       [ ! -s "$theme_target/.data/meta/fonts/$theme_id.mrm" ]; then
-        mods "Font $title theme: ERROR"
+    cmp -s "$font_file" "$font_mrc" || {
+        error "Font $title resource payload differs from source font"
         return 1
-    fi
+    }
 
-    for runtime_font in "${runtime_fonts[@]}"; do
-        if ! unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
-            | grep -qx "fonts/$runtime_font"; then
-            mods "Font $title theme: ERROR (missing $runtime_font)"
-            return 1
-        fi
-    done
-
-    if unzip -Z1 "$theme_target/$theme_id.mtz" 2>/dev/null \
-        | grep -qx "fonts/MI_Theme_VF.ttf"; then
-        mods "Font $title theme: ERROR (runtime alias packed into MTZ)"
-        return 1
-    fi
-
-    # MI_Theme_VF.ttf must NOT be pre-packed here. ThemeManager creates the
-    # runtime link when the resource exposes a non-empty fontWeight list.
-    if ! python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$theme_id" "$title" "$theme_runtime_root" <<'PYVERIFY'
+    if ! python3 - "$font_mrm" "$theme_mrm" "$font_id" "$theme_id" "$THEME_RUNTIME" "$weights" <<'PY'
 import json
 import sys
 
-path, theme_id, title, runtime_root = sys.argv[1:5]
-with open(path, "r", encoding="utf-8-sig") as fh:
-    data = json.load(fh)
+font_path, theme_path, font_id, theme_id, runtime, weights = sys.argv[1:7]
+with open(font_path, "r", encoding="utf-8-sig") as fh:
+    font = json.load(fh)
+with open(theme_path, "r", encoding="utf-8-sig") as fh:
+    theme = json.load(fh)
+
+font_meta = f"{runtime}/.data/meta/fonts/{font_id}.mrm"
+font_content = f"{runtime}/.data/content/fonts/{font_id}.mrc"
+theme_meta = f"{runtime}/.data/meta/theme/{theme_id}.mrm"
+theme_content = f"{runtime}/.data/content/theme/{theme_id}.mrc"
 
 ok = (
-    data.get("title") == title
-    and bool(str(data.get("localId", "")))
-    and data.get("downloadPath") == f"{runtime_root}/{theme_id}.mtz"
-    and data.get("contentPath") == f"{runtime_root}/{theme_id}.mtz"
-    and data.get("metaPath") == f"{runtime_root}/.data/meta/fonts/{theme_id}.mrm"
-    and bool(str(data.get("fontWeight", "")).strip())
+    font.get("localId") == font_id
+    and font.get("metaPath") == font_meta
+    and font.get("contentPath") == font_content
+    and font.get("fontWeight") == weights
+    and isinstance(font.get("parentResources"), list)
+    and len(font["parentResources"]) == 1
+    and font["parentResources"][0].get("localId") == theme_id
+    and font["parentResources"][0].get("resourceCode") == "theme"
+    and font["parentResources"][0].get("metaPath") == theme_meta
+    and font["parentResources"][0].get("contentPath") == theme_content
+    and theme.get("localId") == theme_id
+    and theme.get("metaPath") == theme_meta
+    and theme.get("contentPath") == theme_content
+    and isinstance(theme.get("subResources"), list)
+    and len(theme["subResources"]) == 1
+    and theme["subResources"][0].get("localId") == font_id
+    and theme["subResources"][0].get("resourceCode") == "fonts"
+    and theme["subResources"][0].get("metaPath") == font_meta
+    and theme["subResources"][0].get("contentPath") == font_content
 )
 raise SystemExit(0 if ok else 1)
-PYVERIFY
+PY
     then
-        mods "Font $title theme: ERROR (metadata verification failed)"
+        error "Font $title ThemeManager resource graph verification failed"
         return 1
     fi
 
-    # The initial MTZ lives in a real writable build target. Below we mirror it
-    # into every existing Xiaomi theme root so the canonical runtime path and
-    # every catalog scanner both resolve the same payload.
-    if [ ! -s "$theme_target/$theme_id.mtz" ]; then
-        mods "Font $title theme: ERROR (runtime MTZ missing)"
+    local count
+    count=$(find "$work_dir/build/baserom/images" -type f \
+        \( -name "$font_id.mrm" -o -name "$font_id.mrc" -o -name "$theme_id.mrm" -o -name "$theme_id.mrc" \) \
+        | wc -l | tr -d ' ')
+    if [ "$count" -ne 4 ]; then
+        error "Font $title duplicated across theme roots: expected 4 resource files, got $count"
         return 1
     fi
 
-    chmod 0644 "$theme_target/$theme_id.mtz" || {
-        error "Font $title theme: chmod failed"
-        return 1
-    }
-    # HyperOS may index built-in fonts from more than one partition. The HAOTIAN
-    # stock ROM exposes font metadata under both /product/media/theme and
-    # /system/media/theme. Mirror the generated resource to every real theme
-    # root so ThemeManager sees the same built-in font catalog regardless of
-    # which partition it scans first.
-    local mirror_target mirror_runtime mirror_meta
-    for mirror_target in \
-        "$work_dir/build/baserom/images/product/media/theme" \
-        "$work_dir/build/baserom/images/system_ext/media/theme" \
-        "$work_dir/build/baserom/images/system/system/media/theme" \
-        "$work_dir/build/baserom/images/system/media/theme"; do
-        [ -d "$mirror_target" ] || continue
-        [ "$mirror_target" = "$theme_target" ] && continue
-        mirror_runtime=$(theme_runtime_root_for_target "$mirror_target") || continue
-        mkdir -p "$mirror_target/.data/meta/fonts" || continue
-        cp -f "$theme_target/$theme_id.mtz" "$mirror_target/$theme_id.mtz" || continue
-        mirror_meta="$mirror_target/.data/meta/fonts/$theme_id.mrm"
-
-        # Important: every catalog copy must advertise the SAME canonical
-        # runtime path. Rewriting /system -> /product here makes the selector
-        # visible but can make Apply resolve a different/non-active resource.
-        cp -f "$theme_target/.data/meta/fonts/$theme_id.mrm" "$mirror_meta" || continue
-
-        chmod 0644 "$mirror_target/$theme_id.mtz" "$mirror_meta" || true
-        mods "Font $title mirror: OK ($mirror_runtime -> canonical $theme_runtime_root)"
-    done
-
-    # If the canonical runtime root has a concrete build directory, require the
-    # mirrored MTZ to exist there. This catches the exact "listed but not really
-    # applied" failure mode during CI instead of discovering it after flashing.
-    local canonical_target=""
-    case "$theme_runtime_root" in
-        /system/media/theme)
-            if [ -d "$work_dir/build/baserom/images/system/system/media/theme" ]; then
-                canonical_target="$work_dir/build/baserom/images/system/system/media/theme"
-            elif [ -d "$work_dir/build/baserom/images/system/media/theme" ]; then
-                canonical_target="$work_dir/build/baserom/images/system/media/theme"
-            fi
-            ;;
-        /product/media/theme)
-            [ -d "$work_dir/build/baserom/images/product/media/theme" ] && \
-                canonical_target="$work_dir/build/baserom/images/product/media/theme"
-            ;;
-        /system_ext/media/theme)
-            [ -d "$work_dir/build/baserom/images/system_ext/media/theme" ] && \
-                canonical_target="$work_dir/build/baserom/images/system_ext/media/theme"
-            ;;
-    esac
-
-    if [ -n "$canonical_target" ] && [ ! -s "$canonical_target/$theme_id.mtz" ]; then
-        mods "Font $title theme: ERROR (canonical MTZ missing: $theme_runtime_root/$theme_id.mtz)"
-        return 1
-    fi
-
-    mods "Font $title runtime: OK ($theme_runtime_root/$theme_id.mtz)"
-    mods "Font $title theme: OK (single payload + canonical metadata + mirrored catalog)"
-    return 0
-
+    mods "Font $title: native MRC/MRM resource graph OK ($THEME_RUNTIME)"
 }
 
 install_ios_emoji() {
@@ -387,11 +275,7 @@ install_ios_emoji() {
         error "Emoji iOS payload missing or empty: $IOS_EMOJI_FONT"
         return 1
     }
-
-    local target
-    local count=0
-    local failed=0
-
+    local target count=0 failed=0
     while IFS= read -r -d '' target; do
         if cp -f "$IOS_EMOJI_FONT" "$target" >/dev/null 2>&1; then
             count=$((count + 1))
@@ -399,41 +283,46 @@ install_ios_emoji() {
             failed=1
         fi
     done < <(find "$work_dir/build/baserom/images" -type f -name "NotoColorEmoji.ttf" -print0 2>/dev/null)
-
     if [ "$failed" -eq 0 ] && [ "$count" -gt 0 ]; then
         mods "Emoji iOS: OK"
         return 0
     fi
-
-    mods "Emoji iOS: ERROR"
+    error "Emoji iOS: no writable NotoColorEmoji.ttf target found"
     return 1
 }
 
 case "$rom_os" in
-    OS1|OS2|OS3|OS4)
-        install_font_theme "$SF_FONT" "SF-Pro" "SF Pro" "Apple" "10010" || {
-            error "FAST-FAIL: SF Pro integration failed"
-            exit 1
-        }
-
-        if ! ROBOTO_FONT=$(prepare_roboto_variable); then
-            error "FAST-FAIL: Roboto-VF.ttf missing or empty"
-            exit 1
-        fi
-        install_font_theme "$ROBOTO_FONT" "Roboto" "Roboto" "Google" "10011" || {
-            error "FAST-FAIL: Roboto integration failed"
-            exit 1
-        }
-        ;;
-    *)
-        mods "Fonts: unsupported ROM $rom_os -> skipped"
-        exit 0
-        ;;
+    OS1|OS2|OS3|OS4) ;;
+    *) mods "Fonts: unsupported ROM $rom_os -> skipped"; exit 0 ;;
 esac
 
-install_ios_emoji || {
-    error "FAST-FAIL: iOS Emoji integration failed"
+select_theme_root || {
+    error "FAST-FAIL: no Xiaomi theme root found"
+    exit 1
+}
+mods "Fonts: using one catalog only -> $THEME_RUNTIME"
+cleanup_legacy_generated_fonts
+
+install_xiaomi_font_resource \
+    "$SF_FONT" \
+    "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102" \
+    "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101" \
+    "SF Pro" "Apple" "100,200,300,400,500,600,700,800,900" || {
+    error "FAST-FAIL: SF Pro native ThemeManager integration failed"
     exit 1
 }
 
+install_xiaomi_font_resource \
+    "$ROBOTO_FONT" \
+    "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3102" \
+    "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3101" \
+    "Roboto" "Google" "100,200,300,400,500,600,700,800,900" || {
+    error "FAST-FAIL: Roboto native ThemeManager integration failed"
+    exit 1
+}
+
+# Stock MiSans/default resource is deliberately untouched. There is no custom
+# MiSans copy, so the selector should expose one stock MiSans entry plus the two
+# native resources above.
+install_ios_emoji || exit 1
 mods "Fonts integration -> Done"
