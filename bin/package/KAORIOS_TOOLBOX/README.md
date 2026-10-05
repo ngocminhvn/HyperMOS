@@ -4,7 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific ComputerEngine feature selection lives only in `script/mod-kaorios-adapter.py`; Settings spoof/dev-status helpers remain HyperMOS-local and do not modify the upstream patcher. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
+Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific ComputerEngine feature selection lives only in `script/mod-kaorios-adapter.py`; Dev-status helper remains HyperMOS-local and do not modify the upstream patcher. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
 
 
 ## Scope
@@ -16,7 +16,6 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - `ApplicationPackageManager.hasSystemFeature(...)` spoof hook;
 - `SystemServer` initialization;
 - `ComputerEngine` package visibility / installer-source hooks;
-- framework `Settings$NameValueCache` per-app Settings spoof hook + Android 16 targeted `ContentResolver.call()` runtime-probe hook;
 - optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
 - Android 17 `Build` / `Build$VERSION` spoof;
 - Toolbox APK as a `system_ext` priv-app.
@@ -25,8 +24,7 @@ Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here bec
 
 ## Per-feature config
 
-Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. Settings spoof uses a framework caller hook so the Kaorios stage preserves the input `SettingsProvider.apk` without requiring the Xiaomi platform private key.
-
+Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. 
 The caller backend evaluates `KaoriosHook.filterSettingsCall` before the stock NameValueCache lookup for same-user `Settings.System/Secure/Global.get*` reads by ordinary application UIDs. On Android 16 it also hooks the framework `ContentResolver.call(String authority, ...)` path only when `authority == "settings"`, so Kaorios Toolbox runtime probes and apps that use the public resolver call path can reach the same policy without modifying `SettingsProvider.apk`. A returned Bundle overrides the value, including an explicit null; no decision runs the stock cache/provider path. The bridge also checks ContentResolver extras `_user` against the process user, excludes system UIDs and foreign Binder identities, prevents recursive policy evaluation, and falls back to stock if policy evaluation throws. `KAORIOS_ENABLE_SYSTEM_SERVER` must be enabled to initialize the policy service.
 
 On Android 16, `ContentResolver.call()` to the `settings` authority is covered, but direct `IContentProvider` access, `ContentResolver.query`, bulk reads, system-process reads and cross-user reads remain outside this backend; this is still not full provider-side coverage. The original provider hooks remain in the upstream patcher sources but the main build no longer applies them. The Xiaomi 15 Pro Android 16 / OS3 bootloop reported for build #59 is not yet confirmed by device logs. Host verification does not establish device boot, Binder/SELinux access, or runtime spoof compatibility; test a configured target app after first boot.
@@ -138,3 +136,5 @@ Run `python3 -B script/test_settings_semantics.py` from this package directory.
 It tests security mutations, equivalent aliases/encodings and real round trips
 with both checked-in smali/baksmali jar pairs. The full ROM workflow runs these
 regressions before patching and runs final verification on the rebuilt ROM JARs.
+
+Upstream 2.0.6.1 policy: stock SettingsProvider is preserved. HyperMOS no longer adds caller-side Settings spoof or direct ContentResolver Settings hooks; only the documented Developer/ADB dev-status hook remains.
