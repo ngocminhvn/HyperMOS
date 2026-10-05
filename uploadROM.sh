@@ -5,9 +5,7 @@ source "$work_dir/functions.sh"
 
 RCLONE_CONFIG_GDRIVE="$work_dir/rclone.conf"
 
-# Setup rclone config from a direct URL.
-# Usage: uploadROM.sh setup <RCLONE_TOKEN_PATH>
-# Example: https://ngocminhvn.github.io/rclone.conf
+
 if [ "${1:-}" = "setup" ]; then
     RCLONE_TOKEN_PATH="${2:-${RCLONE_TOKEN_PATH:-}}"
 
