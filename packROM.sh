@@ -32,9 +32,15 @@ repack $superSize
 repack "Super image size: ${superSize}"
 repack "Packing super.img"
 
-PACK_JOBS="${PACK_JOBS:-$(nproc)}"
+# mkfs.erofs already uses CPU internally. Two concurrent partition packers
+# are a better default on GitHub's 4-core hosted runner than four competing jobs.
+PACK_JOBS="${PACK_JOBS:-2}"
 if ! [[ "$PACK_JOBS" =~ ^[0-9]+$ ]] || [ "$PACK_JOBS" -lt 1 ]; then
     PACK_JOBS=1
+fi
+CPU_JOBS="$(nproc)"
+if [ "$PACK_JOBS" -gt "$CPU_JOBS" ]; then
+    PACK_JOBS="$CPU_JOBS"
 fi
 if [ "$PACK_JOBS" -gt 4 ]; then
     PACK_JOBS=4
