@@ -704,7 +704,7 @@ preflight_framework_runtime_hooks() {
     info "KAORIOS: preflight Android 16 Settings runtime hook"
     if ! python3 "$SETTINGS_CONTENTRESOLVER_PATCHER" "$root" --check-layout >/dev/null; then
       error "KAORIOS: Android 16 Settings runtime hook preflight failed; aborting package stage"
-      return 1
+      exit 1
     fi
     info "KAORIOS: Android 16 Settings runtime hook preflight PASS"
   fi
@@ -740,7 +740,7 @@ patch_archive() {
   case "$kind" in
     framework)
       require_framework_targets "$smali"
-      preflight_framework_runtime_hooks "$smali" || return 1
+      preflight_framework_runtime_hooks "$smali"
       if framework_driver_needed; then
         ensure_no_existing_driver "$smali"
       fi
