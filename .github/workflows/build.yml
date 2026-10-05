@@ -85,7 +85,7 @@ jobs:
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test 2>&1 | tee -a build_action.log
           sudo apt-get update 2>&1 | tee -a build_action.log
           sudo apt purge device-tree-compiler 2>&1 | tee -a build_action.log
-          sudo apt-get install -y aria2 jq rclone sshpass lz4 python-is-python3 wget python3 lz4 xz-utils zlib1g-dev gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip erofs-utils unzip p7zip-full zipalign zstd bc android-sdk-libsparse-utils xmlstarlet 2>&1 | tee -a build_action.log
+          sudo apt-get install -y aria2 jq rclone sshpass lz4 python-is-python3 wget python3 lz4 xz-utils zlib1g-dev gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip erofs-utils unzip p7zip-full zipalign apksigner zstd bc android-sdk-libsparse-utils xmlstarlet 2>&1 | tee -a build_action.log
           sudo pip3 install ConfigObj 2>&1 | tee -a build_action.log
           sudo pip3 install telebot 2>&1 | tee -a build_action.log
           sudo pip3 install setuptools 2>&1 | tee -a build_action.log
@@ -94,6 +94,37 @@ jobs:
       - name: Grant file permissions
         run: |
           sudo chmod 777 -R *
+
+      - name: Prepare Kaorios platform signing credentials
+        env:
+          KAORIOS_PLATFORM_PK8_B64: ${{ secrets.KAORIOS_PLATFORM_PK8_B64 }}
+          KAORIOS_PLATFORM_CERT_B64: ${{ secrets.KAORIOS_PLATFORM_CERT_B64 }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${KAORIOS_PLATFORM_PK8_B64:-}" && -z "${KAORIOS_PLATFORM_CERT_B64:-}" ]]; then
+            echo "[KAORIOS] Platform signing secrets are not configured; SettingsProvider spoof will be skipped."
+            exit 0
+          fi
+
+          if [[ -z "${KAORIOS_PLATFORM_PK8_B64:-}" || -z "${KAORIOS_PLATFORM_CERT_B64:-}" ]]; then
+            echo "[KAORIOS] Both KAORIOS_PLATFORM_PK8_B64 and KAORIOS_PLATFORM_CERT_B64 are required." >&2
+            exit 1
+          fi
+
+          SIGN_DIR="$RUNNER_TEMP/kaorios-platform-signing"
+          mkdir -p "$SIGN_DIR"
+          umask 077
+
+          printf '%s' "$KAORIOS_PLATFORM_PK8_B64" | base64 --decode > "$SIGN_DIR/platform.pk8"
+          printf '%s' "$KAORIOS_PLATFORM_CERT_B64" | base64 --decode > "$SIGN_DIR/platform.x509.pem"
+
+          test -s "$SIGN_DIR/platform.pk8"
+          test -s "$SIGN_DIR/platform.x509.pem"
+
+          echo "KAORIOS_PLATFORM_KEY=$SIGN_DIR/platform.pk8" >> "$GITHUB_ENV"
+          echo "KAORIOS_PLATFORM_CERT=$SIGN_DIR/platform.x509.pem" >> "$GITHUB_ENV"
+          echo "[KAORIOS] Platform signing material loaded from GitHub Secrets."
 
       - name: Validate Rclone config
         if: ${{ inputs.upload_method == 'drive' }}
