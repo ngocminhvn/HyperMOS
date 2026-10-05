@@ -110,7 +110,7 @@ jobs:
       - name: Verify Fake Lock and Kaorios dev-status semantics
         run: |
           python3 -B bin/package/ResetProp/test_install.py
-          python3 -B bin/package/KAORIOS_TOOLBOX/script/test_patch_settings_namevaluecache.py
+          python3 -B bin/package/KAORIOS_TOOLBOX/mod/test_patch_settings_namevaluecache.py
 
       - name: Grant file permissions
         run: |
