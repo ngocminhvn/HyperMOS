@@ -45,6 +45,53 @@ theme_runtime_root_for_target() {
     esac
 }
 
+detect_canonical_theme_runtime_root() {
+    local meta root
+    for meta in \
+        "$work_dir/build/baserom/images/product/media/theme/.data/meta/fonts/default.mrm" \
+        "$work_dir/build/baserom/images/system/system/media/theme/.data/meta/fonts/default.mrm" \
+        "$work_dir/build/baserom/images/system/media/theme/.data/meta/fonts/default.mrm" \
+        "$work_dir/build/baserom/images/system_ext/media/theme/.data/meta/fonts/default.mrm"; do
+        [ -s "$meta" ] || continue
+
+        root=$(python3 - "$meta" <<'PYROOT'
+import json
+import os
+import sys
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8-sig") as fh:
+        data = json.load(fh)
+except Exception:
+    raise SystemExit(1)
+
+for key in ("contentPath", "downloadPath", "metaPath"):
+    value = data.get(key)
+    if not isinstance(value, str) or not value.startswith("/"):
+        continue
+    if "/.data/meta/fonts/" in value:
+        print(value.split("/.data/meta/fonts/", 1)[0])
+        raise SystemExit(0)
+    if value.endswith(".mtz"):
+        print(os.path.dirname(value))
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PYROOT
+        ) || root=""
+
+        if [ -n "$root" ]; then
+            printf '%s\n' "$root"
+            return 0
+        fi
+    done
+
+    # Xiaomi stock font metadata on HyperOS normally resolves through the
+    # canonical /system/media/theme namespace even when a duplicate metadata
+    # index is stored under /product. Keep that runtime contract as fallback.
+    printf '%s\n' "/system/media/theme"
+}
+
 prepare_roboto_variable() {
     local local_font="$FONT_SOURCE/Roboto-VF.ttf"
 
@@ -77,11 +124,16 @@ install_font_theme() {
     local ui_version=16
     [[ "$rom_os" == "OS4" ]] && ui_version=17
 
+    # Do not derive metadata paths from the partition where we happen to write
+    # the MTZ first. Xiaomi may index the same built-in resource from /product
+    # while stock default.mrm still points to the canonical /system/media/theme
+    # runtime namespace. Follow stock metadata so Apply resolves the same path.
     local theme_runtime_root
-    theme_runtime_root=$(theme_runtime_root_for_target "$theme_target") || {
-        mods "Font $title theme: ERROR (unknown theme target)"
+    theme_runtime_root=$(detect_canonical_theme_runtime_root) || {
+        mods "Font $title theme: ERROR (cannot resolve canonical runtime root)"
         return 1
     }
+    mods "Font $title canonical runtime root: $theme_runtime_root"
 
     local tmp
     tmp=$(mktemp -d) || {
@@ -171,9 +223,9 @@ except Exception:
         "extraMeta": {}
     }
 
-# Always point metadata at the partition that actually contains the MTZ in
-# the unpacked ROM. On this HyperOS base /system/media is represented by a
-# symlink-like entry during extraction, so trying to mkdir/copy through it fails.
+# Preserve Xiaomi's canonical runtime namespace. The physical copy used while
+# unpacking/building can live under product or system, but ThemeManager follows
+# these metadata paths when the user taps Apply.
 font_meta_root = f"{theme_runtime_root}/.data/meta/fonts"
 
 data["localId"] = local_id
@@ -235,20 +287,20 @@ PY
 
     # MI_Theme_VF.ttf must NOT be pre-packed here. ThemeManager creates the
     # runtime link when the resource exposes a non-empty fontWeight list.
-    if ! python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$theme_id" "$title" <<'PYVERIFY'
+    if ! python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$theme_id" "$title" "$theme_runtime_root" <<'PYVERIFY'
 import json
 import sys
 
-path, theme_id, title = sys.argv[1:4]
+path, theme_id, title, runtime_root = sys.argv[1:5]
 with open(path, "r", encoding="utf-8-sig") as fh:
     data = json.load(fh)
 
 ok = (
     data.get("title") == title
     and bool(str(data.get("localId", "")))
-    and str(data.get("downloadPath", "")).endswith(f"/{theme_id}.mtz")
-    and str(data.get("contentPath", "")).endswith(f"/{theme_id}.mtz")
-    and str(data.get("metaPath", "")).endswith(f"/{theme_id}.mrm")
+    and data.get("downloadPath") == f"{runtime_root}/{theme_id}.mtz"
+    and data.get("contentPath") == f"{runtime_root}/{theme_id}.mtz"
+    and data.get("metaPath") == f"{runtime_root}/.data/meta/fonts/{theme_id}.mrm"
     and bool(str(data.get("fontWeight", "")).strip())
 )
 raise SystemExit(0 if ok else 1)
@@ -258,9 +310,9 @@ PYVERIFY
         return 1
     fi
 
-    # The MTZ already lives in the real partition selected above. Do not
-    # mirror it through /system/media: that path may be a symlink represented as
-    # a regular entry by the image extractor and mkdir would fail.
+    # The initial MTZ lives in a real writable build target. Below we mirror it
+    # into every existing Xiaomi theme root so the canonical runtime path and
+    # every catalog scanner both resolve the same payload.
     if [ ! -s "$theme_target/$theme_id.mtz" ]; then
         mods "Font $title theme: ERROR (runtime MTZ missing)"
         return 1
@@ -287,26 +339,45 @@ PYVERIFY
         mkdir -p "$mirror_target/.data/meta/fonts" || continue
         cp -f "$theme_target/$theme_id.mtz" "$mirror_target/$theme_id.mtz" || continue
         mirror_meta="$mirror_target/.data/meta/fonts/$theme_id.mrm"
-        python3 - "$theme_target/.data/meta/fonts/$theme_id.mrm" "$mirror_meta" "$theme_runtime_root" "$mirror_runtime" <<'PYMIRROR'
-import json
-import sys
-src, dst, old_root, new_root = sys.argv[1:5]
-with open(src, "r", encoding="utf-8-sig") as fh:
-    data = json.load(fh)
-for key in ("downloadPath", "metaPath", "contentPath"):
-    value = data.get(key)
-    if isinstance(value, str):
-        data[key] = value.replace(old_root, new_root, 1)
-with open(dst, "w", encoding="utf-8") as fh:
-    json.dump(data, fh, ensure_ascii=False, indent=4)
-    fh.write("\n")
-PYMIRROR
+
+        # Important: every catalog copy must advertise the SAME canonical
+        # runtime path. Rewriting /system -> /product here makes the selector
+        # visible but can make Apply resolve a different/non-active resource.
+        cp -f "$theme_target/.data/meta/fonts/$theme_id.mrm" "$mirror_meta" || continue
+
         chmod 0644 "$mirror_target/$theme_id.mtz" "$mirror_meta" || true
-        mods "Font $title mirror: OK ($mirror_runtime)"
+        mods "Font $title mirror: OK ($mirror_runtime -> canonical $theme_runtime_root)"
     done
 
+    # If the canonical runtime root has a concrete build directory, require the
+    # mirrored MTZ to exist there. This catches the exact "listed but not really
+    # applied" failure mode during CI instead of discovering it after flashing.
+    local canonical_target=""
+    case "$theme_runtime_root" in
+        /system/media/theme)
+            if [ -d "$work_dir/build/baserom/images/system/system/media/theme" ]; then
+                canonical_target="$work_dir/build/baserom/images/system/system/media/theme"
+            elif [ -d "$work_dir/build/baserom/images/system/media/theme" ]; then
+                canonical_target="$work_dir/build/baserom/images/system/media/theme"
+            fi
+            ;;
+        /product/media/theme)
+            [ -d "$work_dir/build/baserom/images/product/media/theme" ] && \
+                canonical_target="$work_dir/build/baserom/images/product/media/theme"
+            ;;
+        /system_ext/media/theme)
+            [ -d "$work_dir/build/baserom/images/system_ext/media/theme" ] && \
+                canonical_target="$work_dir/build/baserom/images/system_ext/media/theme"
+            ;;
+    esac
+
+    if [ -n "$canonical_target" ] && [ ! -s "$canonical_target/$theme_id.mtz" ]; then
+        mods "Font $title theme: ERROR (canonical MTZ missing: $theme_runtime_root/$theme_id.mtz)"
+        return 1
+    fi
+
     mods "Font $title runtime: OK ($theme_runtime_root/$theme_id.mtz)"
-    mods "Font $title theme: OK (MTZ + metadata mirrored to Xiaomi theme roots)"
+    mods "Font $title theme: OK (single payload + canonical metadata + mirrored catalog)"
     return 0
 
 }
