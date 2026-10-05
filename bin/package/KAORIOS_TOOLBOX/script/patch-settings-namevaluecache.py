@@ -197,17 +197,17 @@ def _verify_roundtrip_block(body: str) -> tuple[str, str]:
 
     aliases = _parameter_aliases(body)
 
-    first = re.fullmatch(r"if-eqz\\s+([^,]+),\\s*(:[A-Za-z0-9_]+)", lines[0])
+    first = re.fullmatch(r"if-eqz\s+([^,]+),\s*(:[A-Za-z0-9_]+)", lines[0])
     if first is None or first.group(1) not in aliases["p2"]:
         raise VerifyError(f"round-trip dev-status first branch is invalid; head={preview}")
     stock_label = first.group(2)
 
     range_call = re.fullmatch(
-        r"invoke-static/range\\s*\\{([^ ]+)\\s*\\.\\.\\s*([^ }]+)\\},\\s*" + re.escape(HOOK),
+        r"invoke-static/range\s*\{([^ ]+)\s*\.\.\s*([^ }]+)\},\s*" + re.escape(HOOK),
         lines[1],
     )
     normal_call = re.fullmatch(
-        r"invoke-static\\s*\\{([^}]*)\\},\\s*" + re.escape(HOOK),
+        r"invoke-static\s*\{([^}]*)\},\s*" + re.escape(HOOK),
         lines[1],
     )
     if range_call is not None:
@@ -225,24 +225,24 @@ def _verify_roundtrip_block(body: str) -> tuple[str, str]:
     else:
         raise VerifyError(f"round-trip dev-status hook call is invalid; head={preview}")
 
-    move = re.fullmatch(r"move-result\\s+(v\\d+)", lines[2])
+    move = re.fullmatch(r"move-result\s+(v\d+)", lines[2])
     if move is None:
         raise VerifyError(f"round-trip dev-status move-result is invalid; head={preview}")
     scratch = move.group(1)
 
     if re.fullmatch(
-        r"if-eqz\\s+" + re.escape(scratch) + r",\\s*" + re.escape(stock_label),
+        r"if-eqz\s+" + re.escape(scratch) + r",\s*" + re.escape(stock_label),
         lines[3],
     ) is None:
         raise VerifyError(f"round-trip dev-status second branch is invalid; head={preview}")
 
     if re.fullmatch(
-        r"const-string(?:/jumbo)?\\s+" + re.escape(scratch) + r',\\s*"0"',
+        r"const-string(?:/jumbo)?\s+" + re.escape(scratch) + r',\s*"0"',
         lines[4],
     ) is None:
         raise VerifyError(f"round-trip dev-status hidden value is invalid; head={preview}")
 
-    if re.fullmatch(r"return-object\\s+" + re.escape(scratch), lines[5]) is None:
+    if re.fullmatch(r"return-object\s+" + re.escape(scratch), lines[5]) is None:
         raise VerifyError(f"round-trip dev-status return is invalid; head={preview}")
 
     if lines[6] != stock_label:
