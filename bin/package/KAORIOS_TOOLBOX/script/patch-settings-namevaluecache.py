@@ -154,6 +154,7 @@ def _hook_pattern(roundtrip: bool = False) -> re.Pattern[str]:
         r"^[ \t]*if-eqz[ \t]+(?P=scratch),[ \t]*" + second_label + r"[ \t]*\r?\n"
         r"^[ \t]*const-string[ \t]+(?P=scratch),[ \t]*\"0\"[ \t]*\r?\n"
         r"^[ \t]*return-object[ \t]+(?P=scratch)[ \t]*\r?\n"
+        r"(?:^[ \\t]*\\r?\\n)*"
         r"^[ \t]*" + second_label + r"[ \t]*\r?\n"
     )
 
