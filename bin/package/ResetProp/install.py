@@ -55,6 +55,10 @@ def policy_block(property_types: set[str]) -> str:
         f"(typeattributeset system_file_type ({EXEC}))",
         f"(allow init {DOMAIN} (process (transition)))",
         f"(allow {DOMAIN} init (process (sigchld)))",
+        # Android creates property areas mode 0444. The pinned payload's
+        # writable mapping opens them O_RDWR (ELF offsets 0x8cb8..0x8cbc),
+        # requiring DAC_OVERRIDE even as uid 0. MAC access remains type-scoped.
+        f"(allow {DOMAIN} {DOMAIN} (capability (dac_override)))",
         f"(allow init {EXEC} (file (read open getattr execute map)))",
         f"(allow {DOMAIN} {EXEC} (file (read open getattr execute map entrypoint)))",
         f"(allow {DOMAIN} properties_device (dir (search read open getattr)))",
@@ -75,6 +79,7 @@ def init_rc() -> str:
         "# Bounded synchronous execution before zygote/framework startup.",
         "service hypermos_fake_lock /system_ext/xbin/xeutoolbox -n -f /system_ext/etc/hypermos-fake-lock.prop",
         "    disabled", "    oneshot", "    user root", "    group root",
+        "    capabilities DAC_OVERRIDE",
         f"    seclabel u:r:{DOMAIN}:s0", "    timeout_period 5", "",
         "on post-fs-data",
         "    exec_start hypermos_fake_lock",

@@ -36,6 +36,13 @@ linker, APEX traversal and property-context read rules. The helper's execution
 label is installed in both the repacker config and the on-device
 `system_ext_file_contexts`, so restorecon retains it.
 
+UID 0 alone is insufficient: [Android's property-area creator](https://android.googlesource.com/platform/bionic/+/refs/heads/android16-release/libc/system_properties/prop_area.cpp)
+uses mode `0444`, while the pinned payload opens the existing area `O_RDWR`
+(disassembled at ELF offsets `0x8cb8..0x8cbc`). Its domain therefore grants
+`dac_override`, and the service explicitly retains only `DAC_OVERRIDE`.
+SELinux still restricts writable mappings to the resolved property types and
+serial area; this does not grant writes to arbitrary files.
+
 Only init's active platform/system_ext/product/vendor/odm property contexts
 participate in resolution. Backup/recovery files must not select an unused type.
 The host split-policy compile mirrors Android 16 init's inputs and flags and

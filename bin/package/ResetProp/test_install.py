@@ -16,7 +16,8 @@ POLICY = """
 (class file (read write open getattr execute map entrypoint))
 (class dir (search read open getattr))
 (class process (transition sigchld))
-(classorder (file dir process))
+(class capability (dac_override))
+(classorder (file dir process capability))
 (sid kernel)
 (sidorder (kernel))
 (sensitivity s0)
@@ -107,6 +108,7 @@ class InstallTests(unittest.TestCase):
             self.assertIn("on post-fs-data", rc)
             self.assertIn("    timeout_period 5", rc)
             self.assertIn("    disabled\n    oneshot", rc)
+            self.assertIn("    capabilities DAC_OVERRIDE\n", rc)
             self.assertEqual(rc.count("    exec_start hypermos_fake_lock"), 2)
             self.assertNotIn("exec u:r:init:s0", rc)
             self.assertIn("xeutoolbox -n -f /system_ext/etc/hypermos-fake-lock.prop", rc)
@@ -127,6 +129,7 @@ class InstallTests(unittest.TestCase):
             self.assertNotIn("property_service", cil)  # -n writes the mapped area directly
             self.assertIn("(allow hypermos_fake_lock bootloader_prop (file (read write open getattr map)))", cil)
             self.assertIn("(allow hypermos_fake_lock secureboot_prop (file (read write open getattr map)))", cil)
+            self.assertIn("(allow hypermos_fake_lock hypermos_fake_lock (capability (dac_override)))", cil)
             self.assertIn("/system_ext/xbin/xeutoolbox u:object_r:hypermos_fake_lock_exec:s0",
                           (images / "system_ext/etc/selinux/system_ext_file_contexts").read_text())
             self.assertNotEqual((images / "system_ext/etc/selinux/system_ext_sepolicy_and_mapping.sha256").read_text(), "stock-fingerprint\n")
