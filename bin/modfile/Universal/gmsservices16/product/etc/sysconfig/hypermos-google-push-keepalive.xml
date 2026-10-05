@@ -11,7 +11,8 @@
     <allow-in-power-save package="com.android.vending" />
     <allow-in-data-usage-save package="com.android.vending" />
     <bg-restriction-exemption package="com.android.vending" />
-<allow-implicit-broadcast action="com.google.android.c2dm.intent.RECEIVE" />
+
+    <allow-implicit-broadcast action="com.google.android.c2dm.intent.RECEIVE" />
     <allow-implicit-broadcast action="com.google.android.gcm.intent.RETRY" />
     <allow-implicit-broadcast action="com.google.android.intent.action.GCM_RECONNECT" />
 </config>
