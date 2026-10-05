@@ -4,8 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific ComputerEngine feature selection lives only in `script/mod-kaorios-adapter.py`; Dev-status helper remains HyperMOS-local and do not modify the upstream patcher. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
-
+Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific ComputerEngine feature selection lives only in `script/mod-kaorios-adapter.py`; The dev-status helper remains HyperMOS-local and does not modify the upstream patcher. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
 
 ## Scope
 
@@ -25,10 +24,6 @@ Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here bec
 ## Per-feature config
 
 Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. 
-The caller backend evaluates `KaoriosHook.filterSettingsCall` before the stock NameValueCache lookup for same-user `Settings.System/Secure/Global.get*` reads by ordinary application UIDs. On Android 16 it also hooks the framework `ContentResolver.call(String authority, ...)` path only when `authority == "settings"`, so Kaorios Toolbox runtime probes and apps that use the public resolver call path can reach the same policy without modifying `SettingsProvider.apk`. A returned Bundle overrides the value, including an explicit null; no decision runs the stock cache/provider path. The bridge also checks ContentResolver extras `_user` against the process user, excludes system UIDs and foreign Binder identities, prevents recursive policy evaluation, and falls back to stock if policy evaluation throws. `KAORIOS_ENABLE_SYSTEM_SERVER` must be enabled to initialize the policy service.
-
-On Android 16, `ContentResolver.call()` to the `settings` authority is covered, but direct `IContentProvider` access, `ContentResolver.query`, bulk reads, system-process reads and cross-user reads remain outside this backend; this is still not full provider-side coverage. The original provider hooks remain in the upstream patcher sources but the main build no longer applies them. The Xiaomi 15 Pro Android 16 / OS3 bootloop reported for build #59 is not yet confirmed by device logs. Host verification does not establish device boot, Binder/SELinux access, or runtime spoof compatibility; test a configured target app after first boot.
-
 Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/update.sh`. Set `HYPERMOS_CUSTOM_BOOTANIMATION=false` in the build environment to preserve the base ROM animation for diagnostics.
 
 | Switch | Effect |
@@ -41,7 +36,6 @@ Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/updat
 | `KAORIOS_ENABLE_SYSTEM_SERVER` | `SystemServer` initialization hook |
 | `KAORIOS_ENABLE_HIDDEN_APP` | Package visibility / hidden-app filtering in `ComputerEngine` |
 | `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
-| `KAORIOS_ENABLE_SETTINGS_SPOOF` | Per-app framework `Settings.*` reads; on A16 also covers `settings` ContentResolver.call runtime probes; provider APK preserved |
 | `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
 | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
@@ -50,7 +44,7 @@ Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/updat
 
 Accepted boolean values are `true/false`, `1/0`, `yes/no`, and `on/off`. Environment variables override the defaults, so CI can change a switch without editing the file.
 
-The framework driver DEX is added whenever an enabled feature needs `KaoriosHook`, even when the caller lives in `services.jar` or `SettingsProvider.apk`. Build spoof does not force the driver by itself.
+The framework driver DEX is added whenever an enabled feature needs `KaoriosHook`, including callers in `services.jar`. Build spoof does not force the driver by itself.
 
 `KAORIOS_ENABLE_HIDDEN_APP` and `KAORIOS_ENABLE_INSTALLER_SOURCE` are independent; disabling one no longer implicitly disables/enables the other.
 
@@ -61,7 +55,7 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 1. HyperMOS COREPATCH
 2. DISABLE_AVB
 3. notification fix
-4. Kaorios v2.0.6.0
+4. Kaorios upstream 2.0.6.1 integration
 5. refresh-rate patch
 
 Kaorios therefore patches and verifies the final framework/services state instead of being overwritten by a later framework patch.
@@ -78,13 +72,11 @@ Kaorios therefore patches and verifies the final framework/services state instea
 - appends the Kaorios framework DEX to a new free `classesN.dex` slot;
 - re-disassembles the candidate artifacts and verifies the required hooks before replacing ROM files;
 - preserves `SettingsProvider.apk` byte-for-byte at this stage;
-- adds a caller bridge beside NameValueCache without changing its register count; on Android 16 it also hooks `ContentResolver.call(String, ...)` for the `settings` authority and verifies both hooks after DEX assembly.
 
 Required final feature checks include:
 
 - `initGenerateSoftwareKeyPair` + `CertificateChainIfNeeded` for Play Integrity/keybox;
 - `hasSystemFeature` for system-feature spoofing;
-- `filterSettingsCall`, the NameValueCache caller hook and guarded bridge; Android 16 additionally verifies the direct `ContentResolver.call()` runtime-probe hook.
 
 ## Keybox handling
 
@@ -97,44 +89,12 @@ Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 bu
 ## Upstream
 
 - Kaorios Toolbox: `hzzmonetvn/Kaorios-Toolbox`
-- Maintained guide: `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.0_VI.md`
-
+- Maintained guide: `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.1_VI.md`
 
 ## AdvancedPolicy / SELinux
 
 Upstream includes `script/check-advanced-policy-sepolicy.py` as a read-only deployment checker. This integration does not invent Xiaomi-specific SELinux rules during the build, because the correct SettingsProvider domain and split-policy layout must come from the actual ROM; broad guessed rules can cause policy compilation failure or a boot loop.
 
 After the first boot, use the upstream checker/logcat to confirm the AdvancedPolicy Binder path. If there is a real SELinux denial, add the smallest device-specific rule for the observed domain.
-
-## Settings bridge regression verification
-
-The #65 failure happened after the NameValueCache and ContentResolver hooks had
-passed final DEX checks. The later tolerant verifier had an over-escaped method
-regex and only counted security-related strings, allowing changed branch logic
-to pass. `script/smali_semantics.py` now compares the owned bridge's complete
-instruction graph, including ordered branch/fallthrough edges and exception
-edges for every protected instruction. Method signatures and field declarations
-are also checked. Stock entry in the two framework prefixes is an opaque exit;
-branches cannot jump deeper into stock code or omit the null fallback.
-
-Parameter aliases (`pX`/`vX`), `.locals`/`.registers`, labels, debug directives,
-move/const/goto encodings and invoke ranges are normalized. Disjoint catch
-metadata can reorder without changing coverage; handler priority, catch ranges,
-cleanup receiver, return values, guards and policy arguments/count stay exact.
-Unknown bridge opcodes/directives fail closed. This is a conservative verifier
-for the owned helper, not a general equivalence checker for arbitrary OEM code.
-
-`getOverrideForCall` passes the extras Bundle so cross-user `_user` reads follow
-stock SettingsProvider checks. Authority/extras failures also return stock. The
-shared bridge checks appId 10000..19999, own user, Binder UID equality and
-ThreadLocal recursion before exactly one filterSettingsCall. Successful and
-throwing policy calls remove the ThreadLocal; recursion returns stock without
-clearing the outer invocation's guard. A Bundle (even with a null value) is an
-override; a null Bundle is stock fallback before the NameValueCache cache.
-
-Run `python3 -B script/test_settings_semantics.py` from this package directory.
-It tests security mutations, equivalent aliases/encodings and real round trips
-with both checked-in smali/baksmali jar pairs. The full ROM workflow runs these
-regressions before patching and runs final verification on the rebuilt ROM JARs.
 
 Upstream 2.0.6.1 policy: stock SettingsProvider is preserved. HyperMOS no longer adds caller-side Settings spoof or direct ContentResolver Settings hooks; only the documented Developer/ADB dev-status hook remains.
