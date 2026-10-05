@@ -14,7 +14,6 @@ set -euo pipefail
 #   - ApplicationPackageManager.hasSystemFeature(...) spoof;
 #   - SystemServer initialisation;
 #   - ComputerEngine package visibility + installer-source hooks;
-#   - framework NameValueCache + direct ContentResolver.call Settings spoof (stock provider APK);
 #   - Settings$NameValueCache dev-status hook (hide Developer options / ADB);
 #   - Android 17 Build / Build$VERSION spoof (Android 17 only, like upstream).
 # Skipped on purpose: FLAG_SECURE, CorePatch, and SELinux policy mutation.
@@ -34,9 +33,6 @@ TOOLBOX_APK="$KAORIOS_DIR/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
 DEVSTATUS_PATCHER="$SCRIPT_DIR/patch-settings-namevaluecache.py"
-SETTINGS_CALLER_PATCHER="$SCRIPT_DIR/patch-settings-caller.py"
-SETTINGS_CONTENTRESOLVER_PATCHER="$SCRIPT_DIR/patch-settings-contentresolver.py"
-SETTINGS_CALLER_BRIDGE="$KAORIOS_DIR/framework/HyperMOSSettingsSpoof.smali"
 BUILD_SPOOF_VERIFIER="$SCRIPT_DIR/verify-build-spoof-a17.py"
 CONFIG="$KAORIOS_DIR/config.sh"
 
@@ -75,8 +71,6 @@ for flag in \
   KAORIOS_ENABLE_SYSTEM_SERVER \
   KAORIOS_ENABLE_HIDDEN_APP \
   KAORIOS_ENABLE_INSTALLER_SOURCE \
-  KAORIOS_ENABLE_SETTINGS_SPOOF \
-  KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF \
   KAORIOS_ENABLE_DEVSTATUS \
   KAORIOS_ENABLE_BUILD_SPOOF \
   KAORIOS_INSTALL_TOOLBOX \
@@ -89,16 +83,6 @@ if ! is_enabled "$KAORIOS_MASTER"; then
   mods "Kaorios Toolbox disabled by config"
   exit 0
 fi
-
-if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF" && ! is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
-  error "KAORIOS: caller Settings spoof requires SystemServer policy-service initialization"
-  exit 1
-fi
-if is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF" && ! is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-  error "KAORIOS: ContentResolver Settings spoof requires KAORIOS_ENABLE_SETTINGS_SPOOF"
-  exit 1
-fi
-
 
 framework_callsite_features_enabled() {
   is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD" ||
@@ -116,7 +100,6 @@ services_features_enabled() {
 framework_driver_needed() {
   framework_callsite_features_enabled ||
   services_features_enabled ||
-  is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF" ||
   is_enabled "$KAORIOS_ENABLE_DEVSTATUS"
 }
 
@@ -185,15 +168,6 @@ if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
 fi
 if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
   require_file "$DEVSTATUS_PATCHER" "dev-status patcher"
-fi
-if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-  require_file "$SETTINGS_CALLER_PATCHER" "caller Settings patcher"
-  require_file "$SCRIPT_DIR/smali_semantics.py" "Settings semantic verifier"
-  if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF"; then
-    require_file "$SETTINGS_CONTENTRESOLVER_PATCHER" "Android 16 direct ContentResolver Settings patcher"
-  fi
-  require_file "$DEVSTATUS_PATCHER" "NameValueCache layout helpers"
-  require_file "$SETTINGS_CALLER_BRIDGE" "caller Settings bridge"
 fi
 if build_spoof_enabled_for_target; then
   require_file "$BUILD_SPOOF_VERIFIER" "Build spoof verifier"
@@ -309,12 +283,6 @@ require_one_target() {
 
 require_framework_targets() {
   local root="$1"
-  if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-    require_one_target "$root" 'android/provider/Settings$NameValueCache.smali' "Settings NameValueCache"
-    if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF"; then
-      require_one_target "$root" "android/content/ContentResolver.smali" "Android 16 ContentResolver"
-    fi
-  fi
   if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
     require_one_target "$root" "android/app/ActivityThread.smali" "ActivityThread"
   fi
@@ -395,29 +363,6 @@ patch_selected_targets() {
       fi
       if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
         apply_devstatus_patch "$root" || return 1
-      fi
-      if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-        local cache_file owner bridge_rel
-        cache_file=$(find_target_file "$root" 'android/provider/Settings$NameValueCache.smali' "Settings NameValueCache") || return 1
-        bridge_rel='android/security/kaorios/HyperMOSSettingsSpoof.smali'
-        if find "$root" -type f -path "*/$bridge_rel" -print -quit | grep -q .; then
-          error "KAORIOS: caller Settings bridge already exists; refusing duplicate class"
-          return 1
-        fi
-        python3 "$SETTINGS_CALLER_PATCHER" "$cache_file" || return 1
-        if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF"; then
-          local resolver_file
-          resolver_file=$(find_target_file "$root" "android/content/ContentResolver.smali" "Android 16 ContentResolver") || return 1
-          python3 "$SETTINGS_CONTENTRESOLVER_PATCHER" "$resolver_file" || return 1
-        fi
-        owner="${cache_file%/android/provider/Settings\$NameValueCache.smali}"
-        mkdir -p "$owner/android/security/kaorios"
-        cp -f "$SETTINGS_CALLER_BRIDGE" "$owner/$bridge_rel"
-        if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF"; then
-          info "KAORIOS: caller Settings.* + Android 16 direct ContentResolver.call spoof staged; provider APK remains untouched"
-        else
-          info "KAORIOS: caller Settings.* spoof staged; direct ContentResolver interception disabled"
-        fi
       fi
       ;;
     services)
@@ -609,16 +554,6 @@ verify_framework_final() {
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "driver system-feature implementation"
     fi
-    if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;' "driver Settings call implementation"
-      python3 "$SETTINGS_CALLER_PATCHER" "$root" --verify-only --roundtrip || return 1
-      if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF"; then
-        python3 "$SETTINGS_CONTENTRESOLVER_PATCHER" "$root" --verify-only --roundtrip || return 1
-      fi
-      require_one_target "$root" "android/security/kaorios/HyperMOSSettingsSpoof.smali" "caller Settings bridge"
-      python3 "$SETTINGS_CALLER_PATCHER" "$root" --verify-bridge || return 1
-    fi
     if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'initSystemServer()V' "driver SystemServer implementation"
@@ -723,19 +658,6 @@ verify_candidate() {
   esac
 }
 
-preflight_framework_runtime_hooks() {
-  local root="$1"
-
-  if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF" && is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF"; then
-    info "KAORIOS: preflight Android 16 direct ContentResolver Settings hook"
-    if ! python3 "$SETTINGS_CONTENTRESOLVER_PATCHER" "$root" --check-layout >/dev/null; then
-      error "KAORIOS: Android 16 direct ContentResolver Settings hook preflight failed; aborting package stage"
-      exit 1
-    fi
-    info "KAORIOS: Android 16 direct ContentResolver Settings hook preflight PASS"
-  fi
-}
-
 find_unique_artifact() {
   local name="$1" preferred="$2"
   if [[ -n "$preferred" && -f "$preferred" ]]; then
@@ -766,7 +688,6 @@ patch_archive() {
   case "$kind" in
     framework)
       require_framework_targets "$smali"
-      preflight_framework_runtime_hooks "$smali"
       if framework_driver_needed; then
         ensure_no_existing_driver "$smali"
       fi
@@ -834,7 +755,7 @@ mods "Kaorios Toolbox v2.0.6.0 (per-feature config; HyperMOS owns FLAG_SECURE/Co
 
 info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
 info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
-info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, SettingsSpoof=$KAORIOS_ENABLE_SETTINGS_SPOOF, SettingsContentResolver=$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
+info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
 info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
 
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
@@ -849,14 +770,6 @@ fi
 if services_features_enabled; then
   SERVICES_JAR=$(find_unique_artifact "services.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar")
   patch_archive "$SERVICES_JAR" services
-fi
-
-if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
-  if [[ "$ANDROID_VER" == "16" ]] && is_enabled "$KAORIOS_ENABLE_SETTINGS_CONTENTRESOLVER_SPOOF"; then
-    info "KAORIOS: Settings spoof enabled via NameValueCache + Android 16 ContentResolver.call hooks"
-  else
-    info "KAORIOS: Settings spoof enabled via NameValueCache caller only; direct ContentResolver interception disabled"
-  fi
 fi
 
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
