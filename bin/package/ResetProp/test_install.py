@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import sys
 
 spec = importlib.util.spec_from_file_location("fake_lock", Path(__file__).with_name("install.py"))
 module = importlib.util.module_from_spec(spec)
@@ -64,6 +65,13 @@ def fixture(root):
         "system_ext/etc/selinux/system_ext_sepolicy.cil": "; stock system_ext policy\n",
         "system_ext/etc/selinux/system_ext_sepolicy_and_mapping.sha256": "stock-fingerprint\n",
         "config/system_ext_file_contexts": "/system_ext/xbin/xeutoolbox u:object_r:system_file:s0\n",
+        "system_ext/etc/selinux/system_ext_file_contexts": "/system_ext/xbin/xeutoolbox u:object_r:system_file:s0\n",
+        "product/etc/cust_prop_white_keys_list": "stock.key\nro.boot.flash.locked\n",
+        "vendor_boot.img": "untouched boot image\n",
+        "system/system/build.prop": "ro.build.type=user\n",
+        "vendor/build.prop": "stock=vendor\n",
+        "product/build.prop": "stock=product\n",
+        "system_ext/build.prop": "stock=system_ext\n",
     }
     for relative, contents in files.items():
         path = images / relative
@@ -91,19 +99,38 @@ class InstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             images = fixture(root)
+            protected = {path: path.read_bytes() for path in images.rglob("build.prop")}
+            protected[images / "vendor_boot.img"] = (images / "vendor_boot.img").read_bytes()
             module.install(root)
             rc = (images / "system_ext/etc/init/hypermos-fake-lock.rc").read_text()
             self.assertIn("on property:sys.boot_completed=1", rc)
+            self.assertIn("on post-fs-data", rc)
             self.assertIn("    timeout_period 5", rc)
-            self.assertNotIn("on post-fs-data", rc)
+            self.assertIn("    disabled\n    oneshot", rc)
+            self.assertEqual(rc.count("    exec_start hypermos_fake_lock"), 2)
             self.assertNotIn("exec u:r:init:s0", rc)
+            self.assertIn("xeutoolbox -n -f /system_ext/etc/hypermos-fake-lock.prop", rc)
             props = (images / "system_ext/etc/hypermos-fake-lock.prop").read_text()
-            self.assertEqual(props, "".join(f"{k}={v}\n" for k, v in module.PROPERTIES.items()))
+            self.assertEqual(props, "".join(f"{key}={value}\n" for key, value in module.PROPERTIES.items()))
+            self.assertEqual(set(module.PROPERTIES), {"ro.boot.flash.locked", "ro.boot.vbmeta.device_state",
+                             "ro.boot.verifiedbootstate", "ro.secureboot.lockstate"})
+            for path, original in protected.items():
+                self.assertEqual(path.read_bytes(), original)
+            whitelist = (images / "product/etc/cust_prop_white_keys_list").read_text().splitlines()
+            for key in module.PROPERTIES:
+                self.assertEqual(whitelist.count(key), 1)
+            self.assertEqual(module.inject_xiaomi_prop_whitelist(images), 0)
+            self.assertIn("stock.key", whitelist)
             cil = (images / "system_ext/etc/selinux/system_ext_sepolicy.cil").read_text()
             self.assertNotIn("execute_no_trans", cil)
             self.assertNotIn("# HyperMOS", cil)
+            self.assertNotIn("property_service", cil)  # -n writes the mapped area directly
+            self.assertIn("(allow hypermos_fake_lock bootloader_prop (file (read write open getattr map)))", cil)
+            self.assertIn("(allow hypermos_fake_lock secureboot_prop (file (read write open getattr map)))", cil)
+            self.assertIn("/system_ext/xbin/xeutoolbox u:object_r:hypermos_fake_lock_exec:s0",
+                          (images / "system_ext/etc/selinux/system_ext_file_contexts").read_text())
             self.assertNotEqual((images / "system_ext/etc/selinux/system_ext_sepolicy_and_mapping.sha256").read_text(), "stock-fingerprint\n")
-            subprocess.run(["python3", str(REPO / "bin/fix_selinux.py"), str(images / "system_ext"),
+            subprocess.run([sys.executable, str(REPO / "bin/fix_selinux.py"), str(images / "system_ext"),
                             str(images / "config/system_ext_fs_config"), str(images / "config/system_ext_file_contexts")],
                            check=True, stdout=subprocess.DEVNULL)
             self.assertIn("/system_ext/xbin/xeutoolbox u:object_r:hypermos_fake_lock_exec:s0", (images / "config/system_ext_file_contexts").read_text())
@@ -124,6 +151,16 @@ class InstallTests(unittest.TestCase):
             self.assertFalse((images / "system_ext/xbin/xeutoolbox").exists())
             self.assertFalse((images / "system_ext/etc/init/hypermos-fake-lock.rc").exists())
             self.assertEqual((images / "system_ext/etc/selinux/system_ext_sepolicy_and_mapping.sha256").read_text(), "stock-fingerprint\n")
+
+    @unittest.skipUnless(shutil.which("secilc"), "requires secilc")
+    def test_unused_backup_context_does_not_affect_runtime_policy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            images = fixture(root)
+            backup = images / "system_ext/etc/backup_property_contexts"
+            backup.write_text("ro.boot.flash.locked u:object_r:nonexistent_prop:s0 exact string\n")
+            module.install(root)
+            self.assertNotIn("nonexistent_prop", (images / "system_ext/etc/selinux/system_ext_sepolicy.cil").read_text())
 
 
 if __name__ == "__main__":

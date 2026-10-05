@@ -22,7 +22,7 @@ Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here bec
 
 Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. Settings spoof uses a framework caller hook so the Kaorios stage preserves the input `SettingsProvider.apk` without requiring the Xiaomi platform private key.
 
-The caller backend evaluates `KaoriosHook.filterSettingsCall` before the stock NameValueCache lookup for same-user `Settings.System/Secure/Global.get*` reads by ordinary application UIDs. On Android 16 it also hooks the framework `ContentResolver.call(String authority, ...)` path only when `authority == "settings"`, so Kaorios Toolbox runtime probes and apps that use the public resolver call path can reach the same policy without modifying `SettingsProvider.apk`. A returned Bundle overrides the value, including an explicit null; no decision runs the stock cache/provider path. The bridge excludes system UIDs and foreign Binder identities, prevents recursive policy evaluation, and falls back to stock if policy evaluation throws. `KAORIOS_ENABLE_SYSTEM_SERVER` must be enabled to initialize the policy service.
+The caller backend evaluates `KaoriosHook.filterSettingsCall` before the stock NameValueCache lookup for same-user `Settings.System/Secure/Global.get*` reads by ordinary application UIDs. On Android 16 it also hooks the framework `ContentResolver.call(String authority, ...)` path only when `authority == "settings"`, so Kaorios Toolbox runtime probes and apps that use the public resolver call path can reach the same policy without modifying `SettingsProvider.apk`. A returned Bundle overrides the value, including an explicit null; no decision runs the stock cache/provider path. The bridge also checks ContentResolver extras `_user` against the process user, excludes system UIDs and foreign Binder identities, prevents recursive policy evaluation, and falls back to stock if policy evaluation throws. `KAORIOS_ENABLE_SYSTEM_SERVER` must be enabled to initialize the policy service.
 
 On Android 16, `ContentResolver.call()` to the `settings` authority is covered, but direct `IContentProvider` access, `ContentResolver.query`, bulk reads, system-process reads and cross-user reads remain outside this backend; this is still not full provider-side coverage. The original provider hooks remain in the upstream patcher sources but the main build no longer applies them. The Xiaomi 15 Pro Android 16 / OS3 bootloop reported for build #59 is not yet confirmed by device logs. Host verification does not establish device boot, Binder/SELinux access, or runtime spoof compatibility; test a configured target app after first boot.
 
@@ -102,3 +102,34 @@ Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 bu
 Upstream includes `script/check-advanced-policy-sepolicy.py` as a read-only deployment checker. This integration does not invent Xiaomi-specific SELinux rules during the build, because the correct SettingsProvider domain and split-policy layout must come from the actual ROM; broad guessed rules can cause policy compilation failure or a boot loop.
 
 After the first boot, use the upstream checker/logcat to confirm the AdvancedPolicy Binder path. If there is a real SELinux denial, add the smallest device-specific rule for the observed domain.
+
+## Settings bridge regression verification
+
+The #65 failure happened after the NameValueCache and ContentResolver hooks had
+passed final DEX checks. The later tolerant verifier had an over-escaped method
+regex and only counted security-related strings, allowing changed branch logic
+to pass. `script/smali_semantics.py` now compares the owned bridge's complete
+instruction graph, including ordered branch/fallthrough edges and exception
+edges for every protected instruction. Method signatures and field declarations
+are also checked. Stock entry in the two framework prefixes is an opaque exit;
+branches cannot jump deeper into stock code or omit the null fallback.
+
+Parameter aliases (`pX`/`vX`), `.locals`/`.registers`, labels, debug directives,
+move/const/goto encodings and invoke ranges are normalized. Disjoint catch
+metadata can reorder without changing coverage; handler priority, catch ranges,
+cleanup receiver, return values, guards and policy arguments/count stay exact.
+Unknown bridge opcodes/directives fail closed. This is a conservative verifier
+for the owned helper, not a general equivalence checker for arbitrary OEM code.
+
+`getOverrideForCall` passes the extras Bundle so cross-user `_user` reads follow
+stock SettingsProvider checks. Authority/extras failures also return stock. The
+shared bridge checks appId 10000..19999, own user, Binder UID equality and
+ThreadLocal recursion before exactly one filterSettingsCall. Successful and
+throwing policy calls remove the ThreadLocal; recursion returns stock without
+clearing the outer invocation's guard. A Bundle (even with a null value) is an
+override; a null Bundle is stock fallback before the NameValueCache cache.
+
+Run `python3 -B script/test_settings_semantics.py` from this package directory.
+It tests security mutations, equivalent aliases/encodings and real round trips
+with both checked-in smali/baksmali jar pairs. The full ROM workflow runs these
+regressions before patching and runs final verification on the rebuilt ROM JARs.

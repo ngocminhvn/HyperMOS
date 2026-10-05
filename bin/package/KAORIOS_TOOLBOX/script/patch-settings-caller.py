@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import re
+import sys
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location(
@@ -17,6 +18,9 @@ spec = importlib.util.spec_from_file_location(
 )
 dev = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dev)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import smali_semantics as semantics
 
 TARGET = dev.TARGET_REL
 HELPER = "Landroid/security/kaorios/HyperMOSSettingsSpoof;"
@@ -60,132 +64,43 @@ def verify(text: str, roundtrip: bool = False) -> None:
         raise ValueError("three existing local registers are required")
     if body.count(HOOK) != 1:
         raise ValueError("expected exactly one caller settings hook")
-    directive = dev.LOCALS_RE.search(body) or dev.REGISTERS_RE.search(body)
-    base = int(directive.group(1)) - (4 if dev.REGISTERS_RE.search(body) else 0)
-    code = dev._significant_lines(body)
-    # Allow assembler register aliases and move encoding changes on round-trip.
-    patterns = [
-        rf"move-object(?:/from16|/16)? v0, (?:p0|v{base})",
-        re.escape(f"iget-object v0, v0, {FIELD}"),
-        rf"move-object(?:/from16|/16)? v1, (?:p2|v{base + 2})",
-        rf"move(?:/from16|/16)? v2, (?:p3|v{base + 3})",
-        re.escape(f"invoke-static/range {{v0 .. v2}}, {HOOK}"),
-        r"move-result-object v0",
-        r"if-eqz v0, (?P<label>:[A-Za-z0-9_]+)",
-        r'const-string(?:/jumbo)? v1, "value"',
-        re.escape('invoke-virtual {v0, v1}, Landroid/os/BaseBundle;->getString(Ljava/lang/String;)Ljava/lang/String;'),
-        r"move-result-object v0",
-        r"return-object v0",
-        r"(?P=label)",
-    ]
-    match = re.search("\n".join(patterns), "\n".join(code))
-    if match is None:
-        raise ValueError("caller hook does not preserve the override/null/stock branches")
-    if code.count(match.group("label")) != 1:
-        raise ValueError("ambiguous caller stock label")
-    if not roundtrip:
-        prefix = body[insertion(body):body.index("    move-object/from16 v0, p0")]
-        if prefix.strip():
-            raise ValueError("caller hook must precede the stock cache body")
-    else:
-        # Before our hook only the optional dev-status prefix may execute.
-        head = "\n".join(code).split(match.group(0), 1)[0]
-        if dev.HOOK in body:
-            dev.verify(text, roundtrip=True)
-            if head.count("invoke-") != 1 or dev.HOOK not in head:
-                raise ValueError("unexpected code before caller hook")
-        elif any(line and not line.startswith(('.method', ':')) for line in head.splitlines()):
-            raise ValueError("caller hook is after stock instructions")
-    tail = "\n".join(code)[match.end():]
-    if not any(line.strip() and not line.strip().startswith((":", ".")) for line in tail.splitlines()):
-        raise ValueError("stock cache body is missing")
-
-
-def _bridge_method(text: str, descriptor: str) -> str:
-    match = re.search(
-        rf"(?ms)^\\.method [^\\n]*{re.escape(descriptor)}\\n(.*?)^\\.end method",
-        text,
-    )
-    if match is None:
-        raise ValueError(f"missing caller bridge method: {descriptor}")
-    return match.group(1)
-
-
-def _require_count(body: str, needle: str, minimum: int, label: str) -> None:
-    count = body.count(needle)
-    if count < minimum:
-        raise ValueError(f"caller bridge missing {label}: {count} < {minimum}")
+    prefix = (dev._hook_block("\n") if dev.HOOK in body else "") + block()
+    semantics.verify_prefix(body, prefix, 4)
+    if dev.HOOK in body:
+        dev.verify(text, roundtrip=roundtrip)
 
 
 def verify_bridge(root: Path) -> None:
-    """Verify security-relevant bridge behavior after smali round-trip.
+    """Compare all bridge instructions and normal/exception CFG edges.
 
-    baksmali is allowed to rename labels, choose equivalent move/const encodings
-    and switch between .locals/.registers. The old verifier compared the whole
-    instruction stream byte-for-byte after normalization, which produced false
-    failures on Android 16 even though all hooks survived. This verifier keeps
-    fail-fast checks for the actual guards, policy call and cleanup paths.
+    The owned template is the contract, including UID/Binder/user/app-range
+    guards, ThreadLocal lifecycle, exact policy arguments and null fallback.
+    Labels/debug metadata/encoding changes are not part of that contract.
     """
     matches = list(root.rglob("android/security/kaorios/HyperMOSSettingsSpoof.smali"))
     if len(matches) != 1:
         raise ValueError("expected exactly one caller Settings bridge")
     actual = matches[0].read_text(encoding="utf-8")
-
+    expected = (Path(__file__).resolve().parents[1] /
+                "framework/HyperMOSSettingsSpoof.smali").read_text(encoding="utf-8")
     for declaration in (
         ".class public final " + HELPER,
+        ".super Ljava/lang/Object;",
         ".field private static final sActive:Ljava/lang/ThreadLocal;",
     ):
         if declaration not in actual.splitlines():
             raise ValueError("caller bridge class/field declaration changed")
-
-    call = _bridge_method(
-        actual,
-        "getOverrideForCall(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;",
-    )
-    for needle, label in (
-        ('const-string', "settings authority guard"),
-        ('Ljava/lang/String;->equals(Ljava/lang/Object;)Z', "settings authority comparison"),
-        ('->getOverride(Ljava/lang/String;Ljava/lang/String;I)Landroid/os/Bundle;', "shared override bridge"),
-        ('return-object', "call override return"),
+    for descriptor, parameters in (
+        ("<clinit>()V", 0),
+        ("getOverrideForCall(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Landroid/os/Bundle;)Landroid/os/Bundle;", 4),
+        ("getOverride(Ljava/lang/String;Ljava/lang/String;I)Landroid/os/Bundle;", 3),
     ):
-        if needle not in call:
-            raise ValueError(f"caller bridge lost {label}")
-
-    clinit = _bridge_method(actual, "<clinit>()V")
-    for needle, label in (
-        ("Ljava/lang/ThreadLocal;", "ThreadLocal allocation"),
-        ("->sActive:Ljava/lang/ThreadLocal;", "ThreadLocal field initialization"),
-    ):
-        if needle not in clinit:
-            raise ValueError(f"caller bridge lost {label}")
-
-    override = _bridge_method(
-        actual,
-        "getOverride(Ljava/lang/String;Ljava/lang/String;I)Landroid/os/Bundle;",
-    )
-    for needle, label in (
-        ("Landroid/os/Process;->myUid()I", "process UID guard"),
-        ("Landroid/os/Binder;->getCallingUid()I", "Binder UID guard"),
-        ("0x186a0", "Android user-range divisor"),
-        ("0x2710", "application UID lower bound"),
-        ("0x4e1f", "application UID upper bound"),
-        ("Ljava/lang/ThreadLocal;->get()Ljava/lang/Object;", "recursion guard read"),
-        ("Ljava/lang/ThreadLocal;->set(Ljava/lang/Object;)V", "recursion guard set"),
-        ("KaoriosHook;->filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;", "policy call"),
-    ):
-        if needle not in override:
-            raise ValueError(f"caller bridge lost {label}")
-
-    _require_count(override, ".catchall", 2, "exception guards")
-    _require_count(override, "Ljava/lang/ThreadLocal;->remove()V", 2, "ThreadLocal cleanup")
-    _require_count(override, "return-object", 2, "override/stock returns")
-
-    if override.count(
-        "KaoriosHook;->filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;"
-    ) != 1:
-        raise ValueError("caller bridge policy call count changed")
-
-    print("VERIFIED: caller bridge guards, policy call and cleanup survived DEX round-trip")
+        actual_body = semantics.method(actual, descriptor)
+        expected_body = semantics.method(expected, descriptor)
+        if actual_body.splitlines()[0] != expected_body.splitlines()[0]:
+            raise ValueError("caller bridge method declaration changed")
+        semantics.equivalent(actual_body, expected_body, parameters, descriptor)
+    print("VERIFIED: caller bridge instructions, branches, catch ranges and cleanup survived DEX round-trip")
 
 
 def patch(text: str) -> tuple[str, bool]:

@@ -91,6 +91,13 @@ jobs:
           sudo pip3 install setuptools 2>&1 | tee -a build_action.log
           sudo pip3 install google-auth lz4 google-auth-oauthlib google-auth-httplib2 google-api-python-client 2>&1 | tee -a build_action.log
 
+      - name: Verify Fake Lock and Kaorios Settings semantics
+        run: |
+          python3 -B bin/package/ResetProp/test_install.py
+          python3 -B bin/package/KAORIOS_TOOLBOX/script/test_patch_settings_namevaluecache.py
+          python3 -B bin/package/KAORIOS_TOOLBOX/script/test_patch_settings_caller.py
+          python3 -B bin/package/KAORIOS_TOOLBOX/script/test_settings_semantics.py
+
       - name: Grant file permissions
         run: |
           sudo chmod 777 -R *

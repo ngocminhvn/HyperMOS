@@ -23,6 +23,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import smali_semantics as semantics
+
 TARGET_REL = "android/content/ContentResolver.smali"
 CLASS_DESC = "Landroid/content/ContentResolver;"
 METHOD_ANCHOR = (
@@ -31,7 +34,7 @@ METHOD_ANCHOR = (
 )
 HOOK = (
     "Landroid/security/kaorios/HyperMOSSettingsSpoof;->"
-    "getOverrideForCall(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)"
+    "getOverrideForCall(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Landroid/os/Bundle;)"
     "Landroid/os/Bundle;"
 )
 LABEL = ":cond_hypermos_settings_call_stock"
@@ -105,35 +108,9 @@ def local_slots(body: str) -> int:
     return slots
 
 
-def parameter_aliases(body: str) -> dict[str, set[str]]:
-    match = LOCALS_RE.search(body)
-    if match is not None:
-        first_param = int(match.group(1))
-    else:
-        match = REGISTERS_RE.search(body)
-        if match is None:
-            raise UnsupportedLayout("missing .locals/.registers directive")
-        first_param = int(match.group(1)) - PARAM_COUNT
-    return {
-        "p1": {"p1", f"v{first_param + 1}"},
-        "p2": {"p2", f"v{first_param + 2}"},
-        "p3": {"p3", f"v{first_param + 3}"},
-    }
-
-
-def significant_lines(text: str) -> list[str]:
-    result: list[str] = []
-    for raw in text.splitlines():
-        stripped = raw.split("#", 1)[0].strip()
-        if not stripped or stripped.startswith("."):
-            continue
-        result.append(stripped)
-    return result
-
-
 def hook_block(newline: str) -> str:
     return (
-        f"    invoke-static/range {{p1 .. p3}}, {HOOK}{newline}"
+        f"    invoke-static/range {{p1 .. p4}}, {HOOK}{newline}"
         f"    move-result-object v0{newline}"
         f"    if-eqz v0, {LABEL}{newline}"
         f"    return-object v0{newline}"
@@ -150,64 +127,7 @@ def verify(text: str, *, roundtrip: bool = False) -> None:
     if body.count(HOOK) != 1:
         raise VerifyError("expected exactly one direct ContentResolver Settings hook")
 
-    head = body_start(body)
-    code = significant_lines(body[head:])
-    if len(code) < 6:
-        raise VerifyError("ContentResolver hook/stock body is truncated")
-
-    aliases = parameter_aliases(body)
-
-    range_call = re.fullmatch(
-        r"invoke-static/range\s*\{([^ ]+)\s*\.\.\s*([^ }]+)\},\s*"
-        + re.escape(HOOK),
-        code[0],
-    )
-    normal_call = re.fullmatch(
-        r"invoke-static\s*\{([^}]*)\},\s*" + re.escape(HOOK),
-        code[0],
-    )
-    if range_call is not None:
-        if (
-            range_call.group(1) not in aliases["p1"]
-            or range_call.group(2) not in aliases["p3"]
-        ):
-            raise VerifyError("ContentResolver hook uses wrong parameter range")
-    elif normal_call is not None:
-        regs = [part.strip() for part in normal_call.group(1).split(",")]
-        if (
-            len(regs) != 3
-            or regs[0] not in aliases["p1"]
-            or regs[1] not in aliases["p2"]
-            or regs[2] not in aliases["p3"]
-        ):
-            raise VerifyError("ContentResolver hook uses wrong parameters")
-    else:
-        raise VerifyError("ContentResolver Settings hook is not at method head")
-
-    move = re.fullmatch(r"move-result-object\s+(v\d+)", code[1])
-    if move is None:
-        raise VerifyError("ContentResolver hook result register missing")
-    scratch = move.group(1)
-
-    branch = re.fullmatch(
-        r"if-eqz\s+" + re.escape(scratch) + r",\s*(:[A-Za-z0-9_]+)",
-        code[2],
-    )
-    if branch is None:
-        raise VerifyError("ContentResolver stock branch missing")
-    stock_label = branch.group(1)
-
-    if re.fullmatch(r"return-object\s+" + re.escape(scratch), code[3]) is None:
-        raise VerifyError("ContentResolver override is not returned")
-
-    if code[4] != stock_label:
-        raise VerifyError("ContentResolver stock label is malformed")
-
-    if not code[5] or code[5].startswith(":"):
-        raise VerifyError("stock ContentResolver.call body missing after hook")
-
-    if not roundtrip and stock_label != LABEL:
-        raise VerifyError("unexpected pre-assembly stock label")
+    semantics.verify_prefix(body, hook_block("\n"), PARAM_COUNT)
 
 
 def patch(text: str) -> tuple[str, bool]:

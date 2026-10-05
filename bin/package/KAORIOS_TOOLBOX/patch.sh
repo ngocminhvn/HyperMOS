@@ -177,6 +177,7 @@ if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
 fi
 if is_enabled "$KAORIOS_ENABLE_SETTINGS_SPOOF"; then
   require_file "$SETTINGS_CALLER_PATCHER" "caller Settings patcher"
+  require_file "$SCRIPT_DIR/smali_semantics.py" "Settings semantic verifier"
   if [[ "$ANDROID_VER" == "16" ]]; then
     require_file "$SETTINGS_CONTENTRESOLVER_PATCHER" "Android 16 direct ContentResolver Settings patcher"
   fi

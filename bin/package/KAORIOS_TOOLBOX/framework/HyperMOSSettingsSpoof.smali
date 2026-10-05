@@ -6,9 +6,10 @@
 # covers direct ContentResolver.call("settings", ...) runtime probes.
 .field private static final sActive:Ljava/lang/ThreadLocal;
 
-.method public static getOverrideForCall(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;
+.method public static getOverrideForCall(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Landroid/os/Bundle;)Landroid/os/Bundle;
     .locals 2
 
+    :call_start
     # Keep this shim limited to the Android Settings provider.
     const-string v0, "settings"
     invoke-virtual {v0, p0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
@@ -20,10 +21,22 @@
     move-result v0
     const v1, 0x186a0
     div-int v0, v0, v1
+    # SettingsProvider uses extras["_user"], defaulting to the Binder user.
+    # Do not intercept cross-user requests before stock permission checks.
+    if-eqz p3, :same_user
+    const-string v1, "_user"
+    invoke-virtual {p3, v1, v0}, Landroid/os/BaseBundle;->getInt(Ljava/lang/String;I)I
+    move-result v1
+    if-ne v1, v0, :stock
+    :same_user
     invoke-static {p1, p2, v0}, Landroid/security/kaorios/HyperMOSSettingsSpoof;->getOverride(Ljava/lang/String;Ljava/lang/String;I)Landroid/os/Bundle;
     move-result-object v0
+    :call_end
+    .catchall {:call_start .. :call_end} :call_error
     return-object v0
 
+    :call_error
+    move-exception v0
     :stock
     const/4 v0, 0x0
     return-object v0
@@ -61,12 +74,13 @@
     invoke-virtual {v3}, Ljava/lang/ThreadLocal;->get()Ljava/lang/Object;
     move-result-object v0
     if-nez v0, :stock
-    sget-object v0, Ljava/lang/Boolean;->TRUE:Ljava/lang/Boolean;
-    invoke-virtual {v3, v0}, Ljava/lang/ThreadLocal;->set(Ljava/lang/Object;)V
     :try_end
     .catchall {:try_start .. :try_end} :unavailable
 
     :policy_start
+    # Include activation in cleanup protection: ThreadLocal.set can throw.
+    sget-object v0, Ljava/lang/Boolean;->TRUE:Ljava/lang/Boolean;
+    invoke-virtual {v3, v0}, Ljava/lang/ThreadLocal;->set(Ljava/lang/Object;)V
     invoke-static {p0, p1}, Landroid/security/kaorios/KaoriosHook;->filterSettingsCall(Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;
     move-result-object v0
     :policy_end
