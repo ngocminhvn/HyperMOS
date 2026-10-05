@@ -2,7 +2,7 @@
 
 Enabled by default by the package stage. Set `HYPERMOS_FAKE_LOCK=false` in the build environment to omit it from a clean build.
 
-This restores the ARM64 `xeutoolbox` payload from the repository's earlier ResetProp implementation (Git blob `dd58ca45deae0c2c0e9704d46d8c63adb061c473`). It uses a single non-blocking, disabled/oneshot init service, triggered only by `sys.boot_completed=1`, with a five-second timeout. The helper loads these three values serially using `-n -f`:
+This restores the ARM64 `xeutoolbox` payload from the repository's earlier ResetProp implementation (Git blob `dd58ca45deae0c2c0e9704d46d8c63adb061c473`). It uses a single non-blocking, disabled/oneshot init service. When `sys.boot_completed=1` is observed, init starts the helper immediately with no intentional startup delay or `sleep`. The `timeout_period 5` entry is only a five-second watchdog that kills a stuck helper; it is not a five-second delay. The helper loads these three values serially using `-n -f`:
 
 ```properties
 ro.boot.vbmeta.device_state=locked

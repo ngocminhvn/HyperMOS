@@ -2,7 +2,32 @@
 .super Ljava/lang/Object;
 
 # Caller-side bridge. Never modify the SettingsProvider APK for this backend.
+# NameValueCache covers normal Settings.* getters; getOverrideForCall also
+# covers direct ContentResolver.call("settings", ...) runtime probes.
 .field private static final sActive:Ljava/lang/ThreadLocal;
+
+.method public static getOverrideForCall(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/os/Bundle;
+    .locals 2
+
+    # Keep this shim limited to the Android Settings provider.
+    const-string v0, "settings"
+    invoke-virtual {v0, p0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+    move-result v0
+    if-eqz v0, :stock
+
+    # Reuse the same UID/Binder/recursion guards as ordinary Settings.* reads.
+    invoke-static {}, Landroid/os/Process;->myUid()I
+    move-result v0
+    const v1, 0x186a0
+    div-int v0, v0, v1
+    invoke-static {p1, p2, v0}, Landroid/security/kaorios/HyperMOSSettingsSpoof;->getOverride(Ljava/lang/String;Ljava/lang/String;I)Landroid/os/Bundle;
+    move-result-object v0
+    return-object v0
+
+    :stock
+    const/4 v0, 0x0
+    return-object v0
+.end method
 
 .method static constructor <clinit>()V
     .locals 1
