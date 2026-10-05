@@ -16,6 +16,33 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 
 Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here because HyperMOS already owns those patches in `bin/package/COREPATCH`.
 
+## Per-feature config
+
+Edit `config.sh` to enable/disable each feature independently. Defaults are `true` so the normal main build retains the currently integrated Kaorios feature set.
+
+| Switch | Effect |
+|---|---|
+| `KAORIOS_MASTER` | Master switch for the entire Kaorios integration |
+| `KAORIOS_ENABLE_ACTIVITY_THREAD` | `ActivityThread` process-init hook |
+| `KAORIOS_ENABLE_INSTRUMENTATION` | `Instrumentation` context-init hook |
+| `KAORIOS_ENABLE_KEYBOX` | Both Play Integrity/keybox keystore hooks |
+| `KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF` | `ApplicationPackageManager.hasSystemFeature(...)` spoof |
+| `KAORIOS_ENABLE_SYSTEM_SERVER` | `SystemServer` initialization hook |
+| `KAORIOS_ENABLE_HIDDEN_APP` | Package visibility / hidden-app filtering in `ComputerEngine` |
+| `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
+| `KAORIOS_ENABLE_SETTINGS_SPOOF` | Per-app `SettingsProvider.call()/query()` spoof |
+| `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
+| `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
+| `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
+| `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
+| `KAORIOS_DEVSTATUS_STRICT` | Fail instead of warning when the dev-status layout is unsupported |
+
+Accepted boolean values are `true/false`, `1/0`, `yes/no`, and `on/off`. Environment variables override the defaults, so CI can change a switch without editing the file.
+
+The framework driver DEX is added whenever an enabled feature needs `KaoriosHook`, even when the caller lives in `services.jar` or `SettingsProvider.apk`. Build spoof does not force the driver by itself.
+
+`KAORIOS_ENABLE_HIDDEN_APP` and `KAORIOS_ENABLE_INSTALLER_SOURCE` are independent; disabling one no longer implicitly disables/enables the other.
+
 ## Build order
 
 `bin/package/patchpackage.sh` runs:
