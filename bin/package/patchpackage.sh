@@ -16,12 +16,8 @@ if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   exit 1
 fi
 
-# Native Circle to Search for Android 16 HyperOS 3:
-# enable AOSP CSHelper/Contextual Search resources and reuse stock MiuiHome CTS code.
-if ! bash "$target_dir/CTS_NATIVE/update.sh"; then
-  error "CTS_NATIVE: validation or integration failed; aborting package stage"
-  exit 1
-fi
+# MiCTS works on the tested #63 base without CTS_NATIVE framework/launcher patching.
+# Keep stock framework/MiuiHome behavior here to avoid unnecessary CTS hooks.
 
 bash $target_dir/RefreshRate/1hz.sh
 if ! bash "$target_dir/ResetProp/update.sh"; then
