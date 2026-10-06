@@ -7,7 +7,6 @@ trap 'rm -rf "$test_work"' EXIT
 mkdir -p "$test_work/bin/package/DISABLE_AVB/HMATools/aosp/avb" \
     "$test_work/bin/ddevice" "$test_work/build/baserom/images/vendor/etc"
 cp "$repo/bin/vbpatcher.py" "$repo/bin/patch-vbmeta.py" "$repo/bin/verify_boot_chain.py" "$test_work/bin/"
-cp "$repo/bin/package/verify_boot_chain.sh" "$test_work/bin/package/"
 cp "$repo/bin/package/DISABLE_AVB/DISABLEavb.sh" "$repo/bin/package/DISABLE_AVB/avb_list.txt" "$test_work/bin/package/DISABLE_AVB/"
 cp "$repo/bin/package/DISABLE_AVB/HMATools/aosp/avb/avbtool.v1.2.py" "$test_work/bin/package/DISABLE_AVB/HMATools/aosp/avb/"
 sed 's/\r$//' "$repo/functions.sh" > "$test_work/functions.sh"
@@ -22,9 +21,9 @@ fi
 printf 'haotian\n' > "$test_work/bin/ddevice/device_f.txt"
 printf '/dev/block/by-name/vendor /vendor erofs ro wait,first_stage_mount,avb=vbmeta_system_ext\n' > "$test_work/build/baserom/images/vendor/etc/fstab.test"
 cd "$test_work"
-bash bin/package/verify_boot_chain.sh before --images build/baserom/images
+python3 bin/verify_boot_chain.py before --images build/baserom/images
 bash bin/package/DISABLE_AVB/DISABLEavb.sh
-bash bin/package/verify_boot_chain.sh final --images build/baserom/images
+python3 bin/verify_boot_chain.py after --images build/baserom/images
 python3 - <<'PY'
 import json
 from pathlib import Path
