@@ -104,6 +104,7 @@ jobs:
           fi
 
           sudo chmod -R a+rwX .
+          chmod +x bin/magiskboot 2>/dev/null || true
           chmod +x bin/Linux/x86_64/* 2>/dev/null || true
 
           python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
