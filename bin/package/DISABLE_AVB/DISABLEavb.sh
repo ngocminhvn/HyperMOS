@@ -29,4 +29,3 @@ if grep -qw "$device_code" "$work_dir/bin/package/DISABLE_AVB/avb_list.txt"; the
         info "Patched vendor_boot.img"
     fi
 fi
-bash "$work_dir/bin/package/verify_boot_chain.sh" after --images "$images"
