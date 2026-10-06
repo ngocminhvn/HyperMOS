@@ -33,6 +33,7 @@ DRIVER_DEX="$KAORIOS_DIR/classes.dex"
 TOOLBOX_APK="$KAORIOS_DIR/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
+FAKELOCK_PATCH="$KAORIOS_DIR/fakelock_patch.sh"
 DEVSTATUS_PATCHER="$MOD_DIR/patch-settings-namevaluecache.py"
 BUILD_SPOOF_VERIFIER="$MOD_DIR/verify-build-spoof-a17.py"
 CONFIG="$KAORIOS_DIR/config.sh"
@@ -162,6 +163,7 @@ fi
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
   require_file "$TOOLBOX_APK" "Toolbox APK"
   require_file "$PERMISSION_XML" "Toolbox privapp permission XML"
+  require_file "$FAKELOCK_PATCH" "PenguinOS fake-lock patch"
 fi
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   require_file "$VALIDATE_KEYBOX" "keybox validator"
@@ -757,6 +759,16 @@ info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox
 
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   validate_optional_keybox_input
+fi
+
+# Match PenguinOS KouseiPatcher/update.sh ordering:
+# fakelock_patch.sh runs before framework/services patching when Toolbox is enabled.
+if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
+  info "KAORIOS: applying PenguinOS fake-lock stage before framework patching"
+  bash "$FAKELOCK_PATCH" || {
+    error "KAORIOS: fake-lock patch failed"
+    exit 1
+  }
 fi
 
 if framework_archive_needed; then
