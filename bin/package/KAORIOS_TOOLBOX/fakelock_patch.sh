@@ -35,66 +35,12 @@ prop="$kaorios_dir/prop"
 toolbox_payload="$kaorios_dir/toolbox"
 SEARCH_DIR="$work_dir/build/baserom/images"
 
-# 1. Patch vendor_boot.img (append PenguinOS fake-lock androidboot flags).
-if [ -f "$SEARCH_DIR/vendor_boot.img" ]; then
-  echo "[IMGPATCH] - PATCHING vendor_boot.img"
-  temp_boot="$work_dir/temp_boot"
-  rm -rf "$temp_boot"
-  mkdir -p "$temp_boot"
-
-  echo "[IMGPATCH] - Stage 1 Patching..."
-  cp -f "$SEARCH_DIR/vendor_boot.img" "$work_dir/vendor_boot.img"
-  cp -f "$SEARCH_DIR/vendor_boot.img" "$temp_boot/vendor_boot.img"
-
-  # Match PenguinOS behavior: magiskboot may return non-zero for some
-  # vendor_boot v4 images even though it parsed the image and emitted header.
-  # Do not treat the process exit status itself as a patch failure.
-  unpack_rc=0
-  "$magiskboot" unpack -h "$work_dir/vendor_boot.img" || unpack_rc=$?
-  if [ "$unpack_rc" -ne 0 ]; then
-    echo "[IMGPATCH] - magiskboot unpack returned $unpack_rc; validating generated header like PenguinOS"
-  fi
-
-  if [ ! -s "$work_dir/header" ]; then
-    error "KAORIOS FakeLock: magiskboot unpack did not create a usable header"
-    rm -f "$work_dir/vendor_boot.img" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
-    rm -rf "$temp_boot"
-    exit 1
-  fi
-
-  if ! grep -Fq 'androidboot.verifiedbootstate=green' "$work_dir/header"; then
-    sed -i '/^cmdline=/ s/$/ androidboot.verifiedbootstate=green androidboot.flash.locked=1 androidboot.vbmeta.device_state=locked/' "$work_dir/header"
-  fi
-
-  echo "[IMGPATCH] - Stage 2 Patching..."
-  if ! "$magiskboot" repack "$work_dir/vendor_boot.img"; then
-    error "KAORIOS FakeLock: magiskboot failed to repack vendor_boot.img"
-    rm -f "$work_dir/vendor_boot.img" "$work_dir/new-boot.img" "$work_dir/header" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
-    rm -rf "$temp_boot"
-    exit 1
-  fi
-  if [ ! -s "$work_dir/new-boot.img" ]; then
-    error "KAORIOS FakeLock: repack did not create new-boot.img"
-    rm -f "$work_dir/vendor_boot.img" "$work_dir/header" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
-    rm -rf "$temp_boot"
-    exit 1
-  fi
-  mv -f "$work_dir/new-boot.img" "$work_dir/vendor_boot.img"
-
-  echo "[IMGPATCH] - Stage 3 Cleanup..."
-  rm -rf "$work_dir/dtb" "$work_dir/header" "$work_dir/ramdisk.cpio"
-  mv -f "$work_dir/vendor_boot.img" "$SEARCH_DIR/vendor_boot.img"
-
-  if [ -f "$SEARCH_DIR/vendor_boot.img" ]; then
-    echo "[IMGPATCH] - Patched vendor_boot.img successfully!"
-    rm -rf "$temp_boot"
-  else
-    echo "[IMGPATCH] - Failed to patch vendor_boot.img! Reverting..."
-    mv -f "$temp_boot/vendor_boot.img" "$SEARCH_DIR/vendor_boot.img"
-    rm -rf "$temp_boot"
-    exit 1
-  fi
-fi
+# 1. vendor_boot is intentionally NOT repatched here.
+# HyperMOS already owns the boot/vendor_boot stage earlier in the pipeline.
+# Re-running magiskboot here would mutate the same image a second time and
+# increases boot-chain risk. Keep the PenguinOS FakeLock property/cust payload
+# below, while leaving vendor_boot exactly as produced by HyperMOS Boot stage.
+echo "[IMGPATCH] - FakeLock: skip duplicate vendor_boot patch (owned by HyperMOS Boot stage)"
 
 # 2. Toolbox fallback for devices launched below API 33.
 BUILD_PROP=$(find "$SEARCH_DIR" -type f -name "build.prop" | head -n 1)
