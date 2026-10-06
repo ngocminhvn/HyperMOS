@@ -17,6 +17,7 @@ ro.warranty_bit=0
 ro.debuggable=0
 ro.secure=1
 ro.secureboot.devicelock=1
+ro.secureboot.lockstate=locked
 ro.build.type=user
 ro.build.keys=release-keys
 ro.build.tags=release-keys
