@@ -132,25 +132,19 @@ if [ -n "$BUILD_PROP" ]; then
   fi
 fi
 
-# 3. Append PenguinOS property payload once.
+# 3. Apply only the managed lock properties; keep stock identity/service keys.
 target_prop="$SEARCH_DIR/system/system/build.prop"
-if [ -f "$prop/build.prop" ]; then
-  if [ -f "$target_prop" ] && ! grep -Fq '#PlayIntegrityFix' "$target_prop"; then
-    cat "$prop/build.prop" >> "$target_prop"
-  fi
+if [ ! -f "$target_prop" ]; then
+  error "KAORIOS FakeLock: missing system build.prop"
+  exit 1
 fi
-
-# Refresh Xiaomi's OEM lock property even when the payload marker already exists.
-if [ -f "$target_prop" ]; then
-  sed -i '/^ro\.secureboot\.lockstate=/d' "$target_prop"
-  printf '\nro.secureboot.lockstate=locked\n' >> "$target_prop"
-fi
+python3 "$kaorios_dir/normalize_fakelock_props.py" "$target_prop" "$prop/build.prop"
 
 # 4. Inject cust.prop keys without duplicating existing entries.
 echo "[IMGPATCH] - Scanning for cust_prop_white_keys_list..."
 if [ -f "$prop/cust.prop" ]; then
   find "$SEARCH_DIR" -type f -name "cust_prop_white_keys_list" | while read -r target_file; do
-    while IFS= read -r key; do
+    while IFS= read -r key || [ -n "$key" ]; do
       [ -z "$key" ] && continue
       grep -Fxq "$key" "$target_file" || echo "$key" >> "$target_file"
     done < "$prop/cust.prop"
@@ -159,3 +153,4 @@ if [ -f "$prop/cust.prop" ]; then
 fi
 
 patch "Done"
+
