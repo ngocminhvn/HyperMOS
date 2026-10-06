@@ -19,9 +19,32 @@ if grep -qw "$device_code" "$work_dir/bin/package/DISABLE_AVB/avb_list.txt"; the
         boot_work=$(mktemp -d "$work_dir/build/baserom/vendor-boot.XXXXXX")
         trap 'rm -rf "$boot_work"' EXIT
         python3 "$work_dir/bin/vbpatcher.py" unpack -i "$images/vendor_boot.img" -o "$boot_work"
-        # Whole-file SHA256/size are not libavb's loaded-structure digest/size.
-        # Preserve bootloader-derived values instead of injecting properties.
-        info "Patched vbmeta flags; no boot property injection"
+        # Keep FakeLock cmdline spoof in this single vendor_boot repack.
+        # KAORIOS_TOOLBOX/fakelock_patch.sh intentionally does not repack
+        # vendor_boot again, avoiding the previous double-patch path.
+        python3 - "$boot_work/config.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+flags = (
+    "androidboot.verifiedbootstate=green",
+    "androidboot.flash.locked=1",
+    "androidboot.vbmeta.device_state=locked",
+)
+with open(path, "r", encoding="utf-8") as f:
+    config = json.load(f)
+
+tokens = config.get("cmdline", "").split()
+keys = {flag.split("=", 1)[0] for flag in flags}
+tokens = [token for token in tokens if token.split("=", 1)[0] not in keys]
+tokens.extend(flags)
+config["cmdline"] = " ".join(tokens)
+
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=4)
+PY
+        info "FakeLock: injected locked-state androidboot flags into vendor_boot cmdline"
         disable_avb_verify "$boot_work"
         python3 "$work_dir/bin/vbpatcher.py" repack -c "$boot_work/config.json" -o "$boot_work/vendor_boot.img"
         python3 "$work_dir/bin/verify_boot_chain.py" inspect --images "$boot_work"
