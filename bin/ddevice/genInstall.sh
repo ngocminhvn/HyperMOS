@@ -161,7 +161,7 @@ for %%P in (
     abl aop aop_config bluetooth boot cpucp cpucp_dtb devcfg dsp dtbo
     featenabler hyp idmanager imagefv init_boot keymaster modem modemfirmware
     multiimgqti pdp pdp_cdb pvmfw qupfw shrm soccp_dcd soccp_debug
-    spuservice tz uefi uefisecapp vbmeta vbmeta_system vendor_boot
+    spuservice tz uefi uefisecapp vbmeta vbmeta_system
     vendor_kernel_boot vm-bootsys xbl xbl_config xbl_ramdump
 ) do (
     call :flash_partition "%%P"
@@ -208,6 +208,25 @@ if "%WIPE_DATA%"=="1" (
     ) else (
         echo [OK] metadata erased.
     )
+)
+
+rem Flash patched vendor_boot only after super.img is finished.
+rem This keeps fastbootd running with the previously installed unlocked-state
+rem vendor_boot, so FakeLock androidboot flags cannot block super flashing.
+if exist "images\vendor_boot.img" (
+    echo.
+    echo [POST] Rebooting to bootloader to flash vendor_boot last...
+    "%FASTBOOT%" reboot bootloader
+    if errorlevel 1 (
+        echo [ERROR] Could not reboot from fastbootd to bootloader.
+        goto :fail
+    )
+
+    call :wait_fastboot 90
+    if errorlevel 1 goto :fail
+
+    call :flash_partition "vendor_boot"
+    if errorlevel 1 goto :fail
 )
 
 echo.
