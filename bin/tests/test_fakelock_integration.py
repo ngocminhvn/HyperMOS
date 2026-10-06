@@ -19,7 +19,11 @@ for mode in ('success','unpack_fail','missing_output'):
         mock=p/'mock';mock.mkdir();java=mock/'java'
         java.write_text('''#!/bin/bash
 case "$3" in
-clear) rm -rf build; rm -f *.signed;;
+clear)
+  compgen -G '*boot*.img' >/dev/null || { echo no-image-handler; exit 2; }
+  rm -rf build
+  rm -f *.signed
+  ;;
 unpack) [ "$MODE" != unpack_fail ] || { echo diagnostic-unpack; exit 7; }; mkdir -p build/unzip_boot;;
 pack) [ "$MODE" != missing_output ] || exit 0; printf modified > boot.img.signed;;
 esac
@@ -29,4 +33,5 @@ esac
         assert (r.returncode==0)==(mode=='success'), (mode,r.stdout,r.stderr)
         assert (images/'boot.img').read_text()==('modified' if mode=='success' else 'original')
         if mode=='unpack_fail': assert 'diagnostic-unpack' in r.stderr
-print('PASS: property migration/idempotence/stock preservation; HMATools success, unpack failure, missing output')
+        if mode=='success': assert 'no-image-handler' not in (r.stdout+r.stderr)
+print('PASS: property migration/idempotence/stock preservation; HMATools handler-safe cleanup, success, unpack failure, missing output')
