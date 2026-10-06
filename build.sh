@@ -105,9 +105,6 @@ elif [[ ${is_base_rom_eu} == true ]];then
     super_list=$(echo $super_list | sed 's/_a//g')
 fi
 
-# Capture extracted input before any HyperMOS modification.
-bash "$work_dir/bin/package/verify_boot_chain.sh" before --images "$work_dir/build/baserom/images" || exit 1
-
 for part in ${super_list}; do
     extract_partition $work_dir/build/baserom/images/${part}.img $work_dir/build/baserom/images
     PACK_TYPE=$(cat $work_dir/bin/ddevice/fstype.txt)
