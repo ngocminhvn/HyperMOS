@@ -61,8 +61,8 @@ EOF
 echo "Generated $OUTPUT_FILE"
 
 # Generate a Windows fastboot flash script next to the ROM contents.
-# The script validates the device, flashes only firmware images that exist,
-# switches to fastbootd for super.img, and optionally wipes userdata.
+# Keep the PenguinOS/HalcyonOS flow: flash firmware and the complete super.img
+# directly from bootloader fastboot, without rebooting into fastbootd.
 FLASH_FILE="$work_dir/bin/script2flash/FLASH.bat"
 flash_codename="$(echo "$codename" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 
@@ -156,12 +156,12 @@ if errorlevel 2 (
 )
 
 echo.
-echo [1/3] Flashing firmware images...
+echo [1/2] Flashing firmware images in bootloader fastboot...
 for %%P in (
     abl aop aop_config bluetooth boot cpucp cpucp_dtb devcfg dsp dtbo
     featenabler hyp idmanager imagefv init_boot keymaster modem modemfirmware
     multiimgqti pdp pdp_cdb pvmfw qupfw shrm soccp_dcd soccp_debug
-    spuservice tz uefi uefisecapp vbmeta vbmeta_system
+    spuservice tz uefi uefisecapp vbmeta vbmeta_system vendor_boot
     vendor_kernel_boot vm-bootsys xbl xbl_config xbl_ramdump
 ) do (
     call :flash_partition "%%P"
@@ -169,22 +169,7 @@ for %%P in (
 )
 
 echo.
-echo [INFO] Setting active slot A when supported...
-"%FASTBOOT%" set_active a >nul 2>&1
-
-echo.
-echo [2/3] Switching to fastbootd...
-"%FASTBOOT%" reboot fastboot
-if errorlevel 1 (
-    echo [ERROR] Could not reboot to fastbootd.
-    goto :fail
-)
-
-call :wait_fastboot 90
-if errorlevel 1 goto :fail
-
-echo.
-echo [3/3] Flashing super.img...
+echo [2/2] Flashing super.img directly in bootloader fastboot...
 "%FASTBOOT%" flash super "super\super.img"
 if errorlevel 1 (
     echo [ERROR] super.img flash failed.
@@ -210,24 +195,9 @@ if "%WIPE_DATA%"=="1" (
     )
 )
 
-rem Flash patched vendor_boot only after super.img is finished.
-rem This keeps fastbootd running with the previously installed unlocked-state
-rem vendor_boot, so FakeLock androidboot flags cannot block super flashing.
-if exist "images\vendor_boot.img" (
-    echo.
-    echo [POST] Rebooting to bootloader to flash vendor_boot last...
-    "%FASTBOOT%" reboot bootloader
-    if errorlevel 1 (
-        echo [ERROR] Could not reboot from fastbootd to bootloader.
-        goto :fail
-    )
-
-    call :wait_fastboot 90
-    if errorlevel 1 goto :fail
-
-    call :flash_partition "vendor_boot"
-    if errorlevel 1 goto :fail
-)
+echo.
+echo [INFO] Setting active slot A when supported...
+"%FASTBOOT%" set_active a >nul 2>&1
 
 echo.
 echo [DONE] Flash completed successfully.
