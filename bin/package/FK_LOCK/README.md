@@ -11,12 +11,11 @@ It performs two deliberately separate tasks:
    - Removes visible `missi`, `miproduct`, `qssi`, `generic`, and `mainline` identity mismatches.
    - Intentionally preserves `vendor` and `odm` fingerprints because Xiaomi can ship those partitions from an older Android base.
 
-2. **Early FakeLock runtime**
-   - Restores the tested early-boot behavior used by the old HyperMOS ResetProp implementation.
-   - Applies `ro.boot.flash.locked=1`, `ro.boot.vbmeta.device_state=locked`,
+2. **FakeLock runtime reinforce**
+   - Reapplies `ro.boot.flash.locked=1`, `ro.boot.vbmeta.device_state=locked`,
      `ro.boot.verifiedbootstate=green`, and `ro.secureboot.lockstate=locked`
-     at `post-fs-data`.
-   - Reapplies the same values after `sys.boot_completed=1`.
+     only after `sys.boot_completed=1`.
+   - Does not run at `post-fs-data`.
    - Uses a dedicated SELinux domain validated with `secilc`; it does not execute the helper in init's own domain.
    - Adds only those four keys to Xiaomi `cust_prop_white_keys_list`.
 
