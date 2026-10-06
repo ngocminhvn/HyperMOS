@@ -152,6 +152,14 @@ change TEE boot measurements or select Google attestation root keys. Repeated
 DISABLE_AVB invocations can nevertheless repack vendor_boot at build time.
 Current main invokes DISABLE_AVB once and has no ResetProp stage.
 
+Build #63 (`65f03ee`, run 37289310030) logs the same official OTA input,
+vendor_boot repack, `Keybox=true`, and installation of late-boot Fake Lock.
+Build #69 logs the same OTA and repack with no ResetProp stage. The three
+DISABLEavb.sh/vbpatcher.py/patch-vbmeta.py sources have **no git diff** between
+these two build commits. #63 was uploaded to Drive; its image bytes were not
+downloaded in this investigation, so identical final vendor_boot bytes are not
+claimed. Neither build number was attached to the supplied attestation reports.
+
 Kaorios changed in adjacent history (e.g. 0e6bf72, 2026-10-05 23:57 framework
 classes.dex pin handling; cc29a7d/05e50ee, 23:57 SettingsProvider patch retirement).
 These are recorded as possible pipeline differences, with no edits to that package
@@ -190,6 +198,22 @@ The fixed vendor_boot hash is
 12f701f87de5eb8e1bb3cb4d780a157858a61d12872fcc5b04105745e6812d76.
 Reference digest after disabling verification is
 9a34dcaf62c540579ba3cb0a45b336f5dff2ece13fe899c367caf9fc9ad57d88 (9,536 bytes).
+
+[GitHub Actions validation](https://github.com/ngocminhvn/HyperMOS/actions/runs/37396492924)
+**passed** for fix commit `2b306f05ef6adabb20068a60c927a52dbcdd7efe`:
+shell/Python syntax, all five regression tests, and a build of official haotian
+boot-chain images through the real DISABLE_AVB script followed by before/after/final
+verification. JSON metadata is available in its `stock-boot-chain-integration`
+artifact. Fixed fragment length is 26,971,697, matching the header and payload.
+The full ROM filesystem/application build was not rerun; this CI builds and checks
+the changed boot-chain path. Baseline #69 full ROM build had passed before this fix.
+
+Review the complete [implementation diff](https://github.com/ngocminhvn/HyperMOS/commit/2b306f05ef6adabb20068a60c927a52dbcdd7efe).
+Changed files: `bin/vbpatcher.py`, `bin/patch-vbmeta.py`, `bin/verify_boot_chain.py`,
+`bin/package/verify_boot_chain.sh`, `bin/package/DISABLE_AVB/DISABLEavb.sh`,
+`bin/package/patchpackage.sh`, `build.sh`, `uploadROM.sh`, the two boot-chain test
+files, `.github/workflows/build.yml`, `.github/workflows/boot-chain-check.yml`,
+and this report.
 
 Runtime-only conclusions remain open: actual bootloader measurements, provisioning
 path/key cache, certificate hook execution, TEE/StrongBox selection, root-chain
