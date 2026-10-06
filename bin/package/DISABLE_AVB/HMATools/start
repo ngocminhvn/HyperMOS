@@ -23,26 +23,36 @@ run_hma() {
 for image in boot.img vendor_boot.img; do
     source_image="$ROOT_DIR/build/baserom/images/$image"
     [ -f "$source_image" ] || continue
-    # Clear previous outputs before unpacking, so a stale .signed cannot pass.
-    run_hma clear "$image"
+
+    # Pre-clean stale HMATools state without invoking bbootimg.jar clear.
+    # The clear command uses lazy handler detection and fails with rc=2 when
+    # no boot/vendor_boot image is present in HMATools' working directory.
+    rm -rf "$HMA_DIR/build"
     rm -f boot.img vendor_boot.img boot.img.signed vendor_boot.img.signed
+
     cp -f "$source_image" "$image"
     before=$(sha256sum "$source_image" | cut -d ' ' -f1)
+
     run_hma unpack "$image"
     if [ ! -d build/unzip_boot ]; then
         error "HMATools $image: unpack succeeded without build/unzip_boot"
         exit 1
     fi
+
     disable_avb_verify "$HMA_DIR/build/unzip_boot" >"$LOG_DIR/$image.fstab.log" 2>&1
     run_hma pack "$image"
+
     if [ ! -s "$image.signed" ]; then
         error "HMATools $image: pack produced no $image.signed; refusing unchanged-input fallback"
         tail -n 100 "$LOG_DIR/$image.pack.log" >&2
         find build/unzip_boot -maxdepth 3 -type f -name '*.img*' -printf '%P\n' >&2
         exit 1
     fi
+
     after=$(sha256sum "$image.signed" | cut -d ' ' -f1)
     cp -f "$image.signed" "$source_image"
     info "HMATools $image: input=$before output=$after (hashes do not assert signature trust)"
+
+    # At this point $image exists, so HMATools can resolve the correct handler.
     run_hma clear "$image"
 done
