@@ -16,6 +16,6 @@ case "${HYPERMOS_FK_LOCK:-true}" in
         ;;
 esac
 
-mods "FK_LOCK: normalize ROM identity when trusted + boot-completed lock-state runtime"
+mods "FK_LOCK: synchronize system/system_ext/product fingerprints"
 python3 "$work_dir/bin/package/FK_LOCK/install.py" "$work_dir"
 mods "FK_LOCK: Done"
