@@ -8,7 +8,6 @@ on:
       - 'bin/tests/test_boot_chain.py'
       - 'bin/tests/check_stock_boot_chain.sh'
       - 'bin/package/DISABLE_AVB/DISABLEavb.sh'
-      - 'bin/package/verify_boot_chain.sh'
       - '.github/workflows/boot-chain-check.yml'
   workflow_dispatch:
 jobs:
@@ -19,7 +18,7 @@ jobs:
       - run: python3 -m pip install lz4 zstandard
       - name: Syntax and regression checks
         run: |
-          for f in build.sh uploadROM.sh bin/package/patchpackage.sh bin/package/DISABLE_AVB/DISABLEavb.sh bin/package/verify_boot_chain.sh; do
+          for f in build.sh uploadROM.sh bin/package/patchpackage.sh bin/package/DISABLE_AVB/DISABLEavb.sh; do
             bash -n "$f"
           done
           python3 -m py_compile bin/vbpatcher.py bin/verify_boot_chain.py bin/patch-vbmeta.py bin/tests/test_boot_chain.py
