@@ -42,52 +42,56 @@ UNSIGNED_APK="$TMP_DIR/MIUIPackageInstaller-unsigned.apk"
 PATCHED_APK="$TMP_DIR/MIUIPackageInstaller.apk"
 
 fetch_latest_release() {
-    local release_json api_url release_mode
+    local release_mode latest_url effective_url version asset_url
 
+    # Avoid unauthenticated api.github.com here: shared GitHub-hosted runners can
+    # hit the public API rate limit and return HTTP 403 even though the release
+    # itself is available. Resolve /releases/latest through normal github.com
+    # redirects instead, then download the predictable single-APK asset.
     if [[ "$dirtyflash" == "on" ]]; then
         release_mode="pinned"
-        api_url="https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/tags/$PINNED_INSTALLERX_VERSION"
+        INSTALLERX_VERSION="$PINNED_INSTALLERX_VERSION"
     else
         release_mode="latest"
-        api_url="https://api.github.com/repos/wxxsfxyzm/InstallerX-Revived/releases/latest"
+        latest_url="https://github.com/wxxsfxyzm/InstallerX-Revived/releases/latest"
+
+        effective_url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$latest_url" 2>/dev/null || true)
+        version="${effective_url##*/}"
+
+        if [[ -z "$version" || "$version" == "latest" || "$effective_url" != */releases/tag/* ]]; then
+            warn "InstallerX latest redirect unavailable; falling back to pinned stable $PINNED_INSTALLERX_VERSION"
+            INSTALLERX_VERSION="$PINNED_INSTALLERX_VERSION"
+            release_mode="fallback-pinned"
+        else
+            INSTALLERX_VERSION="$version"
+        fi
     fi
 
-    release_json=$(curl -fsSL         -H "Accept: application/vnd.github+json"         "$api_url") || {
-        echo "[ERROR] Failed to query $release_mode InstallerX release"
-        return 1
-    }
+    asset_url="https://github.com/wxxsfxyzm/InstallerX-Revived/releases/download/$INSTALLERX_VERSION/InstallerX-Revived-online-$INSTALLERX_VERSION.apk"
 
-    INSTALLERX_VERSION=$(printf '%s' "$release_json" | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-print(data.get("tag_name", ""))
-')
+    # Confirm the resolved asset exists. If a future release changes the asset
+    # naming convention, keep ROM builds reproducible by falling back to 26.09.
+    if ! curl -fsSLI -o /dev/null "$asset_url" 2>/dev/null; then
+        if [[ "$INSTALLERX_VERSION" != "$PINNED_INSTALLERX_VERSION" ]]; then
+            warn "InstallerX $INSTALLERX_VERSION asset not found; falling back to pinned stable $PINNED_INSTALLERX_VERSION"
+            INSTALLERX_VERSION="$PINNED_INSTALLERX_VERSION"
+            release_mode="fallback-pinned"
+            asset_url="https://github.com/wxxsfxyzm/InstallerX-Revived/releases/download/$INSTALLERX_VERSION/InstallerX-Revived-online-$INSTALLERX_VERSION.apk"
+        fi
 
-    INSTALLERX_URL=$(printf '%s' "$release_json" | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-assets = data.get("assets", [])
-apk = next((a for a in assets if a.get("name", "").lower().endswith(".apk")), None)
-print(apk.get("browser_download_url", "") if apk else "")
-')
-
-    INSTALLERX_SHA256=$(printf '%s' "$release_json" | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-assets = data.get("assets", [])
-apk = next((a for a in assets if a.get("name", "").lower().endswith(".apk")), None)
-digest = apk.get("digest", "") if apk else ""
-print(digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
-')
-
-    if [[ -z "$INSTALLERX_VERSION" || -z "$INSTALLERX_URL" ]]; then
-        echo "[ERROR] $release_mode InstallerX release has no usable APK asset"
-        return 1
+        if ! curl -fsSLI -o /dev/null "$asset_url" 2>/dev/null; then
+            echo "[ERROR] InstallerX asset unavailable: $asset_url"
+            return 1
+        fi
     fi
 
-    if [[ "$dirtyflash" == "on" && "$INSTALLERX_VERSION" != "$PINNED_INSTALLERX_VERSION" ]]; then
-        echo "[ERROR] Pinned InstallerX tag mismatch: expected $PINNED_INSTALLERX_VERSION, got $INSTALLERX_VERSION"
-        return 1
+    INSTALLERX_URL="$asset_url"
+
+    # Stable 26.09 digest from upstream GitHub release metadata.
+    if [[ "$INSTALLERX_VERSION" == "26.09" ]]; then
+        INSTALLERX_SHA256="fe7ac4737885a0426042222e27ed0a637e481e72c742ebe09142fd51448ae85b"
+    else
+        INSTALLERX_SHA256=""
     fi
 
     DOWNLOAD_APK="$TMP_DIR/InstallerX-Revived-$INSTALLERX_VERSION.apk"
