@@ -133,11 +133,17 @@ if [ -n "$BUILD_PROP" ]; then
 fi
 
 # 3. Append PenguinOS property payload once.
+target_prop="$SEARCH_DIR/system/system/build.prop"
 if [ -f "$prop/build.prop" ]; then
-  target_prop="$SEARCH_DIR/system/system/build.prop"
   if [ -f "$target_prop" ] && ! grep -Fq '#PlayIntegrityFix' "$target_prop"; then
     cat "$prop/build.prop" >> "$target_prop"
   fi
+fi
+
+# Refresh Xiaomi's OEM lock property even when the payload marker already exists.
+if [ -f "$target_prop" ]; then
+  sed -i '/^ro\.secureboot\.lockstate=/d' "$target_prop"
+  printf '\nro.secureboot.lockstate=locked\n' >> "$target_prop"
 fi
 
 # 4. Inject cust.prop keys without duplicating existing entries.
