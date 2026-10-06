@@ -52,7 +52,7 @@ cleanup_legacy_generated_fonts() {
 }
 
 write_preview_png() {
-    local title="$1" out="$2" data
+    local title="$1" font_file="$2" out="$3" data
     case "$title" in
         "SF Pro")
             data='iVBORw0KGgoAAAANSUhEUgAAAeAAAACgAQAAAAD8gILgAAABS0lEQVR42u3ZMU7DQBAF0L+2ZVwgkdIV7BE4AdkbcAYOgrQICkpuAEexXFFyBCtCKKVpkInsLEWMs0hxyGyQQvGnGhfPM17NbGPlEB4RiImJiYmJiYmJiYmJiYmJiYn/Jy520m5j1HAWJ67BmdsSI5VfYFbJa0DbQ9ddAL5tELsamMKKsTs+6tuuAipPvivmxaGGJNlvwh5K3Njgto2zTyJceyePhf+4A27W6UfenDaSA1HtOm/f3q8SUeXrgUKhthcibPSQRVDQIqznfTIHMIMT4XyBTmnAaZsAmIhw2tcqVcCEqaIfqjRkPM+L2FUA8hCcrRZ5GrLP27fpNxz9xT4fFi+FK4mlP6tQwsravw4qCe5s69/DthRVvn823tPjnQh/Gu/CzGaZ7Jv9I0rHVnLzGMbFpf8iO3IZKP74ISYmJiYmJiYmJib+GV/j+3szpzYJfAAAAABJRU5ErkJggg=='
@@ -65,6 +65,18 @@ write_preview_png() {
             return 1
             ;;
     esac
+    # ThemeManager does not recolor preview PNGs for dark mode. The old assets
+    # had an opaque white background, which produced the white cards seen in
+    # dark mode. Prefer a native preview rendered from the actual font on a
+    # neutral dark surface; keep the embedded asset only as a last-resort.
+    if command -v convert >/dev/null 2>&1; then
+        if convert -size 480x160 xc:'#181818' \\
+            -font "$font_file" -fill '#F2F2F2' -gravity center \\
+            -pointsize 46 -antialias -define png:color-type=6 \\
+            -strip "$out" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
     printf '%s' "$data" | base64 -d > "$out"
 }
 
@@ -99,7 +111,7 @@ install_xiaomi_font_resource() {
     : > "$theme_mrc"
     chmod 0644 "$font_mrc" "$theme_mrc"
 
-    write_preview_png "$title" "$preview_dir/preview_fonts_small_0.png"
+    write_preview_png "$title" "$font_file" "$preview_dir/preview_fonts_small_0.png"
     cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/preview_fonts_0.png"
     cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/en_US_fonts_small_0.png"
     cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/en_US_fonts_0.png"
@@ -333,7 +345,7 @@ install_xiaomi_font_resource \
     "$SF_FONT" \
     "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102" \
     "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101" \
-    "SF Pro" "Apple" "100,200,300,350,400,500,600,700,800,900" || {
+    "SF Pro" "Apple" "100,200,300,400,500,600,700,800,900" || {
     error "FAST-FAIL: SF Pro native ThemeManager integration failed"
     exit 1
 }
@@ -342,7 +354,7 @@ install_xiaomi_font_resource \
     "$ROBOTO_FONT" \
     "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3102" \
     "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3101" \
-    "Roboto" "Google" "100,200,300,350,400,500,600,700,800,900" || {
+    "Roboto" "Google" "100,200,300,400,500,600,700,800,900" || {
     error "FAST-FAIL: Roboto native ThemeManager integration failed"
     exit 1
 }
