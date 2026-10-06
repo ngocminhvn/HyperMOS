@@ -47,7 +47,7 @@ grep -q 'mount --bind "$SRC" "$TARGET"' "$bin_dst/tnm-hostsctl" || {
   error "TNM Hosts: bind controller verification failed"
   exit 1
 }
-grep -q 'RESULT=RESOLVER_FAIL' "$bin_dst/tnm-hostsctl" || {
+grep -q 'RESULT=RESOLVER_UNVERIFIED' "$bin_dst/tnm-hostsctl" || {
   error "TNM Hosts: resolver self-test missing"
   exit 1
 }
