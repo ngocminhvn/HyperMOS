@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""FK_LOCK: normalize visible ROM identity and restore the early FakeLock runtime.
+"""FK_LOCK: normalize visible ROM identity and reinforce FakeLock after boot.
 
 Build-time identity normalization is limited to system/system_ext/product.
 Vendor/odm fingerprints are intentionally preserved because Xiaomi may ship
 those partitions from an older Android base.
 
-The runtime component restores the tested early FakeLock behavior: write the
-software lock-state properties at post-fs-data and reinforce them once again
-after boot completion. It never relocks the hardware bootloader.
+The runtime component reinforces the software lock-state properties after
+Android reports boot completion. It never relocks the hardware bootloader.
 """
 from __future__ import annotations
 
@@ -330,9 +329,6 @@ service fk_lock /system_ext/xbin/xeutoolbox -n -f /system_ext/etc/fk-lock.prop
     seclabel u:r:fk_lock:s0
     timeout_period 5
 
-on post-fs-data
-    start fk_lock
-
 on property:sys.boot_completed=1
     start fk_lock
 """
@@ -439,7 +435,7 @@ def install_runtime(workspace: Path, images: Path) -> None:
                 if key not in existing:
                     out.write(key + "\n")
 
-    print("[FK_LOCK] early runtime installed: post-fs-data + boot_completed")
+    print("[FK_LOCK] runtime installed: boot_completed only")
 
 
 def main() -> int:
