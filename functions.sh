@@ -1,85 +1,31 @@
 #!/bin/bash
 WORK_DIR=$(pwd)
 
-mods() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [MODS] - $1
-    else
-        echo "Usage: mods <string>"
-    fi
+_log_line() {
+    local tag="$1"
+    shift
+    printf '[%s] - %s\n' "$tag" "$*"
 }
 
-info() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [INFO] - $1
-    else
-        echo "Usage: info <string>"
-    fi
+phase() {
+    printf '\n'
+    _log_line "PHASE" "$*"
 }
 
-warn() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [WARN] - $1
-    else
-        echo "Usage: warn <string>"
-    fi
+ok() {
+    _log_line "OK" "$*"
 }
 
-error() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [ERROR] - $1
-    else
-        echo "Usage: error <string>"
-    fi
-}
-
-unpack() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [UNPACK] - $1
-    else
-        echo "Usage: unpack <string>"
-    fi
-}
-
-unpack_erofs() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [UNPACK - EROFS] - $1
-    else
-        echo "Usage: unpack_erofs <string>"
-    fi
-}
-
-unpack_ext() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [UNPACK - EXT4] - $1
-    else
-        echo "Usage: unpack_ext <string>"
-    fi
-}
-
-repack() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [REPACK] - $1
-    else
-        echo "Usage: repack <string>"
-    fi
-}
-
-upload() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [UPLOADING] - $1
-    else
-        echo "Usage: upload <string>"
-    fi
-}
-
-patch() {
-    if [ "$#" -eq 1 ] ; then
-        echo -e [PATCH] - $1
-    else
-        echo "Usage: patch <string>"
-    fi
-}
+mods() { _log_line "MODS" "$*"; }
+info() { _log_line "INFO" "$*"; }
+warn() { _log_line "WARN" "$*"; }
+error() { _log_line "ERROR" "$*"; }
+unpack() { _log_line "UNPACK" "$*"; }
+unpack_erofs() { _log_line "UNPACK - EROFS" "$*"; }
+unpack_ext() { _log_line "UNPACK - EXT4" "$*"; }
+repack() { _log_line "REPACK" "$*"; }
+upload() { _log_line "UPLOADING" "$*"; }
+patch() { _log_line "PATCH" "$*"; }
 
 
 

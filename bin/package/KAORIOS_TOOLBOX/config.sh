@@ -29,3 +29,6 @@ KAORIOS_VALIDATE_KEYBOX="${KAORIOS_VALIDATE_KEYBOX:-true}"
 # When dev-status is enabled but the ROM layout is unsupported:
 # false = warn and continue, true = fail the build.
 KAORIOS_DEVSTATUS_STRICT="${KAORIOS_DEVSTATUS_STRICT:-false}"
+
+# Build log verbosity. false = concise success output; true = print full upstream patch diffs.
+KAORIOS_VERBOSE_LOG="${KAORIOS_VERBOSE_LOG:-false}"

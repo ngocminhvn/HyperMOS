@@ -26,6 +26,8 @@ else
     os_type="HyperOS"
 fi
 
+phase "4/4 Repack partitions and super image"
+
 #Generate Super.img
 superSize=$(bash $work_dir/bin/getSuperSize.sh $getvar)
 repack $superSize
@@ -194,3 +196,4 @@ for pname in ${super_list}; do
 done
 
 find "$work_dir/build" -exec touch -t 200901010000.00 {} + 2> /dev/null || true
+ok "Partition and super image repack completed"

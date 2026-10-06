@@ -1,4 +1,4 @@
-name: NothingsVN Xiaomi ROM Build
+name: HyperMOS ROM Build
 
 on:
   workflow_dispatch:
@@ -27,24 +27,30 @@ on:
           - pixeldrain
 
 jobs:
-  Initialize:
+  build:
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+
     steps:
-      - name: Check free disk space
+      - name: Runner space
         id: diskcheck
         shell: bash
         run: |
+          set -euo pipefail
           FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
-          echo "Free disk space: ${FREE_GB}GB"
+          echo "[INFO] - Runner free space: ${FREE_GB} GB"
           if [ "$FREE_GB" -lt 60 ]; then
             echo "need_cleanup=true" >> "$GITHUB_OUTPUT"
-            echo "Low disk space; cleanup/maximize will run."
+            echo "[INFO] - Low space: cleaning large preinstalled packages"
+            docker rmi $(docker images -q) >/dev/null 2>&1 || true
+            sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php || true
+            sudo apt-get -y purge azure-cli 'ghc*' 'zulu*' 'hhvm*' 'llvm*' firefox 'google*' 'dotnet*' powershell 'mysql*' 'php*' >/dev/null 2>&1 || true
+            sudo apt-get -y autoremove --purge >/dev/null 2>&1 || true
+            sudo apt-get clean
           else
             echo "need_cleanup=false" >> "$GITHUB_OUTPUT"
-            echo "Enough disk space; skipping cleanup/maximize."
           fi
 
       - name: Maximize build space
@@ -57,215 +63,162 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
 
-      - name: Clean unused files and applications
-        if: steps.diskcheck.outputs.need_cleanup == 'true'
-        run: |
-          docker rmi `docker images -q` || true
-          sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/sudo apt/sources.list.d || true
-          sudo apt -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell mysql* php* || true
-          sudo apt -y autoremove --purge || true
-          sudo apt -y autoclean || true
-          sudo apt clean || true
-
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: Pull Git LFS files
-        run: |
-          git lfs install
-          git lfs pull
-
-      - name: Send start notification
-        run: |
-          pip install requests
-          python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
-
-      - name: Set timezone
-        run: |
-          echo "Setting Vietnam timezone"
-          sudo timedatectl set-timezone Asia/Ho_Chi_Minh
-
-      - name: Install OpenJDK
+      - name: Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install tools
+      - name: Prepare build environment
+        shell: bash
         run: |
-          set -e
-          set -o pipefail
-          echo "[STEP] Install tools" | tee -a build_action.log
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test 2>&1 | tee -a build_action.log
-          sudo apt-get update 2>&1 | tee -a build_action.log
-          sudo apt purge device-tree-compiler 2>&1 | tee -a build_action.log
-          sudo apt-get install -y aria2 jq rclone sshpass lz4 python-is-python3 wget python3 lz4 xz-utils zlib1g-dev gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip erofs-utils unzip p7zip-full 7zip 7zip-standalone zipalign zstd bc android-sdk-libsparse-utils xmlstarlet secilc 2>&1 | tee -a build_action.log
-          sudo pip3 install ConfigObj 2>&1 | tee -a build_action.log
-          sudo pip3 install telebot 2>&1 | tee -a build_action.log
-          sudo pip3 install setuptools 2>&1 | tee -a build_action.log
-          sudo pip3 install google-auth lz4 google-auth-oauthlib google-auth-httplib2 google-api-python-client 2>&1 | tee -a build_action.log
+          set -euo pipefail
+          : > build_action.log
+          echo "[PHASE] - Prepare build environment"
 
-      - name: Grant file permissions
-        run: |
-          sudo chmod 777 -R *
+          sudo timedatectl set-timezone Asia/Ho_Chi_Minh
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test >>build_action.log 2>&1
+          sudo apt-get update -qq >>build_action.log 2>&1
+          sudo apt-get purge -y device-tree-compiler >>build_action.log 2>&1 || true
 
-      - name: Validate Rclone config
-        if: ${{ inputs.upload_method == 'drive' }}
-        run: |
-          set -e
-          set -o pipefail
-          echo "[STEP] Validate Rclone config" | tee -a build_action.log
-          sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
+          if ! sudo apt-get install -y -qq \
+            aria2 jq rclone sshpass lz4 python-is-python3 wget python3 xz-utils zlib1g-dev \
+            gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip \
+            erofs-utils unzip p7zip-full 7zip 7zip-standalone zipalign zstd bc \
+            android-sdk-libsparse-utils xmlstarlet secilc >>build_action.log 2>&1; then
+            echo "[ERROR] - Package installation failed"
+            tail -n 120 build_action.log
+            exit 1
+          fi
+
+          if ! sudo pip3 install -q ConfigObj telebot setuptools requests google-auth lz4 \
+            google-auth-oauthlib google-auth-httplib2 google-api-python-client >>build_action.log 2>&1; then
+            echo "[ERROR] - Python dependency installation failed"
+            tail -n 120 build_action.log
+            exit 1
+          fi
+
+          sudo chmod -R a+rwX .
+          chmod +x bin/Linux/x86_64/* 2>/dev/null || true
+
+          python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" || echo "[WARN] - Start notification failed"
+
+          if [ "${{ inputs.upload_method }}" = "drive" ]; then
+            echo "[INFO] - Validate Drive upload config"
+            sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
+          fi
+
+          echo "[OK] - Build environment ready"
 
       - name: Build ROM
         env:
           INPUT_URL: ${{ inputs.input_url }}
+        shell: bash
         run: |
-          set -e
-          set -o pipefail
-          echo "[STEP] Build ROM" | tee -a build_action.log
-          sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
+          set -euo pipefail
+          echo "[PHASE] - Build ROM" | tee -a build_action.log
+          sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
+            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
 
       - name: Pack ROM
+        shell: bash
         run: |
-          set -e
-          set -o pipefail
-          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
-          echo "[STEP] Pack ROM" | tee -a build_action.log
-          sudo bash packROM.sh 2>&1 | tee -a build_action.log
+          set -euo pipefail
+          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" || true
+          echo "[PHASE] - Pack ROM" | tee -a build_action.log
+          sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
 
-      - name: Prepare ROM and selected upload
+      - name: Package and upload ROM
+        shell: bash
         env:
           UPLOAD_METHOD: ${{ inputs.upload_method }}
           DEBUG_BUILD: ${{ inputs.debug }}
+          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
-          set -e
-          set -o pipefail
-          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
-          echo "[STEP] Upload method: ${UPLOAD_METHOD}" | tee -a build_action.log
+          set -euo pipefail
+          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" || true
+
+          echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
           sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
 
-      - name: Split Large File
-        if: ${{ inputs.upload_method == 'pixeldrain' }}
-        id: split
-        shell: bash
-        run: |
-          FILE=$(find out -maxdepth 1 -name "*.zip" | head -n1)
-
-          if [ -z "$FILE" ]; then
-          echo "No ROM zip found!"
-          exit 1
+          if [ "$UPLOAD_METHOD" != "pixeldrain" ]; then
+            exit 0
           fi
 
-          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          FILE=$(cat bin/ddevice/output_file.txt 2>/dev/null || true)
+          [ -n "$FILE" ] && [ -f "$FILE" ] || {
+            echo "[ERROR] - ROM ZIP not found for Pixeldrain"
+            exit 1
+          }
 
           SIZE=$(stat -c%s "$FILE")
           LIMIT=$((9 * 1024 * 1024 * 1024))
 
+          upload_one() {
+            local src="$1"
+            local response id
+            echo "[UPLOADING] - $(basename "$src")" >&2
+            response=$(curl -fsS -u ":$PD_API_KEY" -F "file=@$src" https://pixeldrain.com/api/file)
+            id=$(printf '%s' "$response" | jq -r '.id // empty')
+            [ -n "$id" ] || {
+              echo "[ERROR] - Pixeldrain response: $response" >&2
+              return 1
+            }
+            printf 'https://pixeldrain.com/u/%s\n' "$id"
+          }
+
+          FIRST_URL=""
           if [ "$SIZE" -gt "$LIMIT" ]; then
-          echo "Splitting ROM..."
-          7z a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE"
-          echo "split=true" >> "$GITHUB_OUTPUT"
+            echo "[INFO] - ROM exceeds 9 GiB; splitting without recompression"
+            7zz a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE" >/dev/null
+            for part in "${FILE}.7z".*; do
+              [ -e "$part" ] || continue
+              url=$(upload_one "$part")
+              [ -n "$FIRST_URL" ] || FIRST_URL="$url"
+            done
           else
-          echo "split=false" >> "$GITHUB_OUTPUT"
+            FIRST_URL=$(upload_one "$FILE")
           fi
 
-      - name: Upload to Pixeldrain
-        if: ${{ inputs.upload_method == 'pixeldrain' }}
-        id: pd
+          if [ -n "$FIRST_URL" ]; then
+            echo "NOTIFY_DOWNLOAD_URL=$FIRST_URL" >> "$GITHUB_ENV"
+          fi
+          echo "[OK] - Pixeldrain upload completed"
+
+      - name: Notify result
+        if: ${{ always() }}
         shell: bash
         env:
-          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
-        run: |
-          FILE="${{ steps.split.outputs.file }}"
-
-          if [[ "${{ steps.split.outputs.split }}" == "true" ]]; then
-          LINKS=""
-          COUNT=1
-
-          for PART in "${FILE}.7z".*; do
-          [ -e "$PART" ] || continue
-
-          echo "Uploading $PART"
-
-          RESPONSE=$(curl -s \
-          -u ":$PD_API_KEY" \
-          -F "file=@${PART}" \
-          https://pixeldrain.com/api/file)
-
-          ID=$(echo "$RESPONSE" | jq -r '.id')
-
-          if [[ -z "$ID" || "$ID" == "null" ]]; then
-          echo "Upload failed for $PART. Response:"
-          echo "$RESPONSE"
-          exit 1
-          fi
-
-          URL="https://pixeldrain.com/u/$ID"
-
-          if [[ -z "$LINKS" ]]; then
-          LINKS="<a href='$URL'>Part $COUNT</a>"
-          else
-          LINKS="$LINKS | <a href='$URL'>Part $COUNT</a>"
-          fi
-
-          COUNT=$((COUNT + 1))
-          done
-          else
-          echo "Uploading $FILE"
-
-          RESPONSE=$(curl -s \
-          -u ":$PD_API_KEY" \
-          -F "file=@${FILE}" \
-          https://pixeldrain.com/api/file)
-
-          ID=$(echo "$RESPONSE" | jq -r '.id')
-
-          if [[ -z "$ID" || "$ID" == "null" ]]; then
-          echo "Upload failed. Response:"
-          echo "$RESPONSE"
-          exit 1
-          fi
-
-          LINKS="<a href='https://pixeldrain.com/u/$ID'>Download</a>"
-          fi
-
-          echo "links=$LINKS" >> "$GITHUB_OUTPUT"
-
-      - name: Send success notification
-        if: success()
-        env:
-          NOTIFY_WORKFLOW_CONCLUSION: success
+          JOB_STATUS: ${{ job.status }}
+          NOTIFY_WORKFLOW_CONCLUSION: ${{ job.status }}
           NOTIFY_UPLOAD_METHOD: ${{ inputs.upload_method }}
-        run: |
-          DOWNLOAD_URL=""
-          if [ "${{ inputs.upload_method }}" = "drive" ]; then
-            DOWNLOAD_URL="${RCLONE_DOWNLOAD_URL:-}"
-          else
-            RAW_LINKS='${{ steps.pd.outputs.links }}'
-            DOWNLOAD_URL=$(echo "$RAW_LINKS" | grep -oP 'https?://[^\s">]+' | head -n1 || true)
-          fi
-          if [ -n "$DOWNLOAD_URL" ]; then
-            echo "NOTIFY_DOWNLOAD_URL=$DOWNLOAD_URL" >> "$GITHUB_ENV"
-            export NOTIFY_DOWNLOAD_URL="$DOWNLOAD_URL"
-          fi
-          python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
-
-      - name: Send failure notification
-        if: failure()
-        env:
-          NOTIFY_WORKFLOW_CONCLUSION: failure
           NOTIFY_ERROR_LOG: build_action.log
         run: |
-          python notify.py fail "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
-
-      - name: Send cancellation notification
-        if: cancelled()
-        env:
-          NOTIFY_WORKFLOW_CONCLUSION: cancelled
-          NOTIFY_ERROR_LOG: build_action.log
-          NOTIFY_ERROR_REASON: Workflow run was cancelled before completion.
-        run: |
-          python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+          set +e
+          case "$JOB_STATUS" in
+            success)
+              if [ -z "${NOTIFY_DOWNLOAD_URL:-}" ] && [ -n "${RCLONE_DOWNLOAD_URL:-}" ]; then
+                export NOTIFY_DOWNLOAD_URL="$RCLONE_DOWNLOAD_URL"
+              fi
+              python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+                "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+              ;;
+            cancelled)
+              export NOTIFY_ERROR_REASON="Workflow was cancelled before completion."
+              python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+                "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+              ;;
+            *)
+              python notify.py fail "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+                "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+              ;;
+          esac
+          exit 0

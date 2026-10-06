@@ -22,9 +22,11 @@ check unzip aria2c 7z 7zz zip java zipalign python3 zstd bc xmlstarlet aapt
 rm -rf $work_dir/out
 rm -rf $work_dir/build
 
+phase "1/4 Download and inspect base ROM"
 python3 $work_dir/notify.py download "$repo_name" "$baserom" "$prefix_id" "$builder_name" "$builder_id"
 source "$work_dir/bin/ddevice/getROM.sh" "$baserom"
 
+phase "2/4 Extract base ROM"
 python3 $work_dir/notify.py unpack "$repo_name" "$baserom" "$prefix_id" "$builder_name" "$builder_id"
 if unzip -l ${baserom} | grep -q "payload.bin"; then
     baserom_type="payload"
@@ -123,7 +125,8 @@ rm -rf build/baserom/payload.bin
 rm -rf build/baserom/images/super.img
 
 
-mods "Gathering Devices Infomations"
+phase "3/4 Apply HyperMOS modifications"
+mods "Gathering device information"
 
 bash $work_dir/bin/ddevice/fetchINFO.sh
 
@@ -139,4 +142,5 @@ bash $work_dir/bin/modfile/UpdateFile/insupdate.sh || exit 1
 bash $work_dir/bin/package/patchpackage.sh || exit 1
 
 find "$work_dir/build/baserom/images/" -exec touch -t 200901010000.00 {} + 2> /dev/null || true
+ok "ROM modification stage completed"
 

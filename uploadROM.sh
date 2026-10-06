@@ -65,6 +65,7 @@ else
     os_type="HyperOS"
 fi
 
+phase "Package ROM"
 repack "Generating flashing script"
 if [[ ${baserom_type} == 'payload' ]]; then
     mkdir -p "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/"
@@ -134,11 +135,10 @@ fi
 
 mv "out/${os_type}_${device_code}_${base_rom_code}.zip" "out/${final_name}"
 
-repack "Build completed"
-repack "Output: "
-repack "$(pwd)/out/${final_name}"
+ok "ROM archive created: $(pwd)/out/${final_name}"
 
-upload "Uploading"
+phase "Upload ROM"
+upload "Preparing selected upload method"
 output_file="out/${final_name}"
 echo "${final_name}" > "$work_dir/bin/ddevice/output_zip.txt"
 

@@ -77,7 +77,8 @@ for flag in \
   KAORIOS_ENABLE_BUILD_SPOOF \
   KAORIOS_INSTALL_TOOLBOX \
   KAORIOS_VALIDATE_KEYBOX \
-  KAORIOS_DEVSTATUS_STRICT; do
+  KAORIOS_DEVSTATUS_STRICT \
+  KAORIOS_VERBOSE_LOG; do
   validate_bool "$flag"
 done
 
@@ -319,11 +320,18 @@ find_target_file() {
 }
 
 patch_target_file() {
-  local root="$1" rel="$2" label="$3" mode="${4:-1}" file
+  local root="$1" rel="$2" label="$3" mode="${4:-1}" file patch_log
   file=$(find_target_file "$root" "$rel" "$label") || return 1
-  if ! python3 "$PATCHER" "$file" --android-version "$ANDROID_VER" --mode "$mode" --no-delay; then
+  patch_log="$TEMP_ROOT/kaorios-patcher.log"
+  if ! python3 "$PATCHER" "$file" --android-version "$ANDROID_VER" --mode "$mode" --no-delay >"$patch_log" 2>&1; then
     error "KAORIOS: patcher failed for $label"
+    tail -n 100 "$patch_log" >&2 || true
     return 1
+  fi
+  if is_enabled "$KAORIOS_VERBOSE_LOG"; then
+    cat "$patch_log"
+  else
+    info "KAORIOS: patched $label"
   fi
 }
 
