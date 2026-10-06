@@ -7,6 +7,10 @@
 set -e
 
 work_dir=$(pwd)
+# This script is executed in a child bash, so parent shell functions are not
+# inherited. Load HyperMOS logging helpers locally before using error/mods/patch.
+source "$work_dir/functions.sh"
+
 kaorios_dir="$work_dir/bin/package/KAORIOS_TOOLBOX"
 magiskboot_primary="$work_dir/bin/magiskboot"
 magiskboot_fallback="$work_dir/bin/Linux/x86_64/magiskboot"
@@ -56,7 +60,9 @@ if [ -f "$SEARCH_DIR/vendor_boot.img" ]; then
     exit 1
   fi
 
-  sed -i '/^cmdline=/ s/$/ androidboot.verifiedbootstate=green androidboot.flash.locked=1 androidboot.vbmeta.device_state=locked/' "$work_dir/header"
+  if ! grep -Fq 'androidboot.verifiedbootstate=green' "$work_dir/header"; then
+    sed -i '/^cmdline=/ s/$/ androidboot.verifiedbootstate=green androidboot.flash.locked=1 androidboot.vbmeta.device_state=locked/' "$work_dir/header"
+  fi
 
   echo "[IMGPATCH] - Stage 2 Patching..."
   if ! "$magiskboot" repack "$work_dir/vendor_boot.img"; then
