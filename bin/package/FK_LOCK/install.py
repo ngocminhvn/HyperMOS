@@ -161,7 +161,14 @@ def choose_identity(workspace: Path, images: Path) -> tuple[str, str, str, str, 
 
 
 def normalize_identity(workspace: Path, images: Path) -> None:
-    device, model, brand, manufacturer, target_fp, _ = choose_identity(workspace, images)
+    try:
+        device, model, brand, manufacturer, target_fp, _ = choose_identity(workspace, images)
+    except ValueError as error:
+        if str(error).startswith("FK_LOCK: unsafe top-level fingerprint:"):
+            print(f"[FK_LOCK] identity normalization skipped: {error}")
+            print("[FK_LOCK] preserving extracted ROM identity until a trusted stock fingerprint is available")
+            return
+        raise
 
     print(f"[FK_LOCK] target device: {device}")
     print(f"[FK_LOCK] target model: {model}")
