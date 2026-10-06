@@ -46,15 +46,17 @@ if [ -f "$SEARCH_DIR/vendor_boot.img" ]; then
   cp -f "$SEARCH_DIR/vendor_boot.img" "$work_dir/vendor_boot.img"
   cp -f "$SEARCH_DIR/vendor_boot.img" "$temp_boot/vendor_boot.img"
 
-  if ! "$magiskboot" unpack -h "$work_dir/vendor_boot.img"; then
-    error "KAORIOS FakeLock: magiskboot failed to unpack vendor_boot.img"
-    rm -f "$work_dir/vendor_boot.img" "$work_dir/header" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
-    rm -rf "$temp_boot"
-    exit 1
+  # Match PenguinOS behavior: magiskboot may return non-zero for some
+  # vendor_boot v4 images even though it parsed the image and emitted header.
+  # Do not treat the process exit status itself as a patch failure.
+  unpack_rc=0
+  "$magiskboot" unpack -h "$work_dir/vendor_boot.img" || unpack_rc=$?
+  if [ "$unpack_rc" -ne 0 ]; then
+    echo "[IMGPATCH] - magiskboot unpack returned $unpack_rc; validating generated header like PenguinOS"
   fi
 
-  if [ ! -f "$work_dir/header" ]; then
-    error "KAORIOS FakeLock: magiskboot unpack succeeded but header was not created"
+  if [ ! -s "$work_dir/header" ]; then
+    error "KAORIOS FakeLock: magiskboot unpack did not create a usable header"
     rm -f "$work_dir/vendor_boot.img" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
     rm -rf "$temp_boot"
     exit 1
