@@ -27,9 +27,11 @@ V4_EXT_FMT = "<I I I I"
 
 def read_padded(f, size, page_size):
     data = f.read(size)
+    if len(data) != size:
+        raise ValueError("Truncated vendor_boot section")
     padding_size = (page_size - (size % page_size)) % page_size
-    if padding_size > 0:
-        f.read(padding_size)
+    if padding_size > 0 and len(f.read(padding_size)) != padding_size:
+        raise ValueError("Truncated vendor_boot padding")
     return data
 
 
@@ -51,11 +53,11 @@ def decompress_ramdisk(data):
         out = bytearray()
         while offset < len(data):
             if offset + 4 > len(data):
-                break
+                raise ValueError("Truncated LZ4 block size")
             comp_size = struct.unpack("<I", data[offset : offset + 4])[0]
             offset += 4
             if offset + comp_size > len(data):
-                break
+                raise ValueError("Truncated LZ4 block")
             chunk = data[offset : offset + comp_size]
             out.extend(lz4.block.decompress(chunk, uncompressed_size=8388608))
             offset += comp_size
@@ -98,7 +100,7 @@ def compress_ramdisk(data, fmt):
     elif fmt == "gzip":
         import gzip
 
-        return gzip.compress(data)
+        return gzip.compress(data, mtime=0)
     else:
         return data
 
@@ -114,30 +116,38 @@ def unpack_cpio(data, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     offset = 0
     metadata = []
+    trailer = False
     while offset < len(data):
         if offset + 110 > len(data):
-            break
+            raise ValueError("Truncated CPIO header")
         header = data[offset : offset + 110].decode("ascii", errors="ignore")
         if not header.startswith("070701"):
-            break
+            raise ValueError("Invalid CPIO header")
 
         mode = int(header[14:22], 16)
         uid = int(header[22:30], 16)
         gid = int(header[30:38], 16)
         filesize = int(header[54:62], 16)
         namesize = int(header[94:102], 16)
+        if namesize < 1 or offset + 110 + namesize > len(data):
+            raise ValueError("Invalid CPIO filename size")
 
         offset += 110
         name = data[offset : offset + namesize - 1].decode("utf-8", errors="ignore")
         offset += namesize
         offset += (4 - ((110 + namesize) % 4)) % 4
         file_data = data[offset : offset + filesize]
+        if len(file_data) != filesize:
+            raise ValueError("Truncated CPIO entry")
         offset += filesize
         offset += (4 - (filesize % 4)) % 4
 
         if name == "TRAILER!!!":
+            trailer = True
             break
         out_path = os.path.join(out_dir, name)
+        if os.path.commonpath([os.path.abspath(out_dir), os.path.abspath(out_path)]) != os.path.abspath(out_dir):
+            raise ValueError("CPIO path escapes output directory")
         meta = {"name": name, "mode": mode, "uid": uid, "gid": gid}
 
         if (mode & 0xF000) == 0x4000:
@@ -149,6 +159,8 @@ def unpack_cpio(data, out_dir):
             with open(out_path, "wb") as f:
                 f.write(file_data)
         metadata.append(meta)
+    if not trailer:
+        raise ValueError("Missing CPIO trailer")
     with open(os.path.join(out_dir, "ramdisk_meta.json"), "w") as f:
         json.dump(metadata, f, indent=4)
 
@@ -156,7 +168,7 @@ def unpack_cpio(data, out_dir):
 def pack_cpio(in_dir):
     meta_path = os.path.join(in_dir, "ramdisk_meta.json")
     if not os.path.exists(meta_path):
-        return b""
+        raise ValueError("Missing CPIO metadata")
 
     with open(meta_path, "r") as f:
         metadata = json.load(f)
@@ -194,7 +206,7 @@ def pack_cpio(in_dir):
                 with open(file_path, "rb") as f:
                     file_data = f.read()
             else:
-                continue
+                raise ValueError(f"Missing ramdisk file: {name}")
 
         filesize = len(file_data)
         name_bytes = name.encode("utf-8") + b"\x00"
@@ -226,10 +238,12 @@ def unpack(args):
         f.seek(0)
 
         if f.read(8) != MAGIC:
-            return print("Error: Invalid Magic, not a vendor_boot images")
+            raise ValueError("Invalid Magic, not a vendor_boot image")
         f.seek(0)
         unpacked = struct.unpack(V3_FMT, f.read(struct.calcsize(V3_FMT)))
         hdr_version, page_size = unpacked[1], unpacked[2]
+        if hdr_version not in (3, 4) or page_size < 2128 or page_size & (page_size - 1):
+            raise ValueError("Invalid vendor_boot version/page size")
 
         config = {
             "original_image_size": original_size,
@@ -285,25 +299,38 @@ def unpack(args):
         ramdisk_root = os.path.join(out_dir, "ramdisk_root")
         os.makedirs(ramdisk_root, exist_ok=True)
 
-        try:
-            print("> Identifying ramdisk compression...")
-            fmt, uncompressed = decompress_ramdisk(ramdisk_data)
-            config["ramdisk_compression"] = fmt
-            unpack_cpio(uncompressed, ramdisk_root)
-        except Exception as e:
-            print(f"> Cannot extract CPIO automatically: {e}")
-            with open(os.path.join(out_dir, "vendor_ramdisk.img"), "wb") as r_out:
-                r_out.write(ramdisk_data)
+        # V4 ramdisks are separate compressed CPIO fragments. Parse each using
+        # its table bounds, rather than treating the concatenation as one CPIO.
+        print("> Identifying ramdisk compression...")
 
         with open(os.path.join(out_dir, "dtb.img"), "wb") as out:
             out.write(read_padded(f, config["dtb_size"], page_size))
         if hdr_version == 4:
+            table_data = read_padded(f, config["vendor_ramdisk_table_size"], page_size)
             with open(os.path.join(out_dir, "vendor_ramdisk_table.img"), "wb") as out:
-                out.write(
-                    read_padded(f, config["vendor_ramdisk_table_size"], page_size)
-                )
+                out.write(table_data)
             with open(os.path.join(out_dir, "bootconfig.img"), "wb") as out:
                 out.write(read_padded(f, config["bootconfig_size"], page_size))
+
+        config["fragments"] = []
+        if hdr_version == 4:
+            count, entry_size = config["vendor_ramdisk_table_entry_num"], config["vendor_ramdisk_table_entry_size"]
+            if count < 1 or entry_size < 108 or len(table_data) != count * entry_size:
+                raise ValueError("Invalid vendor ramdisk table")
+            ranges = [struct.unpack_from("<II", table_data, i * entry_size) for i in range(count)]
+        else:
+            ranges = [(len(ramdisk_data), 0)]
+        end = 0
+        for i, (size, start) in enumerate(ranges):
+            if start != end or start + size > len(ramdisk_data):
+                raise ValueError("Invalid/noncontiguous vendor ramdisk fragment bounds")
+            end = start + size
+            fragment_dir = "ramdisk_root" if len(ranges) == 1 else f"fragment_{i}/ramdisk_root"
+            fmt, uncompressed = decompress_ramdisk(ramdisk_data[start:end])
+            unpack_cpio(uncompressed, os.path.join(out_dir, fragment_dir))
+            config["fragments"].append({"path": fragment_dir, "compression": fmt})
+        if end != len(ramdisk_data):
+            raise ValueError("Vendor ramdisk table does not cover ramdisk payload")
 
         with open(os.path.join(out_dir, "config.json"), "w") as out:
             json.dump(config, out, indent=4)
@@ -323,7 +350,11 @@ def repack(args):
     ramdisk_dir = os.path.join(out_dir, "ramdisk_root")
     meta_path = os.path.join(ramdisk_dir, "ramdisk_meta.json")
 
-    if os.path.isdir(ramdisk_dir) and os.path.exists(meta_path):
+    if config.get("fragments"):
+        pieces = [compress_ramdisk(pack_cpio(os.path.join(out_dir, part["path"])), part["compression"])
+                  for part in config["fragments"]]
+        ramdisk_data = b"".join(pieces)
+    elif os.path.isdir(ramdisk_dir) and os.path.exists(meta_path):
         print("> Packing CPIO and compressing Ramdisk...")
         uncompressed = pack_cpio(ramdisk_dir)
         ramdisk_data = compress_ramdisk(uncompressed, fmt)
@@ -353,7 +384,12 @@ def repack(args):
 
     if hdr_version == 4:
         with open(os.path.join(out_dir, "vendor_ramdisk_table.img"), "rb") as f:
-            v4_ramdisk_table_data = f.read()
+            v4_ramdisk_table_data = bytearray(f.read())
+        if config.get("fragments"):
+            offset = 0
+            for i, piece in enumerate(pieces):
+                struct.pack_into("<II", v4_ramdisk_table_data, i * config["vendor_ramdisk_table_entry_size"], len(piece), offset)
+                offset += len(piece)
         with open(os.path.join(out_dir, "bootconfig.img"), "rb") as f:
             bootconfig_data = f.read()
         header_data += struct.pack(
@@ -364,6 +400,8 @@ def repack(args):
             len(bootconfig_data),
         )
 
+    if len(config["cmdline"].encode("utf-8")) > 2047:
+        raise ValueError("Vendor cmdline too long")
     with open(args.output, "wb") as f:
         write_padded(f, header_data, page_size)
         write_padded(f, ramdisk_data, page_size)
@@ -382,6 +420,26 @@ def repack(args):
             with open(os.path.join(out_dir, "avb_footer.bin"), "rb") as ff:
                 footer_data = ff.read()
 
+            # Recompute the embedded unsigned hash descriptor. Copying its
+            # stock digest after changing payload leaves invalid metadata.
+            from verify_boot_chain import avb
+            import hashlib
+            h = avb.AvbVBMetaHeader(vbmeta_data[:256])
+            if h.algorithm_type != 0:
+                raise ValueError("Cannot repack signed vendor_boot without its signing key")
+            desc_offset = 256 + h.authentication_data_block_size + h.descriptors_offset
+            descriptors = avb.parse_descriptors(vbmeta_data[desc_offset:desc_offset + h.descriptors_size])
+            f.flush()
+            with open(args.output, "rb") as payload_file:
+                payload = payload_file.read(new_payload_size)
+            for desc in descriptors:
+                if isinstance(desc, avb.AvbHashDescriptor) and desc.partition_name == "vendor_boot":
+                    desc.image_size = new_payload_size
+                    desc.digest = hashlib.new(desc.hash_algorithm, desc.salt + payload).digest()
+            encoded = b"".join(d.encode() for d in descriptors)
+            if len(encoded) != h.descriptors_size:
+                raise ValueError("AVB descriptor size changed")
+            vbmeta_data = vbmeta_data[:desc_offset] + encoded + vbmeta_data[desc_offset + len(encoded):]
             f.write(vbmeta_data)
 
             unpacked_avb = list(struct.unpack(">4sIIQQQ", footer_data[:36]))
@@ -396,18 +454,15 @@ def repack(args):
             if pad_len > 0:
                 f.write(b"\x00" * pad_len)
             elif pad_len < 0:
-                print(
-                    "\n> WARNING: The modified payload is larger than the original partition size."
-                )
-                print(
-                    f"> Target Partition Size: {target_size} bytes. Required Size: {current_size + 64} bytes."
-                )
+                raise ValueError("Modified payload exceeds original partition size")
 
             f.write(new_footer)
         else:
             current_size = f.tell()
             if target_size > current_size:
                 f.write(b"\x00" * (target_size - current_size))
+            elif target_size and target_size < current_size:
+                raise ValueError("Modified payload exceeds original partition size")
 
     print(f"> Image exported to: {args.output}")
 

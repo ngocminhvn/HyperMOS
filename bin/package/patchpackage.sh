@@ -6,7 +6,7 @@ target_dir="$work_dir/bin/package/"
 
 # HyperMOS owns signature/CorePatch/FLAG_SECURE first.
 bash $target_dir/COREPATCH/update.sh
-bash $target_dir/DISABLE_AVB/DISABLEavb.sh
+bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
 bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh
 
 # Kaorios must see the final framework/services state from the patches above.

@@ -147,6 +147,14 @@ jobs:
           echo "[STEP] Upload method: ${UPLOAD_METHOD}" | tee -a build_action.log
           sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
 
+      - name: Save boot chain diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-chain-${{ github.run_id }}
+          path: build/boot-chain/*.json
+          if-no-files-found: warn
+
       - name: Split Large File
         if: ${{ inputs.upload_method == 'pixeldrain' }}
         id: split

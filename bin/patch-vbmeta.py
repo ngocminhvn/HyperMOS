@@ -1,45 +1,28 @@
-#!/usr/bin/env python
-
-import os
+#!/usr/bin/env python3
+"""Set AVB disable flags on a structurally valid, standalone vbmeta image."""
+import pathlib
+import struct
 import sys
 
-# Magic for the vbmeta image header
-AVB_MAGIC = b"AVB0"
-AVB_MAGIC_LEN = 4
+sys.dont_write_bytecode = True
+from verify_boot_chain import inspect
 
-# Information about the verification flags
-FLAGS_OFFSET = 123
-FLAGS_TO_SET = b'\x03'
 
-if __name__ == "__main__":
+def patch(path):
+    metadata = inspect(path)
+    if metadata['avb_footer'] or not path.read_bytes().startswith(b'AVB0'):
+        raise ValueError('Expected standalone vbmeta image')
+    with path.open('r+b') as f:
+        f.seek(120)
+        f.write(struct.pack('>I', metadata['avb']['flags'] | 3))
+    inspect(path)
 
-    # if a correct argument is not provided
+
+if __name__ == '__main__':
     if len(sys.argv) != 2:
-        sys.exit(f"Usage: python ./{os.path.basename(__file__)} <vbmeta-image>")
-
-    # try reading the file with read/write to make sure it exists
-    FILE = sys.argv[1]
-
+        sys.exit('Usage: patch-vbmeta.py <vbmeta-image>')
     try:
-        fd = os.open(FILE, os.O_RDWR)
-    except OSError:
-        sys.exit(f"Error reading file: {FILE}\nFile not modified. Exiting...")
-
-    # making sure it's a vbmeta image by reading the magic bytes at the start of the file
-    magic = os.read(fd, AVB_MAGIC_LEN)
-
-    if magic != AVB_MAGIC:
-        os.close(fd)
-        sys.exit("Error: The provided image is not a valid vbmeta image.\nFile not modified. Exiting...")
-
-    # set the disable-verity and disable-verification flags at offset 123
-    try:
-        os.lseek(fd, FLAGS_OFFSET, os.SEEK_SET)
-        os.write(fd, FLAGS_TO_SET)
-    except OSError:
-        os.close(fd)
-        sys.exit("Error: Failed when patching the vbmeta image.\nExiting...")
-
-    # end of program
-    os.close(fd)
-    print("Patching successful.")
+        patch(pathlib.Path(sys.argv[1]))
+    except Exception as exc:
+        sys.exit('VBMETA ERROR: ' + str(exc))
+    print('Patched AVB disable flags (signature trust is not asserted).')

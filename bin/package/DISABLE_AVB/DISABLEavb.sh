@@ -1,53 +1,32 @@
-#chinh-sua-DISABLEavb
+#!/usr/bin/env bash
+set -euo pipefail
 work_dir=$(pwd)
-source $work_dir/functions.sh
-device_code=$(cat $work_dir/bin/ddevice/device_f.txt)
+source "$work_dir/functions.sh"
+device_code=$(cat "$work_dir/bin/ddevice/device_f.txt")
+images="$work_dir/build/baserom/images"
+shopt -s nullglob
 
+# This stage deliberately modifies verified partitions. Disable verification
+# consistently, including when vendor ramdisk has no /avb directory.
+for img in "$images"/vbmeta*.img; do
+    python3 "$work_dir/bin/patch-vbmeta.py" "$img"
+done
 
-# Disable AVB For Some Devices
 if grep -qw "$device_code" "$work_dir/bin/package/DISABLE_AVB/avb_list.txt"; then
-    disable_avb_verify $work_dir/build/baserom/images/vendor >/dev/null 2>&1
-    
-    # Process vendor_boot.img using vbpatcher.py
-    if [ -f "$work_dir/build/baserom/images/vendor_boot.img" ]; then
-        # Tạo thư mục output trước để tránh lỗi unpack
-        mkdir -p "$work_dir/build/baserom/boot"
-
-        python3 "$work_dir/bin/vbpatcher.py" unpack -i "$work_dir/build/baserom/images/vendor_boot.img" -o "$work_dir/build/baserom/boot"
-        
-        if [ -d "$work_dir/build/baserom/boot/ramdisk_root/avb" ]; then
-            for i in "$work_dir/build/baserom/images"/vbmeta*.img; do
-                python3 "$work_dir/bin/patch-vbmeta.py" "$i" > /dev/null 2>&1
-            done
-            vbmeta_digest=$(sha256sum "$work_dir/build/baserom/images/vbmeta.img" | cut -d ' ' -f1)
-            vbmeta_size=$(stat -c%s "$work_dir/build/baserom/images/vbmeta.img")
-            jq ".cmdline = \"androidboot.vbmeta.digest=$vbmeta_digest androidboot.vbmeta.avb_version=1.3 androidboot.vbmeta.size=$vbmeta_size androidboot.vbmeta.hash_alg=sha256 \" + .cmdline" \
-                "$work_dir/build/baserom/boot/config.json" > "$work_dir/build/baserom/boot/config.bak" && mv -f "$work_dir/build/baserom/boot/config.bak" "$work_dir/build/baserom/boot/config.json"
-            info "Patched vbmeta images"
-        fi
-
-        # Chỉ thực hiện find nếu thư mục boot tồn tại
-        if [ -d "$work_dir/build/baserom/boot" ]; then
-            find "$work_dir/build/baserom/boot/" -type f -name "*fstab*" | while read -r fstab; do
-                sed -i "s/,avb_keys=.*avbpubkey//g" "$fstab"
-                sed -i "s/,avb=vbmeta_system//g" "$fstab"
-                sed -i "s/,avb=vbmeta_vendor//g" "$fstab"
-                sed -i "s/,avb=vbmeta//g" "$fstab"
-                sed -i "s/,avb//g" "$fstab"
-                sed -i 's/,avb.*system//g' "$fstab"
-                sed -i 's/,avb,/,/g' "$fstab"
-                sed -i 's/,avb=.*a,/,/g' "$fstab"
-                sed -i 's/,avb_keys.*key//g' "$fstab"
-            done
-            python3 "$work_dir/bin/vbpatcher.py" repack -c "$work_dir/build/baserom/boot/config.json" -o "$work_dir/build/baserom/images/vendor_boot.img" > /dev/null 2>&1 && rm -rf "$work_dir/build/baserom/boot"
-        fi
-
-        [ -f "$work_dir/build/baserom/images/vendor_boot.img" ] \
-            && info "Patched vendor_boot.img" \
-            || error "Can not patch vendor_boot.img"
+    disable_avb_verify "$images/vendor"
+    if [ -f "$images/vendor_boot.img" ]; then
+        # Fresh workspace and temporary output exclude stale/partial results.
+        boot_work=$(mktemp -d "$work_dir/build/baserom/vendor-boot.XXXXXX")
+        trap 'rm -rf "$boot_work"' EXIT
+        python3 "$work_dir/bin/vbpatcher.py" unpack -i "$images/vendor_boot.img" -o "$boot_work"
+        # Whole-file SHA256/size are not libavb's loaded-structure digest/size.
+        # Preserve bootloader-derived values instead of injecting properties.
+        info "Patched vbmeta flags; no boot property injection"
+        disable_avb_verify "$boot_work"
+        python3 "$work_dir/bin/vbpatcher.py" repack -c "$boot_work/config.json" -o "$boot_work/vendor_boot.img"
+        python3 "$work_dir/bin/verify_boot_chain.py" inspect --images "$boot_work"
+        mv -f "$boot_work/vendor_boot.img" "$images/vendor_boot.img"
+        info "Patched vendor_boot.img"
     fi
-else
-    for img in $(find $work_dir/build/baserom/images -type f -name "vbmeta*.img");do
-        python3 $work_dir/bin/patch-vbmeta.py ${img}
-    done
 fi
+bash "$work_dir/bin/package/verify_boot_chain.sh" after --images "$images"

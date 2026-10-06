@@ -78,6 +78,11 @@ elif [[ ${baserom_type} == 'br' ]]; then
     mv -f "$work_dir/build/baserom/images/super.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/super/"
 fi
 
+# Inspect the actual images destined for the ROM archive.
+bash "$work_dir/bin/package/verify_boot_chain.sh" final \
+    --images "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images" || exit 1
+cp -a "$work_dir/build/boot-chain" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/boot-chain"
+
 cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/" 2>/dev/null || true
 cp -rf "$work_dir/bin/script2flash/"*.install "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/"
 cp -f "$work_dir/bin/script2flash/FLASH.bat" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/FLASH.bat"
