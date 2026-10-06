@@ -8,7 +8,25 @@ set -e
 
 work_dir=$(pwd)
 kaorios_dir="$work_dir/bin/package/KAORIOS_TOOLBOX"
-magiskboot="$work_dir/bin/magiskboot"
+magiskboot_primary="$work_dir/bin/magiskboot"
+magiskboot_fallback="$work_dir/bin/Linux/x86_64/magiskboot"
+
+if [ -f "$magiskboot_primary" ]; then
+  magiskboot="$magiskboot_primary"
+elif [ -f "$magiskboot_fallback" ]; then
+  magiskboot="$magiskboot_fallback"
+else
+  error "KAORIOS FakeLock: magiskboot not found"
+  exit 1
+fi
+
+# GitHub Actions no longer chmods the whole repository. Ensure the selected
+# binary is executable instead of relying on checkout file mode.
+chmod +x "$magiskboot" 2>/dev/null || {
+  error "KAORIOS FakeLock: cannot make magiskboot executable: $magiskboot"
+  exit 1
+}
+
 prop="$kaorios_dir/prop"
 toolbox_payload="$kaorios_dir/toolbox"
 SEARCH_DIR="$work_dir/build/baserom/images"
@@ -24,12 +42,35 @@ if [ -f "$SEARCH_DIR/vendor_boot.img" ]; then
   cp -f "$SEARCH_DIR/vendor_boot.img" "$work_dir/vendor_boot.img"
   cp -f "$SEARCH_DIR/vendor_boot.img" "$temp_boot/vendor_boot.img"
 
-  "$magiskboot" unpack -h "$work_dir/vendor_boot.img" >/dev/null 2>&1
+  if ! "$magiskboot" unpack -h "$work_dir/vendor_boot.img"; then
+    error "KAORIOS FakeLock: magiskboot failed to unpack vendor_boot.img"
+    rm -f "$work_dir/vendor_boot.img" "$work_dir/header" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
+    rm -rf "$temp_boot"
+    exit 1
+  fi
+
+  if [ ! -f "$work_dir/header" ]; then
+    error "KAORIOS FakeLock: magiskboot unpack succeeded but header was not created"
+    rm -f "$work_dir/vendor_boot.img" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
+    rm -rf "$temp_boot"
+    exit 1
+  fi
 
   sed -i '/^cmdline=/ s/$/ androidboot.verifiedbootstate=green androidboot.flash.locked=1 androidboot.vbmeta.device_state=locked/' "$work_dir/header"
 
   echo "[IMGPATCH] - Stage 2 Patching..."
-  "$magiskboot" repack "$work_dir/vendor_boot.img" >/dev/null 2>&1
+  if ! "$magiskboot" repack "$work_dir/vendor_boot.img"; then
+    error "KAORIOS FakeLock: magiskboot failed to repack vendor_boot.img"
+    rm -f "$work_dir/vendor_boot.img" "$work_dir/new-boot.img" "$work_dir/header" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
+    rm -rf "$temp_boot"
+    exit 1
+  fi
+  if [ ! -s "$work_dir/new-boot.img" ]; then
+    error "KAORIOS FakeLock: repack did not create new-boot.img"
+    rm -f "$work_dir/vendor_boot.img" "$work_dir/header" "$work_dir/dtb" "$work_dir/ramdisk.cpio"
+    rm -rf "$temp_boot"
+    exit 1
+  fi
   mv -f "$work_dir/new-boot.img" "$work_dir/vendor_boot.img"
 
   echo "[IMGPATCH] - Stage 3 Cleanup..."
