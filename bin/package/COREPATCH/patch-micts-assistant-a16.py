@@ -4,9 +4,9 @@
 Two event-driven hooks:
 1. Force RoleObserver's resolved assistant package to Google, while still letting
    framework dynamically resolve the actual VoiceInteractionService component.
-2. If showSessionFromSession() sees mImpl == null, ask the existing framework
-   switchImplementationIfNeededLocked(true) path to rebind once, then continue
-   normally if recovery succeeded.
+2. If showSessionFromSession() sees mImpl == null, resync RoleObserver inside
+   system_server, then ask the existing switchImplementationIfNeededLocked(true)
+   path to rebind once before continuing.
 
 No daemon, polling loop, hardcoded GsaVoiceInteractionService class, or direct
 SettingsProvider write is used.
@@ -143,10 +143,17 @@ def patch_show_session(root: Path) -> Path:
     )
     lines = read(path)
 
+    helper_name = "hypermosEnsureGoogleVoiceInteractionLocked()V"
     if any(HEAL_MARKER in line for line in lines):
-        joined = "\n".join(lines)
-        if "switchImplementationIfNeededLocked(Z)V" not in joined:
-            raise PatchError(f"self-heal marker present but retry call missing: {path}")
+        joined = "\\n".join(lines)
+        required = (
+            "switchImplementationIfNeededLocked(Z)V",
+            helper_name,
+            "mRoleObserver:",
+            "android.app.role.ASSISTANT",
+        )
+        if not all(value in joined for value in required):
+            raise PatchError(f"self-heal marker present but payload incomplete: {path}")
         return path
 
     warn_indexes = [i for i, line in enumerate(lines) if WARN_TEXT in line]
@@ -160,19 +167,30 @@ def patch_show_session(root: Path) -> Path:
         raise PatchError(f"warning is not inside showSessionFromSession(): {path}")
 
     owner = class_descriptor(lines, path)
-    method_text = "\n".join(lines[start:end + 1])
-    if "switchImplementationIfNeededLocked(Z)V" not in "\n".join(lines):
+    joined = "\\n".join(lines)
+    if "switchImplementationIfNeededLocked(Z)V" not in joined:
         raise PatchError(
             f"switchImplementationIfNeededLocked(Z)V not found in same class; refusing unsafe patch: {path}"
         )
+    if f"{owner}->mCurUser:I" not in joined and " mCurUser:I" not in joined:
+        raise PatchError(f"mCurUser field not found in VoiceInteraction stub: {path}")
+
+    role_desc = None
+    for line in lines:
+        m = re.search(r"\\bmRoleObserver:(L[^;]+;)", line)
+        if m:
+            role_desc = m.group(1)
+            break
+    if role_desc is None:
+        raise PatchError(f"mRoleObserver field descriptor not found: {path}")
 
     candidate = None
     field_desc = None
     for i in range(start + 1, warn_i):
         m = re.match(
-            r"\s*iget-object\s+([vp]\d+),\s*p0,\s*"
+            r"\\s*iget-object\\s+([vp]\\d+),\\s*p0,\\s*"
             + re.escape(owner)
-            + r"->mImpl:(L[^;]+;)\s*$",
+            + r"->mImpl:(L[^;]+;)\\s*$",
             lines[i],
         )
         if not m:
@@ -181,7 +199,7 @@ def patch_show_session(root: Path) -> Path:
         desc = m.group(2)
         for j in range(i + 1, min(i + 5, warn_i)):
             b = re.match(
-                rf"\s*if-nez\s+{re.escape(reg)},\s*(:[A-Za-z0-9_]+)\s*$",
+                rf"\\s*if-nez\\s+{re.escape(reg)},\\s*(:[A-Za-z0-9_]+)\\s*$",
                 lines[j],
             )
             if b:
@@ -200,15 +218,39 @@ def patch_show_session(root: Path) -> Path:
     if not any(line.strip() == continue_label for line in lines[branch_i + 1:end + 1]):
         raise PatchError(f"non-null continuation label {continue_label} missing: {path}")
 
-    indent = re.match(r"\s*", lines[branch_i]).group(0)
+    indent = re.match(r"\\s*", lines[branch_i]).group(0)
     payload = [
         f"{indent}# {HEAL_MARKER}",
-        f"{indent}const/4 {reg}, 0x1",
-        f"{indent}invoke-virtual {{p0, {reg}}}, {owner}->switchImplementationIfNeededLocked(Z)V",
+        f"{indent}invoke-direct {{p0}}, {owner}->hypermosEnsureGoogleVoiceInteractionLocked()V",
         f"{indent}iget-object {reg}, p0, {owner}->mImpl:{field_desc}",
         f"{indent}if-nez {reg}, {continue_label}",
     ]
     lines[branch_i + 1:branch_i + 1] = payload
+
+    helper = [
+        "",
+        f".method private hypermosEnsureGoogleVoiceInteractionLocked()V",
+        "    .locals 3",
+        "",
+        f"    iget-object v0, p0, {owner}->mRoleObserver:{role_desc}",
+        "    if-eqz v0, :hypermos_micts_done",
+        "",
+        f"    iget v1, p0, {owner}->mCurUser:I",
+        "    invoke-static {v1}, Landroid/os/UserHandle;->of(I)Landroid/os/UserHandle;",
+        "    move-result-object v1",
+        "",
+        '    const-string v2, "android.app.role.ASSISTANT"',
+        f"    invoke-virtual {{v0, v2, v1}}, {role_desc}->onRoleHoldersChanged(Ljava/lang/String;Landroid/os/UserHandle;)V",
+        "",
+        "    const/4 v0, 0x1",
+        f"    invoke-virtual {{p0, v0}}, {owner}->switchImplementationIfNeededLocked(Z)V",
+        "",
+        ":hypermos_micts_done",
+        "    return-void",
+        ".end method",
+    ]
+    lines.extend(helper)
+
     write(path, lines)
     return path
 
@@ -224,6 +266,8 @@ def verify(role_path: Path, show_path: Path) -> None:
         "singleton forced role view": "Ljava/util/Collections;->singletonList" in role,
         "heal marker": HEAL_MARKER in show,
         "framework retry": "switchImplementationIfNeededLocked(Z)V" in show,
+        "RoleObserver resync helper": "hypermosEnsureGoogleVoiceInteractionLocked()V" in show,
+        "Assistant role resync": "android.app.role.ASSISTANT" in show,
         "stock failure log retained": WARN_TEXT in show,
     }
     failed = [name for name, ok in checks.items() if not ok]
