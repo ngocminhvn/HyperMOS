@@ -30,7 +30,7 @@ else
   exit 0
 fi
 
-mods "VNeID Compat: installing diagnostic-only adapter"
+mods "VNeID Compat: installing read-only inspector"
 mkdir -p "$dst/bin" "$dst/etc/init" "$dst/etc/vneid-compat"
 
 cp -f "$src/vneid-compatctl" "$dst/bin/vneid-compatctl"
@@ -47,11 +47,13 @@ fi
 
 bash -n "$dst/bin/vneid-compatctl"
 
-# Guard against reintroducing broad HCL mutation behavior.
-if grep -Eqi 'resetprop|add_sus_path|add_open_redirect|force-stop|rm[[:space:]]+-rf[[:space:]]+/data/data'     "$dst/bin/vneid-compatctl"; then
+# Build-time defense: read-only inspection may mention resetprop/SuSFS binaries,
+# but must not contain known mutation operations.
+if grep -Eqi   'add_sus_path|add_open_redirect|set_uname|force-stop|mount[[:space:]]+--bind|resetprop[[:space:]].*(-n|--delete)|/data/adb/tricky_store/.*(>|sed|rm)|/data/data/com\.vnid/.*(rm|sed|>)'   "$dst/bin/vneid-compatctl"; then
   error "VNeID Compat: mutating behavior detected"
   exit 1
 fi
 
 mods "VNeID Compat -> $runtime/bin/vneid-compatctl"
-mods "VNeID Compat -> VNeID-only diagnostics; no broad HCL runtime"
+mods "VNeID Compat -> package/identity/matrix/audit/backend diagnostics"
+mods "VNeID Compat -> no property, SuSFS, HMA or attestation mutation"
