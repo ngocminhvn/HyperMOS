@@ -4,11 +4,10 @@
 Normal RoleObserver behavior stays stock.
 
 Only when showSessionFromSession() is called while mImpl == null:
-1. Retry the currently configured VoiceInteractionService once.
-2. If it is still missing, set a one-shot internal flag and invoke RoleObserver.
+1. Set a one-shot internal flag and invoke RoleObserver.
    Only that callback sees com.google.android.googlequicksearchbox as the
    ASSISTANT holder; all normal RoleObserver callbacks remain stock.
-3. Clear the flag immediately and retry the framework rebind.
+2. Clear the flag immediately and ask the framework to rebind.
 
 The actual Google VoiceInteractionService component is still resolved dynamically.
 No daemon, polling loop, permanent Google-role override, hardcoded
@@ -309,14 +308,7 @@ def patch_show_session(root: Path) -> tuple[Path, Path]:
         f".method private {helper_name}",
         "    .locals 3",
         "",
-        "    # First retry the currently configured VoiceInteractionService.",
-        "    const/4 v0, 0x1",
-        f"    invoke-virtual {{p0, v0}}, {owner}->switchImplementationIfNeededLocked(Z)V",
-        "",
-        f"    iget-object v0, p0, {owner}->mImpl:{field_desc}",
-        "    if-nez v0, :hypermos_micts_done",
-        "",
-        "    # Final fallback: force Google only for this RoleObserver callback.",
+        "    # One-shot Google fallback only when showSessionFromSession saw mImpl == null.",
         f"    iget-object v0, p0, {owner}->mRoleObserver:{role_desc}",
         "    if-eqz v0, :hypermos_micts_done",
         "",
@@ -353,7 +345,7 @@ def verify(show_path: Path, role_path: Path) -> None:
     show_checks = {
         "heal marker": HEAL_MARKER in show,
         "self-heal helper": "hypermosHealVoiceInteractionLocked()V" in show,
-        "framework retry": show.count("switchImplementationIfNeededLocked(Z)V") >= 2,
+        "framework retry": show.count("switchImplementationIfNeededLocked(Z)V") >= 1,
         "one-shot flag field": f".field private {FLAG_FIELD}:Z" in show,
         "flag enable": f"iput-boolean v1, p0, " in show and f"->{FLAG_FIELD}:Z" in show,
         "stock failure log retained": WARN_TEXT in show,
