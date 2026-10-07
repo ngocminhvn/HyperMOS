@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<permissions>
+    <!--
+      TNM is preinstalled as a privileged app. Keep this list intentionally
+      narrow: permissions below support device control/diagnostics and the
+      self-updater. UID-0 filesystem operations still go through the ROM's
+      root provider (SukiSU/KernelSU su) rather than pretending the app UID is
+      root.
+    -->
+    <privapp-permissions package="com.android.trinhngocminh">
+        <permission name="android.permission.WRITE_SECURE_SETTINGS" />
+        <permission name="android.permission.REBOOT" />
+        <permission name="android.permission.DUMP" />
+        <permission name="android.permission.READ_LOGS" />
+        <permission name="android.permission.PACKAGE_USAGE_STATS" />
+        <permission name="android.permission.INSTALL_PACKAGES" />
+        <permission name="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <permission name="android.permission.CHANGE_CONFIGURATION" />
+    </privapp-permissions>
+</permissions>
