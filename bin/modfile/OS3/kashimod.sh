@@ -52,7 +52,7 @@ apply_kashi_launcher() {
     local label="HyperOS Launcher"
     local repo="Mods-Center/HyperOS-Launcher"
     local extract_dir="$OS3_MOD_CACHE/extract-HyperOS-Launcher"
-    local main_apk overlay_apk home_perm
+    local main_apk overlay_apk home_perm source_app_dir
     local target_home target_perm target_overlay required
 
     find_unique_file() {
@@ -87,11 +87,14 @@ apply_kashi_launcher() {
         return 1
     }
 
-    # Keep China-ROM launcher layout stock-like:
-    # - replace only MiuiHome.apk
-    # - do not inject XiaomiEUExt when the stock China ROM does not provide it
-    # - do not externalize APK native libraries into product/priv-app/MiuiHome/lib
-    # The Kashi V7.1 package already carries its launcher native libs inside MiuiHome.apk.
+    # Keep XiaomiEUExt disabled for China ROM, but retain the original
+    # native-lib extraction behavior for the launcher mod.
+    source_app_dir=$(dirname "$main_apk")
+    modscenter_supplement_native_libs "$label" "$main_apk" "$source_app_dir" || {
+        rm -rf "$extract_dir"
+        return 1
+    }
+
     modscenter_remove_named_dirs "$OS3_IMAGES" \
         "MiuiHomeT" \
         "MiuiHome" \
@@ -107,6 +110,9 @@ apply_kashi_launcher() {
     mkdir -p "$target_home" "$target_perm" "$target_overlay"
 
     cp -f "$main_apk" "$target_home/MiuiHome.apk" || return 1
+    if [[ -d "$source_app_dir/lib" ]]; then
+        cp -a "$source_app_dir/lib" "$target_home/" || return 1
+    fi
 
     find "$OS3_IMAGES" -type f -name "MiuiHomeLauncherResOverlay.apk" -delete 2>/dev/null || true
     find "$OS3_IMAGES" -type f -name "privapp_whitelist_com.miui.home.xml" -delete 2>/dev/null || true
@@ -126,14 +132,13 @@ apply_kashi_launcher() {
         chmod 0644 "$required" 2>/dev/null || true
     done
 
-    if find "$target_home" -mindepth 1 -maxdepth 1 -type d -name lib -print -quit | grep -q .; then
-        error "$label: unexpected external lib directory created in MiuiHome"
-        rm -rf "$extract_dir"
-        return 1
+    if [[ -d "$target_home/lib" ]]; then
+        find "$target_home/lib" -type f -name '*.so' -exec chmod 0644 {} + 2>/dev/null || true
+        mods "$label: external native libs copied from the mod payload/APK"
     fi
 
-    mods "$label: MiuiHome + launcher overlay + MiuiHome whitelist -> Done ($MODSCENTER_TAG)"
-    mods "$label: XiaomiEUExt not injected; China stock layout preserved"
+    mods "$label: MiuiHome + native libs + launcher overlay + MiuiHome whitelist -> Done ($MODSCENTER_TAG)"
+    mods "$label: XiaomiEUExt not injected"
     rm -rf "$extract_dir"
 }
 apply_kashi_launcher || exit 1
