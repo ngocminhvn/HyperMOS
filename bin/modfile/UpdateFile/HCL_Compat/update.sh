@@ -1,47 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
-
-src_ctl="$work_dir/bin/modfile/UpdateFile/HCL_Compat/hcl-compatctl.sh"
+src="$work_dir/bin/modfile/UpdateFile/HCL_Compat"
 images="$work_dir/build/baserom/images"
-
-[[ -f "$src_ctl" ]] || { error "HCL Compat: hcl-compatctl.sh missing"; exit 1; }
-
-if [[ -d "$images/system_ext" ]]; then
-  bin_dst="$images/system_ext/bin"
-  runtime_ctl="/system_ext/bin/hcl-compatctl"
-elif [[ -d "$images/product" ]]; then
-  bin_dst="$images/product/bin"
-  runtime_ctl="/product/bin/hcl-compatctl"
-elif [[ -d "$images/system/system" ]]; then
-  bin_dst="$images/system/system/bin"
-  runtime_ctl="/system/bin/hcl-compatctl"
-else
-  error "HCL Compat: no suitable partition found"
-  exit 1
-fi
-
-mods "HCL Compat read-only diagnostics"
-mkdir -p "$bin_dst"
-cp -f "$src_ctl" "$bin_dst/hcl-compatctl"
-chmod 0755 "$bin_dst/hcl-compatctl"
-
-[[ -x "$bin_dst/hcl-compatctl" ]] || {
-  error "HCL Compat: installed controller is not executable"
-  exit 1
-}
-
-# Safety guard: this ROM integration must remain diagnostic-only.
-# Descriptive text such as "resetprop_mutation=false" is allowed; executable
-# mutation commands are not.
-for forbidden in   '(^|[[:space:]])resetprop[[:space:]]'   '(^|[[:space:]])setprop[[:space:]]'   '(^|[[:space:]])sed[[:space:]]+-i[[:space:]]'   '(^|[[:space:]])set_uname[[:space:]]'   '(^|[[:space:]])add_sus_path[[:space:]]'   '(^|[[:space:]])add_open_redirect[[:space:]]'   '/data/adb/tricky_store/'   '/data/adb/modules/'   'target\.txt'   'app_keybox\.map'; do
-  if grep -Eqi "$forbidden" "$bin_dst/hcl-compatctl"; then
-    error "HCL Compat: forbidden mutating capability detected: $forbidden"
-    exit 1
-  fi
+# SukiSU/KernelSU use the su domain. Magisk builds may explicitly select magisk.
+# No root-manager domain is created and SELinux is never relaxed by this port.
+domain="${HCL_SELINUX_DOMAIN:-u:r:su:s0}"
+case "$domain" in u:r:su:s0|u:r:magisk:s0) ;; *) error 'HCL: unsupported root domain'; exit 1 ;; esac
+for file in hcl-compatctl hcl-diagnostics hcl-compat.rc default.conf LICENSE.HCL; do
+    [[ -s "$src/$file" ]] || { error "HCL: missing $file"; exit 1; }
 done
-
-mods "HCL Compat -> $runtime_ctl"
-mods "HCL Compat -> Done"
+if [[ -d "$images/system_ext" ]]; then
+    dst="$images/system_ext"; runtime=/system_ext
+elif [[ -d "$images/product" ]]; then
+    dst="$images/product"; runtime=/product
+elif [[ -d "$images/system/system" ]]; then
+    dst="$images/system/system"; runtime=/system
+elif [[ -d "$images/system" ]]; then
+    dst="$images/system"; runtime=/system
+else
+    warn 'HCL: no suitable partition; skipping optional integration'
+    exit 0
+fi
+mods 'HCL compatibility: one-shot runtime, allowlisted identity, optional SuSFS'
+mkdir -p "$dst/bin" "$dst/etc/init" "$dst/etc/hcl-compat"
+sed -e "s|@HCL_CTL@|$runtime/bin/hcl-compatctl|g" \
+    -e "s|@HCL_DEFAULTS@|$runtime/etc/hcl-compat/default.conf|g" \
+    "$src/hcl-compatctl" > "$dst/bin/hcl-compatctl"
+cp "$src/hcl-diagnostics" "$dst/bin/hcl-diagnostics"
+cp "$src/default.conf" "$dst/etc/hcl-compat/default.conf"
+cp "$src/LICENSE.HCL" "$dst/etc/hcl-compat/LICENSE.HCL"
+sed -e "s|@HCL_CTL@|$runtime/bin/hcl-compatctl|g" \
+    -e "s|@HCL_DOMAIN@|$domain|g" \
+    "$src/hcl-compat.rc" > "$dst/etc/init/hcl-compat.rc"
+chmod 0755 "$dst/bin/hcl-compatctl"
+chmod 0644 "$dst/bin/hcl-diagnostics" "$dst/etc/hcl-compat/default.conf" "$dst/etc/init/hcl-compat.rc"
+chmod 0644 "$dst/etc/hcl-compat/LICENSE.HCL"
+# No other *.sh lives here: insupdate.sh would execute it on the build host.
+if grep -Eq '@HCL_[A-Z_]+@' "$dst/bin/hcl-compatctl" "$dst/etc/init/hcl-compat.rc"; then
+    error 'HCL: unresolved installation placeholder'; exit 1
+fi
+bash -n "$dst/bin/hcl-compatctl" "$dst/bin/hcl-diagnostics"
+mods "HCL -> $runtime/bin/hcl-compatctl; root domain $domain"
+mods 'HCL -> boot runtime needs installed root backend; missing backend fails open'
