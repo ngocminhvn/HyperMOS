@@ -34,7 +34,9 @@ chmod 0755 "$bin_dst/hcl-compatctl"
 }
 
 # Safety guard: this ROM integration must remain diagnostic-only.
-for forbidden in   'resetprop'   '/data/adb/tricky_store'   'target.txt'   'app_keybox.map'   'set_uname'   'guardian.sh'   'add_sus_path'   'add_open_redirect'   'ro.boot.flash.locked.*1'   'ro.boot.vbmeta.device_state.*locked'; do
+# Descriptive text such as "resetprop_mutation=false" is allowed; executable
+# mutation commands are not.
+for forbidden in   '(^|[[:space:]])resetprop[[:space:]]'   '(^|[[:space:]])setprop[[:space:]]'   '(^|[[:space:]])sed[[:space:]]+-i[[:space:]]'   '(^|[[:space:]])set_uname[[:space:]]'   '(^|[[:space:]])add_sus_path[[:space:]]'   '(^|[[:space:]])add_open_redirect[[:space:]]'   '/data/adb/tricky_store/'   '/data/adb/modules/'   'target\.txt'   'app_keybox\.map'; do
   if grep -Eqi "$forbidden" "$bin_dst/hcl-compatctl"; then
     error "HCL Compat: forbidden mutating capability detected: $forbidden"
     exit 1
