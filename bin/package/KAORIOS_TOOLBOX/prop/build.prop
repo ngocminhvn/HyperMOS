@@ -1,6 +1,0 @@
-# HyperMOS FakeLock: lock state only; preserve stock identity/service properties.
-ro.boot.verifiedbootstate=green
-ro.boot.flash.locked=1
-ro.boot.vbmeta.device_state=locked
-ro.boot.veritymode=enforcing
-ro.secureboot.lockstate=locked
