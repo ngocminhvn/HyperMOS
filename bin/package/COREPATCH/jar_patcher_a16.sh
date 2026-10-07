@@ -1061,6 +1061,20 @@ patch_services() {
     apply_services_disable_secure_flag "$decompile_dir"
   fi
 
+  # HyperMOS MiCTS: deep, event-driven Google Assistant self-heal.
+  # Always apply on Android 16. No daemon/polling and no hardcoded Google VIS class.
+  local micts_self_heal="$SCRIPT_DIR/patch-micts-assistant-a16.py"
+  if [ ! -f "$micts_self_heal" ]; then
+    err "MiCTS self-heal patcher missing: $micts_self_heal"
+    return 1
+  fi
+  log "Applying MiCTS/Google Assistant services.jar self-heal..."
+  if ! python3 "$micts_self_heal" "$decompile_dir"; then
+    err "FAST-FAIL: MiCTS services.jar self-heal patch failed"
+    return 1
+  fi
+  log "MiCTS/Google Assistant services.jar self-heal applied"
+
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
