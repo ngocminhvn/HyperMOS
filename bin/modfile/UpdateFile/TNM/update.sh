@@ -75,7 +75,7 @@ tnm_tmp="$(mktemp -d)"
 cleanup_tnm() { rm -rf "$tnm_tmp"; }
 trap cleanup_tnm EXIT
 
-tnm_release_base="https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-latest"
+tnm_release_base="https://ngocminhvn.github.io/app"
 tnm_update_json="$tnm_tmp/update.json"
 tnm_apk="$tnm_tmp/TNM.apk"
 
