@@ -90,7 +90,7 @@ jobs:
             aria2 jq rclone sshpass lz4 python-is-python3 wget python3 xz-utils zlib1g-dev \
             gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip \
             erofs-utils unzip p7zip-full 7zip 7zip-standalone zipalign zstd bc \
-            android-sdk-libsparse-utils xmlstarlet >>build_action.log 2>&1; then
+            android-sdk-libsparse-utils xmlstarlet secilc >>build_action.log 2>&1; then
             echo "[ERROR] - Package installation failed"
             tail -n 120 build_action.log
             exit 1
