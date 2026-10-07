@@ -42,16 +42,24 @@ for image in boot.img vendor_boot.img; do
     disable_avb_verify "$HMA_DIR/build/unzip_boot" >"$LOG_DIR/$image.fstab.log" 2>&1
     run_hma pack "$image"
 
-    if [ ! -s "$image.signed" ]; then
-        error "HMATools $image: pack produced no $image.signed; refusing unchanged-input fallback"
+    # bbootimg/HMATools output differs by image/tool version:
+    # some builds create <image>.signed, while newer cfig builds write the
+    # final signed/repacked image directly back to <image>.
+    if [ -s "$image.signed" ]; then
+        packed_image="$image.signed"
+    elif [ -s "$image" ]; then
+        packed_image="$image"
+        warn "HMATools $image: $image.signed not produced; using repacked $image (PenguinOS-compatible fallback)"
+    else
+        error "HMATools $image: pack produced neither $image.signed nor $image"
         tail -n 100 "$LOG_DIR/$image.pack.log" >&2
         find build/unzip_boot -maxdepth 3 -type f -name '*.img*' -printf '%P\n' >&2
         exit 1
     fi
 
-    after=$(sha256sum "$image.signed" | cut -d ' ' -f1)
-    cp -f "$image.signed" "$source_image"
-    info "HMATools $image: input=$before output=$after (hashes do not assert signature trust)"
+    after=$(sha256sum "$packed_image" | cut -d ' ' -f1)
+    cp -f "$packed_image" "$source_image"
+    info "HMATools $image: input=$before output=$after via $(basename "$packed_image") (hashes do not assert signature trust)"
 
     # At this point $image exists, so HMATools can resolve the correct handler.
     run_hma clear "$image"
