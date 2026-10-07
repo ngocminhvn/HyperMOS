@@ -1,11 +1,13 @@
 # HyperMOS MiCTS assistant bootstrap.
-# Run once after Android finishes booting. The helper is conditional and
-# preserves any explicitly selected non-Google assistant.
+# Run once after Android finishes booting. Use the shell SELinux domain because
+# Android's RoleManager shell command is the same path verified over ADB.
+# The helper preserves any explicitly selected non-Google assistant.
 
-service hypermos-micts-assistant /product/bin/micts-assistantctl
+service hypermos-micts-assistant /system/bin/sh /product/bin/micts-assistantctl
     class late_start
-    user root
-    group root shell
+    user shell
+    group shell
+    seclabel u:r:shell:s0
     oneshot
     disabled
 
