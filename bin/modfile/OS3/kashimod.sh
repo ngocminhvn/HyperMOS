@@ -158,19 +158,17 @@ apply_kashi_launcher() {
         chmod 0644 "$required" 2>/dev/null || true
     done
 
-    for abi in arm arm64; do
-        if ! find "$target_home/lib/$abi" -maxdepth 1 -type f -name '*.so' -print -quit 2>/dev/null | grep -q .; then
-            error "$label: no native libraries installed for $abi"
-            rm -rf "$extract_dir"
-            return 1
-        fi
-        find "$target_home/lib/$abi" -maxdepth 1 -type f -name '*.so' -exec chmod 0644 {} + 2>/dev/null || true
-    done
+    if [[ -d "$target_home/lib" ]]; then
+        find "$target_home/lib" -type f -name '*.so' -exec chmod 0644 {} + 2>/dev/null || true
+        mods "$label: external native libs copied from the mod payload/APK"
+    else
+        mods "$label: no external native-lib directory required by this launcher payload"
+    fi
 
-    mods "$label: MiuiHome + ARM/ARM64 libs + XiaomiEUExt + icon overlay + whitelists -> Done ($MODSCENTER_TAG)"
+    mods "$label: MiuiHome + XiaomiEUExt + icon overlay + whitelists -> Done ($MODSCENTER_TAG)"
     rm -rf "$extract_dir"
 }
 
-mods "HyperOS Launcher: skipped -> keep stock China MiuiHome (VNeID A/B test)"
+apply_kashi_launcher || exit 1
 
 mods "Kashi mods -> Done"
