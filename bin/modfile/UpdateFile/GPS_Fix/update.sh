@@ -31,14 +31,14 @@ fi
 mods "GPS Fix"
 
 sed -i \
-  -e 's|^NTP_SERVER=.*$|NTP_SERVER=time1.google.com|' \
-  -e 's|^NTP_SERVER_2=.*$|NTP_SERVER_2=time2.google.com|' \
-  -e 's|^NTP_SERVER_3=.*$|NTP_SERVER_3=time3.google.com|' \
+  -e 's|^NTP_SERVER=.*$|NTP_SERVER=time.cloudflare.com|' \
+  -e 's|^NTP_SERVER_2=.*$|NTP_SERVER_2=0.asia.pool.ntp.org|' \
+  -e 's|^NTP_SERVER_3=.*$|NTP_SERVER_3=0.vn.pool.ntp.org|' \
   "$GPS_CONF"
 
-if ! grep -qx 'NTP_SERVER=time1.google.com' "$GPS_CONF" || \
-   ! grep -qx 'NTP_SERVER_2=time2.google.com' "$GPS_CONF" || \
-   ! grep -qx 'NTP_SERVER_3=time3.google.com' "$GPS_CONF"; then
+if ! grep -qx 'NTP_SERVER=time.cloudflare.com' "$GPS_CONF" || \
+   ! grep -qx 'NTP_SERVER_2=0.asia.pool.ntp.org' "$GPS_CONF" || \
+   ! grep -qx 'NTP_SERVER_3=0.vn.pool.ntp.org' "$GPS_CONF"; then
   error "GPS Fix: verification failed"
   exit 1
 fi
