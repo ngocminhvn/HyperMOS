@@ -1,0 +1,13 @@
+# HyperMOS MiCTS assistant bootstrap.
+# Run once after Android finishes booting. The helper is conditional and
+# preserves any explicitly selected non-Google assistant.
+
+service hypermos-micts-assistant /product/bin/micts-assistantctl
+    class late_start
+    user root
+    group root shell
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start hypermos-micts-assistant
