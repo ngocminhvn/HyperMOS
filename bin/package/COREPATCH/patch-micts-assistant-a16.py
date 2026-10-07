@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""HyperMOS Android 16 MiCTS/Google Assistant services.jar self-heal patch.
+"""HyperMOS Android 16 MiCTS VoiceInteraction self-heal patch.
 
-Two event-driven hooks:
-1. Force RoleObserver's resolved assistant package to Google, while still letting
-   framework dynamically resolve the actual VoiceInteractionService component.
-2. If showSessionFromSession() sees mImpl == null, resync RoleObserver inside
-   system_server, then ask the existing switchImplementationIfNeededLocked(true)
-   path to rebind once before continuing.
+Stock RoleObserver behavior is left untouched.
 
-No daemon, polling loop, hardcoded GsaVoiceInteractionService class, or direct
-SettingsProvider write is used.
+Only when showSessionFromSession() is called while mImpl == null:
+1. Ask the existing framework switchImplementationIfNeededLocked(true) path
+   to rebuild/rebind the current VoiceInteractionService once.
+2. If mImpl is still null, invoke the stock RoleObserver once for the current
+   ASSISTANT role and retry the framework rebind.
+
+No daemon, polling loop, forced Google role callback, hardcoded
+GsaVoiceInteractionService class, or direct SettingsProvider write is used.
 """
 
 from __future__ import annotations
@@ -18,8 +19,6 @@ import re
 import sys
 from pathlib import Path
 
-GOOGLE_PACKAGE = "com.google.android.googlequicksearchbox"
-ROLE_MARKER = "HyperMOS MiCTS: force Google assistant package"
 HEAL_MARKER = "HyperMOS MiCTS: one-shot VoiceInteraction self-heal"
 WARN_TEXT = "showSessionFromSession without running voice interaction service"
 
@@ -77,78 +76,22 @@ def unique_file(root: Path, predicate, description: str) -> Path:
     return matches[0]
 
 
-def patch_role_observer(root: Path) -> Path:
-    path = unique_file(
-        root,
-        lambda t: "getRoleHoldersAsUser" in t
-        and "onRoleHoldersChanged" in t
-        and "android.app.role.ASSISTANT" in t,
-        "RoleObserver",
-    )
-    lines = read(path)
-
-    if any(ROLE_MARKER in line for line in lines):
-        # Fail closed if marker exists but payload was damaged.
-        joined = "\n".join(lines)
-        if GOOGLE_PACKAGE not in joined or "Collections;->singletonList" not in joined:
-            raise PatchError(f"RoleObserver marker present but payload incomplete: {path}")
-        return path
-
-    call_indexes = [
-        i
-        for i, line in enumerate(lines)
-        if "Landroid/app/role/RoleManager;->getRoleHoldersAsUser(" in line
-        and ")Ljava/util/List;" in line
-    ]
-    if len(call_indexes) != 1:
-        raise PatchError(
-            f"RoleObserver getRoleHoldersAsUser: expected 1 call, found {len(call_indexes)} in {path}"
-        )
-
-    call_i = call_indexes[0]
-    start, end = method_bounds(lines, call_i)
-    if "onRoleHoldersChanged(" not in lines[start]:
-        raise PatchError(f"role-holder call is not inside onRoleHoldersChanged(): {path}")
-
-    move_i = None
-    reg = None
-    for i in range(call_i + 1, min(call_i + 6, end + 1)):
-        m = re.match(r"\s*move-result-object\s+([vp]\d+)\s*$", lines[i])
-        if m:
-            move_i = i
-            reg = m.group(1)
-            break
-        if lines[i].strip() and not lines[i].lstrip().startswith(("#", ".")):
-            break
-    if move_i is None or reg is None:
-        raise PatchError(f"RoleObserver move-result-object not found after role query: {path}")
-
-    indent = re.match(r"\s*", lines[move_i]).group(0)
-    payload = [
-        f"{indent}# {ROLE_MARKER}",
-        f'{indent}const-string {reg}, "{GOOGLE_PACKAGE}"',
-        f"{indent}invoke-static {{{reg}}}, Ljava/util/Collections;->singletonList(Ljava/lang/Object;)Ljava/util/List;",
-        f"{indent}move-result-object {reg}",
-    ]
-    lines[move_i + 1:move_i + 1] = payload
-    write(path, lines)
-    return path
-
-
 def patch_show_session(root: Path) -> Path:
     path = unique_file(
         root,
-        lambda t: WARN_TEXT in t and "showSessionFromSession(" in t,
+        lambda t: WARN_TEXT in t
+        and "showSessionFromSession(" in t
+        and "switchImplementationIfNeededLocked(Z)V" in t,
         "VoiceInteraction showSessionFromSession",
     )
     lines = read(path)
 
-    helper_name = "hypermosEnsureGoogleVoiceInteractionLocked()V"
+    helper_name = "hypermosHealVoiceInteractionLocked()V"
     if any(HEAL_MARKER in line for line in lines):
-        joined = "\\n".join(lines)
+        joined = "\n".join(lines)
         required = (
-            "switchImplementationIfNeededLocked(Z)V",
             helper_name,
+            "switchImplementationIfNeededLocked(Z)V",
             "mRoleObserver:",
             "android.app.role.ASSISTANT",
         )
@@ -161,45 +104,44 @@ def patch_show_session(root: Path) -> Path:
         raise PatchError(
             f"showSession warning: expected 1 occurrence, found {len(warn_indexes)} in {path}"
         )
+
     warn_i = warn_indexes[0]
     start, end = method_bounds(lines, warn_i)
     if "showSessionFromSession(" not in lines[start]:
         raise PatchError(f"warning is not inside showSessionFromSession(): {path}")
 
     owner = class_descriptor(lines, path)
-    joined = "\\n".join(lines)
-    if "switchImplementationIfNeededLocked(Z)V" not in joined:
-        raise PatchError(
-            f"switchImplementationIfNeededLocked(Z)V not found in same class; refusing unsafe patch: {path}"
-        )
-    if f"{owner}->mCurUser:I" not in joined and " mCurUser:I" not in joined:
-        raise PatchError(f"mCurUser field not found in VoiceInteraction stub: {path}")
+    joined = "\n".join(lines)
 
     role_desc = None
     for line in lines:
-        m = re.search(r"\\bmRoleObserver:(L[^;]+;)", line)
+        m = re.search(r"\bmRoleObserver:(L[^;]+;)", line)
         if m:
             role_desc = m.group(1)
             break
     if role_desc is None:
         raise PatchError(f"mRoleObserver field descriptor not found: {path}")
 
+    if f"{owner}->mCurUser:I" not in joined and "->mCurUser:I" not in joined:
+        raise PatchError(f"mCurUser field not found: {path}")
+
     candidate = None
     field_desc = None
     for i in range(start + 1, warn_i):
         m = re.match(
-            r"\\s*iget-object\\s+([vp]\\d+),\\s*p0,\\s*"
+            r"\s*iget-object\s+([vp]\d+),\s*p0,\s*"
             + re.escape(owner)
-            + r"->mImpl:(L[^;]+;)\\s*$",
+            + r"->mImpl:(L[^;]+;)\s*$",
             lines[i],
         )
         if not m:
             continue
+
         reg = m.group(1)
         desc = m.group(2)
-        for j in range(i + 1, min(i + 5, warn_i)):
+        for j in range(i + 1, min(i + 6, warn_i)):
             b = re.match(
-                rf"\\s*if-nez\\s+{re.escape(reg)},\\s*(:[A-Za-z0-9_]+)\\s*$",
+                rf"\s*if-nez\s+{re.escape(reg)},\s*(:[A-Za-z0-9_]+)\s*$",
                 lines[j],
             )
             if b:
@@ -216,12 +158,12 @@ def patch_show_session(root: Path) -> Path:
 
     branch_i, reg, continue_label = candidate
     if not any(line.strip() == continue_label for line in lines[branch_i + 1:end + 1]):
-        raise PatchError(f"non-null continuation label {continue_label} missing: {path}")
+        raise PatchError(f"continuation label {continue_label} missing: {path}")
 
-    indent = re.match(r"\\s*", lines[branch_i]).group(0)
+    indent = re.match(r"\s*", lines[branch_i]).group(0)
     payload = [
         f"{indent}# {HEAL_MARKER}",
-        f"{indent}invoke-direct {{p0}}, {owner}->hypermosEnsureGoogleVoiceInteractionLocked()V",
+        f"{indent}invoke-direct {{p0}}, {owner}->{helper_name}",
         f"{indent}iget-object {reg}, p0, {owner}->mImpl:{field_desc}",
         f"{indent}if-nez {reg}, {continue_label}",
     ]
@@ -229,9 +171,17 @@ def patch_show_session(root: Path) -> Path:
 
     helper = [
         "",
-        f".method private hypermosEnsureGoogleVoiceInteractionLocked()V",
+        f".method private {helper_name}",
         "    .locals 3",
         "",
+        "    # First retry the current configured VoiceInteractionService.",
+        "    const/4 v0, 0x1",
+        f"    invoke-virtual {{p0, v0}}, {owner}->switchImplementationIfNeededLocked(Z)V",
+        "",
+        f"    iget-object v0, p0, {owner}->mImpl:{field_desc}",
+        "    if-nez v0, :hypermos_micts_done",
+        "",
+        "    # Still missing: resync the stock ASSISTANT role once, then retry.",
         f"    iget-object v0, p0, {owner}->mRoleObserver:{role_desc}",
         "    if-eqz v0, :hypermos_micts_done",
         "",
@@ -255,20 +205,15 @@ def patch_show_session(root: Path) -> Path:
     return path
 
 
-def verify(role_path: Path, show_path: Path) -> None:
-    role = role_path.read_text(encoding="utf-8")
+def verify(show_path: Path) -> None:
     show = show_path.read_text(encoding="utf-8")
-
     checks = {
-        "role marker": ROLE_MARKER in role,
-        "Google package": GOOGLE_PACKAGE in role,
-        "dynamic VIS resolution": "VoiceInteractionService" in role,
-        "singleton forced role view": "Ljava/util/Collections;->singletonList" in role,
         "heal marker": HEAL_MARKER in show,
-        "framework retry": "switchImplementationIfNeededLocked(Z)V" in show,
-        "RoleObserver resync helper": "hypermosEnsureGoogleVoiceInteractionLocked()V" in show,
-        "Assistant role resync": "android.app.role.ASSISTANT" in show,
+        "self-heal helper": "hypermosHealVoiceInteractionLocked()V" in show,
+        "framework retry": show.count("switchImplementationIfNeededLocked(Z)V") >= 2,
+        "stock role resync fallback": "android.app.role.ASSISTANT" in show,
         "stock failure log retained": WARN_TEXT in show,
+        "no forced Google package": "HyperMOS MiCTS: force Google assistant package" not in show,
     }
     failed = [name for name, ok in checks.items() if not ok]
     if failed:
@@ -286,14 +231,13 @@ def main() -> int:
         return 2
 
     try:
-        role_path = patch_role_observer(root)
         show_path = patch_show_session(root)
-        verify(role_path, show_path)
+        verify(show_path)
     except PatchError as exc:
         print(f"[MICTS-SELF-HEAL][ERROR] {exc}", file=sys.stderr)
         return 1
 
-    print(f"[MICTS-SELF-HEAL] RoleObserver: {role_path}")
+    print("[MICTS-SELF-HEAL] stock RoleObserver left untouched")
     print(f"[MICTS-SELF-HEAL] showSessionFromSession: {show_path}")
     print("[MICTS-SELF-HEAL] verification OK")
     return 0
