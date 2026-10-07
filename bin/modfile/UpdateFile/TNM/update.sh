@@ -77,6 +77,7 @@ trap cleanup_tnm EXIT
 
 tnm_release_base="https://ngocminhvn.github.io/app"
 tnm_update_json="$tnm_tmp/update.json"
+tnm_payload="$tnm_tmp/TNM.update"
 tnm_apk="$tnm_tmp/TNM.apk"
 
 mods "TNM privileged app -> Downloading latest signed APK"
@@ -99,26 +100,38 @@ path, base = sys.argv[1], sys.argv[2]
 with open(path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
-url = str(data.get("apkUrl", "")).strip()
-sha = str(data.get("sha256", "")).strip().lower()
-if url != base + "/TNM.apk":
-    raise SystemExit("unexpected TNM apkUrl")
+apk_url = str(data.get("apkUrl", "")).strip()
+url = str(data.get("packageUrl", "")).strip() or apk_url
+compression = str(data.get("compression", "")).strip().lower() or "none"
+legacy_sha = str(data.get("sha256", "")).strip().lower()
+sha = str(data.get("packageSha256", "")).strip().lower() or legacy_sha
+
+allowed = {
+    base + "/TNM.apk": "none",
+    base + "/TNM.apk.xz": "xz",
+}
+if url not in allowed:
+    raise SystemExit("unexpected TNM packageUrl")
+if compression != allowed[url]:
+    raise SystemExit("TNM compression/url mismatch")
 if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
-    raise SystemExit("invalid TNM sha256")
+    raise SystemExit("invalid TNM package sha256")
 
 print(url)
 print(sha)
+print(compression)
 PY
 )
 
-tnm_apk_url="${tnm_meta[0]:-}"
+tnm_package_url="${tnm_meta[0]:-}"
 tnm_expected_sha="${tnm_meta[1]:-}"
-[[ -n "$tnm_apk_url" && -n "$tnm_expected_sha" ]] || {
+tnm_compression="${tnm_meta[2]:-}"
+[[ -n "$tnm_package_url" && -n "$tnm_expected_sha" && -n "$tnm_compression" ]] || {
   error "TNM App: invalid update metadata"
   exit 1
 }
 
-python3 - "$tnm_apk_url" "$tnm_apk" <<'PY'
+python3 - "$tnm_package_url" "$tnm_payload" <<'PY'
 import sys
 import urllib.request
 
@@ -132,11 +145,28 @@ with urllib.request.urlopen(req, timeout=180) as src, open(out, "wb") as dst:
         dst.write(chunk)
 PY
 
-tnm_actual_sha="$(sha256sum "$tnm_apk" | awk '{print $1}')"
+tnm_actual_sha="$(sha256sum "$tnm_payload" | awk '{print $1}')"
 [[ "$tnm_actual_sha" == "$tnm_expected_sha" ]] || {
-  error "TNM App: SHA-256 mismatch"
+  error "TNM App: package SHA-256 mismatch"
   exit 1
 }
+
+case "$tnm_compression" in
+  xz)
+    command -v xz >/dev/null 2>&1 || {
+      error "TNM App: xz is required to unpack update"
+      exit 1
+    }
+    xz -dc "$tnm_payload" > "$tnm_apk"
+    ;;
+  none)
+    cp -f "$tnm_payload" "$tnm_apk"
+    ;;
+  *)
+    error "TNM App: unsupported compression '$tnm_compression'"
+    exit 1
+    ;;
+esac
 
 tnm_pkg="$(aapt dump badging "$tnm_apk" 2>/dev/null | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n1)"
 [[ "$tnm_pkg" == "com.android.trinhngocminh" ]] || {
