@@ -5,7 +5,7 @@ source "$work_dir/bin/modfile/OS3/_common.sh"
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
 [[ "$rom_os" == "OS3" ]] || exit 0
 
-mods "Kashi mods: App Vault + Control Center + Theme Manager + Security Center"
+mods "Kashi mods: App Vault + Control Center + Theme Manager + Launcher"
 
 modscenter_apply_native_module \
     "HyperOS App Vault" \
@@ -46,17 +46,7 @@ modscenter_apply_native_module \
     "MIUIThemeManagerPad" \
     "ThemeManager" || exit 1
 
-modscenter_apply_native_module \
-    "HyperOS Security Center" \
-    "Mods-Center/HyperOS-Security-Center" \
-    "com.miui.securitycenter" \
-    "*SecurityCenter*.apk" \
-    "product/priv-app/MIUISecurityCenter" \
-    "MIUISecurityCenter" \
-    "MIUISecurityCenterT" \
-    "MIUISecurityCenterGlobal" \
-    "MIUISecurityCenterPad" \
-    "SecurityCenter" || exit 1
+mods "HyperOS Security Center: skipped -> keep stock com.miui.securitycenter"
 
 apply_kashi_launcher() {
     local label="HyperOS Launcher"
