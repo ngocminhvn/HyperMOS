@@ -1,0 +1,13 @@
+# HyperMOS VNeID diagnostics: optional one-shot snapshot after boot.
+# Uses the existing KernelSU/SukiSU root domain; failure to start is non-fatal.
+service vneid_compat /system/bin/sh @VNEID_CTL@ boot
+    class late_start
+    user root
+    group root
+    seclabel @VNEID_DOMAIN@
+    disabled
+    oneshot
+    timeout_period 15
+
+on property:sys.boot_completed=1
+    start vneid_compat
