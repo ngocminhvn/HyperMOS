@@ -1,44 +1,59 @@
 # HyperMOS VNeID Compatibility Diagnostics
 
-This is a deliberately small ROM-native adapter derived from the diagnostic
-ideas of HCL-Module. It keeps only VNeID-focused environment inspection.
+A small ROM-native, **read-only** inspector focused on `com.vnid`.
 
-## What it keeps
+It ports the useful diagnostic parts of the previous HCL integration without
+bringing back property spoofing, attestation manipulation, root hiding or
+background monitoring.
 
-- Detect whether `com.vnid` is installed and report package/version details.
-- Report the real device/model/build/fingerprint values currently exposed by Android.
-- Report the real boot / Verified Boot properties currently exposed by Android.
-- Detect whether Kaorios, HMA and a usable SuSFS userspace/kernel interface are present.
-- Save one diagnostic snapshot after boot when the configured root SELinux domain exists.
-- Provide a small CLI.
+## Included
 
-## What was removed
-
-The previous broad HCL compatibility runtime is removed. This adapter does not
-normalize Android properties or fingerprints, generate/redirect build.prop,
-hide ROM components, change SuSFS rules, change HMA configuration, manage
-attestation targets, alter boot/security state, clean application security
-cache, run Guardian, or spoof uname.
+- Detect `com.vnid`, package path, version and UID.
+- Detect HyperOS/MIUI/AOSP-family environment.
+- Report Device / Model / Brand / Manufacturer / Android / patch level / kernel.
+- Cross-partition identity + fingerprint matrix for system, system_ext, product,
+  vendor, odm, bootimage, vendor_dlkm and odm_dlkm.
+- Fingerprint consistency audit against the current vendor/top-level fingerprint.
+- Scan for generic/custom-ROM property markers such as mainline, missi, qssi,
+  xiaomi.eu, HyperTN, EliteROM, MIPA and similar markers.
+- Inventory known custom-ROM components and addon.d paths **without hiding them**.
+- Report the real boot / Verified Boot properties exposed by Android.
+- Detect root backend, resetprop availability, Kaorios, external HMA and SuSFS
+  userspace/kernel capabilities.
+- Show init service / SELinux state.
+- Save a root-only boot snapshot under `/data/adb/vneid_compat/status`.
+- Fail-open: the optional one-shot service does not block Android boot.
 
 ## Commands
 
 ```sh
 su -c 'vneid-compatctl status'
-su -c 'vneid-compatctl all'
+su -c 'vneid-compatctl audit'
+su -c 'vneid-compatctl matrix'
+su -c 'vneid-compatctl security'
+su -c 'vneid-compatctl backends'
+su -c 'vneid-compatctl components'
+su -c 'vneid-compatctl markers'
+su -c 'vneid-compatctl service'
+su -c 'vneid-compatctl report'
 su -c 'vneid-compatctl snapshot'
 su -c 'vneid-compatctl features'
 ```
 
-On the default HyperMOS layout the binary is normally installed at:
+On the usual HyperMOS layout the command is installed at:
 
 ```
 /system_ext/bin/vneid-compatctl
 ```
 
-The optional boot snapshot is written to:
+## Deliberately excluded
 
-```
-/data/adb/vneid_compat/status
-```
+This adapter does **not** mutate Android properties or fingerprints, redirect or
+hide paths with SuSFS, alter HMA, edit attestation/keystore target policies,
+change bootloader or Verified Boot state, clean VNeID security data, run
+Guardian, or spoof kernel uname.
 
-No separate HCL module is needed.
+The audit output is diagnostic only. A warning does not mean VNeID will reject
+the device, and a clean report does not guarantee acceptance.
+
+No separate HCL module is required.
