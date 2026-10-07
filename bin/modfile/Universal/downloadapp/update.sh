@@ -20,6 +20,8 @@ MICTS_URL="https://github.com/parallelcc/MiCTS/releases/download/v${MICTS_VERSIO
 MICTS_SHA256="4680d24112fbf0d7ff5bbc055b760f2d67173d7d5879ec5411540d5caa7a97b8"
 MICTS_CACHE="$CACHE_DIR/$MICTS_NAME"
 MICTS_SELECTED=""
+MICTS_ASSISTANT_RC="$SRC_DIR/micts-assistant.rc"
+MICTS_ASSISTANT_CTL="$SRC_DIR/micts-assistantctl.sh"
 
 [[ -d "$SRC_DIR" ]] || {
   error "downloadapp: source directory missing: $SRC_DIR"
@@ -87,6 +89,18 @@ if [[ "$androidVER" == "16" ]]; then
     error "downloadapp: MiCTS selected payload missing or empty"
     exit 1
   }
+  [[ -f "$MICTS_ASSISTANT_RC" ]] || {
+    error "downloadapp: MiCTS assistant init rc missing"
+    exit 1
+  }
+  [[ -f "$MICTS_ASSISTANT_CTL" ]] || {
+    error "downloadapp: MiCTS assistant controller missing"
+    exit 1
+  }
+  bash -n "$MICTS_ASSISTANT_CTL" || {
+    error "downloadapp: MiCTS assistant controller syntax invalid"
+    exit 1
+  }
 else
   info "downloadapp: Android $androidVER -> skip automatic MiCTS preload"
 fi
@@ -138,5 +152,35 @@ for apk in "${apks[@]}"; do
 
   mods "downloadapp: $file -> product/data-app/$safe_name/"
 done
+
+if [[ "$androidVER" == "16" ]]; then
+  product_root="$work_dir/build/baserom/images/product"
+  init_dir="$product_root/etc/init"
+  bin_dir="$product_root/bin"
+
+  [[ -d "$product_root" ]] || {
+    error "downloadapp: product partition missing for MiCTS assistant bootstrap"
+    exit 1
+  }
+
+  install -d "$init_dir" "$bin_dir"
+  install -m 0644 "$MICTS_ASSISTANT_RC" "$init_dir/micts-assistant.rc"
+  install -m 0755 "$MICTS_ASSISTANT_CTL" "$bin_dir/micts-assistantctl"
+
+  grep -qF 'on property:sys.boot_completed=1' "$init_dir/micts-assistant.rc" || {
+    error "downloadapp: MiCTS assistant boot trigger verification failed"
+    exit 1
+  }
+  grep -qF 'cmd role add-role-holder "$ROLE" "$PKG"' "$bin_dir/micts-assistantctl" || {
+    error "downloadapp: MiCTS assistant role command verification failed"
+    exit 1
+  }
+  grep -qF 'Another assistant is selected; preserve:' "$bin_dir/micts-assistantctl" || {
+    error "downloadapp: MiCTS assistant preserve-user-choice guard missing"
+    exit 1
+  }
+
+  mods "downloadapp: MiCTS assistant bootstrap -> product/etc/init + product/bin"
+fi
 
 mods "downloadapp -> Done"
