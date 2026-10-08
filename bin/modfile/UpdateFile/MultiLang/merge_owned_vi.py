@@ -12,6 +12,7 @@ import csv
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -82,10 +83,14 @@ def english_stock_rows(path: Path, apk_name: str) -> dict[str, str]:
 def append_only(existing: Path, additions: dict[str, str], english: dict[str, str]) -> list[str]:
     original = existing.read_text(encoding="utf-8")
     parsed = ET.fromstring(original)
-    keys = {node.get("name") for node in parsed if node.tag == "string"}
+    keys = {node.get("name"): "".join(node.itertext()) for node in parsed if node.tag == "string"}
     new = []
+    added_names = []
     for name, translated in sorted(additions.items()):
         if name in keys:
+            if keys[name] == translated:
+                # Rerunnable workflow: already merged exactly as reviewed.
+                continue
             raise RuntimeError(f"Refusing to overwrite existing translation: {name}")
         if name not in english:
             raise RuntimeError(f"Not verified MISSING_VI in matching stock: {name}")
@@ -96,15 +101,16 @@ def append_only(existing: Path, additions: dict[str, str], english: dict[str, st
         if from_en != from_vi:
             raise RuntimeError(f"Format placeholders changed for {name}: {from_en} vs {from_vi}")
         new.append('    <string name="' + name + '">' + escape(translated) + '</string>')
+        added_names.append(name)
     if not new:
-        raise RuntimeError("No new translations to add")
+        return []
     pattern = re.compile(r"</resources>\s*$")
     if not pattern.search(original):
         raise RuntimeError("Existing values-vi/strings.xml lacks closing tag")
     edited = pattern.sub("\n" + "\n".join(new) + "\n</resources>\n", original, count=1)
     ET.fromstring(edited)
     existing.write_text(edited, encoding="utf-8")
-    return list(sorted(additions))
+    return added_names
 
 
 def run(a: argparse.Namespace) -> None:
@@ -128,11 +134,15 @@ def run(a: argparse.Namespace) -> None:
         if not xml.is_file():
             raise RuntimeError("Expected original Vietnamese overlay strings.xml")
         added = append_only(xml, additions, reviewed)
-        process(["java", "-Xmx3g", "-jar", str(a.apktool),
-                 "b", str(decoded), "-o", str(unsigned)], log)
-        process([a.zipalign, "-f", "4", str(unsigned), str(aligned)], log)
-        process(signer + ["sign", "--key", str(a.key), "--cert", str(a.cert),
-                          "--out", str(target), str(aligned)], log)
+        if not added:
+            # Preserve the exact installed APK bytes on an idempotent rerun.
+            shutil.copy2(a.original, target)
+        else:
+            process(["java", "-Xmx3g", "-jar", str(a.apktool),
+                     "b", str(decoded), "-o", str(unsigned)], log)
+            process([a.zipalign, "-f", "4", str(unsigned), str(aligned)], log)
+            process(signer + ["sign", "--key", str(a.key), "--cert", str(a.cert),
+                              "--out", str(target), str(aligned)], log)
         new_id = identity(a.aapt, target, log)
         new_cert = cert(signer, target, log)
         if new_id != original_id:
@@ -170,6 +180,8 @@ def self_test() -> None:
                           {"language_title": "Language & region"})
         assert got == ["language_title"]
         assert 'Bản cũ' in t.read_text(encoding="utf-8")
+        assert append_only(t, {"language_title": "Ngôn ngữ và khu vực"},
+                           {"language_title": "Language & region"}) == []
         try:
             append_only(t, {"language_title": "Tiếng Việt"}, {"language_title": "Language"})
         except RuntimeError as exc:
