@@ -113,6 +113,71 @@ def append_only(existing: Path, additions: dict[str, str], english: dict[str, st
     return added_names
 
 
+def add_public_string_symbols(public_xml: Path, keys: list[str]) -> int:
+    """Declare stable unique resource IDs for new locale-only string resources.
+
+    These RROs have apktool public.xml with a fixed type table. Without a
+    public symbol Android's resource compiler can silently drop new entries.
+    """
+    original = public_xml.read_text(encoding="utf-8")
+    root = ET.fromstring(original)
+    declared = {node.get("name"): node for node in root if node.tag == "public"}
+    used_ids = {int(node.get("id"), 16) for node in declared.values() if node.get("id")}
+    string_ids = [int(node.get("id"), 16) for node in declared.values()
+                  if node.get("type") == "string" and node.get("id")]
+    if not string_ids:
+        raise RuntimeError("No existing public string IDs to derive safe type/entry IDs")
+    prefix = max(string_ids) & 0xffff0000
+    candidate = max(string_ids) + 1
+    lines = []
+    for name in keys:
+        if name in declared:
+            if declared[name].get("type") != "string":
+                raise RuntimeError(f"Existing public symbol is not a string: {name}")
+            continue
+        while candidate in used_ids:
+            candidate += 1
+        if (candidate & 0xffff0000) != prefix:
+            raise RuntimeError("No safe room left for string resource IDs")
+        lines.append(f'    <public type="string" name="{name}" id="0x{candidate:08x}" />')
+        used_ids.add(candidate)
+        candidate += 1
+    if lines:
+        pattern = re.compile(r"</resources>\\s*$")
+        if not pattern.search(original):
+            raise RuntimeError("Malformed public.xml closing tag")
+        edited = pattern.sub("\\n" + "\\n".join(lines) + "\\n</resources>\\n", original, count=1)
+        ET.fromstring(edited)
+        public_xml.write_text(edited, encoding="utf-8")
+    return len(lines)
+
+
+def check_compiled_strings(apktool: Path, compiled_apk: Path,
+                           expected: dict[str, str], base: Path, log: Path) -> None:
+    """Fail closed if the final signed APK dropped any Vietnamese additions."""
+    decoded = base / "verified-final"
+    process(["java", "-Xmx3g", "-jar", str(apktool), "d", "-f", "-s",
+             str(compiled_apk), "-o", str(decoded)], log)
+    combined = {}
+    for folder in sorted((decoded / "res").glob("values-vi*")):
+        if not folder.is_dir():
+            continue
+        for filename in folder.glob("*.xml"):
+            if filename.name == "public.xml":
+                continue
+            for node in ET.parse(filename).getroot():
+                if node.tag == "string" and node.get("name"):
+                    combined[node.get("name")] = "".join(node.itertext())
+    absent = sorted(set(expected) - set(combined))
+    mismatched = sorted(k for k in expected
+                        if k in combined and combined[k] != expected[k])
+    if absent or mismatched:
+        raise RuntimeError(
+            f"Signed RRO dropped translated resources: absent={absent[:12]}, "
+            f"changed={mismatched[:12]} (absent total={len(absent)})"
+        )
+
+
 def run(a: argparse.Namespace) -> None:
     a.output.mkdir(parents=True, exist_ok=True)
     log = a.output / "patch.log"
@@ -134,6 +199,7 @@ def run(a: argparse.Namespace) -> None:
         if not xml.is_file():
             raise RuntimeError("Expected original Vietnamese overlay strings.xml")
         added = append_only(xml, additions, reviewed)
+        public_added = add_public_string_symbols(decoded / "res" / "values" / "public.xml", added)
         if not added:
             # Preserve the exact installed APK bytes on an idempotent rerun.
             shutil.copy2(a.original, target)
@@ -143,6 +209,7 @@ def run(a: argparse.Namespace) -> None:
             process([a.zipalign, "-f", "4", str(unsigned), str(aligned)], log)
             process(signer + ["sign", "--key", str(a.key), "--cert", str(a.cert),
                               "--out", str(target), str(aligned)], log)
+        check_compiled_strings(a.apktool, target, additions, root, log)
         new_id = identity(a.aapt, target, log)
         new_cert = cert(signer, target, log)
         if new_id != original_id:
@@ -157,6 +224,8 @@ def run(a: argparse.Namespace) -> None:
             "updated_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
             "added_names": added,
             "added_count": len(added),
+            "added_new_public_symbols": public_added,
+            "all_owned_translations_present_in_compiled_apk": True,
             "same_overlay_package_and_target": True,
             "same_signing_certificate": True,
             "old_values_overwritten": 0,
@@ -182,6 +251,10 @@ def self_test() -> None:
         assert 'Bản cũ' in t.read_text(encoding="utf-8")
         assert append_only(t, {"language_title": "Ngôn ngữ và khu vực"},
                            {"language_title": "Language & region"}) == []
+        public = Path(p) / "public.xml"
+        public.write_text('<resources><public type="string" name="old" id="0x7f040000" /></resources>', encoding="utf-8")
+        assert add_public_string_symbols(public, ["language_title"]) == 1
+        assert add_public_string_symbols(public, ["language_title"]) == 0
         try:
             append_only(t, {"language_title": "Tiếng Việt"}, {"language_title": "Language"})
         except RuntimeError as exc:
