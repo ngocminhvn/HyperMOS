@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       rom_url:
-        description: 'Optional full stock HyperOS China OTA ZIP URL (leave blank for overlay-only audit)'
-        required: false
-        default: ''
+        description: 'Full stock HyperOS 3.0.308.0 China OTA ZIP URL'
+        required: true
+        default: 'https://bigota.d.miui.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
 
 permissions:
   contents: read
@@ -54,15 +54,15 @@ jobs:
           python3 -m py_compile bin/modfile/UpdateFile/MultiLang/compare_english_vi.py
           python3 bin/modfile/UpdateFile/MultiLang/compare_english_vi.py --self-test
 
-      - name: Extract stock application resources (optional)
+      - name: Extract stock English application resources
         shell: bash
         env:
-          ROM_URL: ${{ inputs.rom_url }}
+          ROM_URL: ${{ inputs.rom_url || 'https://bigota.d.miui.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}
         run: |
           set -euo pipefail
           if [[ -z "$ROM_URL" ]]; then
-            echo "[INFO] No stock OTA URL; inventory only."
-            exit 0
+            echo "[ERROR] Full stock OTA URL is required for English to Vietnamese comparison."
+            exit 2
           fi
           [[ "$ROM_URL" == https://* ]] || { echo "[ERROR] Full HTTPS OTA ZIP required"; exit 1; }
           ROOT="$GITHUB_WORKSPACE"
