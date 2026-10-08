@@ -1,6 +1,11 @@
 name: Vietnamese Translation Audit
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vietnamese-translation-audit.yml'
+      - 'bin/modfile/UpdateFile/MultiLang/**'
   workflow_dispatch:
     inputs:
       rom_url:
