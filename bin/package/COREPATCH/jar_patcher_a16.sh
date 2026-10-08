@@ -1269,7 +1269,8 @@ patch_miui_framework() {
   # ROM-specific font-weight patches must be based on these exact signatures.
   if ! python3 "$SCRIPT_DIR/font-framework-audit.py" \
       "$decompile_dir" \
-      "$work_dir/build/diagnostics/font-framework-audit.json"; then
+      "$work_dir/build/diagnostics/font-framework-audit.json" \
+      --images-root "$work_dir/build/baserom/images"; then
     warn "Font routing audit could not inspect stock miui-framework; leaving font logic unchanged"
   fi
 
