@@ -34,7 +34,11 @@ HEADERS = ("overlay_apk", "target_package", "stock_apk", "resource_name",
 def strings_at(root, directories):
     out = {}
     for folder in directories:
+        # Stock apktool output has res/values-xx; workflow-exported overlay
+        # translations have values-xx directly below the APK-named folder.
         directory = root / "res" / folder
+        if not directory.is_dir():
+            directory = root / folder
         if not directory.is_dir():
             continue
         for filename in sorted(directory.glob("*.xml")):
