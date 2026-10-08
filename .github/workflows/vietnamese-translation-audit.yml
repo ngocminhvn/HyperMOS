@@ -134,7 +134,15 @@ jobs:
           mkdir -p translation-audit/current-xml
           tool="bin/apktool/apktool.jar"
           : > translation-audit/apktool-errors.txt
-          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.HyperPhoneSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
+          for name in \
+            Nothings.Settings Nothings.MiSettings Nothings.MiuiSystemUI \
+            Nothings.HyperPhoneSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter \
+            Nothings.MiuiHome Nothings.MiuiCamera Nothings.MiuiGallery \
+            Nothings.FileExplorer Nothings.ThemeManager Nothings.ThemeManagerV2 \
+            Nothings.Weather Nothings.Calendar Nothings.Contacts \
+            Nothings.InCallUI Nothings.Permissioncontroller Nothings.PowerKeeper \
+            Nothings.PersonalAssistant Nothings.Mms Nothings.MiuiAod \
+            Nothings.MiuiBluetooth Nothings.MiSound Nothings.MiShare; do
             apk="$src/$name.apk"
             tmp="$RUNNER_TEMP/decoded-$name"
             echo "[TRANSLATION] Decoding $name"
