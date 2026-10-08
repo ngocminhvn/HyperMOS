@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- New translations authored for HyperMOS; not copied from Xiaomi.eu.
+     Additive only, anchored to OS3.0.308.0.WOBCNXM stock resource names. -->
+<resources>
+    <string name="all_supported_locales_regions_title">Tất cả khu vực</string>
+    <string name="all_supported_locales_title">Tất cả ngôn ngữ</string>
+    <string name="all_supported_region_title">Tất cả khu vực</string>
+    <string name="body_change_system_locale_region">Thiết bị sẽ giữ %1$s làm ngôn ngữ hệ thống</string>
+    <string name="desc_notice_device_region_change">Thiết bị sẽ giữ %s làm ngôn ngữ hệ thống</string>
+    <string name="desc_notice_device_region_change_for_preferred_language">%1$s sẽ thay thế %2$s trong danh sách ngôn ngữ ưu tiên</string>
+    <string name="desc_system_locale_addition">Cho ứng dụng và trang web biết rằng bạn cũng ưu tiên ngôn ngữ này.</string>
+    <string name="language_and_region_settings">Ngôn ngữ và khu vực</string>
+    <string name="language_and_region_title">Ngôn ngữ và khu vực</string>
+    <string name="language_selection_title">Thêm ngôn ngữ</string>
+    <string name="more_language_settings_category">Cài đặt ngôn ngữ khác</string>
+    <string name="more_supported_locales_title">Thêm ngôn ngữ khác</string>
+    <string name="region_picker_sub_title">Khu vực bạn chọn ảnh hưởng đến cách thiết bị hiển thị giờ, ngày tháng, nhiệt độ và nhiều thông tin khác.</string>
+    <string name="region_picker_title">Chọn khu vực</string>
+    <string name="region_selection_title">Chọn khu vực</string>
+    <string name="regional_preferences_category_title">Tùy chọn theo khu vực</string>
+    <string name="search_language_hint">Tìm ngôn ngữ</string>
+    <string name="search_region_hint">Tìm khu vực</string>
+    <string name="title_change_system_locale_region">Chuyển khu vực sang %1$s?</string>
+    <string name="title_change_system_region">Chuyển khu vực sang %s?</string>
+    <string name="title_system_locale_addition">Thêm %s vào danh sách ngôn ngữ ưu tiên?</string>
+    <string name="top_intro_region_title">Khu vực bạn chọn ảnh hưởng đến cách điện thoại hiển thị giờ, ngày tháng, nhiệt độ và nhiều thông tin khác</string>
+</resources>
