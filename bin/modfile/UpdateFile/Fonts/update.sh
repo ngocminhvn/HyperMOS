@@ -9,6 +9,9 @@ FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
 SF_FONT="$FONT_SOURCE/SF-Pro.ttf"
 ROBOTO_FONT="$FONT_SOURCE/Roboto-VF.ttf"
 IOS_EMOJI_FONT="$FONT_SOURCE/NotoColorEmoji.ttf"
+FONT_UTILS="$work_dir/bin/modfile/UpdateFile/Fonts/font_utils.py"
+FONT_PREPARED_DIR="$work_dir/build/.prepared_theme_fonts"
+SF_PREPARED_FONT="$FONT_PREPARED_DIR/SF-Pro.ttf"
 
 mods "Fonts: stock MiSans + native Xiaomi font resources for SF Pro/Roboto"
 
@@ -52,32 +55,11 @@ cleanup_legacy_generated_fonts() {
 }
 
 write_preview_png() {
-    local title="$1" font_file="$2" out="$3" data
-    case "$title" in
-        "SF Pro")
-            data='iVBORw0KGgoAAAANSUhEUgAAAeAAAACgAQAAAAD8gILgAAABS0lEQVR42u3ZMU7DQBAF0L+2ZVwgkdIV7BE4AdkbcAYOgrQICkpuAEexXFFyBCtCKKVpkInsLEWMs0hxyGyQQvGnGhfPM17NbGPlEB4RiImJiYmJiYmJiYmJiYmJiYn/Jy520m5j1HAWJ67BmdsSI5VfYFbJa0DbQ9ddAL5tELsamMKKsTs+6tuuAipPvivmxaGGJNlvwh5K3Njgto2zTyJceyePhf+4A27W6UfenDaSA1HtOm/f3q8SUeXrgUKhthcibPSQRVDQIqznfTIHMIMT4XyBTmnAaZsAmIhw2tcqVcCEqaIfqjRkPM+L2FUA8hCcrRZ5GrLP27fpNxz9xT4fFi+FK4mlP6tQwsravw4qCe5s69/DthRVvn823tPjnQh/Gu/CzGaZ7Jv9I0rHVnLzGMbFpf8iO3IZKP74ISYmJiYmJiYmJib+GV/j+3szpzYJfAAAAABJRU5ErkJggg=='
-            ;;
-        "Roboto")
-            data='iVBORw0KGgoAAAANSUhEUgAAAeAAAACgAQAAAAD8gILgAAABe0lEQVR42u3ZMW6DMBSA4d8mUjMghbFDJThCDxAF90Y9QKV46L3qKj1Aj+BuHV2JwZGI6ZAlAyRxqDo9Lwbhj/cs3oMBNXD70AgWLFiwYMGCBQsWLFiwYMGCBQu+hPf23yPvVTUn7W4OPpyemDzcYmdEDifHQy5euhmRF39VYekGrGBfgaJ7tz9VHj5g+O44YAJ8dnmb6/D4RIcHjMqLHNaB3ZawDg/ttnjL3PMu8vBs2UWgfLQZuOeLF1gep1SNP/cJHI3G0OA0BmgWOWl/2g8SLPggQW/w1+P3J6A5tlMzvUyfrx1/S3mWM2q7jVdV/sRlO6er+jl4c6kbz+FmTuThqptM4Ioej4MeD7iU1VXWoKHHoGExkcLk2zPh8Jjj5Pu8fq55JURqXjU6xPGvxjAyYtvXfr2KhR38epXuNoUbWzZM4FQH6ujUEKgTLWoUT6UdShoaTUmjwGW1pIoFjvuSAoczj+NdpuTfjWDBggULFixYsGDBgv8Q/wL9sb/lyY78awAAAABJRU5ErkJggg=='
-            ;;
-        *)
-            error "Unknown font preview title: $title"
-            return 1
-            ;;
-    esac
-    # ThemeManager does not recolor preview PNGs for dark mode. The old assets
-    # had an opaque white background, which produced the white cards seen in
-    # dark mode. Prefer a native preview rendered from the actual font on a
-    # neutral dark surface; keep the embedded asset only as a last-resort.
-    if command -v convert >/dev/null 2>&1; then
-        if convert -size 480x160 xc:'#181818' \\
-            -font "$font_file" -fill '#F2F2F2' -gravity center \\
-            -pointsize 46 -antialias -define png:color-type=6 \\
-            -strip "$out" >/dev/null 2>&1; then
-            return 0
-        fi
-    fi
-    printf '%s' "$data" | base64 -d > "$out"
+    local title="$1" font_file="$2" out="$3"
+    python3 "$FONT_UTILS" preview "$title" "$font_file" "$out" || {
+        error "Unable to render native dark-mode font preview for $title"
+        return 1
+    }
 }
 
 install_xiaomi_font_resource() {
@@ -111,7 +93,7 @@ install_xiaomi_font_resource() {
     : > "$theme_mrc"
     chmod 0644 "$font_mrc" "$theme_mrc"
 
-    write_preview_png "$title" "$font_file" "$preview_dir/preview_fonts_small_0.png"
+    write_preview_png "$title" "$font_file" "$preview_dir/preview_fonts_small_0.png" || return 1
     cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/preview_fonts_0.png"
     cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/en_US_fonts_small_0.png"
     cp -f "$preview_dir/preview_fonts_small_0.png" "$preview_dir/en_US_fonts_0.png"
@@ -341,11 +323,21 @@ select_theme_root || {
 mods "Fonts: using one catalog only -> $THEME_RUNTIME"
 cleanup_legacy_generated_fonts
 
+# Ensure both custom fonts actually contain a wght axis, and publish ten
+# ThemeManager fontWeight stops like stock MiSans. Fail early rather than
+# silently creating a non-adjustable font entry.
+python3 "$FONT_UTILS" prepare "$SF_FONT" "$ROBOTO_FONT" "$FONT_PREPARED_DIR" || {
+    error "FAST-FAIL: custom fonts must provide a usable variable wght axis"
+    exit 1
+}
+# These values are generated from validated numeric OpenType axes.
+source "$FONT_PREPARED_DIR/font_weights.env"
+
 install_xiaomi_font_resource \
-    "$SF_FONT" \
+    "$SF_PREPARED_FONT" \
     "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102" \
     "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101" \
-    "SF Pro" "Apple" "100,200,300,400,500,600,700,800,900" || {
+    "SF Pro" "Apple" "$SF_WEIGHTS" || {
     error "FAST-FAIL: SF Pro native ThemeManager integration failed"
     exit 1
 }
@@ -354,7 +346,7 @@ install_xiaomi_font_resource \
     "$ROBOTO_FONT" \
     "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3102" \
     "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3101" \
-    "Roboto" "Google" "100,200,300,400,500,600,700,800,900" || {
+    "Roboto" "Google" "$ROBOTO_WEIGHTS" || {
     error "FAST-FAIL: Roboto native ThemeManager integration failed"
     exit 1
 }
