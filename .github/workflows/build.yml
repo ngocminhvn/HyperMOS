@@ -103,6 +103,11 @@ jobs:
             exit 1
           fi
 
+          # Validate native Xiaomi notification defaults before downloading/unpacking ROM.
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/notification_defaults_patch.py
+          python3 bin/package/NOTIFICATION_FIX/A16/notification_defaults_patch.py --self-test
+          bash -n bin/package/NOTIFICATION_FIX/A16/SystemUI.sh
+
           # Fast-fail invalid font integration before unpacking the base ROM.
           python3 -m py_compile bin/modfile/UpdateFile/Fonts/font_utils.py
           bash -n bin/modfile/UpdateFile/Fonts/update.sh
