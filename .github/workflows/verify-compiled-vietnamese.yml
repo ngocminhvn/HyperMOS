@@ -1,0 +1,42 @@
+name: Verify compiled Vietnamese overlay resources
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-compiled-vietnamese.yml'
+      - 'bin/modfile/UpdateFile/MultiLang/verify_compiled_vi.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Decode and check all 4 existing compiled RRO APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/modfile/UpdateFile/MultiLang/verify_compiled_vi.py
+          python3 bin/modfile/UpdateFile/MultiLang/verify_compiled_vi.py \
+            --multilang-dir bin/modfile/UpdateFile/MultiLang \
+            --apktool bin/apktool/apktool.jar \
+            --output compiled-vi-check
+      - name: Save report even if resource roundtrip fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-vi-roundtrip-report
+          path: compiled-vi-check/compiled-vi-check.json
+          if-no-files-found: warn
