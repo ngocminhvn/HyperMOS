@@ -1264,6 +1264,15 @@ patch_miui_framework() {
     decompile_dir=$(decompile_jar "$miui_framework_path") || return 1
   fi
 
+  # Read the actual A16 font-routing method signatures without changing
+  # Xiaomi's MiSans manager or the ThemeManager path. This is diagnostic-only:
+  # ROM-specific font-weight patches must be based on these exact signatures.
+  if ! python3 "$SCRIPT_DIR/font-framework-audit.py" \
+      "$decompile_dir" \
+      "$work_dir/build/diagnostics/font-framework-audit.json"; then
+    warn "Font routing audit could not inspect stock miui-framework; leaving font logic unchanged"
+  fi
+
   # Existing HyperMOS Gboard patch
   apply_miui_framework_gboard "$decompile_dir"
 
