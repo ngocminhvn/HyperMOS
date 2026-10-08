@@ -292,7 +292,7 @@ if not exist "FLASH.bat" (
 )
 echo ============================================================
 echo HyperMOS Fastboot UPDATE - KEEP DATA
-echo This update does NOT format userdata or metadata.
+echo The updater preserves userdata and metadata partitions.
 echo Flash only a compatible ROM for the same Xiaomi device.
 echo Back up important data before updating.
 echo ============================================================
