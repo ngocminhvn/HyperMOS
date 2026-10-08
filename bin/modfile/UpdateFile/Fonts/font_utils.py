@@ -15,7 +15,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from fontTools.ttLib import TTFont
+from fontTools.ttLib import TTFont, TTLibError
 from PIL import Image, ImageDraw, ImageFont
 
 # Match Xiaomi's ten positions in the weight slider, within a particular font's
@@ -230,7 +230,7 @@ def main() -> int:
             catalog(args.source_dir, args.output_dir)
         else:
             preview(args.title, args.font, args.output)
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, TTLibError) as exc:
         print(f"[FONT-CATALOG] ERROR: {exc}", file=sys.stderr)
         return 1
     return 0
