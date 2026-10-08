@@ -120,7 +120,13 @@ def audit(overlays: list[Path], stock_root: Path | None, aapt2: str) -> dict:
                 continue
             try:
                 pkg = dump(aapt2, apk, "packagename").strip().strip("'\" ")
-                if pkg not in grouped:
+                is_xiaomi = pkg == "android" or pkg.startswith((
+                    "com.miui.", "com.xiaomi.", "miui.",
+                    "com.android.settings", "com.android.systemui",
+                    "com.android.camera", "com.android.phone",
+                    "com.android.permissioncontroller",
+                ))
+                if pkg not in grouped and not is_xiaomi:
                     continue
                 name, entries = stock_info(aapt2, apk)
                 if name not in stock or len(entries) > len(stock[name]["resources"]):
@@ -130,8 +136,8 @@ def audit(overlays: list[Path], stock_root: Path | None, aapt2: str) -> dict:
 
     packages = []
     missing_rows = []
-    for target in sorted(grouped):
-        layers = grouped[target]
+    for target in sorted(set(grouped) | set(stock)):
+        layers = grouped.get(target, [])
         candidates = set()
         explicit_vi = set()
         default_only = set()
@@ -179,7 +185,8 @@ def audit(overlays: list[Path], stock_root: Path | None, aapt2: str) -> dict:
             name: files for name, files in duplicate_ids.items() if len(files) > 1
         },
         "stock_errors": stock_errors[:150],
-        "stock_targets_found": len(stock),
+        "stock_targets_found": len(set(stock) & set(grouped)),
+        "stock_xiaomi_without_overlay": len(set(stock) - set(grouped)),
         "packages": packages,
         "missing_rows": missing_rows,
     }
@@ -201,6 +208,7 @@ def write_reports(result: dict, dest: Path) -> None:
         f"- Mode: **{result['mode']}**",
         f"- Overlays: **{result['valid_overlay_apks']}/{result['overlay_apks']}** valid",
         f"- Stock targets matched: **{result['stock_targets_found']}**",
+        f"- Xiaomi/system packages with no bundled overlay: **{result['stock_xiaomi_without_overlay']}**",
         "",
         "This is a **resource coverage estimate**, not a measured translation percentage.",
         "Default-configuration overlay strings are candidates only; they may not be Vietnamese.",
