@@ -143,10 +143,10 @@ def add_public_string_symbols(public_xml: Path, keys: list[str]) -> int:
         used_ids.add(candidate)
         candidate += 1
     if lines:
-        pattern = re.compile(r"</resources>\\s*$")
+        pattern = re.compile(r"</resources>\s*$")
         if not pattern.search(original):
             raise RuntimeError("Malformed public.xml closing tag")
-        edited = pattern.sub("\\n" + "\\n".join(lines) + "\\n</resources>\\n", original, count=1)
+        edited = pattern.sub("\n" + "\n".join(lines) + "\n</resources>\n", original, count=1)
         ET.fromstring(edited)
         public_xml.write_text(edited, encoding="utf-8")
     return len(lines)
