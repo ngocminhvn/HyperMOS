@@ -149,6 +149,35 @@ jobs:
             echo "[OK] Exported existing vi strings for $name"
           done
 
+      - name: Rebuild original overlay packages with Vietnamese fixes (TEST ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/modfile/UpdateFile/MultiLang/patch_existing_overlays.py \
+            --source bin/modfile/UpdateFile/MultiLang/updatesource \
+            --patches bin/modfile/UpdateFile/MultiLang/patches \
+            --output translation-patched-apks \
+            --apktool bin/apktool/apktool.jar \
+            --aapt2 "$AAPT2_PATH" \
+            --apksigner "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0/apksigner" \
+            --zipalign "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0/zipalign" \
+            --key bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8 \
+            --cert bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
+          cat translation-patched-apks/PATCH_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload patched original APK candidates (not installed in ROM)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vietnamese-original-overlay-candidates
+          path: |
+            translation-patched-apks/*.apk
+            translation-patched-apks/PATCH_REPORT.md
+            translation-patched-apks/patch-report.json
+            translation-patched-apks/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload audit report (no APK or original ROM content)
         if: always()
         uses: actions/upload-artifact@v4
