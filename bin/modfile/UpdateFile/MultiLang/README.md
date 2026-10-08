@@ -40,19 +40,42 @@ Resource arrays, hardcoded DEX strings, remote content, and Java/Kotlin UI
 code are outside this audit. A missing `string/foo` report also does not prove
 it is safe or permitted to overlay: inspect `overlayable` restrictions first.
 
+## English stock → Vietnamese overlay comparison
+
+**English is the source language; Vietnamese is the translation.**
+When a matching stock HyperOS OTA is provided, the audit compares the English
+strings from the stock Settings/SystemUI/SecurityCenter APKs with
+the corresponding names in the existing Vietnamese RROs. The audit now exports:
+
+- `english-vietnamese-all.csv`: original English text, existing Vietnamese
+  text, and the status of each matched string name.
+- `english-vietnamese-review.csv`: potentially untranslated / missing keys,
+  with likely user-facing settings listed first.
+- `english-vi-summary.json`: counts, warnings and limitations.
+
+Settings, MiSettings, MiuiSystemUI, HyperPhoneSystemUI, MiuiSystemUIPlugin,
+and SecurityCenter are the initial high-priority overlay files.
+If no stock ROM URL is supplied, only the overlay inventory is available;
+a missing-English-translation claim **cannot** be made from the overlays alone.
+
+Caveats: this intentionally conservative English detector may miss short labels.
+Unchanged brand names and technical acronyms are not necessarily translation
+errors. A resource name can exist in multiple APKs, and RRO signature/idmap
+compatibility must be tested on the device. Do not create another overlay package
+or automatically translate every candidate. Preserve the existing APK identity
+and only rebuild an existing RRO after verifying its signing requirements.
+
 ## Adding translations without breaking existing ones
 
-1. Use `missing.csv` from the matching stock ROM build. Prioritize
-   Settings, SystemUI, SystemUIPlugin, SecurityCenter, ThemeManager, Gallery,
-   Camera, Calendar, Phone, Home and other frequently used Xiaomi apps.
-2. Translate only verified resource names from the **matching target APK**.
-   Retain format placeholders (`%s`, `%1$d`), line breaks, HTML and plurals.
-3. Compile/sign a **separate** Android 16-compatible RRO APK with a unique
-   package name, correct `targetPackage` and, when required, `targetName`.
-   Verify overlayable policy before installing. Android cannot overlay
-   resources that do not exist in the target package.
-4. Put the reviewed APK in `supplemental/` and commit it. The normal ROM
-   build stages it after bundled overlays **only if its filename is unique**.
+1. Use `english-vietnamese-review.csv` from the exact matching stock OTA
+   and inspect the existing Settings, SystemUI, and SecurityCenter overlay XML.
+2. Translate only relevant missing user-facing English resources. Keep exact
+   resource names, placeholders (`%s`, `%1$d`), plurals, markup and escapes.
+3. Prefer updating the **original existing** overlay APK; do not add a new
+   package with the same target. Check that the source package's signing policy
+   allows safe repacking, and verify the overlay idmap on a test device.
+4. If original-signature compatibility cannot be preserved, leave the APK
+   unchanged instead of swapping in a test-signed replacement.
 5. After flashing, run:
    ```sh
    adb shell cmd overlay list --user 0
