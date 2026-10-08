@@ -25,6 +25,15 @@ done
 left=$(grep -RIl -e 'Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z' -e 'Lcom/miui/utils/configs/MiuiConfigs;->IS_INTERNATIONAL_BUILD:Z' "$tmp/out" --include='*.smali' | wc -l)
 (( left == 0 )) || { error "NOTIFICATION_FIX: SystemUI targets remain after patch"; exit 1; }
 
+# HyperMOS native notification defaults. This runs on the stock SystemUI
+# payload inside ROM build, not in TNM and not in a background process.
+# A missing/unrecognized Xiaomi method stops the build BEFORE repacking so
+# the generated ROM never silently claims to contain an unverified fix.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/notification_defaults_patch.py" "$tmp/out" || {
+  error "NOTIFICATION_FIX: cannot safely patch lockscreen/floating/badge defaults"
+  exit 1
+}
+
 name=$(basename "$apk")
 $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/$name" >/dev/null
 [[ -s "$tmp/final/$name" ]] || { error "NOTIFICATION_FIX: SystemUI rebuild failed"; exit 1; }
