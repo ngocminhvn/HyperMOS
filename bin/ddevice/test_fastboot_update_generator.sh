@@ -30,7 +30,7 @@ grep -Fq 'if "%WIPE_DATA%"=="1" (' "$flash"
 grep -Fq '"%FASTBOOT%" flash super "super\super.img"' "$flash"
 grep -Fq 'call "%~dp0FLASH.bat" --no-wipe' "$update"
 grep -Fq 'cp -f "$work_dir/bin/script2flash/UPDATE_NO_WIPE.bat"' "$packager"
-if grep -Eiq '(^|[[:space:]])(erase|format|lock|relock)[[:space:]]+(userdata|metadata|bootloader)' "$update"; then
+if grep -Eiq '^[[:space:]]*(fastboot|erase|format|lock|relock)[[:space:]]' "$update"; then
     echo "[ERROR] no-wipe entrypoint contains a destructive operation" >&2
     exit 1
 fi
