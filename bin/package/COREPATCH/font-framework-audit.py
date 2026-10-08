@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import re
+import zipfile
 from pathlib import Path
 
 TARGETS = (
@@ -31,10 +32,42 @@ INTERESTING = re.compile(
 DECLARATION = re.compile(r"^\.method\s+.*$", re.MULTILINE)
 FIELD = re.compile(r"^\.field\s+.*$", re.MULTILINE)
 
+def settings_symbols(images_root: Path | None) -> dict[str, object]:
+    """Find possible Settings UI gating symbols, without patching/rebuilding APK."""
+    if images_root is None or not images_root.is_dir():
+        return {"inspected": False, "reason": "no unpacked images directory"}
+    candidates = [
+        file for file in sorted(images_root.rglob("Settings.apk"))
+        if "framework" not in str(file).lower()
+    ][:4]
+    result: list[dict[str, object]] = []
+    for apk in candidates:
+        symbols: set[str] = set()
+        with zipfile.ZipFile(apk) as archive:
+            for item in archive.namelist():
+                if not re.fullmatch(r"classes\\d*\\.dex", item):
+                    continue
+                data = archive.read(item)
+                for token in re.findall(rb"[A-Za-z0-9_/$;.()\-]{9,}", data):
+                    if any(word in token.lower() for word in (
+                        b"fontweight", b"font_weight", b"fontwght", b"fontsettings",
+                        b"fontscale", b"typefaceutils", b"themefont",
+                    )):
+                        symbols.add(token.decode("ascii", errors="replace")[:180])
+        result.append({
+            "path": str(apk.relative_to(images_root)),
+            "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+            "candidate_symbols": sorted(symbols)[:100],
+            "symbols_truncated": len(symbols) > 100,
+        })
+    return {"inspected": bool(candidates), "packages": result}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("smali_root", type=Path)
     parser.add_argument("report", type=Path)
+    parser.add_argument("--images-root", type=Path, default=None)
     args = parser.parse_args()
 
     if not args.smali_root.is_dir():
@@ -73,6 +106,7 @@ def main() -> None:
         "sdk": 36,
         "notice": "Settings APK slider gate must also be inspected on the same exact ROM. Do not disable FontSettings globally.",
         "classes": entries,
+        "settings_apk": settings_symbols(args.images_root),
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
@@ -85,6 +119,7 @@ def main() -> None:
         if entry["present"]:
             for name in methods:
                 print(f"[FONT-AUDIT]   {name.strip()}")
+    print(f"[FONT-AUDIT] Settings APK scan: inspected={report['settings_apk']['inspected']}")
     print(f"[FONT-AUDIT] Report saved: {args.report}")
     print("[FONT-AUDIT] No bytecode patched: collect actual signatures before targeting Settings/ThemeFontManager")
 
