@@ -107,8 +107,65 @@ for dex in "${dex_files[@]}"; do
         fatal "baksmali failed for $dex"
 done
 
+# Only Settings DEX files mentioning the relevant MIUI weight classes are
+# disassembled. Their exact method bodies allow a narrowly scoped patch
+# rather than guessing based on signatures alone.
+SETTINGS_APK="$(find "$EXTRACTED" -type f -name Settings.apk -print -quit)"
+[[ -n "$SETTINGS_APK" ]] || fatal "Settings APK vanished before disassembly"
+SETTINGS_SMALI="$WORK/settings-smali"
+mkdir -p "$SETTINGS_SMALI" "$WORK/settings-dex"
+mapfile -t settings_dex_files < <(unzip -Z1 "$SETTINGS_APK" | grep -E '^classes[0-9]*[.]dex
+
+# Include provenance without re-packaging original system JAR/APK.
+python3 - "$ROM_URL" "$JAR" "$OUT/README.txt" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit
+rom_url, jar_path, output = sys.argv[1:]
+jar = Path(jar_path)
+source = urlsplit(rom_url)
+Path(output).write_text(
+    "HyperMOS standalone font-framework-audit\n"
+    "Mode: read-only; no ROM build/repack/flash\n"
+    f"OTA host: {source.netloc}\n"
+    f"OTA path: {source.path}\n"
+    f"miui-framework.jar sha256: {hashlib.sha256(jar.read_bytes()).hexdigest()}\n"
+    "Output: font-framework-audit.json\n"
+    "Review font manager methods and Settings font-weight gate before patching.\n",
+    encoding="utf-8",
+)
+PY
+
+log "SUCCESS: $OUT/font-framework-audit.json"
+)
+[[ "${#settings_dex_files[@]}" -gt 0 ]] || fatal "Settings.apk contains no DEX"
+selected=0
+for dex in "${settings_dex_files[@]}"; do
+    unzip -p "$SETTINGS_APK" "$dex" > "$WORK/settings-dex/$dex"
+    if ! strings -a "$WORK/settings-dex/$dex" | grep -Eq \
+        'Lcom/android/settings/(display/(FontWeightAdjustView|font/FontWeightUtils|LiteFontWeightPreference)|accessibility/FontWeightAdjustmentPreferenceController);'; then
+        rm -f "$WORK/settings-dex/$dex"
+        continue
+    fi
+    log "Disassembling relevant Settings $dex (SDK 36)"
+    java -Xmx3g -jar "$ROOT/bin/apktool/baksmaliv2.jar" d --api 36 \
+        "$WORK/settings-dex/$dex" -o "$SETTINGS_SMALI/${dex%.dex}" > /dev/null ||
+        fatal "baksmali failed for Settings $dex"
+    rm -f "$WORK/settings-dex/$dex"
+    selected=$((selected + 1))
+done
+[[ "$selected" -gt 0 ]] || fatal "No Settings DEX containing MIUI font control classes found"
+
 python3 "$ROOT/bin/package/COREPATCH/font-framework-audit.py" \
-    "$DECOMPILED" "$OUT/font-framework-audit.json" --images-root "$EXTRACTED"
+    "$DECOMPILED" "$OUT/font-framework-audit.json" \
+    --images-root "$EXTRACTED" --settings-smali-root "$SETTINGS_SMALI"
+[[ -s "$OUT/font-logic-smali.txt" ]] ||
+    fatal "No selected font method disassembly exported"
+# Keep the log focused, while retaining full selected methods in the artifact.
+log "Target method excerpts:"
+sed -n '1,500p' "$OUT/font-logic-smali.txt"
+
 
 # Include provenance without re-packaging original system JAR/APK.
 python3 - "$ROM_URL" "$JAR" "$OUT/README.txt" <<'PY'
