@@ -82,6 +82,12 @@ fi
 cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/" 2>/dev/null || true
 cp -rf "$work_dir/bin/script2flash/"*.install "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/"
 cp -f "$work_dir/bin/script2flash/FLASH.bat" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/FLASH.bat"
+# Explicit dirty-flash entry point: same firmware and super.img, no data wipe.
+if [ ! -s "$work_dir/bin/script2flash/UPDATE_NO_WIPE.bat" ]; then
+    echo "[ERROR] Missing UPDATE_NO_WIPE.bat; refusing to publish an incomplete fastboot update package" >&2
+    exit 1
+fi
+cp -f "$work_dir/bin/script2flash/UPDATE_NO_WIPE.bat" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/UPDATE_NO_WIPE.bat"
 
 # Bundle Windows fastboot runtime so the extracted ROM can be flashed immediately.
 if [ -d "$work_dir/bin/script2flash/META-INF" ]; then
