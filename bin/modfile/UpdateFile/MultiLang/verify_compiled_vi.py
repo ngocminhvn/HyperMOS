@@ -28,8 +28,10 @@ def verify(root: Path, apktool: Path, dest: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="vi-compiled-verify-") as td:
         for name in NAMES:
             patches=[root/"owned-additions-batch"/(name+".xml")]
-            if name=="Nothings.Settings":
-                patches.append(root/"owned-additions"/(name+".xml"))
+            # The retired 22 language/region strings must never be reintroduced.
+            retired_path = root/"retired-language-region.keys"
+            retired = set(retired_path.read_text(encoding="utf-8").splitlines()) if (
+                name=="Nothings.Settings" and retired_path.is_file()) else set()
             expected={}
             for p in patches:
                 if p.is_file():expected.update(values(p))
@@ -52,6 +54,10 @@ def verify(root: Path, apktool: Path, dest: Path) -> dict:
             for file in (decoded/"res"/"values").glob("*.xml"):
                 try: default.update(values(file))
                 except ET.ParseError: continue
+            resurrected = sorted(retired & set(observed))
+            if resurrected:
+                raise RuntimeError("Retired language/region strings reappeared in Settings: " +
+                                   ", ".join(resurrected))
             absent = sorted(set(expected)-set(observed))
             different=sorted(k for k in expected if k in observed and expected[k]!=observed[k])
             record={
