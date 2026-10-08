@@ -19,11 +19,11 @@ import sys
 from pathlib import Path
 
 TARGETS = ("canShowBadge", "canFloat", "canShowOnKeyguard")
-METHOD = re.compile(r"^\\s*\\.method\\s+[^\\n]*?\\b(canShowBadge|canFloat|canShowOnKeyguard)\\([^\\n]*\\)Z\\s*$")
-END = re.compile(r"^\\s*\\.end method\\s*$")
+METHOD = re.compile(r"^\s*\.method\s+[^\n]*?\b(canShowBadge|canFloat|canShowOnKeyguard)\([^\n]*\)Z\s*$")
+END = re.compile(r"^\s*\.end method\s*$")
 CONTAINS = "Landroid/content/SharedPreferences;->contains(Ljava/lang/String;)Z"
-MOVE = re.compile(r"^\\s*move-result(?:/from16)?\\s+([vp]\\d+)\\s*$")
-BRANCH = re.compile(r"^(\\s*)if-(eqz|nez)\\s+([vp]\\d+),\\s*(:[\\w$]+)\\s*$")
+MOVE = re.compile(r"^\s*move-result(?:/from16)?\s+([vp]\d+)\s*$")
+BRANCH = re.compile(r"^(\s*)if-(eqz|nez)\s+([vp]\d+),\s*(:[\w$]+)\s*$")
 VENDOR_KEY = ("FilterHelperCompat;", "getBadgeKey", "getFloatKey", "getKeyguardKey")
 MARK = "# HyperMOS NotificationDefaults: only missing user preference"
 
@@ -73,7 +73,7 @@ def patch_method(lines: list[str], name: str) -> tuple[list[str], int]:
     branch_at, _, indent, kind, register = matches[0]
     original = lines[branch_at]
     marker = f":tnm_notification_keep_{name}"
-    existing_labels = set(re.findall(r"(?m)^\\s*(:[\\w$]+)", source))
+    existing_labels = set(re.findall(r"(?m)^\s*(:[\w$]+)", source))
     if marker in existing_labels:
         raise PatchError("label collision in " + name)
     if kind == "eqz":
