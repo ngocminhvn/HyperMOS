@@ -113,6 +113,11 @@ import sys
 
 (root, runtime, font_id, theme_id, title, author, weights, font_sha1, font_size) = sys.argv[1:10]
 font_size = int(font_size)
+# Native Xiaomi ThemeManager expects a plural fontWeights list. A singular
+# fontWeight string is not recognized as ten independently selectable steps.
+weight_values = [value.strip() for value in weights.split(",")]
+if len(weight_values) != 10 or any(not value.isdecimal() for value in weight_values):
+    raise ValueError(f"Invalid Xiaomi ten-step variable font weight map: {weights!r}")
 
 font_default = os.path.join(root, ".data", "meta", "fonts", "default.mrm")
 theme_default = os.path.join(root, ".data", "meta", "theme", "default.mrm")
@@ -187,7 +192,8 @@ for obj in (font, theme):
     }
     obj["thumbnails"] = []
     obj["previews"] = []
-    obj["fontWeight"] = weights
+    obj.pop("fontWeight", None)
+    obj["fontWeights"] = weight_values
 
 font["localId"] = font_id
 font["hash"] = font_sha1
@@ -240,6 +246,7 @@ import json
 import sys
 
 font_path, theme_path, font_id, theme_id, runtime, weights = sys.argv[1:7]
+expected_weights = [value.strip() for value in weights.split(",")]
 with open(font_path, "r", encoding="utf-8-sig") as fh:
     font = json.load(fh)
 with open(theme_path, "r", encoding="utf-8-sig") as fh:
@@ -254,7 +261,10 @@ ok = (
     font.get("localId") == font_id
     and font.get("metaPath") == font_meta
     and font.get("contentPath") == font_content
-    and font.get("fontWeight") == weights
+    and font.get("fontWeights") == expected_weights
+    and theme.get("fontWeights") == expected_weights
+    and "fontWeight" not in font
+    and "fontWeight" not in theme
     and isinstance(font.get("parentResources"), list)
     and len(font["parentResources"]) == 1
     and font["parentResources"][0].get("localId") == theme_id
