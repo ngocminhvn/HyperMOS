@@ -95,3 +95,22 @@ jobs:
           fi
           test ! -e "$RUNNER_TEMP/invalid-output/catalog.tsv"
           echo "[TEST] PASS: malformed font fails without stale catalog"
+
+          # Produce a genuinely static TTF from the same source VF and verify
+          # it is rejected as a non-adjustable weight-slider font.
+          rm -f "$RUNNER_TEMP/invalid/Broken.ttf"
+          python3 - "$SRC/Roboto-VF.ttf" "$RUNNER_TEMP/invalid/Static.ttf" <<'PY'
+          from fontTools.ttLib import TTFont
+          from fontTools.varLib.instancer import instantiateVariableFont
+          import sys
+          f=TTFont(sys.argv[1])
+          instance=instantiateVariableFont(f, {"wght": 400}, inplace=True)
+          assert "fvar" not in instance
+          instance.save(sys.argv[2])
+          PY
+          if python3 "$TOOL" catalog "$RUNNER_TEMP/invalid" "$RUNNER_TEMP/invalid-output"; then
+            echo "[TEST] ERROR: non-variable TTF was accepted"
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/invalid-output/catalog.tsv"
+          echo "[TEST] PASS: static font rejected; only real wght variable fonts register"
