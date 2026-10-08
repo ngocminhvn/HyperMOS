@@ -1061,10 +1061,6 @@ patch_services() {
     apply_services_disable_secure_flag "$decompile_dir"
   fi
 
-  # User-tested #87: no additional MiCTS/Google Assistant services.jar
-  # self-heal hooks. Leave stock VoiceInteraction/RoleObserver logic unchanged.
-  log "MiCTS services.jar self-heal: disabled; keep stock voice services"
-
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
@@ -1254,16 +1250,6 @@ patch_miui_framework() {
     decompile_dir=$(decompile_jar "$miui_framework_path") || return 1
   fi
 
-  # Read the actual A16 font-routing method signatures without changing
-  # Xiaomi's MiSans manager or the ThemeManager path. This is diagnostic-only:
-  # ROM-specific font-weight patches must be based on these exact signatures.
-  if ! python3 "$SCRIPT_DIR/font-framework-audit.py" \
-      "$decompile_dir" \
-      "$work_dir/build/diagnostics/font-framework-audit.json" \
-      --images-root "$work_dir/build/baserom/images"; then
-    warn "Font routing audit could not inspect stock miui-framework; leaving font logic unchanged"
-  fi
-
   # Existing HyperMOS Gboard patch
   apply_miui_framework_gboard "$decompile_dir"
 
@@ -1271,10 +1257,6 @@ patch_miui_framework() {
   if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
     apply_miui_framework_cn_notification_fix "$decompile_dir"
   fi
-
-  # Custom SF Pro/Roboto theme resources are handled by Fonts/update.sh.
-  # Do not modify FontSettings/ThemeFontManager bytecode: retain Xiaomi logic.
-  log "Theme variable font framework bridge: disabled; stock font manager retained"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
