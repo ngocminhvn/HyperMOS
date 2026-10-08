@@ -56,7 +56,7 @@ mods "TNM Hosts backend -> Done"
 
 # One-time ROM entrypoint for TNM's APK-updatable backend.
 # This launcher is root-only and has no init service or persistent process.
-src_bridge="$work_dir/bin/modfile/UpdateFile/TNM/tnm-bridge.sh"
+src_bridge="$work_dir/bin/modfile/UpdateFile/TNM/tnm-bridge"
 [[ -s "$src_bridge" ]] || { error "TNM Bridge: launcher missing"; exit 1; }
 bridge_dst="$bin_dst/tnm-bridge"
 install -m 0755 "$src_bridge" "$bridge_dst"
