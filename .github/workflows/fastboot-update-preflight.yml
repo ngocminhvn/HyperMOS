@@ -1,0 +1,29 @@
+name: Verify no-wipe fastboot ROM updater
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bin/ddevice/genInstall.sh'
+      - 'bin/ddevice/test_fastboot_update_generator.sh'
+      - 'uploadROM.sh'
+      - '.github/workflows/fastboot-update-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-no-wipe-updater:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Validate generated FLASH and UPDATE_NO_WIPE scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash bin/ddevice/test_fastboot_update_generator.sh
