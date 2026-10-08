@@ -1,0 +1,26 @@
+name: Notification Defaults patch self-test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'bin/package/NOTIFICATION_FIX/A16/notification_defaults_patch.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/SystemUI.sh'
+      - '.github/workflows/notification-defaults-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate notification policy patcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/notification_defaults_patch.py
+          python3 bin/package/NOTIFICATION_FIX/A16/notification_defaults_patch.py --self-test
+          bash -n bin/package/NOTIFICATION_FIX/A16/SystemUI.sh
+          grep -Fq 'notification_defaults_patch.py' bin/package/NOTIFICATION_FIX/A16/SystemUI.sh
