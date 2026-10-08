@@ -9,12 +9,59 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
+      - name: One-time cleanup of obsolete workflow histories
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess, sys, time
+          repo = os.environ["GH_REPO"]
+          targets = {
+              ("Build TNM APK", ".github/workflows/tnm-apk.yml"),
+              ("Temp Morphe Stable YouTube 21.16.256", ".github/workflows/tmp-morphe-stable-youtube.yml"),
+              ("Temp Morphe YouTube 21.39.522", ".github/workflows/tmp-morphe-youtube-21-39-522.yml"),
+          }
+          payload = subprocess.check_output(
+              ["gh", "api", "--paginate", "--slurp", f"repos/{repo}/actions/runs?per_page=100"],
+              text=True)
+          pages = json.loads(payload)
+          matching = [r for page in pages for r in page.get("workflow_runs", [])
+                      if (r.get("name"), r.get("path")) in targets and r.get("status") == "completed"]
+          print(f"[CLEANUP] Found {len(matching)} obsolete completed workflow runs", flush=True)
+          errors = []
+          for i, r in enumerate(matching, 1):
+              rid = r["id"]
+              ok = False
+              for attempt in range(3):
+                  p = subprocess.run(["gh", "api", "-X", "DELETE", "--silent",
+                                      f"repos/{repo}/actions/runs/{rid}"],
+                                     capture_output=True, text=True)
+                  if p.returncode == 0:
+                      ok = True
+                      break
+                  print(f"[CLEANUP] Retry {rid}: {p.stderr.strip()[:300]}", flush=True)
+                  time.sleep(4 * (attempt + 1))
+              if not ok:
+                  errors.append(rid)
+              if i % 10 == 0 or i == len(matching):
+                  print(f"[CLEANUP] Processed {i}/{len(matching)}; errors={len(errors)}", flush=True)
+              time.sleep(1)
+          if errors:
+              print(f"[CLEANUP] Failed deletions: {errors}", file=sys.stderr)
+              sys.exit(1)
+          print(f"[CLEANUP] Deleted {len(matching)} obsolete workflow runs", flush=True)
+          PY
       - uses: actions/checkout@v4
       - name: Verify ROM bridge syntax and install contract
         shell: bash
