@@ -1,0 +1,83 @@
+name: Font Framework Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Full stock OTA ZIP URL (default Xiaomi 15 Pro / OS3.0.308.0.WOBCNXM)'
+        type: string
+        required: true
+        default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: font-framework-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Inspect stock HyperOS font behavior
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout only audit tools (no LFS)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            bin/Linux/x86_64
+            bin/apktool/baksmaliv2.jar
+            bin/package/COREPATCH/font-framework-audit.py
+            bin/package/COREPATCH/run-font-framework-audit.sh
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate audit tools and install OTA fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/package/COREPATCH/run-font-framework-audit.sh
+          python3 -m py_compile bin/package/COREPATCH/font-framework-audit.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends aria2 unzip
+          test -s bin/apktool/baksmaliv2.jar
+          test -s bin/Linux/x86_64/payload-extract
+          test -s bin/Linux/x86_64/gettype
+          test -s bin/Linux/x86_64/extract.erofs
+          echo '[FONT-AUDIT] Tools validated; no ROM build or patch will be performed.'
+
+      - name: Audit stock miui-framework and Settings
+        shell: bash
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p font-framework-audit
+          bash bin/package/COREPATCH/run-font-framework-audit.sh 2>&1 | tee font-framework-audit/run.log
+          test -s font-framework-audit/font-framework-audit.json
+
+      - name: Upload font-framework-audit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: font-framework-audit
+          path: font-framework-audit/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: How to use the result
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          echo '### Font framework audit ready' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Download **font-framework-audit** from the **Artifacts** section of this run.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Contains JSON diagnostics and log, not a flashable ROM.' >> "$GITHUB_STEP_SUMMARY"
