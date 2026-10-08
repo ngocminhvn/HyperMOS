@@ -47,26 +47,53 @@ jobs:
           print("Recovery OTA ZIP detected; HTTP Range supported")
           PY
 
-          # This Python CLI supports direct HTTP-range extraction of specific
-          # partitions inside a remote full-OTA payload.bin.
-          python3 -m venv "$RUNNER_TEMP/payload-venv"
-          "$RUNNER_TEMP/payload-venv/bin/pip" install --disable-pip-version-check android-payload-dumper
-          dumper="$RUNNER_TEMP/payload-venv/bin/payload-dumper"
-          "$dumper" "$OTA_URL" -l --json > "$out/stock/payload-partitions.json"
-          python3 - "$out/stock/payload-partitions.json" <<'PY'
-          import pathlib, sys
-          t = pathlib.Path(sys.argv[1]).read_text()
-          if not ('boot' in t and 'vendor_boot' in t):
-              raise SystemExit('Full OTA is missing boot or vendor_boot partitions')
-          PY
-          "$dumper" "$OTA_URL" -p boot vendor_boot -o "$out/stock" -j 4
-          for image in boot vendor_boot; do
-            test -s "$out/stock/$image.img" || {
-              echo "::error::Missing extracted $image.img"; exit 1;
-            }
+          # Rust alternative after Python's vendor_boot operation SHA mismatch.
+          # Release archive integrity checked; verification is NOT disabled.
+          archive="$RUNNER_TEMP/payload_dumper-linux-x86_64.zip"
+          curl -fLsS --retry 3 \
+            https://github.com/rhythmcache/payload-dumper-rust/releases/download/payload-dumper-rust-v0.8.4/payload_dumper-linux-x86_64.zip \
+            -o "$archive"
+          echo "d2a7cf4d8ef4daa73ebd34e0c6f77eb6c116a1745a1b31ad897e9ce2b2f54151  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/payload-rust"
+          unzip -oq "$archive" -d "$RUNNER_TEMP/payload-rust"
+          dumper="$(find "$RUNNER_TEMP/payload-rust" -type f \( -name payload_dumper -o -name payload-dumper \) -print -quit)"
+          test -n "$dumper" || { echo "::error::Rust dumper missing"; exit 1; }
+          chmod +x "$dumper"
+          "$dumper" --version
+
+          for part in boot vendor_boot; do
+            ok=0
+            for attempt in 1 2 3; do
+              rm -f "$out/stock/$part.img"
+              echo "::group::Rust $part attempt $attempt"
+              if "$dumper" "$OTA_URL" -i "$part" --no-parallel -o "$out/stock" \
+                  && test -s "$out/stock/$part.img"; then
+                ok=1
+                echo "::endgroup::"
+                break
+              fi
+              echo "::warning::Rust extraction hash/IO failure: $part attempt $attempt"
+              echo "::endgroup::"
+              sleep 2
+            done
+            if test "$ok" -eq 0; then
+              echo "::warning::Trying independent single-worker Python extractor"
+              if test ! -x "$RUNNER_TEMP/payload-venv/bin/payload-dumper"; then
+                python3 -m venv "$RUNNER_TEMP/payload-venv"
+                "$RUNNER_TEMP/payload-venv/bin/pip" install --disable-pip-version-check android-payload-dumper==2.3.0
+              fi
+              for attempt in 1 2; do
+                rm -f "$out/stock/$part.img"
+                if "$RUNNER_TEMP/payload-venv/bin/payload-dumper" "$OTA_URL" -p "$part" -o "$out/stock" -j 1 \
+                    && test -s "$out/stock/$part.img"; then ok=1; break; fi
+                sleep 3
+              done
+            fi
+            test "$ok" -eq 1 || { echo "::error::$part failed SHA verification on both extractors"; exit 1; }
           done
           (cd "$out/stock" && sha256sum boot.img vendor_boot.img > image-sha256.txt)
-          echo "Source OTA: $OTA_URL"
+          echo "Successfully extracted both images with payload verification enabled."
+
       - name: Extract kernel binary from stock boot image
         run: |
           set -euo pipefail
@@ -159,7 +186,7 @@ jobs:
 
           This bundle is NOT a flashable custom kernel. DO NOT FLASH its boot images.
 
-          stock/: boot and vendor_boot extracted from the user's Recovery OTA\n          using HTTP-range access and checked against payload partition hashes.
+          stock/: boot and vendor_boot extracted from the user's Recovery OTA\n          using HTTP-range access with payload SHA-256 verification.
           unpacked/kernel: exact stock binary from boot.img.
           source-patch/: real source-level efficiency modification against MiCode
           dada-v-oss (Android 15), NOT compiled for current Android 16.
@@ -195,8 +222,9 @@ jobs:
       - name: Remove temporary dependencies and extraction files
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/payload-venv" "$RUNNER_TEMP/aosp-mkbootimg" \
+          rm -rf "$RUNNER_TEMP/payload-venv" "$RUNNER_TEMP/payload-rust" "$RUNNER_TEMP/aosp-mkbootimg" \
             "$RUNNER_TEMP/patchcheck" "$RUNNER_TEMP/workqueue.c"
+          rm -f "$RUNNER_TEMP/payload_dumper-linux-x86_64.zip"
 
       - name: Self-delete one-time workflow only after successful upload
         if: ${{ success() && inputs.remove_workflow_on_success }}
