@@ -90,7 +90,7 @@
     <string name="quick_settings_other_settings">Cài đặt bổ sung</string>
     <string name="quick_settings_pair_hearing_devices">Ghép nối thiết bị mới</string>
     <string name="quick_settings_state_saved_bt_devices">Thiết bị Bluetooth đã lưu</string>
-    <string name="quick_settings_state_saved_wifi_devices">Mạng Wi-Fi đã lưu</string>
+    <string name="quick_settings_state_saved_wifi_devices">Mạng WLAN đã lưu</string>
     <string name="quick_settings_state_saved_wlan_devices_china">Mạng WLAN đã lưu</string>
     <string name="quick_settings_task_manager_lable">Ứng dụng đang hoạt động</string>
     <string name="screen_capturing_disabled_by_policy_dialog_description">Chính sách thiết bị không cho phép chụp màn hình</string>
