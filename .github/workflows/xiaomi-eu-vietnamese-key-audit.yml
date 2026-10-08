@@ -46,14 +46,17 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL \
             /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake || true
           sudo apt-get update -qq
-          # The bundled Android utilities link to the unversioned libc++.so.
-          # libc++1 alone provides libc++.so.1; libc++-dev provides the .so link.
-          sudo apt-get install -y -qq aria2 unzip aapt libc++-dev libc++abi-dev > /dev/null
+          # Prefer Ubuntu's maintained simg2img: the bundled binary needs
+          # an unversioned libc++.so which is not reliably on the runner's loader path.
+          sudo apt-get install -y -qq aria2 unzip aapt android-sdk-libsparse-utils libc++-dev libc++abi-dev > /dev/null
+          command -v simg2img
           BIN="$GITHUB_WORKSPACE/bin/Linux/x86_64"
-          for utility in simg2img gettype extract.erofs; do
+          for utility in gettype extract.erofs; do
             chmod +x "$BIN/$utility"
             echo "[PRECHECK] Shared libraries for $utility:"
-            dependencies="$(ldd "$BIN/$utility" 2>&1)"
+            # ldd can return nonzero for static or nonstandard executables.
+            # Capture its diagnostics before deciding whether a dependency is missing.
+            dependencies="$(ldd "$BIN/$utility" 2>&1 || true)"
             printf '%s\n' "$dependencies"
             if grep -q 'not found' <<< "$dependencies"; then
               echo "[ERROR] Missing runtime dependency for $utility. Stop before downloading the 8.8 GB ROM."
@@ -76,7 +79,7 @@ jobs:
           WORK="$RUNNER_TEMP/xiaomi-eu"
           mkdir -p "$WORK/parts" "$WORK/unpacked"
           BIN="$GITHUB_WORKSPACE/bin/Linux/x86_64"
-          chmod +x "$BIN/simg2img" "$BIN/payload-extract" "$BIN/gettype" "$BIN/extract.erofs"
+          chmod +x "$BIN/payload-extract" "$BIN/gettype" "$BIN/extract.erofs"
           ZIP="$WORK/xiaomi-eu.zip"
           echo "[EU] Downloading Xiaomi.eu HAOTIAN 8.8 GB ROM"
           if ! aria2c --max-tries=3 --retry-wait=20 --connect-timeout=40 \
@@ -98,7 +101,7 @@ jobs:
             mapfile -t chunks < <(find "$WORK" -maxdepth 1 -name 'super.img*' -type f | sort -V)
             magic="$(head -c 4 "${chunks[0]}" | od -An -tu4 | tr -d ' ')"
             if [[ "$magic" == "3978755898" ]]; then
-              "$BIN/simg2img" "${chunks[@]}" "$WORK/super.raw.img"
+              simg2img "${chunks[@]}" "$WORK/super.raw.img"
             elif (( ${#chunks[@]} == 1 )); then
               mv "${chunks[0]}" "$WORK/super.raw.img"
             else
