@@ -105,7 +105,14 @@ def main():
             ("battery_title", "VI_PRESENT_REVIEW"),
             ("network_options", "MISSING_VI"),
         ]
-        print("[PASS] English -> Vietnamese resource comparison")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "Nothings.Settings" / "values-vi"
+            root.mkdir(parents=True)
+            (root / "strings.xml").write_text(
+                '<resources><string name="battery_title">Tiết kiệm pin</string></resources>',
+                encoding="utf-8")
+            assert strings_at(root.parent, ["values-vi"])["battery_title"][0] == "Tiết kiệm pin"
+        print("[PASS] English -> Vietnamese resource comparison + flattened overlay XML")
         return 0
     for required in ("report", "stock_root", "overlay_xml", "apktool"):
         if getattr(a, required) is None:
