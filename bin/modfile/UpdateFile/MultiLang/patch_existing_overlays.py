@@ -37,9 +37,9 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def signer(apksigner: str, apk: Path) -> str:
+def signer(apksigner: list[str], apk: Path) -> str:
     try:
-        out = output([apksigner, "verify", "--print-certs", str(apk)])
+        out = output(apksigner + ["verify", "--print-certs", str(apk)])
         match = re.search(r"Signer #1 certificate SHA-256 digest:\s*([0-9a-f]+)", out)
         return match.group(1) if match else "unknown"
     except RuntimeError:
@@ -107,11 +107,20 @@ def patch_strings(decoded: Path, patch_file: Path) -> tuple[int, list[str]]:
     return len(changed), changed
 
 
-def check_identity(aapt2: str, orig: Path, patched: Path) -> tuple[str, str]:
+def check_identity(aapt: str, orig: Path, patched: Path, aapt2: bool) -> tuple[str, str]:
     def pkg(apk: Path) -> str:
-        return output([aapt2, "dump", "packagename", str(apk)]).strip()
+        if aapt2:
+            return output([aapt, "dump", "packagename", str(apk)]).strip()
+        info = output([aapt, "dump", "badging", str(apk)])
+        match = re.search(r"(?m)^package: name='([^']+)'", info)
+        if not match:
+            raise RuntimeError(f"Could not read Android package name: {apk.name}")
+        return match.group(1)
     def target(apk: Path) -> str:
-        out = output([aapt2, "dump", "xmltree", str(apk), "--file", "AndroidManifest.xml"])
+        if aapt2:
+            out = output([aapt, "dump", "xmltree", str(apk), "--file", "AndroidManifest.xml"])
+        else:
+            out = output([aapt, "dump", "xmltree", str(apk), "AndroidManifest.xml"])
         match = re.search(r'\btargetPackage\b[^\n]*?="([^"]+)"', out)
         if not match:
             raise RuntimeError(f"Overlay targetPackage missing: {apk.name}")
@@ -128,13 +137,21 @@ def main() -> int:
     ap.add_argument("--patches", type=Path, required=True)
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--apktool", type=Path, required=True)
-    ap.add_argument("--aapt2", required=True)
-    ap.add_argument("--apksigner", required=True)
+    resources = ap.add_mutually_exclusive_group(required=True)
+    resources.add_argument("--aapt2")
+    resources.add_argument("--aapt")
+    signing = ap.add_mutually_exclusive_group(required=True)
+    signing.add_argument("--apksigner")
+    signing.add_argument("--apksigner-jar")
     ap.add_argument("--zipalign", required=True)
     ap.add_argument("--key", type=Path, required=True)
     ap.add_argument("--cert", type=Path, required=True)
     args = ap.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    apk_signer = ([args.apksigner] if args.apksigner else
+                  ["java", "-jar", str(args.apksigner_jar)])
+    resource_tool = args.aapt2 or args.aapt
+    resource_is_aapt2 = args.aapt2 is not None
     report: list[dict] = []
     failures = []
 
@@ -156,7 +173,7 @@ def main() -> int:
                          "d", "-f", "-s", str(src), "-o", str(decoded)], log)
                 row["changes"], row["names"] = patch_strings(decoded, patch)
                 row["original_sha256"] = sha(src)
-                row["original_signer"] = signer(args.apksigner, src)
+                row["original_signer"] = signer(apk_signer, src)
                 if not row["changes"]:
                     row["status"] = "unchanged"
                     report.append(row)
@@ -164,15 +181,17 @@ def main() -> int:
                 execute(["java", "-Xmx3g", "-jar", str(args.apktool),
                          "b", str(decoded), "-o", str(unsigned)], log)
                 execute([args.zipalign, "-f", "4", str(unsigned), str(aligned)], log)
-                execute([args.apksigner, "sign", "--key", str(args.key), "--cert",
+                execute(apk_signer + ["sign", "--key", str(args.key), "--cert",
                          str(args.cert), "--out", str(target), str(aligned)], log)
-                execute([args.apksigner, "verify", "--print-certs", str(target)], log)
+                execute(apk_signer + ["verify", "--print-certs", str(target)], log)
                 row["package"], row["target_package"] = check_identity(
-                    args.aapt2, src, target
+                    resource_tool, src, target, resource_is_aapt2
                 )
                 row["patched_sha256"] = sha(target)
-                row["patched_signer"] = signer(args.apksigner, target)
+                row["patched_signer"] = signer(apk_signer, target)
                 row["signer_preserved"] = row["original_signer"] == row["patched_signer"]
+                if not row["signer_preserved"] or row["original_signer"] in ("unknown", "unverified"):
+                    raise RuntimeError(f"Original signing certificate differs for {name}")
                 row["status"] = "candidate_needs_device_validation"
                 print(f"[RRO] {name}: {row['changes']} changed resources; "
                       f"signature-preserved={row['signer_preserved']}")
