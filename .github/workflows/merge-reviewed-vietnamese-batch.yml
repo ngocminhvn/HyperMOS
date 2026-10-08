@@ -1,0 +1,114 @@
+name: Merge original Vietnamese translations into existing RROs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/merge-reviewed-vietnamese-batch.yml'
+      - 'bin/modfile/UpdateFile/MultiLang/owned-additions-batch/**'
+      - 'bin/modfile/UpdateFile/MultiLang/merge_owned_vi.py'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: reviewed-vi-batch-merge-main
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - name: Checkout existing original overlays
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+          lfs: false
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: APK building utilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y aapt zipalign > /dev/null
+          command -v aapt
+          command -v zipalign
+
+      - name: Retrieve verified English stock resources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock-en"
+          gh run download 37764405522 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name vietnamese-translation-audit \
+            --dir "$RUNNER_TEMP/stock-en"
+          test -s "$RUNNER_TEMP/stock-en/english-vietnamese-review.csv"
+
+      - name: Validate merge engine and compile all original overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="bin/modfile/UpdateFile/MultiLang/merge_owned_vi.py"
+          dir="bin/modfile/UpdateFile/MultiLang"
+          python3 -m py_compile "$script"
+          python3 "$script" --self-test
+          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
+            echo "::group::Add reviewed Vietnamese: $name"
+            python3 "$script" \
+              --original "$dir/updatesource/$name.apk" \
+              --patch "$dir/owned-additions-batch/$name.xml" \
+              --english-review "$RUNNER_TEMP/stock-en/english-vietnamese-review.csv" \
+              --output "$RUNNER_TEMP/vi-batch/$name" \
+              --apktool bin/apktool/apktool.jar \
+              --apksigner-jar bin/apktool/apksigner.jar \
+              --aapt "$(command -v aapt)" \
+              --zipalign "$(command -v zipalign)" \
+              --key bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8 \
+              --cert bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
+            test -s "$RUNNER_TEMP/vi-batch/$name/$name.apk"
+            cat "$RUNNER_TEMP/vi-batch/$name/patch-report.json" >> "$GITHUB_STEP_SUMMARY"
+            echo "::endgroup::"
+          done
+
+      - name: Commit all four original APKs only if every validation passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="bin/modfile/UpdateFile/MultiLang/updatesource"
+          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
+            cp "$RUNNER_TEMP/vi-batch/$name/$name.apk" "$dir/$name.apk"
+            git add "$dir/$name.apk"
+          done
+          if git diff --cached --quiet; then
+            echo "[VI-MERGE] No binary changes to commit"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m "l10n(vi): add reviewed original translations into existing HyperMOS overlay APKs"
+          git push origin HEAD:main
+
+      - name: Upload diagnostic reports (no APK copies)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vietnamese-reviewed-batch-merge-report
+          path: |
+            ${{ runner.temp }}/vi-batch/**/patch-report.json
+            ${{ runner.temp }}/vi-batch/**/patch.log
+          if-no-files-found: warn
+          retention-days: 14
