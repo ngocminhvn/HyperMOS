@@ -105,6 +105,7 @@ jobs:
 
           # Fast-fail invalid font integration before unpacking the base ROM.
           python3 -m py_compile bin/modfile/UpdateFile/Fonts/font_utils.py
+          python3 -m py_compile bin/package/COREPATCH/font-framework-audit.py
           bash -n bin/modfile/UpdateFile/Fonts/update.sh
 
           sudo chmod -R a+rwX .
@@ -130,6 +131,15 @@ jobs:
           echo "[PHASE] - Build ROM" | tee -a build_action.log
           sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
             "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
+
+      - name: Preserve font framework audit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: font-framework-audit
+          path: build/diagnostics/font-framework-audit.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Pack ROM
         shell: bash
