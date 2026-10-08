@@ -9,7 +9,7 @@ from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw, ImageFont
 
 # Ten stops, matching the ten-step MiSans/MIUI font-weight selector.
-MIUI_STOPS = (100, 200, 300, 350, 400, 500, 600, 700, 800, 950)
+MIUI_STOPS = (100, 200, 300, 350, 400, 500, 700, 800, 900, 950)
 
 
 def weight_stops(font: TTFont, title: str) -> str:
