@@ -42,7 +42,8 @@ ensure_local_payload() {
 }
 
 extract_image() {
-    local part="$1" image="$IMAGES/$part.img" input
+    local part="$1" image input
+    image="$IMAGES/$part.img"
     if [[ ! -s "$image" ]]; then
         if [[ -s "$PAYLOAD" ]]; then
             input="$PAYLOAD"
