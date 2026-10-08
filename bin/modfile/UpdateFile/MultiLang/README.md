@@ -3,6 +3,32 @@
 The bundled translations live in `updatesource/` (67 prebuilt `Nothings.*.apk`
 RRO packages). **Do not delete or overwrite these files automatically.**
 
+## Verified additive language menu translations (OS3.0.308)
+
+`owned-additions/Nothings.Settings.xml` contains 22 **new, independently
+written** Vietnamese UI strings from the stock English **Language & region**
+screen. These strings were checked against the stock Settings.apk's
+`MISSING_VI` resources. They were added to the **existing**
+`updatesource/Nothings.Settings.apk` by the
+[`Merge reviewed Vietnamese into existing overlays`](../../../../.github/workflows/merge-reviewed-vietnamese.yml)
+workflow, without overwriting old Vietnamese strings, changing the Android
+overlay package ID/target, or changing its signing certificate.
+
+**This localizes the Language & region screen text.** It does not change the
+list of languages the China ROM exposes in the locale picker.
+To open the picker on a running phone, use Settings search for
+`Language & region` / `Add a language`. If Vietnamese is missing from
+the offered locales, check the underlying Xiaomi Settings locale filters
+separately rather than trying to solve it by inserting extra string resources.
+
+The community Xiaomi.eu translation repository is used as **reference for
+resource-name coverage only**. Its public repository has no explicit license;
+this project does not copy its full translated XML text or distribute the
+1,676 candidate translations without permission. The
+`Xiaomi.eu Vietnamese Resource Gap Audit` artifact contains only candidate
+resource names, including 1,676 stock-validated gaps, not the translation
+text itself. Treat these as review candidates, not completed translations.
+
 ## What changed
 
 - Read-only audit: `translation_audit.py`.
