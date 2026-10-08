@@ -173,7 +173,7 @@ def catalog(source_dir: Path, outdir: Path) -> None:
     seen_titles = set()
     for file in fonts:
         key = file.name.casefold()
-        if any(mark in file.name for mark in ("\\t", "\\n", "\\r", '"')):
+        if any(mark in file.name for mark in ("\t", "\n", "\r", '"')):
             raise ValueError(f"Invalid filename for tab-separated catalog: {file.name!r}")
         if key in seen_files:
             raise ValueError(f"Duplicate case-insensitive font filename: {file.name}")
