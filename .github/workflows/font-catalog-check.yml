@@ -1,0 +1,97 @@
+name: Font Catalog Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'bin/modfile/UpdateFile/Fonts/**'
+      - '.github/workflows/font-catalog-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout only font assets and scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            bin/modfile/UpdateFile/Fonts
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install minimal font validators
+        run: python3 -m pip install --disable-pip-version-check fonttools pillow
+
+      - name: Validate real source fonts
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOL=bin/modfile/UpdateFile/Fonts/font_utils.py
+          SRC=bin/modfile/UpdateFile/Fonts/HyperOS
+          python3 -m py_compile "$TOOL"
+          bash -n bin/modfile/UpdateFile/Fonts/update.sh
+          python3 "$TOOL" catalog "$SRC" "$RUNNER_TEMP/catalog"
+          python3 "$TOOL" preview "SF Pro" "$RUNNER_TEMP/catalog/prepared-9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102.ttf" "$RUNNER_TEMP/sample.png"
+          test -s "$RUNNER_TEMP/sample.png"
+          python3 - "$RUNNER_TEMP/catalog/catalog.json" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1]))
+          names=[x['title'] for x in data]
+          assert "SF Pro" in names and "Roboto" in names, names
+          assert len(names)==len(set(names)), names
+          assert all(len(x['weights'].split(','))==10 for x in data)
+          print("[TEST] PASS: real fonts, 10 weight points, metadata and SF preview")
+          PY
+
+      - name: Verify adding a third font needs no code changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOL=bin/modfile/UpdateFile/Fonts/font_utils.py
+          SRC=bin/modfile/UpdateFile/Fonts/HyperOS
+          mkdir -p "$RUNNER_TEMP/three"
+          cp "$SRC/SF-Pro.ttf" "$SRC/Roboto-VF.ttf" "$SRC/NotoColorEmoji.ttf" "$RUNNER_TEMP/three/"
+          cp "$SRC/Roboto-VF.ttf" "$RUNNER_TEMP/three/InterTest-VF.ttf"
+          python3 "$TOOL" catalog "$RUNNER_TEMP/three" "$RUNNER_TEMP/catalog-three"
+          python3 - "$RUNNER_TEMP/catalog/catalog.json" "$RUNNER_TEMP/catalog-three/catalog.json" <<'PY'
+          import json,sys
+          old=json.load(open(sys.argv[1]))
+          new=json.load(open(sys.argv[2]))
+          by_file={x["file"]:x for x in old}
+          updated={x["file"]:x for x in new}
+          assert len(new)==3, [x["file"] for x in new]
+          assert "InterTest-VF.ttf" in updated
+          assert updated["InterTest-VF.ttf"]["title"]=="InterTest"
+          for name in ("SF-Pro.ttf", "Roboto-VF.ttf"):
+              assert updated[name]["font_id"]==by_file[name]["font_id"]
+              assert updated[name]["theme_id"]==by_file[name]["theme_id"]
+          print("[TEST] PASS: adding a third VF is automatic; prior IDs unchanged")
+          PY
+
+      - name: Test static-font fast failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOL=bin/modfile/UpdateFile/Fonts/font_utils.py
+          SRC=bin/modfile/UpdateFile/Fonts/HyperOS
+          mkdir -p "$RUNNER_TEMP/invalid"
+          cp "$SRC/Roboto-VF.ttf" "$RUNNER_TEMP/invalid/Roboto-VF.ttf"
+          # An invalid font must never publish an incomplete catalog.
+          printf 'not-a-ttf' > "$RUNNER_TEMP/invalid/Broken.ttf"
+          if python3 "$TOOL" catalog "$RUNNER_TEMP/invalid" "$RUNNER_TEMP/invalid-output"; then
+            echo "[TEST] ERROR: bad font was accepted"
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/invalid-output/catalog.tsv"
+          echo "[TEST] PASS: malformed font fails without stale catalog"
