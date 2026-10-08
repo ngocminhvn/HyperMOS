@@ -79,9 +79,14 @@ def looks_english(value):
     }
 
 
-def compare(source, vi, overlay, target, stock):
+def compare(source, vi, overlay, target, stock, native_vi=None):
     result = []
+    native_vi = native_vi or {}
     for name, (english, locale) in sorted(source.items()):
+        # Stock Vietnamese takes precedence: translating it again would be
+        # redundant, even when an external overlay lacks the same resource.
+        if name in native_vi:
+            continue
         if not looks_english(english):
             continue
         vietnamese = vi.get(name, ("", ""))[0]
@@ -114,6 +119,10 @@ def main():
         assert [(x["resource_name"], x["status"]) for x in found] == [
             ("battery_title", "VI_PRESENT_REVIEW"),
             ("network_options", "MISSING_VI"),
+        ]
+        assert compare(src, {}, "Nothings.Settings", "com.android.settings",
+                       "Settings.apk", native_vi={"network_options": ("Cài đặt mạng", "values-vi")}) == [
+            x for x in found if x["resource_name"] == "battery_title"
         ]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "Nothings.Settings" / "values-vi"
@@ -162,7 +171,11 @@ def main():
             vietnamese = strings_at(translated, [
                 "values-vi", "values-vi-rVN", "values-b+vi+VN",
             ])
-            rows.extend(compare(english, vietnamese, name, target, source))
+            native_vi = strings_at(location, [
+                "values-vi", "values-vi-rVN", "values-b+vi+VN",
+            ])
+            rows.extend(compare(english, vietnamese, name, target, source,
+                                native_vi=native_vi))
     a.output.mkdir(parents=True, exist_ok=True)
     with (a.output / "english-vietnamese-all.csv").open(
         "w", newline="", encoding="utf-8-sig"
