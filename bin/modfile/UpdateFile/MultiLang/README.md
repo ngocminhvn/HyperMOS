@@ -35,31 +35,13 @@ redistribution; do not assume its entire values-vi XML can be copied merely
 because it is publicly readable. Instead, independently translate remaining
 English stock resources and review correctness before merging.
 
-## Verified additive language menu translations (OS3.0.308)
+## Language/region translations intentionally retired
 
-`owned-additions/Nothings.Settings.xml` contains 22 **new, independently
-written** Vietnamese UI strings from the stock English **Language & region**
-screen. These strings were checked against the stock Settings.apk's
-`MISSING_VI` resources. They were added to the **existing**
-`updatesource/Nothings.Settings.apk` by the
-[`Merge reviewed Vietnamese into existing overlays`](../../../../.github/workflows/merge-reviewed-vietnamese.yml)
-workflow, without overwriting old Vietnamese strings, changing the Android
-overlay package ID/target, or changing its signing certificate.
-
-**This localizes the Language & region screen text.** It does not change the
-list of languages the China ROM exposes in the locale picker.
-To open the picker on a running phone, use Settings search for
-`Language & region` / `Add a language`. If Vietnamese is missing from
-the offered locales, check the underlying Xiaomi Settings locale filters
-separately rather than trying to solve it by inserting extra string resources.
-
-The community Xiaomi.eu translation repository is used as **reference for
-resource-name coverage only**. Its public repository has no explicit license;
-this project does not copy its full translated XML text or distribute the
-1,676 candidate translations without permission. The
-`Xiaomi.eu Vietnamese Resource Gap Audit` artifact contains only candidate
-resource names, including 1,676 stock-validated gaps, not the translation
-text itself. Treat these as review candidates, not completed translations.
+The earlier 22 source-owned Language & region labels were removed from
+the existing Settings RRO after user testing confirmed that Vietnamese
+language selection was already supported by the original overlays.
+The 85 newer independently translated Settings strings remain intact.
+The retired-language-region.keys list prevents future accidental re-addition.
 
 ## What changed
 
