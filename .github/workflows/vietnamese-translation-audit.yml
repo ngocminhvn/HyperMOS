@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/vietnamese-translation-audit.yml'
       - 'bin/modfile/UpdateFile/MultiLang/translation_audit.py'
+      - 'bin/modfile/UpdateFile/MultiLang/compare_english_vi.py'
       - 'bin/modfile/UpdateFile/MultiLang/updatesource/**'
   workflow_dispatch:
     inputs:
@@ -50,6 +51,8 @@ jobs:
           set -euo pipefail
           python3 -m py_compile bin/modfile/UpdateFile/MultiLang/translation_audit.py
           python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py --self-test
+          python3 -m py_compile bin/modfile/UpdateFile/MultiLang/compare_english_vi.py
+          python3 bin/modfile/UpdateFile/MultiLang/compare_english_vi.py --self-test
 
       - name: Extract stock application resources (optional)
         shell: bash
@@ -150,6 +153,25 @@ jobs:
             echo "[OK] Exported existing vi strings for $name"
           done
 
+      - name: Compare original English strings with current Vietnamese overlays
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${STOCK_APKS:-}" ]]; then
+            echo "[EN-VI] Stock ROM not supplied. Cannot infer missing translations from overlays alone."
+            printf '%s\n' 'English→Vietnamese resource comparison requires the matching stock ROM OTA.' \
+              > translation-audit/ENGLISH_VI.md
+          else
+            python3 bin/modfile/UpdateFile/MultiLang/compare_english_vi.py \
+              --report translation-audit/report.json \
+              --stock-root "$STOCK_APKS" \
+              --overlay-xml translation-audit/current-xml \
+              --apktool bin/apktool/apktool.jar \
+              --output translation-audit
+            cat translation-audit/ENGLISH_VI.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload read-only audit report (original APKs untouched)
         if: always()
         uses: actions/upload-artifact@v4
@@ -159,6 +181,10 @@ jobs:
             translation-audit/SUMMARY.md
             translation-audit/report.json
             translation-audit/missing.csv
+            translation-audit/english-vietnamese-all.csv
+            translation-audit/english-vietnamese-review.csv
+            translation-audit/english-vi-summary.json
+            translation-audit/ENGLISH_VI.md
             translation-audit/current-xml/
             translation-audit/apktool-errors.txt
           if-no-files-found: warn
