@@ -3,6 +3,38 @@
 The bundled translations live in `updatesource/` (67 prebuilt `Nothings.*.apk`
 RRO packages). **Do not delete or overwrite these files automatically.**
 
+## New HyperOS 3 translations merged into existing APKs
+
+Commit `207abc07dba65abaae7b1aac703779c769f94b88` adds **358 new,
+independently authored** Vietnamese strings to the original existing RRO APKs:
+
+| Existing overlay APK | Added string keys |
+| --- | ---: |
+| Nothings.Settings.apk | 85 |
+| Nothings.MiuiSystemUI.apk | 115 |
+| Nothings.MiuiSystemUIPlugin.apk | 56 |
+| Nothings.SecurityCenter.apk | 102 |
+| **Total in this batch** | **358** |
+
+All additions are kept as original source XML under `owned-additions-batch/`.
+Workflow [Merge original Vietnamese translations into existing RROs]
+(../../../../.github/workflows/merge-reviewed-vietnamese-batch.yml) verifies
+each name against matching HyperOS 3 stock English `MISSING_VI` entries,
+rejects conflicting old translations or mismatched placeholders, and checks
+matching overlay package/target and signing certificate. The 4 existing APKs
+are replaced in the *repository* only after all 4 pass the checks. No extra
+overlay APKs and no framework/boot changes are made.
+
+**These 358 are only part of the 1,676 candidate gaps**, not a claim that
+1,676 translations have been added. The earlier independent language/region
+batch adds a further 22 Settings strings. Real-device RRO/idmap rendering
+has not been independently tested.
+
+The upstream public community translation repo is not licensed for bulk
+redistribution; do not assume its entire values-vi XML can be copied merely
+because it is publicly readable. Instead, independently translate remaining
+English stock resources and review correctness before merging.
+
 ## Verified additive language menu translations (OS3.0.308)
 
 `owned-additions/Nothings.Settings.xml` contains 22 **new, independently
