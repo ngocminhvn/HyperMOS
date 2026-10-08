@@ -237,6 +237,8 @@ def write_reports(result: dict, dest: Path) -> None:
     if result["duplicate_overlay_package_ids"]:
         lines += ["", "## Duplicate overlay package IDs", ""]
         lines += [f"- {k}: {', '.join(v)}" for k, v in result["duplicate_overlay_package_ids"].items()]
+        lines += ["", "Warning: multiple installed APKs sharing one overlay package ID may conflict.",
+                  "This existing collision is reported but does not invalidate all 67 APKs."]
     lines += [
         "", "## How to proceed", "",
         "Review missing.csv and the installed overlay state before authoring replacement resources.",
@@ -298,8 +300,10 @@ def main() -> int:
     print(f"[TRANSLATION AUDIT] {result['valid_overlay_apks']}/{len(paths)} valid overlays")
     print(f"[TRANSLATION AUDIT] {result['stock_targets_found']} matched stock targets")
     print(f"[TRANSLATION AUDIT] report: {args.output / 'SUMMARY.md'}")
-    if result["invalid"] or result["duplicate_overlay_package_ids"]:
-        print("[TRANSLATION AUDIT] errors detected — check SUMMARY.md", file=sys.stderr)
+    if result["duplicate_overlay_package_ids"]:
+        print("[TRANSLATION AUDIT] WARNING: duplicated overlay package IDs (review collision table)", file=sys.stderr)
+    if result["invalid"]:
+        print("[TRANSLATION AUDIT] ERROR: invalid overlay APK(s) — check SUMMARY.md", file=sys.stderr)
         return 1
     return 0
 
