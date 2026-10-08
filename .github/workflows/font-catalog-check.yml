@@ -104,8 +104,9 @@ jobs:
           from fontTools.varLib.instancer import instantiateVariableFont
           import sys
           f=TTFont(sys.argv[1])
-          instance=instantiateVariableFont(f, {"wght": 400}, inplace=True)
-          assert "fvar" not in instance
+          axes={axis.axisTag: axis.defaultValue for axis in f["fvar"].axes}
+          instance=instantiateVariableFont(f, axes, inplace=True)
+          assert "fvar" not in instance, "Unexpected variable axes remain"
           instance.save(sys.argv[2])
           PY
           if python3 "$TOOL" catalog "$RUNNER_TEMP/invalid" "$RUNNER_TEMP/invalid-output"; then
