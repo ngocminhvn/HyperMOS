@@ -2,12 +2,6 @@ name: Merge original Vietnamese translations into existing RROs
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/merge-reviewed-vietnamese-batch.yml'
-      - 'bin/modfile/UpdateFile/MultiLang/owned-additions-batch/**'
-      - 'bin/modfile/UpdateFile/MultiLang/merge_owned_vi.py'
 
 permissions:
   contents: write
