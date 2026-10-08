@@ -46,7 +46,20 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL \
             /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake || true
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 unzip aapt > /dev/null
+          # The bundled Android utilities link to the unversioned libc++.so.
+          # libc++1 alone provides libc++.so.1; libc++-dev provides the .so link.
+          sudo apt-get install -y -qq aria2 unzip aapt libc++-dev libc++abi-dev > /dev/null
+          BIN="$GITHUB_WORKSPACE/bin/Linux/x86_64"
+          for utility in simg2img gettype extract.erofs; do
+            chmod +x "$BIN/$utility"
+            echo "[PRECHECK] Shared libraries for $utility:"
+            dependencies="$(ldd "$BIN/$utility" 2>&1)"
+            printf '%s\n' "$dependencies"
+            if grep -q 'not found' <<< "$dependencies"; then
+              echo "[ERROR] Missing runtime dependency for $utility. Stop before downloading the 8.8 GB ROM."
+              exit 1
+            fi
+          done
           SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           AAPT2="$SDK_ROOT/build-tools/36.0.0/aapt2"
           test -x "$AAPT2" || { echo "[ERROR] Android 36 aapt2 missing"; exit 1; }
