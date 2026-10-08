@@ -1,0 +1,180 @@
+name: Xiaomi.eu Vietnamese Key Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      eu_rom_url:
+        description: Official Xiaomi.eu HAOTIAN OS3.0.309.0 Android 16 ZIP (HTTPS)
+        required: true
+        default: https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/xiaomi-eu-vietnamese-key-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  eu-key-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout existing 67 Nothings RROs
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Validate comparison and protect existing 358 translations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/modfile/UpdateFile/MultiLang/compare_eu_vi_keys.py
+          python3 bin/modfile/UpdateFile/MultiLang/compare_eu_vi_keys.py --self-test
+          python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py --self-test
+          python3 bin/modfile/UpdateFile/MultiLang/verify_compiled_vi.py \
+            --multilang-dir bin/modfile/UpdateFile/MultiLang \
+            --apktool bin/apktool/apktool.jar \
+            --output eu-vi-audit/before
+          test "$(find bin/modfile/UpdateFile/MultiLang/updatesource -maxdepth 1 -name 'Nothings.*.apk' | wc -l)" -eq 67
+
+      - name: Prepare disk and Android build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL \
+            /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 unzip aapt > /dev/null
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          AAPT2="$SDK_ROOT/build-tools/36.0.0/aapt2"
+          test -x "$AAPT2" || { echo "[ERROR] Android 36 aapt2 missing"; exit 1; }
+          echo "AAPT2_PATH=$AAPT2" >> "$GITHUB_ENV"
+          df -h /
+
+      - name: Download and extract Xiaomi.eu HAOTIAN resource partitions
+        shell: bash
+        env:
+          EU_URL: ${{ inputs.eu_rom_url || 'https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip' }}
+        run: |
+          set -euo pipefail
+          [[ "$EU_URL" == https://* ]] || { echo "[ERROR] HTTPS ROM URL required"; exit 1; }
+          WORK="$RUNNER_TEMP/xiaomi-eu"
+          mkdir -p "$WORK/parts" "$WORK/unpacked"
+          BIN="$GITHUB_WORKSPACE/bin/Linux/x86_64"
+          chmod +x "$BIN/simg2img" "$BIN/payload-extract" "$BIN/gettype" "$BIN/extract.erofs"
+          ZIP="$WORK/xiaomi-eu.zip"
+          echo "[EU] Downloading Xiaomi.eu HAOTIAN 8.8 GB ROM"
+          if ! aria2c --max-tries=3 --retry-wait=20 --connect-timeout=40 \
+              -x 4 -s 4 --file-allocation=none -d "$WORK" -o xiaomi-eu.zip "$EU_URL"; then
+            echo "[WARN] SourceForge redirect failed; retrying mirror"
+            rm -f "$ZIP" "$ZIP.aria2"
+            aria2c --max-tries=3 --retry-wait=20 --connect-timeout=40 \
+              -x 4 -s 4 --file-allocation=none -d "$WORK" -o xiaomi-eu.zip \
+              "https://zenlayer.dl.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip"
+          fi
+          echo "c5dfb269f3ece9128896ecfecc8591fe1468728de29eb505c53402447a70b77f  $ZIP" | sha256sum -c -
+          mapfile -t members < <(unzip -Z1 "$ZIP" | grep -E '^images/super\.img(\.[0-9]+)?$' | sort -V || true)
+          if (( ${#members[@]} )); then
+            echo "[EU] Extracting super image chunks only"
+            for member in "${members[@]}"; do
+              unzip -p "$ZIP" "$member" > "$WORK/$(basename "$member")"
+            done
+            rm -f "$ZIP"
+            mapfile -t chunks < <(find "$WORK" -maxdepth 1 -name 'super.img*' -type f | sort -V)
+            magic="$(head -c 4 "${chunks[0]}" | od -An -tu4 | tr -d ' ')"
+            if [[ "$magic" == "3978755898" ]]; then
+              "$BIN/simg2img" "${chunks[@]}" "$WORK/super.raw.img"
+            elif (( ${#chunks[@]} == 1 )); then
+              mv "${chunks[0]}" "$WORK/super.raw.img"
+            else
+              echo "[ERROR] Unexpected multipart non-sparse super image"
+              exit 1
+            fi
+            rm -f "${chunks[@]}"
+            python3 bin/lpunpack.py --info "$WORK/super.raw.img" > "$WORK/super-info.txt"
+            for part in product system_ext system mi_ext; do
+              if grep -Eq "(^|[[:space:]])${part}_a([[:space:]]|$)" "$WORK/super-info.txt"; then
+                candidate="${part}_a"
+              elif grep -Eq "(^|[[:space:]])$part([[:space:]]|$)" "$WORK/super-info.txt"; then
+                candidate="$part"
+              else
+                echo "[WARN] Partition $part missing in super"
+                continue
+              fi
+              python3 bin/lpunpack.py -p "$candidate" "$WORK/super.raw.img" "$WORK/parts"
+              mv "$WORK/parts/$candidate.img" "$WORK/parts/$part.img"
+            done
+            rm -f "$WORK/super.raw.img"
+          elif unzip -Z1 "$ZIP" | grep -qx 'payload.bin'; then
+            unzip -p "$ZIP" payload.bin > "$WORK/payload.bin"
+            rm -f "$ZIP"
+            for part in product system_ext system mi_ext; do
+              "$BIN/payload-extract" extract "$WORK/payload.bin" -p "$part" -o "$WORK/parts" -j 2 || true
+            done
+            rm -f "$WORK/payload.bin"
+          else
+            echo "[ERROR] ROM contains neither images/super.img nor payload.bin"
+            exit 1
+          fi
+          for part in product system_ext system mi_ext; do
+            img="$WORK/parts/$part.img"
+            [[ -s "$img" ]] || continue
+            fs="$("$BIN/gettype" -i "$img" || true)"
+            [[ "$fs" == "erofs" ]] || { echo "[WARN] Unsupported $part filesystem: $fs"; continue; }
+            mkdir -p "$WORK/unpacked/$part"
+            "$BIN/extract.erofs" -x -i "$img" -o "$WORK/unpacked/$part" >/dev/null
+            rm -f "$img"
+          done
+          test -d "$WORK/unpacked/product" || { echo "[ERROR] Missing Xiaomi.eu product APKs"; exit 1; }
+          echo "EU_APKS=$WORK/unpacked" >> "$GITHUB_ENV"
+          df -h /
+
+      - name: Match Xiaomi.eu APKs to existing Nothings RRO targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py \
+            --overlays bin/modfile/UpdateFile/MultiLang/updatesource \
+            --extra-overlays bin/modfile/UpdateFile/MultiLang/supplemental \
+            --stock-apks "$EU_APKS" \
+            --aapt2 "$AAPT2_PATH" \
+            --output eu-vi-audit
+
+      - name: Compare Vietnamese resource keys without copying translated text
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/modfile/UpdateFile/MultiLang/compare_eu_vi_keys.py \
+            --report eu-vi-audit/report.json \
+            --eu-root "$EU_APKS" \
+            --overlays bin/modfile/UpdateFile/MultiLang/updatesource \
+            --retired bin/modfile/UpdateFile/MultiLang/retired-language-region.keys \
+            --apktool bin/apktool/apktool.jar \
+            --output eu-vi-audit
+          cat eu-vi-audit/EU_VI.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify compiled overlays remain untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- bin/modfile/UpdateFile/MultiLang/updatesource
+          python3 bin/modfile/UpdateFile/MultiLang/verify_compiled_vi.py \
+            --multilang-dir bin/modfile/UpdateFile/MultiLang \
+            --apktool bin/apktool/apktool.jar \
+            --output eu-vi-audit/after
+
+      - name: Upload read-only Xiaomi.eu key report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-eu-vietnamese-key-audit
+          path: |
+            eu-vi-audit/EU_VI.md
+            eu-vi-audit/eu-vi-summary.json
+            eu-vi-audit/eu-vi-resource-keys.csv
+            eu-vi-audit/before/compiled-vi-check.json
+            eu-vi-audit/after/compiled-vi-check.json
+          if-no-files-found: warn
+          retention-days: 14
