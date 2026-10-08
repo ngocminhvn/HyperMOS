@@ -183,15 +183,83 @@ case "$tnm_compression" in
     ;;
 esac
 
-tnm_pkg="$(aapt dump badging "$tnm_apk" 2>/dev/null | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n1)"
+# Do not preinstall TNM 1.3.32: 1.3.33 is the first version the
+# user confirmed opens after an in-place APK update.
+tnm_badging="$(aapt dump badging "$tnm_apk")" || {
+  error "TNM App: aapt could not inspect downloaded APK"
+  exit 1
+}
+tnm_pkg="$(printf '%s\n' "$tnm_badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n1)"
+tnm_version_name="$(printf '%s\n' "$tnm_badging" | sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" | head -n1)"
+tnm_version_code="$(printf '%s\n' "$tnm_badging" | sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" | head -n1)"
 [[ "$tnm_pkg" == "com.android.trinhngocminh" ]] || {
   error "TNM App: unexpected package '$tnm_pkg'"
   exit 1
 }
+if ! python3 - "$tnm_update_json" "$tnm_version_name" "$tnm_version_code" <<'PY'
+import json
+import re
+import sys
 
-install -d "$tnm_part/priv-app/TNM" "$tnm_part/etc/permissions"
-install -m 0644 "$tnm_apk" "$tnm_part/priv-app/TNM/TNM.apk"
+metadata_path, version_name, version_code = sys.argv[1:]
+with open(metadata_path, encoding="utf-8") as file:
+    metadata = json.load(file)
+match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version_name)
+if not match or tuple(map(int, match.groups())) < (1, 3, 33):
+    sys.exit(f"TNM App: need version >= 1.3.33; APK contains {version_name!r}")
+if metadata.get("versionName") != version_name:
+    sys.exit("TNM App: update.json versionName disagrees with actual APK")
+if str(metadata.get("versionCode")) != version_code:
+    sys.exit("TNM App: update.json versionCode disagrees with actual APK")
+print(f"[MODS] - TNM privileged app -> verified APK {version_name} (code {version_code})")
+PY
+then
+  error "TNM App: downloaded APK version verification failed"
+  exit 1
+fi
+
+tnm_app_dir="$tnm_part/priv-app/TNM"
+install -d "$tnm_app_dir" "$tnm_part/etc/permissions"
+install -m 0644 "$tnm_apk" "$tnm_app_dir/TNM.apk"
 install -m 0644 "$src_priv" "$tnm_part/etc/permissions/privapp-permissions-tnm.xml"
+
+# TNM launches through DuckDetector's NativeActivity. Preloaded APKs under
+# /product/priv-app can behave differently from APK updates under /data/app:
+# stage bundled arm64 native libraries at the recognized system-app lib path.
+if ! python3 - "$tnm_apk" "$tnm_app_dir/lib/arm64" <<'PY'
+import os
+from pathlib import Path
+import shutil
+import sys
+import zipfile
+
+apk, lib_dir = sys.argv[1], Path(sys.argv[2])
+prefix = "lib/arm64-v8a/"
+with zipfile.ZipFile(apk) as source:
+    members = sorted(
+        (item for item in source.infolist()
+         if item.filename.startswith(prefix)
+         and item.filename.count("/") == 2
+         and item.filename.endswith(".so")
+         and not item.is_dir()),
+        key=lambda item: item.filename
+    )
+    if not any(item.filename == prefix + "libduckdetector.so" for item in members):
+        sys.exit("TNM App: libduckdetector.so (arm64-v8a) missing from APK")
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    for item in members:
+        target = lib_dir / Path(item.filename).name
+        with source.open(item) as read, target.open("wb") as write:
+            shutil.copyfileobj(read, write)
+        os.chmod(target, 0o644)
+        if target.stat().st_size == 0:
+            sys.exit(f"TNM App: empty extracted native library: {target.name}")
+print(f"[MODS] - TNM privileged app -> staged {len(members)} arm64 native libraries")
+PY
+then
+  error "TNM App: native library staging failed"
+  exit 1
+fi
 
 [[ -s "$tnm_part/priv-app/TNM/TNM.apk" ]] || {
   error "TNM App: APK staging failed"
