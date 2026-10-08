@@ -7,9 +7,11 @@ on:
     paths:
       - '.github/workflows/xiaomieu-vietnamese-gap-audit.yml'
       - 'bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py'
+      - 'bin/modfile/UpdateFile/MultiLang/xiaomieu_stock_intersect.py'
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   audit:
@@ -26,6 +28,7 @@ jobs:
           sparse-checkout: |
             bin/apktool/apktool.jar
             bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py
+            bin/modfile/UpdateFile/MultiLang/xiaomieu_stock_intersect.py
             bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.Settings.apk
             bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.MiSettings.apk
             bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.MiuiSystemUI.apk
@@ -44,6 +47,8 @@ jobs:
           set -euo pipefail
           python3 -m py_compile bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py
           python3 bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py --self-test
+          python3 -m py_compile bin/modfile/UpdateFile/MultiLang/xiaomieu_stock_intersect.py
+          python3 bin/modfile/UpdateFile/MultiLang/xiaomieu_stock_intersect.py --self-test
 
       - name: Fetch only reference Vietnamese XML from Xiaomi.eu translation repository
         shell: bash
@@ -73,6 +78,25 @@ jobs:
             --output xiaomieu-gap-audit
           cat xiaomieu-gap-audit/XIAOMIEU_AUDIT.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Cross-check candidates with stock HyperOS .308 English audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock-vi-audit"
+          # This exact run audited the matching HAOTIAN OS3.0.308.0 China stock.
+          gh run download 37764405522 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name vietnamese-translation-audit \
+            --dir "$RUNNER_TEMP/stock-vi-audit"
+          test -s "$RUNNER_TEMP/stock-vi-audit/english-vietnamese-review.csv"
+          python3 bin/modfile/UpdateFile/MultiLang/xiaomieu_stock_intersect.py \
+            --upstream-gaps xiaomieu-gap-audit/xiaomieu-gaps.csv \
+            --stock-review "$RUNNER_TEMP/stock-vi-audit/english-vietnamese-review.csv" \
+            --output xiaomieu-gap-audit
+          cat xiaomieu-gap-audit/XIAOMIEU_STOCK_MATCH.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Save candidate resource names and report only
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,5 +106,8 @@ jobs:
             xiaomieu-gap-audit/xiaomieu-gaps.csv
             xiaomieu-gap-audit/xiaomieu-summary.json
             xiaomieu-gap-audit/XIAOMIEU_AUDIT.md
+            xiaomieu-gap-audit/xiaomieu-stock-matched-candidates.csv
+            xiaomieu-gap-audit/xiaomieu-stock-match-summary.json
+            xiaomieu-gap-audit/XIAOMIEU_STOCK_MATCH.md
           retention-days: 14
           if-no-files-found: warn
