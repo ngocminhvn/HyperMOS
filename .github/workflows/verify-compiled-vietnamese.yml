@@ -6,6 +6,10 @@ on:
     paths:
       - '.github/workflows/verify-compiled-vietnamese.yml'
       - 'bin/modfile/UpdateFile/MultiLang/verify_compiled_vi.py'
+      - 'bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.Settings.apk'
+      - 'bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.MiuiSystemUI.apk'
+      - 'bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.MiuiSystemUIPlugin.apk'
+      - 'bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.SecurityCenter.apk'
   workflow_dispatch:
 
 permissions:
