@@ -18,8 +18,14 @@ esac
   echo "TNM backend owner mismatch" >&2
   exit 12
 }
-[ "$(stat -c %a "$BACKEND" 2>/dev/null | cut -c1)" != 0 ] || {
-  echo "TNM backend is not executable" >&2
+[ ! -L /data/adb/tnm ] &&
+[ "$(stat -c %u /data/adb/tnm 2>/dev/null)" = 0 ] || {
+  echo "TNM backend directory is not trusted" >&2
   exit 12
 }
+mode="$(stat -c %a "$BACKEND" 2>/dev/null)" || exit 12
+case "$mode" in
+  500|550|555|700|750|755) ;;
+  *) echo "TNM backend permissions are unsafe" >&2; exit 12 ;;
+esac
 exec "$BACKEND" "$@"
