@@ -45,7 +45,7 @@ def settings_symbols(images_root: Path | None) -> dict[str, object]:
         symbols: set[str] = set()
         with zipfile.ZipFile(apk) as archive:
             for item in archive.namelist():
-                if not re.fullmatch(r"classes\\d*\\.dex", item):
+                if not re.fullmatch(r"classes\d*\.dex", item):
                     continue
                 data = archive.read(item)
                 for token in re.findall(rb"[A-Za-z0-9_/$;.()\-]{9,}", data):
