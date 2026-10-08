@@ -148,11 +148,17 @@ if /I not "!DEVICE!"=="%EXPECTED_DEVICE%" (
 )
 
 echo.
-choice /C YN /N /M "Format data after flashing? [Y/N]: "
-if errorlevel 2 (
+if /I "%~1"=="--no-wipe" (
+    echo [UPDATE] No-wipe update mode selected.
+    echo [UPDATE] Userdata and metadata will NOT be erased.
     set "WIPE_DATA=0"
 ) else (
-    set "WIPE_DATA=1"
+    choice /C YN /N /M "Format data after flashing? [Y/N]: "
+    if errorlevel 2 (
+        set "WIPE_DATA=0"
+    ) else (
+        set "WIPE_DATA=1"
+    )
 )
 
 echo.
@@ -269,3 +275,28 @@ exit /b 1
 EOF
 
 echo "Generated $FLASH_FILE"
+
+# Provide an explicit no-wipe update entry point alongside the existing flasher.
+# This only calls the already generated device-checked FLASH.bat, and cannot
+# present the destructive format-data prompt. No relocking or userdata erase.
+UPDATE_FILE="$work_dir/bin/script2flash/UPDATE_NO_WIPE.bat"
+cat <<'UPDATE_BAT' > "$UPDATE_FILE"
+@echo off
+setlocal EnableExtensions
+cd /d "%~dp0"
+title HyperMOS Fastboot Update - Keep Data
+if not exist "FLASH.bat" (
+    echo [ERROR] FLASH.bat is missing from the ROM package.
+    pause
+    exit /b 1
+)
+echo ============================================================
+echo HyperMOS Fastboot UPDATE - KEEP DATA
+echo This update does NOT format userdata or metadata.
+echo Flash only a compatible ROM for the same Xiaomi device.
+echo Back up important data before updating.
+echo ============================================================
+call "%~dp0FLASH.bat" --no-wipe
+exit /b %ERRORLEVEL%
+UPDATE_BAT
+echo "Generated $UPDATE_FILE"
