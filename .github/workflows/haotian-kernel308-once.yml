@@ -42,7 +42,7 @@ jobs:
               cr = response.headers.get('Content-Range', '')
           if status != 206 or not cr.startswith('bytes 0-3/'):
               raise SystemExit(f"HTTP byte ranges unavailable (status={status}, Content-Range={cr!r})")
-          if data != b'PK\\x03\\x04':
+          if data != bytes.fromhex('504b0304'):
               raise SystemExit(f"URL does not begin with ZIP magic: {data!r}")
           print("Recovery OTA ZIP detected; HTTP Range supported")
           PY
