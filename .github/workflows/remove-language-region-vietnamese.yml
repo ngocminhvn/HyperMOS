@@ -1,0 +1,142 @@
+name: Remove 22 redundant Language-region translations from Settings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/remove-language-region-vietnamese.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: remove-unneeded-language-vi
+  cancel-in-progress: false
+
+jobs:
+  revert-exactly-22:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout original compiled overlays
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+          lfs: false
+
+      - name: Java 17 and APK tools
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up aapt and zipalign
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y aapt zipalign > /dev/null
+
+      - name: Download matching stock English strings
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-review"
+          gh run download 37764405522 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name vietnamese-translation-audit \
+            --dir "$RUNNER_TEMP/source-review"
+          test -s "$RUNNER_TEMP/source-review/english-vietnamese-review.csv"
+
+      - name: Review short names and protected technical English terms
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="bin/modfile/UpdateFile/MultiLang"
+          python3 -m py_compile "$dir/review_short_ui_terms.py"
+          python3 "$dir/review_short_ui_terms.py" --self-test
+          python3 "$dir/review_short_ui_terms.py" \
+            --patches "$dir/owned-additions-batch" \
+            --english-review "$RUNNER_TEMP/source-review/english-vietnamese-review.csv" \
+            --output "$RUNNER_TEMP/short-terms"
+          cat "$RUNNER_TEMP/short-terms/short-terms-summary.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove 22 unnecessary language and region strings, preserve 85 Settings strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="bin/modfile/UpdateFile/MultiLang"
+          python3 -m py_compile "$dir/remove_language_region_vi.py"
+          python3 "$dir/remove_language_region_vi.py" --self-test
+          python3 "$dir/remove_language_region_vi.py" \
+            --original "$dir/updatesource/Nothings.Settings.apk" \
+            --remove-manifest "$dir/owned-additions/Nothings.Settings.xml" \
+            --keep-manifest "$dir/owned-additions-batch/Nothings.Settings.xml" \
+            --output "$RUNNER_TEMP/remove-22" \
+            --apktool bin/apktool/apktool.jar \
+            --apksigner-jar bin/apktool/apksigner.jar \
+            --aapt "$(command -v aapt)" \
+            --zipalign "$(command -v zipalign)" \
+            --key bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8 \
+            --cert bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
+          test -s "$RUNNER_TEMP/remove-22/Nothings.Settings.apk"
+          cat "$RUNNER_TEMP/remove-22/remove-22-report.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install rebuilt original RRO and retire the 22-string source and merge workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="bin/modfile/UpdateFile/MultiLang"
+          cp "$RUNNER_TEMP/remove-22/Nothings.Settings.apk" "$dir/updatesource/Nothings.Settings.apk"
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+          base = Path("bin/modfile/UpdateFile/MultiLang")
+          manifest=base/"owned-additions"/"Nothings.Settings.xml"
+          keys=sorted({x.get("name") for x in ElementTree.parse(manifest).getroot()
+                       if x.tag == "string" and x.get("name")})
+          assert len(keys)==22
+          (base/"retired-language-region.keys").write_text("\n".join(keys)+"\n",encoding="utf-8")
+          readme=base/"README.md"
+          text=readme.read_text(encoding="utf-8")
+          start=text.find("## Verified additive language menu translations")
+          end=text.find("## What changed",start)
+          if start!=-1 and end!=-1:
+              text=text[:start]+("## Language/region translations intentionally retired\n\n"
+                 "The earlier 22 source-owned Language & region labels were removed from\n"
+                 "the existing Settings RRO after user testing confirmed that Vietnamese\n"
+                 "language selection was already supported by the original overlays.\n"
+                 "The 85 newer independently translated Settings strings remain intact.\n"
+                 "The retired-language-region.keys list prevents future accidental re-addition.\n\n"
+                 )+text[end:]
+              readme.write_text(text,encoding="utf-8")
+          PY
+          git add "$dir/updatesource/Nothings.Settings.apk" \
+                  "$dir/retired-language-region.keys" \
+                  "$dir/README.md"
+          # Prevent a future manual run of the original 22-string workflow.
+          git rm "$dir/owned-additions/Nothings.Settings.xml" \
+                 .github/workflows/merge-reviewed-vietnamese.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m "revert(l10n): remove 22 redundant language-region strings; retain verified Settings translations"
+          git push origin HEAD:main
+
+      - name: Upload exact-removal and English label audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remove-22-language-ui-review
+          path: |
+            ${{ runner.temp }}/remove-22/remove-22-report.json
+            ${{ runner.temp }}/remove-22/remove-22.log
+            ${{ runner.temp }}/short-terms/short-terms-summary.json
+            ${{ runner.temp }}/short-terms/review-english-short-terms.csv
+          retention-days: 14
+          if-no-files-found: warn
