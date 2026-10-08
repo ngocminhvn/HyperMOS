@@ -63,11 +63,87 @@ def settings_symbols(images_root: Path | None) -> dict[str, object]:
     return {"inspected": bool(candidates), "packages": result}
 
 
+
+# Method bodies are indispensable for safely deciding whether Xiaomi Settings
+# disables the slider, and whether the runtime really understands themed VF.
+# Export selected stock methods only; do not copy entire JAR or APK into artifacts.
+FOCUS_CLASSES = {
+    "FontSettings": ("checkUsingThemeVF", "isUsingThemeVF", "checkUsingThemeFont",
+                     "isUsingThemeFont", "checkFontVarWeight", "setWeightsSettings",
+                     "getWeightsSettings", "loadFontSetting", "<clinit>"),
+    "FontWght": ("getScaleWght", "getWeightIdx", "getWghtArray", "getWghtInRange", "<clinit>"),
+    "ThemeFontManager": ("getReplacedFont", "loadThemeFont", "createSysThemeFontInfo"),
+    "MiProFontManager": ("doReplaceWithVarFont", "getReplacedFont", "loadFont"),
+    "VFUtils": ("getVarFont",),
+    "FontType": ("<clinit>",),
+}
+SETTINGS_CLASS_KEYWORDS = (
+    "FontWeightUtils", "FontWeightAdjustView", "LiteFontWeightPreference",
+    "FontSettingsScrollView", "FontSettingsActivity",
+    "FontWeightAdjustmentPreferenceController", "FontSettingsFragment",
+    "FontSettingsPreference",
+)
+METHOD_PATTERN = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method\s*$")
+
+
+def save_font_methods(framework_root: Path, settings_root: Path | None, out: Path) -> None:
+    records: list[str] = []
+    counts: dict[str, int] = {}
+
+    def read_methods(path: Path, allow: tuple[str, ...], scope: str) -> None:
+        source = path.read_text(encoding="utf-8")
+        name = path.stem
+        matched = 0
+        for match in METHOD_PATTERN.finditer(source):
+            body = match.group(0)
+            signature = body.splitlines()[0]
+            if not any(token.lower() in signature.lower() for token in allow):
+                continue
+            # Do not trim instructions: a patch requires all exit paths/labels.
+            if len(body) > 28000:
+                records.append(f"[SKIPPED: huge method {scope}/{name} {signature}]")
+                continue
+            records.append(f"\n========== {scope}/{name}: {signature} ==========\n{body}\n")
+            matched += 1
+        counts[f"{scope}/{name}"] = matched
+
+    for name, methods in FOCUS_CLASSES.items():
+        matches = sorted(framework_root.rglob(name + ".smali"))
+        for path in matches[:2]:
+            if "/miui/util/font/" not in str(path):
+                continue
+            read_methods(path, methods, "miui-framework")
+
+    if settings_root and settings_root.is_dir():
+        for path in sorted(settings_root.rglob("*.smali")):
+            if not any(needle in path.stem for needle in SETTINGS_CLASS_KEYWORDS):
+                continue
+            # Ignore anonymous view and Compose helpers unless they contain
+            # relevant weight-control logic.
+            allow = ("font", "weight", "theme", "onCreate", "onResume",
+                     "onStart", "init", "<clinit>")
+            read_methods(path, allow, "Settings")
+            if len(records) >= 200:
+                break
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        "HyperMOS stock A16 font routing method excerpts (read-only)\n"
+        + "\n".join(records),
+        encoding="utf-8",
+    )
+    print("[FONT-AUDIT] Extracted target method bodies into " + str(out))
+    for k, count in counts.items():
+        if count:
+            print(f"[FONT-AUDIT] SOURCE {k}: {count} methods")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("smali_root", type=Path)
     parser.add_argument("report", type=Path)
     parser.add_argument("--images-root", type=Path, default=None)
+    parser.add_argument("--settings-smali-root", type=Path, default=None)
     args = parser.parse_args()
 
     if not args.smali_root.is_dir():
@@ -121,6 +197,7 @@ def main() -> None:
                 print(f"[FONT-AUDIT]   {name.strip()}")
     print(f"[FONT-AUDIT] Settings APK scan: inspected={report['settings_apk']['inspected']}")
     print(f"[FONT-AUDIT] Report saved: {args.report}")
+    save_font_methods(args.smali_root, args.settings_smali_root, args.report.with_name("font-logic-smali.txt"))
     print("[FONT-AUDIT] No bytecode patched: collect actual signatures before targeting Settings/ThemeFontManager")
 
 if __name__ == "__main__":
