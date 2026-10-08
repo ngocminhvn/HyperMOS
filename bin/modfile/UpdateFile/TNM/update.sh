@@ -54,6 +54,21 @@ grep -q 'RESULT=RESOLVER_UNVERIFIED' "$bin_dst/tnm-hostsctl" || {
 
 mods "TNM Hosts backend -> Done"
 
+# One-time ROM entrypoint for TNM's APK-updatable backend.
+# This launcher is root-only and has no init service or persistent process.
+src_bridge="$work_dir/bin/modfile/UpdateFile/TNM/tnm-bridge.sh"
+[[ -s "$src_bridge" ]] || { error "TNM Bridge: launcher missing"; exit 1; }
+bridge_dst="$bin_dst/tnm-bridge"
+install -m 0755 "$src_bridge" "$bridge_dst"
+[[ -x "$bridge_dst" ]] || { error "TNM Bridge: launcher was not installed"; exit 1; }
+grep -q 'BACKEND=/data/adb/tnm/bin/tnmctl' "$bridge_dst" || {
+  error "TNM Bridge: backend dispatch verification failed"
+  exit 1
+}
+mods "TNM Bridge -> ${runtime_ctl%/*}/tnm-bridge (on demand)"
+
+
+
 # ---------------------------------------------------------------------------
 # TNM privileged system app
 # ---------------------------------------------------------------------------
