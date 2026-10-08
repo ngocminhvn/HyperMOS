@@ -97,11 +97,15 @@ jobs:
           fi
 
           if ! sudo pip3 install -q ConfigObj telebot setuptools requests google-auth lz4 \
-            google-auth-oauthlib google-auth-httplib2 google-api-python-client >>build_action.log 2>&1; then
+            google-auth-oauthlib google-auth-httplib2 google-api-python-client fonttools pillow >>build_action.log 2>&1; then
             echo "[ERROR] - Python dependency installation failed"
             tail -n 120 build_action.log
             exit 1
           fi
+
+          # Fast-fail invalid font integration before unpacking the base ROM.
+          python3 -m py_compile bin/modfile/UpdateFile/Fonts/font_utils.py
+          bash -n bin/modfile/UpdateFile/Fonts/update.sh
 
           sudo chmod -R a+rwX .
           chmod +x bin/magiskboot 2>/dev/null || true
