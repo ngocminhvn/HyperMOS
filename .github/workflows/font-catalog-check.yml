@@ -41,6 +41,10 @@ jobs:
           SRC=bin/modfile/UpdateFile/Fonts/HyperOS
           python3 -m py_compile "$TOOL"
           bash -n bin/modfile/UpdateFile/Fonts/update.sh
+          bash -n bin/modfile/UpdateFile/Fonts/install-emoji.sh
+          test -s bin/modfile/UpdateFile/Fonts/Shared/NotoColorEmoji.ttf
+          test ! -e "$SRC/NotoColorEmoji.ttf"
+          test ! -e bin/modfile/UpdateFile/Fonts/MIUI/NotoColorEmoji.ttf
           python3 "$TOOL" catalog "$SRC" "$RUNNER_TEMP/catalog"
           python3 "$TOOL" preview "SF Pro" "$RUNNER_TEMP/catalog/prepared-9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102.ttf" "$RUNNER_TEMP/sample.png"
           test -s "$RUNNER_TEMP/sample.png"
@@ -61,7 +65,7 @@ jobs:
           TOOL=bin/modfile/UpdateFile/Fonts/font_utils.py
           SRC=bin/modfile/UpdateFile/Fonts/HyperOS
           mkdir -p "$RUNNER_TEMP/three"
-          cp "$SRC/SF-Pro.ttf" "$SRC/Roboto-VF.ttf" "$SRC/NotoColorEmoji.ttf" "$RUNNER_TEMP/three/"
+          cp "$SRC/SF-Pro.ttf" "$SRC/Roboto-VF.ttf" "$RUNNER_TEMP/three/"
           cp "$SRC/Roboto-VF.ttf" "$RUNNER_TEMP/three/InterTest-VF.ttf"
           python3 "$TOOL" catalog "$RUNNER_TEMP/three" "$RUNNER_TEMP/catalog-three"
           python3 - "$RUNNER_TEMP/catalog/catalog.json" "$RUNNER_TEMP/catalog-three/catalog.json" <<'PY'
@@ -115,3 +119,26 @@ jobs:
           fi
           test ! -e "$RUNNER_TEMP/invalid-output/catalog.tsv"
           echo "[TEST] PASS: static font rejected; only real wght variable fonts register"
+
+      - name: Verify shared emoji on HyperOS and classic MIUI
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHARED=bin/modfile/UpdateFile/Fonts/Shared/NotoColorEmoji.ttf
+          INSTALL=bin/modfile/UpdateFile/Fonts/install-emoji.sh
+          for variant in HyperOS MIUI; do
+            target="$RUNNER_TEMP/emoji-test/$variant"
+            mkdir -p "$target/system/system/fonts" "$target/product/fonts"
+            printf old > "$target/system/system/fonts/NotoColorEmoji.ttf"
+            printf old > "$target/product/fonts/NotoColorEmoji.ttf"
+            bash "$INSTALL" "$SHARED" "$target"
+            cmp -s "$SHARED" "$target/system/system/fonts/NotoColorEmoji.ttf"
+            cmp -s "$SHARED" "$target/product/fonts/NotoColorEmoji.ttf"
+            echo "[TEST] PASS: $variant uses the one shared emoji payload"
+          done
+          mkdir -p "$RUNNER_TEMP/emoji-test/empty"
+          if bash "$INSTALL" "$SHARED" "$RUNNER_TEMP/emoji-test/empty"; then
+            echo "[TEST] ERROR: no emoji targets unexpectedly passed"
+            exit 1
+          fi
+          echo "[TEST] PASS: missing emoji target fails fast"

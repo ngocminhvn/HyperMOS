@@ -16,9 +16,11 @@ ten distinguishable weight stops. A collection of separate static
 continuous-weight font. The build rejects static files with a clear error
 rather than quietly presenting a nonfunctional weight slider.
 
-Only the known emoji file `NotoColorEmoji.ttf` and stock `MiSansVF.ttf` are
-excluded from custom-theme registration. System MiSans, Emoji handling, and
-existing SF Pro / Roboto resource IDs remain unchanged.
+Emoji is stored **once** at `Fonts/Shared/NotoColorEmoji.ttf`, outside the
+HyperOS variable-text-font catalog. Both HyperOS and classic MIUI use this
+single payload through `install-emoji.sh`; the original MiSans and MIUI text
+fonts are unaffected. Stock `MiSansVF.ttf` is excluded from ThemeManager
+custom-font registration, and SF Pro / Roboto IDs are preserved.
 
 ## Optional display names or leading correction
 
@@ -57,3 +59,11 @@ prove that the Settings weight slider works on a device. Xiaomi Settings may
 also require `/data/system/theme/fonts/MI_Theme_VF.ttf`; the existing
 framework fallback is not a substitute for a verified Settings integration.
 Only real-device testing can confirm this UI behavior.
+
+## Shared emoji (HyperOS and MIUI)
+
+The canonical emoji file is `bin/modfile/UpdateFile/Fonts/Shared/NotoColorEmoji.ttf`.
+It replaces each existing `NotoColorEmoji.ttf` under extracted ROM partitions.
+Do **not** add emoji files to `HyperOS/` or `MIUI/`. The legacy separate MIUI
+emoji payload has been removed; both platforms intentionally use the former
+HyperOS iOS-emoji payload. The change is built into the ROM, not applied at runtime.

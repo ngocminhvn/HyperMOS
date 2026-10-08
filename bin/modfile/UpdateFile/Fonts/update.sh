@@ -6,7 +6,7 @@ source "$work_dir/functions.sh"
 
 rom_os=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/rom_os.txt")
 FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
-IOS_EMOJI_FONT="$FONT_SOURCE/NotoColorEmoji.ttf"
+IOS_EMOJI_FONT="$work_dir/bin/modfile/UpdateFile/Fonts/Shared/NotoColorEmoji.ttf"
 FONT_UTILS="$work_dir/bin/modfile/UpdateFile/Fonts/font_utils.py"
 FONT_PREPARED_DIR="$work_dir/build/.prepared_theme_fonts"
 
@@ -298,28 +298,24 @@ PY
 }
 
 install_ios_emoji() {
-    [ -s "$IOS_EMOJI_FONT" ] || {
-        error "Emoji iOS payload missing or empty: $IOS_EMOJI_FONT"
+    # Share the identical emoji payload across HyperOS and classic MIUI.
+    # Only existing ROM font targets are replaced; ThemeManager is untouched.
+    if ! bash "$work_dir/bin/modfile/UpdateFile/Fonts/install-emoji.sh" \
+        "$IOS_EMOJI_FONT" "$work_dir/build/baserom/images"; then
+        error "Shared iOS emoji installation failed"
         return 1
-    }
-    local target count=0 failed=0
-    while IFS= read -r -d '' target; do
-        if cp -f "$IOS_EMOJI_FONT" "$target" >/dev/null 2>&1; then
-            count=$((count + 1))
-        else
-            failed=1
-        fi
-    done < <(find "$work_dir/build/baserom/images" -type f -name "NotoColorEmoji.ttf" -print0 2>/dev/null)
-    if [ "$failed" -eq 0 ] && [ "$count" -gt 0 ]; then
-        mods "Emoji iOS: OK"
-        return 0
     fi
-    error "Emoji iOS: no writable NotoColorEmoji.ttf target found"
-    return 1
+    mods "Emoji iOS: shared source applied"
 }
 
 case "$rom_os" in
     OS1|OS2|OS3|OS4) ;;
+    MIUI)
+        # Classic MIUI keeps its text fonts; install only the common emoji.
+        install_ios_emoji || exit 1
+        mods "Fonts: MIUI text fonts unchanged; shared emoji applied"
+        exit 0
+        ;;
     *) mods "Fonts: unsupported ROM $rom_os -> skipped"; exit 0 ;;
 esac
 
