@@ -1,6 +1,12 @@
 name: Font Framework Audit
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/font-framework-audit.yml'
+      - 'bin/package/COREPATCH/font-framework-audit.py'
+      - 'bin/package/COREPATCH/run-font-framework-audit.sh'
   workflow_dispatch:
     inputs:
       rom_url:
@@ -58,7 +64,7 @@ jobs:
       - name: Audit stock miui-framework and Settings
         shell: bash
         env:
-          ROM_URL: ${{ inputs.rom_url }}
+          ROM_URL: ${{ inputs.rom_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}
         run: |
           set -euo pipefail
           mkdir -p font-framework-audit
@@ -80,4 +86,4 @@ jobs:
         run: |
           echo '### Font framework audit ready' >> "$GITHUB_STEP_SUMMARY"
           echo 'Download **font-framework-audit** from the **Artifacts** section of this run.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Contains JSON diagnostics and log, not a flashable ROM.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Contains JSON diagnostics, selected stock font methods and log, not a flashable ROM.' >> "$GITHUB_STEP_SUMMARY"
