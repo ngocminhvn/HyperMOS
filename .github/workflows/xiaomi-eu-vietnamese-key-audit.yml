@@ -109,18 +109,30 @@ jobs:
               exit 1
             fi
             rm -f "${chunks[@]}"
+            # The bundled lpunpack --info formatter can silently emit an empty
+            # report for some valid super metadata. Probe extraction directly
+            # instead of relying on the human-readable partition listing.
             python3 bin/lpunpack.py --info "$WORK/super.raw.img" > "$WORK/super-info.txt"
+            echo "[EU] Super partition metadata (first 100 lines):"
+            sed -n '1,100p' "$WORK/super-info.txt"
             for part in product system_ext system mi_ext; do
-              if grep -Eq "(^|[[:space:]])${part}_a([[:space:]]|$)" "$WORK/super-info.txt"; then
-                candidate="${part}_a"
-              elif grep -Eq "(^|[[:space:]])$part([[:space:]]|$)" "$WORK/super-info.txt"; then
-                candidate="$part"
-              else
-                echo "[WARN] Partition $part missing in super"
-                continue
+              found=0
+              for candidate in "${part}_a" "${part}_b" "$part"; do
+                echo "[EU] Trying partition $candidate"
+                if python3 bin/lpunpack.py -p "$candidate" "$WORK/super.raw.img" "$WORK/parts" \
+                    > "$WORK/parts/$candidate.log" 2>&1 && [[ -s "$WORK/parts/$candidate.img" ]]; then
+                  cat "$WORK/parts/$candidate.log"
+                  mv "$WORK/parts/$candidate.img" "$WORK/parts/$part.img"
+                  found=1
+                  break
+                fi
+                echo "[EU] Not extracted: $candidate"
+                tail -n 3 "$WORK/parts/$candidate.log" || true
+                rm -f "$WORK/parts/$candidate.img"
+              done
+              if (( ! found )); then
+                echo "[WARN] No usable $part partition found in super"
               fi
-              python3 bin/lpunpack.py -p "$candidate" "$WORK/super.raw.img" "$WORK/parts"
-              mv "$WORK/parts/$candidate.img" "$WORK/parts/$part.img"
             done
             rm -f "$WORK/super.raw.img"
           elif unzip -Z1 "$ZIP" | grep -qx 'payload.bin'; then
