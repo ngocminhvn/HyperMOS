@@ -11,7 +11,6 @@ import argparse
 import csv
 import json
 import re
-import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -22,7 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 # Match Xiaomi's ten positions in the weight slider, within a particular font's
 # supported wght axis. This does not itself make Xiaomi Settings show its slider.
 MIUI_STOPS = (100, 200, 300, 350, 400, 500, 700, 800, 900, 950)
-EXCLUDED_FILES = {"notocoloremoji.ttf"}
+EXCLUDED_FILES = {"notocoloremoji.ttf", "misansvf.ttf"}
 LEGACY = {
     "sf-pro.ttf": {
         "title": "SF Pro",
@@ -157,6 +156,10 @@ def catalog(source_dir: Path, outdir: Path) -> None:
     if not source_dir.is_dir():
         raise ValueError(f"Missing font directory: {source_dir}")
     outdir.mkdir(parents=True, exist_ok=True)
+    # Clear generated manifests before validation so a failed catalog cannot be
+    # mistaken for a successful earlier attempt on reused runners.
+    for stale in ("catalog.tsv", "catalog.json"):
+        (outdir / stale).unlink(missing_ok=True)
     overrides = read_overrides(source_dir)
     fonts = sorted((
         file for file in source_dir.iterdir()
@@ -170,6 +173,8 @@ def catalog(source_dir: Path, outdir: Path) -> None:
     seen_titles = set()
     for file in fonts:
         key = file.name.casefold()
+        if any(mark in file.name for mark in ("\\t", "\\n", "\\r", '"')):
+            raise ValueError(f"Invalid filename for tab-separated catalog: {file.name!r}")
         if key in seen_files:
             raise ValueError(f"Duplicate case-insensitive font filename: {file.name}")
         seen_files.add(key)
