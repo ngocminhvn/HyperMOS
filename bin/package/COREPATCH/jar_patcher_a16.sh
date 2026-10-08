@@ -1061,19 +1061,9 @@ patch_services() {
     apply_services_disable_secure_flag "$decompile_dir"
   fi
 
-  # HyperMOS MiCTS: deep, event-driven Google Assistant self-heal.
-  # Always apply on Android 16. No daemon/polling and no hardcoded Google VIS class.
-  local micts_self_heal="$SCRIPT_DIR/patch-micts-assistant-a16.py"
-  if [ ! -f "$micts_self_heal" ]; then
-    err "MiCTS self-heal patcher missing: $micts_self_heal"
-    return 1
-  fi
-  log "Applying MiCTS/Google Assistant services.jar self-heal..."
-  if ! python3 "$micts_self_heal" "$decompile_dir"; then
-    err "FAST-FAIL: MiCTS services.jar self-heal patch failed"
-    return 1
-  fi
-  log "MiCTS/Google Assistant services.jar self-heal applied"
+  # User-tested #87: no additional MiCTS/Google Assistant services.jar
+  # self-heal hooks. Leave stock VoiceInteraction/RoleObserver logic unchanged.
+  log "MiCTS services.jar self-heal: disabled; keep stock voice services"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -1282,13 +1272,9 @@ patch_miui_framework() {
     apply_miui_framework_cn_notification_fix "$decompile_dir"
   fi
 
-  # HyperMOS-only A16 font bridge: detect actual themed wght axes and
-  # route weight through Xiaomi's existing font-scaling logic.
-  # Strict stock class hashes avoid guessing against changed firmware.
-  if ! python3 "$SCRIPT_DIR/patch-theme-vf-a16.py" "$decompile_dir"; then
-    err "Theme VF framework patch verification failed"
-    return 1
-  fi
+  # Custom SF Pro/Roboto theme resources are handled by Fonts/update.sh.
+  # Do not modify FontSettings/ThemeFontManager bytecode: retain Xiaomi logic.
+  log "Theme variable font framework bridge: disabled; stock font manager retained"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
