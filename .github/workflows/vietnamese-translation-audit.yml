@@ -5,7 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/vietnamese-translation-audit.yml'
-      - 'bin/modfile/UpdateFile/MultiLang/**'
+      - 'bin/modfile/UpdateFile/MultiLang/translation_audit.py'
+      - 'bin/modfile/UpdateFile/MultiLang/updatesource/**'
   workflow_dispatch:
     inputs:
       rom_url:
@@ -130,7 +131,7 @@ jobs:
           mkdir -p translation-audit/current-xml
           tool="bin/apktool/apktool.jar"
           : > translation-audit/apktool-errors.txt
-          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
+          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.HyperPhoneSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
             apk="$src/$name.apk"
             tmp="$RUNNER_TEMP/decoded-$name"
             echo "[TRANSLATION] Decoding $name"
@@ -149,36 +150,7 @@ jobs:
             echo "[OK] Exported existing vi strings for $name"
           done
 
-      - name: Rebuild original overlay packages with Vietnamese fixes (TEST ONLY)
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 bin/modfile/UpdateFile/MultiLang/patch_existing_overlays.py \
-            --source bin/modfile/UpdateFile/MultiLang/updatesource \
-            --patches bin/modfile/UpdateFile/MultiLang/patches \
-            --output translation-patched-apks \
-            --apktool bin/apktool/apktool.jar \
-            --aapt "$(command -v aapt)" \
-            --apksigner-jar bin/apktool/apksigner.jar \
-            --zipalign "$(command -v zipalign)" \
-            --key bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8 \
-            --cert bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
-          cat translation-patched-apks/PATCH_REPORT.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload patched original APK candidates (not installed in ROM)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vietnamese-original-overlay-candidates
-          path: |
-            translation-patched-apks/*.apk
-            translation-patched-apks/PATCH_REPORT.md
-            translation-patched-apks/patch-report.json
-            translation-patched-apks/*.log
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload audit report (no APK or original ROM content)
+      - name: Upload read-only audit report (original APKs untouched)
         if: always()
         uses: actions/upload-artifact@v4
         with:

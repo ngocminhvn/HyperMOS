@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="accessibility_keyboard_letter_board_caps_lock_button">Khóa chữ hoa</string>
-    <string name="keyboard_key_backspace">Xóa lùi</string>
-    <string name="keyboard_key_num_lock">Khóa phím số</string>
-    <string name="keyboard_key_page_down">Trang tiếp theo</string>
-</resources>

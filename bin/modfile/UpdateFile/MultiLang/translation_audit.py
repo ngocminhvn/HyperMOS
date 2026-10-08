@@ -111,6 +111,36 @@ def audit(overlays: list[Path], stock_root: Path | None, aapt2: str) -> dict:
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             invalid.append(str(exc))
 
+    # Examine the translation tables of *each* existing RRO, rather than only
+    # reporting the union of their keys. Two different APKs sharing the same
+    # Android package ID cannot safely be treated as separate supplements.
+    overlay_resources = [{
+        "file": rec["file"],
+        "overlay_package": rec["overlay_package"],
+        "target_package": rec["target_package"],
+        "resources_total": len(rec["resources"]),
+        "resources_with_vi": sum(has_vietnamese(v) for v in rec["resources"].values()),
+    } for rec in records]
+    duplicates_detail = []
+    for overlay_package, names in duplicate_ids.items():
+        if len(names) <= 1:
+            continue
+        layers = [r for r in records if r["overlay_package"] == overlay_package]
+        for layer in layers:
+            keys = set(layer["resources"])
+            other_keys = set().union(*[
+                set(r["resources"]) for r in layers if r is not layer
+            ])
+            duplicates_detail.append({
+                "overlay_package": overlay_package,
+                "file": layer["file"],
+                "target_package": layer["target_package"],
+                "resource_keys": len(keys),
+                "unique_to_this_apk": len(keys - other_keys),
+                "shared_with_other_apk": len(keys & other_keys),
+                "sample_unique": sorted(keys - other_keys)[:40],
+            })
+
     stock = {}
     stock_errors = []
     if stock_root:
@@ -188,6 +218,8 @@ def audit(overlays: list[Path], stock_root: Path | None, aapt2: str) -> dict:
         "stock_targets_found": len(set(stock) & set(grouped)),
         "stock_xiaomi_without_overlay": len(set(stock) - set(grouped)),
         "packages": packages,
+        "overlay_resources": overlay_resources,
+        "duplicates_detail": duplicates_detail,
         "missing_rows": missing_rows,
     }
 
@@ -231,6 +263,34 @@ def write_reports(result: dict, dest: Path) -> None:
             f"{p['native_vi']} | {p['overlay_vi']} | {p['overlay_default_candidates']} | "
             f"{cell(p['missing_count'])} |"
         )
+    lines += [
+        "", "## Priority RRO inspection: Settings / SystemUI / SecurityCenter", "",
+        "| APK | Overlay package | Target | Strings/plurals (vi) | All string/plural keys |",
+        "| --- | --- | --- | ---: | ---: |",
+    ]
+    for r in result["overlay_resources"]:
+        if r["target_package"] in (
+            "com.android.settings", "com.android.systemui",
+            "miui.systemui.plugin", "com.miui.securitycenter", "com.xiaomi.misettings"
+        ):
+            lines.append(
+                f"| {r['file']} | {r['overlay_package']} | {r['target_package']} | "
+                f"{r['resources_with_vi']} | {r['resources_total']} |"
+            )
+    if result["duplicates_detail"]:
+        lines += ["", "## Detailed duplicate overlay-ID analysis", "",
+                  "| APK | Package ID | Resource keys | Unique keys | Shared keys |",
+                  "| --- | --- | ---: | ---: | ---: |"]
+        for r in result["duplicates_detail"]:
+            lines.append(
+                f"| {r['file']} | {r['overlay_package']} | {r['resource_keys']} | "
+                f"{r['unique_to_this_apk']} | {r['shared_with_other_apk']} |"
+            )
+        lines += [
+            "", "Two different APK filenames using the same Android overlay package ID",
+            "are not independent translation layers. Review the actual installed",
+            "winner with adb and inspect their unique keys before selecting one.",
+        ]
     if result["invalid"]:
         lines += ["", "## Invalid overlays", ""]
         lines += [f"- {e}" for e in result["invalid"]]
