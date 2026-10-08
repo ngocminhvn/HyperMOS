@@ -1,0 +1,86 @@
+name: Xiaomi.eu Vietnamese Resource Gap Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/xiaomieu-vietnamese-gap-audit.yml'
+      - 'bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout only relevant existing HyperMOS overlay APKs
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            bin/apktool/apktool.jar
+            bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py
+            bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.Settings.apk
+            bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.MiSettings.apk
+            bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.MiuiSystemUI.apk
+            bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.MiuiSystemUIPlugin.apk
+            bin/modfile/UpdateFile/MultiLang/updatesource/Nothings.SecurityCenter.apk
+
+      - name: Use Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate source comparator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py
+          python3 bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py --self-test
+
+      - name: Fetch only reference Vietnamese XML from Xiaomi.eu translation repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$RUNNER_TEMP/xiaomi-eu-vi"
+          git clone --depth=1 --filter=blob:none --sparse \
+            https://github.com/butinhi/MIUI-14-XML-Vietnamese.git "$upstream"
+          git -C "$upstream" sparse-checkout set \
+            Vietnamese/main/Settings.apk/res/values-vi \
+            Vietnamese/main/MiSettings.apk/res/values-vi \
+            Vietnamese/main/MiuiSystemUI.apk/res/values-vi \
+            Vietnamese/main/MiuiSystemUIPlugin.apk/res/values-vi \
+            Vietnamese/main/SecurityCenter.apk/res/values-vi
+          echo "UPSTREAM_DIR=$upstream" >> "$GITHUB_ENV"
+          echo "UPSTREAM_SHA=$(git -C "$upstream" rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Compare Xiaomi.eu XML keys with currently bundled Vietnamese overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/modfile/UpdateFile/MultiLang/xiaomieu_gap_audit.py \
+            --current bin/modfile/UpdateFile/MultiLang/updatesource \
+            --upstream "$UPSTREAM_DIR" \
+            --upstream-sha "$UPSTREAM_SHA" \
+            --apktool bin/apktool/apktool.jar \
+            --output xiaomieu-gap-audit
+          cat xiaomieu-gap-audit/XIAOMIEU_AUDIT.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save candidate resource names and report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomieu-existing-overlay-gap-audit
+          path: |
+            xiaomieu-gap-audit/xiaomieu-gaps.csv
+            xiaomieu-gap-audit/xiaomieu-summary.json
+            xiaomieu-gap-audit/XIAOMIEU_AUDIT.md
+          retention-days: 14
+          if-no-files-found: warn
