@@ -121,6 +121,34 @@ jobs:
           python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py "${args[@]}"
           cat translation-audit/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Export translations from existing top-priority overlays
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          src="bin/modfile/UpdateFile/MultiLang/updatesource"
+          mkdir -p translation-audit/current-xml
+          tool="bin/apktool/apktool.jar"
+          : > translation-audit/apktool-errors.txt
+          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
+            apk="$src/$name.apk"
+            tmp="$RUNNER_TEMP/decoded-$name"
+            echo "[TRANSLATION] Decoding $name"
+            if ! java -Xmx3g -jar "$tool" d -f -s "$apk" -o "$tmp" > "$RUNNER_TEMP/$name.log" 2>&1; then
+              echo "[WARN] Could not decode $name" | tee -a translation-audit/apktool-errors.txt
+              tail -n 12 "$RUNNER_TEMP/$name.log" >> translation-audit/apktool-errors.txt
+              continue
+            fi
+            mkdir -p "translation-audit/current-xml/$name"
+            for folder in "$tmp"/res/values "$tmp"/res/values-vi "$tmp"/res/values-vi-rVN; do
+              if [[ -d "$folder" ]]; then
+                cp -a "$folder" "translation-audit/current-xml/$name/"
+              fi
+            done
+            cp "$tmp/AndroidManifest.xml" "translation-audit/current-xml/$name/AndroidManifest.xml"
+            echo "[OK] Exported existing vi strings for $name"
+          done
+
       - name: Upload audit report (no APK or original ROM content)
         if: always()
         uses: actions/upload-artifact@v4
@@ -130,5 +158,7 @@ jobs:
             translation-audit/SUMMARY.md
             translation-audit/report.json
             translation-audit/missing.csv
+            translation-audit/current-xml/
+            translation-audit/apktool-errors.txt
           if-no-files-found: warn
           retention-days: 14
