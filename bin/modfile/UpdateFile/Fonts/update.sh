@@ -6,14 +6,11 @@ source "$work_dir/functions.sh"
 
 rom_os=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/rom_os.txt")
 FONT_SOURCE="$work_dir/bin/modfile/UpdateFile/Fonts/HyperOS"
-SF_FONT="$FONT_SOURCE/SF-Pro.ttf"
-ROBOTO_FONT="$FONT_SOURCE/Roboto-VF.ttf"
 IOS_EMOJI_FONT="$FONT_SOURCE/NotoColorEmoji.ttf"
 FONT_UTILS="$work_dir/bin/modfile/UpdateFile/Fonts/font_utils.py"
 FONT_PREPARED_DIR="$work_dir/build/.prepared_theme_fonts"
-SF_PREPARED_FONT="$FONT_PREPARED_DIR/SF-Pro.ttf"
 
-mods "Fonts: stock MiSans + native Xiaomi font resources for SF Pro/Roboto"
+mods "Fonts: stock MiSans + auto-discovered Xiaomi variable-font resources"
 
 THEME_TARGET=""
 THEME_RUNTIME=""
@@ -333,36 +330,36 @@ select_theme_root || {
 mods "Fonts: using one catalog only -> $THEME_RUNTIME"
 cleanup_legacy_generated_fonts
 
-# Ensure both custom fonts actually contain a wght axis, and publish ten
-# ThemeManager fontWeight stops like stock MiSans. Fail early rather than
-# silently creating a non-adjustable font entry.
-python3 "$FONT_UTILS" prepare "$SF_FONT" "$ROBOTO_FONT" "$FONT_PREPARED_DIR" || {
-    error "FAST-FAIL: custom fonts must provide a usable variable wght axis"
+# Validate the full font directory before altering any ThemeManager resources.
+# A new variable font requires only a .ttf/.otf in Fonts/HyperOS; font_utils.py
+# generates stable IDs and weight metadata (not evaluated as shell commands).
+if ! python3 "$FONT_UTILS" catalog "$FONT_SOURCE" "$FONT_PREPARED_DIR"; then
+    error "FAST-FAIL: custom font catalog invalid; all fonts need a real wght axis"
     exit 1
-}
-# These values are generated from validated numeric OpenType axes.
-source "$FONT_PREPARED_DIR/font_weights.env"
-
-install_xiaomi_font_resource \
-    "$SF_PREPARED_FONT" \
-    "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102" \
-    "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101" \
-    "SF Pro" "Apple" "$SF_WEIGHTS" || {
-    error "FAST-FAIL: SF Pro native ThemeManager integration failed"
+fi
+FONT_CATALOG="$FONT_PREPARED_DIR/catalog.tsv"
+[ -s "$FONT_CATALOG" ] || {
+    error "FAST-FAIL: generated font catalog missing or empty"
     exit 1
 }
 
-install_xiaomi_font_resource \
-    "$ROBOTO_FONT" \
-    "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3102" \
-    "b1e6e1d4-5f63-4a3d-8df1-2f9a4c6b3101" \
-    "Roboto" "Google" "$ROBOTO_WEIGHTS" || {
-    error "FAST-FAIL: Roboto native ThemeManager integration failed"
+custom_font_count=0
+while IFS=$'\t' read -r font_file font_id theme_id title author weights; do
+    [ -n "$font_file" ] || continue
+    install_xiaomi_font_resource \
+        "$font_file" "$font_id" "$theme_id" "$title" "$author" "$weights" || {
+        error "FAST-FAIL: $title failed native ThemeManager integration"
+        exit 1
+    }
+    custom_font_count=$((custom_font_count + 1))
+done < "$FONT_CATALOG"
+[ "$custom_font_count" -gt 0 ] || {
+    error "FAST-FAIL: no custom fonts were registered"
     exit 1
 }
+mods "Fonts: $custom_font_count validated variable fonts registered"
 
-# Stock MiSans/default resource is deliberately untouched. There is no custom
-# MiSans copy, so the selector should expose one stock MiSans entry plus the two
-# native resources above.
+# Stock MiSans/default resource is deliberately untouched. Custom fonts are
+# installed only as separate native resources in the chosen ThemeManager root.
 install_ios_emoji || exit 1
 mods "Fonts integration -> Done"
