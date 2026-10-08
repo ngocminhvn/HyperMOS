@@ -8,7 +8,7 @@ Place a **single variable** `.ttf` or `.otf` file directly inside:
 
 Example: `Inter-VF.ttf`. The ROM build automatically discovers it and registers a
 separate native Xiaomi ThemeManager font resource. No edits to `update.sh`,
-`font_utils.py`, or the framework patch are necessary.
+`font_utils.py` are necessary. Framework font hooks are intentionally removed.
 
 **Requirements:** A valid OpenType variable font with a real `wght` axis and
 ten distinguishable weight stops. A collection of separate static
@@ -51,14 +51,12 @@ font really has excess leading, as it may affect Vietnamese diacritics.
 - Registration: existing Xiaomi `.mrc` / `.mrm` ThemeManager graph and dark
   previews; no duplication across partitions.
 - Font preview: `font_utils.py preview <title> <font> <png>`
-- CI: `Font Catalog Check` checks actual bundled fonts and a simulated third
-  custom variable font without a full ROM build.
+- Main ROM CI validates bundled variable fonts and shared emoji resources before packaging.
 
-**Important:** Metadata and the guarded Android 16 framework patch do not
-prove that the Settings weight slider works on a device. Xiaomi Settings may
-also require `/data/system/theme/fonts/MI_Theme_VF.ttf`; the existing
-framework fallback is not a substitute for a verified Settings integration.
-Only real-device testing can confirm this UI behavior.
+**Important:** Android 16 framework font patches were removed intentionally.
+Xiaomi stock font logic remains authoritative, so a custom font supporting
+`wght` does not guarantee that Xiaomi Settings can adjust its weight. The
+slider must be verified on the device; font metadata alone cannot enable it.
 
 ## Shared emoji (HyperOS and MIUI)
 
