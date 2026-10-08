@@ -13,10 +13,20 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+# Expand stock English -> Vietnamese gap discovery to Xiaomi system apps
+# already covered by the 67 bundled Nothings RROs. This is READ-ONLY.
+# Do not automatically import translations or change the ROM boot chain.
 PRIORITY = {
     "Nothings.Settings", "Nothings.MiSettings", "Nothings.MiuiSystemUI",
     "Nothings.HyperPhoneSystemUI", "Nothings.MiuiSystemUIPlugin",
     "Nothings.SecurityCenter",
+    "Nothings.MiuiHome", "Nothings.MiuiCamera", "Nothings.MiuiGallery",
+    "Nothings.FileExplorer", "Nothings.ThemeManager", "Nothings.ThemeManagerV2",
+    "Nothings.Weather", "Nothings.Calendar", "Nothings.Contacts",
+    "Nothings.InCallUI", "Nothings.Permissioncontroller",
+    "Nothings.PowerKeeper", "Nothings.PersonalAssistant",
+    "Nothings.Mms", "Nothings.MiuiAod", "Nothings.MiuiBluetooth",
+    "Nothings.MiSound", "Nothings.MiShare",
 }
 CORE = re.compile(
     r"setting|notification|control|privacy|permission|security|battery|power|"
@@ -173,6 +183,11 @@ def main():
         "english_resource_candidates": len(rows),
         "missing_vi": sum(x["status"] == "MISSING_VI" for x in rows),
         "same_as_english_needs_review": sum(x["status"] == "SAME_AS_ENGLISH_REVIEW" for x in rows),
+        "missing_by_overlay": {
+            name: sum(x["status"] == "MISSING_VI" and x["overlay_apk"] == name
+                      for x in rows)
+            for name in sorted({x["overlay_apk"] for x in rows})
+        },
         "warnings": warnings,
         "caveat": ("English heuristic is conservative; source default locale may "
                    "contain language other than English. Resource presence does not "
@@ -187,6 +202,11 @@ def main():
                    f"Missing VI: {info['missing_vi']}. "
                    f"Identical English values to review: {info['same_as_english_needs_review']}.\n\n")
         file.write("Review english-vietnamese-review.csv before translating any UI.\n")
+        file.write("\n## Missing English-to-Vietnamese candidates by overlay\n\n")
+        file.write("| Existing RRO | Missing candidate strings |\n| --- | ---: |\n")
+        for name, count in sorted(info["missing_by_overlay"].items(),
+                                  key=lambda kv: (-kv[1], kv[0])):
+            file.write(f"| {name} | {count} |\n")
         for warning in warnings:
             file.write("\n- " + warning.replace("|", "/"))
         file.write("\n")
