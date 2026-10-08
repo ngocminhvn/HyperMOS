@@ -120,10 +120,19 @@ def main():
             ("battery_title", "VI_PRESENT_REVIEW"),
             ("network_options", "MISSING_VI"),
         ]
-        assert compare(src, {}, "Nothings.Settings", "com.android.settings",
+        # Native stock Vietnamese excludes the key; the other overlay
+        # translation must retain its existing VI_PRESENT_REVIEW status.
+        assert compare(src, vi, "Nothings.Settings", "com.android.settings",
                        "Settings.apk", native_vi={"network_options": ("Cài đặt mạng", "values-vi")}) == [
             x for x in found if x["resource_name"] == "battery_title"
         ]
+        # Without any overlay Vietnamese, battery_title really is missing.
+        native_only = compare(src, {}, "Nothings.Settings", "com.android.settings",
+                              "Settings.apk", native_vi={"network_options": ("Cài đặt mạng", "values-vi")})
+        assert len(native_only) == 1
+        assert (native_only[0]["resource_name"], native_only[0]["status"]) == (
+            "battery_title", "MISSING_VI"
+        )
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "Nothings.Settings" / "values-vi"
             root.mkdir(parents=True)
