@@ -26,9 +26,10 @@ are replaced in the *repository* only after all 4 pass the checks. No extra
 overlay APKs and no framework/boot changes are made.
 
 **These 358 are only part of the 1,676 candidate gaps**, not a claim that
-1,676 translations have been added. The earlier independent language/region
-batch adds a further 22 Settings strings. Real-device RRO/idmap rendering
-has not been independently tested.
+1,676 translations have been added. The earlier 22 Language/region additions were explicitly **removed**
+by request because Vietnamese language selection already worked. The remaining
+358 strings were compiled and checked, but not every label has been individually
+verified on a running device.
 
 The upstream public community translation repo is not licensed for bulk
 redistribution; do not assume its entire values-vi XML can be copied merely
@@ -51,6 +52,21 @@ The retired-language-region.keys list prevents future accidental re-addition.
   during the normal China ROM build, without replacing existing filenames.
 - No framework, system service, `boot.img`, `vendor_boot.img`, AVB, or runtime
   property changes. No periodic background service.
+
+## Extending Vietnamese to more built-in apps
+
+The 67 original Nothings RROs already cover many Xiaomi apps. The full
+English-to-Vietnamese gap audit now inspects 24 existing overlay targets,
+including **MiuiHome, Camera, Gallery, FileExplorer, Weather, Calendar,
+Contacts, InCallUI, ThemeManager, Permissioncontroller, PowerKeeper,
+PersonalAssistant, Messages, AOD, Bluetooth, MiSound and MiShare**.
+
+The workflow produces a per-overlay missing-string breakdown and
+`english-vietnamese-review.csv`. This is a read-only **candidate inventory**,
+not a claim that all these additional applications have been newly translated.
+New texts must be independently translated from the matching stock ROM,
+checked for technical terms and placeholders, and merged into the matching
+existing APK without overwriting existing Vietnamese.
 
 ## Run the audit
 
