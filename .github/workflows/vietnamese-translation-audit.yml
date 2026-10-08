@@ -1,0 +1,124 @@
+name: Vietnamese Translation Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Optional full stock HyperOS China OTA ZIP URL (leave blank for overlay-only audit)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  vietnamese-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - name: Checkout with existing RRO APKs
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Install Android resource tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 16 build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install "build-tools;36.0.0" >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 unzip > /dev/null
+          echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
+
+      - name: Validate auditor
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/modfile/UpdateFile/MultiLang/translation_audit.py
+          python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py --self-test
+
+      - name: Extract stock application resources (optional)
+        shell: bash
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$ROM_URL" ]]; then
+            echo "[INFO] No stock OTA URL; inventory only."
+            exit 0
+          fi
+          [[ "$ROM_URL" == https://* ]] || { echo "[ERROR] Full HTTPS OTA ZIP required"; exit 1; }
+          ROOT="$GITHUB_WORKSPACE"
+          WORK="$RUNNER_TEMP/translation-stock"
+          IMAGES="$WORK/images"
+          STOCK="$WORK/unpacked"
+          mkdir -p "$IMAGES" "$STOCK"
+          BIN="$ROOT/bin/Linux/x86_64"
+          chmod +x "$BIN/payload-extract" "$BIN/gettype" "$BIN/extract.erofs"
+          INPUT="$ROM_URL"
+          download_fallback() {
+            local zip="$WORK/stock-ota.zip"
+            local payload="$WORK/payload.bin"
+            if [[ ! -s "$payload" ]]; then
+              echo "[INFO] Range extraction failed, downloading full OTA once"
+              aria2c -q -x 8 -s 8 --file-allocation=none -d "$WORK" -o stock-ota.zip "$ROM_URL"
+              unzip -l "$zip" payload.bin >/dev/null || { echo "[ERROR] No payload.bin"; exit 1; }
+              unzip -p "$zip" payload.bin > "$payload"
+              test -s "$payload"
+            fi
+            INPUT="$payload"
+          }
+          for part in product system_ext system; do
+            echo "[INFO] Extract partition: $part"
+            if ! "$BIN/payload-extract" extract "$INPUT" -p "$part" -o "$IMAGES" -j 2; then
+              if [[ "$INPUT" == "$ROM_URL" ]]; then
+                download_fallback
+                "$BIN/payload-extract" extract "$INPUT" -p "$part" -o "$IMAGES" -j 2
+              else
+                echo "[ERROR] Unable to extract $part"
+                exit 1
+              fi
+            fi
+            img="$IMAGES/$part.img"
+            test -s "$img" || { echo "[ERROR] Missing $img"; exit 1; }
+            fs="$("$BIN/gettype" -i "$img" || true)"
+            if [[ "$fs" != "erofs" ]]; then
+              echo "[ERROR] Unsupported $part file system '$fs' (expects EROFS)."
+              exit 1
+            fi
+            mkdir -p "$STOCK/$part"
+            "$BIN/extract.erofs" -x -i "$img" -o "$STOCK/$part" >/dev/null
+            rm -f "$img"
+          done
+          echo "STOCK_APKS=$STOCK" >> "$GITHUB_ENV"
+
+      - name: Audit all shipped translation overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --overlays bin/modfile/UpdateFile/MultiLang/updatesource
+            --extra-overlays bin/modfile/UpdateFile/MultiLang/supplemental
+            --output translation-audit
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          )
+          if [[ -n "${STOCK_APKS:-}" ]]; then
+            args+=(--stock-apks "$STOCK_APKS")
+          fi
+          python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py "${args[@]}"
+          cat translation-audit/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload audit report (no APK or original ROM content)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vietnamese-translation-audit
+          path: |
+            translation-audit/SUMMARY.md
+            translation-audit/report.json
+            translation-audit/missing.csv
+          if-no-files-found: warn
+          retention-days: 14
