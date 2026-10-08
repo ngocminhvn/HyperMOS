@@ -256,7 +256,7 @@ jobs:
           esac
           exit 0
 
-cleanup-retired-workflows:
+  cleanup-retired-workflows:
     name: One-time prune retired Actions history
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
