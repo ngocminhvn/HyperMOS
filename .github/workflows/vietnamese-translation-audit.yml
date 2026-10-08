@@ -27,17 +27,22 @@ jobs:
           lfs: true
           persist-credentials: false
 
-      - name: Install Android resource tools
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android 16 build tools
+      - name: Locate AAPT2 (skip deprecated SDK tools package)
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager --install "build-tools;36.0.0" >/dev/null
           sudo apt-get update -qq
           sudo apt-get install -y -qq aria2 unzip > /dev/null
-          echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          AAPT2="$SDK_ROOT/build-tools/36.0.0/aapt2"
+          if [[ ! -x "$AAPT2" ]]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)"
+            [[ -n "$SDKMANAGER" ]] || { echo "[ERROR] sdkmanager missing"; exit 1; }
+            "$SDKMANAGER" --install "build-tools;36.0.0"
+          fi
+          [[ -x "$AAPT2" ]] || { echo "[ERROR] Android 36 AAPT2 missing"; exit 1; }
+          echo "AAPT2_PATH=$AAPT2" >> "$GITHUB_ENV"
+          "$AAPT2" version
 
       - name: Validate auditor
         run: |
@@ -108,7 +113,7 @@ jobs:
             --overlays bin/modfile/UpdateFile/MultiLang/updatesource
             --extra-overlays bin/modfile/UpdateFile/MultiLang/supplemental
             --output translation-audit
-            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+            --aapt2 "$AAPT2_PATH"
           )
           if [[ -n "${STOCK_APKS:-}" ]]; then
             args+=(--stock-apks "$STOCK_APKS")
