@@ -20,9 +20,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sh -n bin/modfile/UpdateFile/TNM/tnm-bridge.sh
+          sh -n bin/modfile/UpdateFile/TNM/tnm-bridge
           bash -n bin/modfile/UpdateFile/TNM/update.sh
-          grep -Fq 'BACKEND=/data/adb/tnm/bin/tnmctl' bin/modfile/UpdateFile/TNM/tnm-bridge.sh
+          grep -Fq 'BACKEND=/data/adb/tnm/bin/tnmctl' bin/modfile/UpdateFile/TNM/tnm-bridge
           grep -Fq 'install -m 0755 "$src_bridge" "$bridge_dst"' bin/modfile/UpdateFile/TNM/update.sh
-          grep -Fq 'exec "$BACKEND" "$@"' bin/modfile/UpdateFile/TNM/tnm-bridge.sh
+          grep -Fq 'exec "$BACKEND" "$@"' bin/modfile/UpdateFile/TNM/tnm-bridge
           echo 'TNM ROM bridge static contract: PASS'
