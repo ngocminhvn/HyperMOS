@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="forbidden_set_unlock_password_msg">Thiết bị đang ở chế độ bảo trì. Không thể đặt hoặc thay đổi mật khẩu.</string>
+    <string name="media_output_status_track_unsupported">Không thể phát nội dung này tại đây</string>
+    <string name="wifi_subnet_mask">Mặt nạ mạng con</string>
+    <string name="accessibility_media_vibration_title">Rung khi phát nội dung đa phương tiện</string>
+</resources>
