@@ -1282,6 +1282,14 @@ patch_miui_framework() {
     apply_miui_framework_cn_notification_fix "$decompile_dir"
   fi
 
+  # HyperMOS-only A16 font bridge: detect actual themed wght axes and
+  # route weight through Xiaomi's existing font-scaling logic.
+  # Strict stock class hashes avoid guessing against changed firmware.
+  if ! python3 "$SCRIPT_DIR/patch-theme-vf-a16.py" "$decompile_dir"; then
+    err "Theme VF framework patch verification failed"
+    return 1
+  fi
+
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
