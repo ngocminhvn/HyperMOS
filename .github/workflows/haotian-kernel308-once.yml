@@ -20,46 +20,53 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Extract matching Xiaomi .308 boot and vendor_boot via streaming
+      - name: Extract matching .308 images directly from Recovery OTA payload.bin
+        env:
+          OTA_URL: https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/haotian-308-result"
-          mkdir -p "$out/stock" "$RUNNER_TEMP/haotian-rom"
-          rom="haotian_images_OS3.0.308.0.WOBCNXM_20260729.0000.00_16.0_cn_15bf1ee7da.tgz"
-          expected="15bf1ee7da1e5626f77565e212b0d7a9"
-          ok=0
-          for host in bigota.d.miui.com hugeota.d.miui.com; do
-            rm -rf "$RUNNER_TEMP/haotian-rom"
-            mkdir -p "$RUNNER_TEMP/haotian-rom"
-            fifo="$RUNNER_TEMP/romhash.fifo"
-            rm -f "$fifo"
-            mkfifo "$fifo"
-            md5sum < "$fifo" > "$RUNNER_TEMP/romhash.txt" &
-            hashpid=$!
-            url="https://$host/OS3.0.308.0.WOBCNXM/$rom"
-            echo "Streaming $url (no 12.2 GB archive saved to disk)"
-            if curl -fL --retry 2 --connect-timeout 30 --show-error -s "$url" | tee "$fifo" | \
-                tar -xzf - --wildcards --no-anchored \
-                  -C "$RUNNER_TEMP/haotian-rom" '*/images/boot.img' '*/images/vendor_boot.img'; then
-              wait "$hashpid"
-              actual="$(cut -d' ' -f1 "$RUNNER_TEMP/romhash.txt")"
-              if [ "$actual" = "$expected" ]; then ok=1; break; fi
-              echo "::warning::ROM MD5 mismatch on $host"
-            else
-              wait "$hashpid" || true
-              echo "::warning::Official server $host failed"
-            fi
-          done
-          rm -f "$RUNNER_TEMP/romhash.fifo"
-          [ "$ok" -eq 1 ] || { echo "::error::ROM extraction/MD5 failed"; exit 1; }
-          for name in boot vendor_boot; do
-            file="$(find "$RUNNER_TEMP/haotian-rom" -type f -path "*/images/$name.img" -print -quit)"
-            [ -n "$file" ] && [ -s "$file" ] || { echo "Missing $name.img"; exit 1; }
-            cp "$file" "$out/stock/$name.img"
-          done
-          echo "$expected" > "$out/stock/rom-verified-md5.txt"
-          (cd "$out/stock" && sha256sum boot.img vendor_boot.img > image-sha256.txt)
+          mkdir -p "$out/stock"
+          printf '%s\n' "$OTA_URL" > "$out/stock/source-ota-url.txt"
 
+          # Read 4 bytes only and fail fast if the OTA host doesn't offer HTTP ranges.
+          # Without HTTP ranges a large OTA could exhaust the runner's disk/traffic.
+          python3 - <<'PY'
+          import os
+          from urllib.request import Request, urlopen
+          u = os.environ['OTA_URL']
+          req = Request(u, headers={'Range': 'bytes=0-3', 'User-Agent': 'HyperMOS-OTA-Kernel-Lab/1.0'})
+          with urlopen(req, timeout=45) as response:
+              data = response.read(4)
+              status = response.status
+              cr = response.headers.get('Content-Range', '')
+          if status != 206 or not cr.startswith('bytes 0-3/'):
+              raise SystemExit(f"HTTP byte ranges unavailable (status={status}, Content-Range={cr!r})")
+          if data != b'PK\\x03\\x04':
+              raise SystemExit(f"URL does not begin with ZIP magic: {data!r}")
+          print("Recovery OTA ZIP detected; HTTP Range supported")
+          PY
+
+          # This Python CLI supports direct HTTP-range extraction of specific
+          # partitions inside a remote full-OTA payload.bin.
+          python3 -m venv "$RUNNER_TEMP/payload-venv"
+          "$RUNNER_TEMP/payload-venv/bin/pip" install --disable-pip-version-check android-payload-dumper
+          dumper="$RUNNER_TEMP/payload-venv/bin/payload-dumper"
+          "$dumper" "$OTA_URL" -l --json > "$out/stock/payload-partitions.json"
+          python3 - "$out/stock/payload-partitions.json" <<'PY'
+          import pathlib, sys
+          t = pathlib.Path(sys.argv[1]).read_text()
+          if not ('boot' in t and 'vendor_boot' in t):
+              raise SystemExit('Full OTA is missing boot or vendor_boot partitions')
+          PY
+          "$dumper" "$OTA_URL" -p boot vendor_boot -o "$out/stock" -j 4
+          for image in boot vendor_boot; do
+            test -s "$out/stock/$image.img" || {
+              echo "::error::Missing extracted $image.img"; exit 1;
+            }
+          done
+          (cd "$out/stock" && sha256sum boot.img vendor_boot.img > image-sha256.txt)
+          echo "Source OTA: $OTA_URL"
       - name: Extract kernel binary from stock boot image
         run: |
           set -euo pipefail
@@ -152,7 +159,7 @@ jobs:
 
           This bundle is NOT a flashable custom kernel. DO NOT FLASH its boot images.
 
-          stock/: original verified official boot and vendor_boot images.
+          stock/: boot and vendor_boot extracted from the user's Recovery OTA\n          using HTTP-range access and checked against payload partition hashes.
           unpacked/kernel: exact stock binary from boot.img.
           source-patch/: real source-level efficiency modification against MiCode
           dada-v-oss (Android 15), NOT compiled for current Android 16.
@@ -185,12 +192,11 @@ jobs:
           compression-level: 1
           if-no-files-found: error
 
-      - name: Remove temporary ROM extraction and build files
+      - name: Remove temporary dependencies and extraction files
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/haotian-rom" "$RUNNER_TEMP/aosp-mkbootimg" \
+          rm -rf "$RUNNER_TEMP/payload-venv" "$RUNNER_TEMP/aosp-mkbootimg" \
             "$RUNNER_TEMP/patchcheck" "$RUNNER_TEMP/workqueue.c"
-          rm -f "$RUNNER_TEMP/romhash.fifo" "$RUNNER_TEMP/romhash.txt"
 
       - name: Self-delete one-time workflow only after successful upload
         if: ${{ success() && inputs.remove_workflow_on_success }}
