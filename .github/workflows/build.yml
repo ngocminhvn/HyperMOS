@@ -1,6 +1,9 @@
 name: HyperMOS ROM Build
 
 on:
+  push:
+    paths:
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       input_url:
@@ -28,6 +31,7 @@ on:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -107,6 +111,20 @@ jobs:
           python3 -m py_compile bin/modfile/UpdateFile/Fonts/font_utils.py
           python3 -m py_compile bin/package/COREPATCH/font-framework-audit.py
           bash -n bin/modfile/UpdateFile/Fonts/update.sh
+
+          # Replace standalone font and TNM checks in the main ROM workflow.
+          bash -n bin/modfile/UpdateFile/Fonts/install-emoji.sh
+          test -s bin/modfile/UpdateFile/Fonts/Shared/NotoColorEmoji.ttf
+          test ! -e bin/modfile/UpdateFile/Fonts/HyperOS/NotoColorEmoji.ttf
+          python3 bin/modfile/UpdateFile/Fonts/font_utils.py catalog \
+            bin/modfile/UpdateFile/Fonts/HyperOS "$RUNNER_TEMP/hypermos-font-preflight"
+          test -s "$RUNNER_TEMP/hypermos-font-preflight/catalog.tsv"
+          sh -n bin/modfile/UpdateFile/TNM/tnm-bridge
+          bash -n bin/modfile/UpdateFile/TNM/update.sh
+          grep -Fq 'BACKEND=/data/adb/tnm/bin/tnmctl' bin/modfile/UpdateFile/TNM/tnm-bridge
+          grep -Fq 'install -m 0755 "$src_bridge" "$bridge_dst"' bin/modfile/UpdateFile/TNM/update.sh
+          grep -Fq 'exec "$BACKEND" "$@"' bin/modfile/UpdateFile/TNM/tnm-bridge
+          echo "[OK] - Font catalog, shared emoji and TNM bridge preflight passed"
 
           sudo chmod -R a+rwX .
           chmod +x bin/magiskboot 2>/dev/null || true
@@ -237,3 +255,57 @@ jobs:
               ;;
           esac
           exit 0
+
+cleanup-retired-workflows:
+    name: One-time prune retired Actions history
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Delete histories of 3 removed workflow files only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess, sys, time
+          repo = os.environ["GH_REPO"]
+          targets = {
+              ("Font Catalog Check", ".github/workflows/font-catalog-check.yml"),
+              ("Font Framework Audit", ".github/workflows/font-framework-audit.yml"),
+              ("TNM Bridge Contract", ".github/workflows/tnm-bridge-check.yml"),
+          }
+          data = subprocess.check_output(
+              ["gh", "api", "--paginate", "--slurp", f"repos/{repo}/actions/runs?per_page=100"],
+              text=True)
+          pages = json.loads(data)
+          matches = [r for page in pages for r in page.get("workflow_runs", [])
+                     if (r.get("name"), r.get("path")) in targets and r.get("status") == "completed"]
+          print(f"[CLEANUP] Found {len(matches)} completed runs belonging only to retired workflows", flush=True)
+          errors = []
+          for idx, r in enumerate(matches, 1):
+              rid = r["id"]
+              succeeded = False
+              for attempt in range(3):
+                  p = subprocess.run(["gh", "api", "--silent", "-X", "DELETE",
+                                      f"repos/{repo}/actions/runs/{rid}"],
+                                     text=True, capture_output=True)
+                  if p.returncode == 0:
+                      succeeded = True
+                      break
+                  print(f"[CLEANUP] Retry {rid}: {p.stderr[:250]}", flush=True)
+                  time.sleep(3 * (attempt + 1))
+              if not succeeded:
+                  errors.append(rid)
+              print(f"[CLEANUP] {idx}/{len(matches)} {r['name']} #{rid}: {'deleted' if succeeded else 'FAILED'}", flush=True)
+              time.sleep(0.3)
+          if errors:
+              print("[CLEANUP] Unremoved run IDs:", errors, file=sys.stderr)
+              sys.exit(1)
+          print("[CLEANUP] Retired workflows fully cleaned", flush=True)
+          PY
