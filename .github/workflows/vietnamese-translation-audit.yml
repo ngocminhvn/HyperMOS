@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 unzip > /dev/null
+          sudo apt-get install -y -qq aria2 unzip aapt zipalign > /dev/null
           SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           AAPT2="$SDK_ROOT/build-tools/36.0.0/aapt2"
           if [[ ! -x "$AAPT2" ]]; then
@@ -158,9 +158,9 @@ jobs:
             --patches bin/modfile/UpdateFile/MultiLang/patches \
             --output translation-patched-apks \
             --apktool bin/apktool/apktool.jar \
-            --aapt2 "$AAPT2_PATH" \
-            --apksigner "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0/apksigner" \
-            --zipalign "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0/zipalign" \
+            --aapt "$(command -v aapt)" \
+            --apksigner-jar bin/apktool/apksigner.jar \
+            --zipalign "$(command -v zipalign)" \
             --key bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8 \
             --cert bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
           cat translation-patched-apks/PATCH_REPORT.md >> "$GITHUB_STEP_SUMMARY"
