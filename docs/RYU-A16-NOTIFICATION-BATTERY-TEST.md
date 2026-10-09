@@ -166,15 +166,20 @@ safeguards and use the ROM test branch only.
 
 ## FCM ordering and focused RYU audits (2026-10-09)
 
-- The experimental C2DM fast path is now restricted to the receiver/app
-  validation branch of `checkApplicationAutoStart()`: it requires a unique
-  `ResolveInfo.activityInfo` and `ActivityInfo.applicationInfo` extraction,
-  followed by the original ApplicationInfo null guard. A new local register
-  receives a tiny private action helper's boolean result; the original
-  Xiaomi locals and non-FCM branch remain untouched.
-- When a source JAR already checks the FCM action, no duplicate exemption
-  is injected. Such an existing action is accepted **only if receiver and
-  application resolution occur first**. Unknown layouts fail the patch.
+- The actual Xiaomi and RYU methods **already contain the C2DM action**.
+  The verified RYU delta is a single build flag read immediately after
+  `ApplicationInfo.uid`, and before the existing C2DM equality check.
+  HyperMOS now replaces the original Xiaomi `IS_INTERNATIONAL_BUILD` read
+  at that exact gate with a constant true value, reproducing the effective
+  `IS_RYU_BUILD=true` outcome on China ROMs. The original action, labels,
+  registers, permission checks and non-FCM branches are preserved.
+- The same one-instruction approach is used on
+  `ProcessSceneCleaner.handleSwipeKill()`: enable its existing Xiaomi
+  `hasForegroundServices()` guard without changing the swipe-kill operation
+  or return values. The separate cross-task FGS guard remains unchanged.
+- Both edits require the original surrounding instructions and reject
+  mismatching layouts. No extra FCM helper, broad GMS whitelist, or daemon
+  is installed.
 - `bin/audit/ryu_targeted_notification_a16.py` performs a read-only
   cross-JAR comparison of `ProcessSceneCleaner.handleSwipeKill()`,
   `killAppForHasOtherTask()`, `NotificationManagerServiceImpl` methods,
