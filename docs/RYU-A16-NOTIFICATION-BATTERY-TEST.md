@@ -42,13 +42,18 @@ Reference: `RYUOS_HAOTIAN_PowerKeeper.apk` extracted from RYUOS
    do not fake `ro.miui.region=RYU` on HyperMOS.
 5. `ryu_policy_a16.py` patches the *base* `miui-services.jar`
    during the normal A16 COREPATCH stage. It selectively matches RYU:
-   - `BroadcastQueueModernStubImpl.checkApplicationAutoStart(...)`: allow
-     Xiaomi autostart for the exact FCM RECEIVE action; this does not change
-     Android's sender/receiver permission enforcement.
-   - `BroadcastQueueModernStubImpl.updateBlockBroadcast()`: after Xiaomi
-     security-service setup, leave RYU's first-boot broadcast blocker off.
-   - `ProcessSceneCleaner.killAppForHasOtherTask(...)`: protect a
-     process with a currently running foreground service during task cleanup.
+   - `BroadcastQueueModernStubImpl.checkApplicationAutoStart(...)`: after
+     standard Xiaomi widget, NFC and provisioning logic, exempt the exact
+     FCM action from the *autostart AppOp outcome only*, and only when
+     both AMS-populated `callerPackage` and `callerApp.info.packageName`
+     match `com.google.android.gms`. Never grant on action alone.
+   - `BroadcastQueueModernStubImpl.updateBlockBroadcast()`: audit
+     the target class, preserve unmodified Xiaomi `mSecurityInternal`,
+     `isAllowedDeviceProvision()` and secure setting decisions. RYU's
+     blanket first-boot override is not imported.
+   - `ProcessSceneCleaner.killAppForHasOtherTask(...)`: check
+     `hasForegroundServices()` *after* the original other-task decision,
+     preserve the original success-return branch and cleanup behavior.
    All changes are guarded by exact method signatures and fail on drift.
 6. No `miui-services.jar`, `services.jar`, `framework.jar`
    or `MiuiSystemUI.apk` RYU binaries are copied. The preexisting
@@ -92,6 +97,9 @@ not enabled here to avoid increasing heat, breaking expected user-initiated
 force-stop, weakening notification permissions or introducing unsupported
 RYU-private classes:
 
+- `updateBlockBroadcast()` first-boot blocker override: could skip
+  Xiaomi's provisioning/security-control path, so we preserve the base
+  behavior and keep only a structural audit of this method.
 - `DeviceIdleControllerStubImpl.mIsLowPowerDozeDevice=false`:
   might worsen power consumption on a hot handset.
 - `ProcessManagerService.isForceStopEnable(...)=false`:
@@ -115,3 +123,15 @@ rebuilt and the phone matches HAOTIAN. Compare with current HyperMOS on:
 normal Zalo/Facebook browsing for thermal and 20 minutes screen-off push
 latency. If it heats more or messages delay, roll back to the previous
 known-booting ROM. Keep thermal protection on in both test runs.
+
+## Verification status
+
+- A previous implementation returned `true` immediately on the FCM action
+  and returned early from `updateBlockBroadcast()`. Those patches have
+  been replaced by an autostart-only conditional plus first-boot audit.
+- The RYU real-JAR regression workflow and synthetic policy preflight now
+  guard these changes; only a passing CURRENT commit counts.
+- The official HAOTIAN 3.0.308.0 stock `system_ext` JAR check workflow
+  extracts an independent base and fails on signature drift or assembly
+  errors. A completed PASS from that workflow is required before considering
+  this branch ready for a ROM flash test.
