@@ -71,6 +71,20 @@ jobs:
             [[ "$name" == classes ]] && out=smali || out="smali_$name"
             java -jar "$GITHUB_WORKSPACE/bin/apktool/baksmaliv2.jar" d --api 36 "$dex" -o "$out"
           done
+          # Report the actual stock Xiaomi FGS call path before editing it.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = next(Path("/tmp/stock-dex").rglob("ProcessSceneCleaner.smali"))
+          txt = p.read_text()
+          m = re.search(r"(?ms)^\.method[^\n]*killAppForHasOtherTask\(ILmiui/process/ProcessConfig;\)Z.*?^\.end method", txt)
+          assert m, "Missing Xiaomi task cleaner method"
+          lines = m.group().splitlines()
+          print("===== STOCK XIAOMI FGS TASK METHOD BEGIN =====", flush=True)
+          for n, line in enumerate(lines, 1):
+            print(f"{n:03}: {line}", flush=True)
+          print("===== STOCK XIAOMI FGS TASK METHOD END =====", flush=True)
+          PY
           python3 "$GITHUB_WORKSPACE/bin/package/COREPATCH/ryu_policy_a16.py" /tmp/stock-dex
           python3 "$GITHUB_WORKSPACE/bin/package/COREPATCH/ryu_doze_a16.py" /tmp/stock-dex
           python3 - <<'PY'
