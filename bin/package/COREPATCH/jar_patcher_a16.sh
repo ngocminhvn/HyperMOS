@@ -19,6 +19,7 @@ API_LEVEL=36
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_DISABLE_SECURE_FLAG=0
+FEATURE_AUTO_APP_OPS=0
 
 parse_feature_flags() {
   while [ $# -gt 0 ]; do
@@ -32,6 +33,9 @@ parse_feature_flags() {
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
         ;;
+      --auto-app-ops)
+        FEATURE_AUTO_APP_OPS=1
+        ;;
       *)
         err "Unknown Android 16 COREPATCH option: $1"
         return 1
@@ -44,10 +48,12 @@ parse_feature_flags() {
   [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
+  [ "$FEATURE_AUTO_APP_OPS" -eq 1 ] && log "  [PATCH] Auto 3 Xiaomi AppOps (new apps)"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
-     [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
+     [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ] &&
+    [ "$FEATURE_AUTO_APP_OPS" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
 }
@@ -1059,6 +1065,11 @@ patch_services() {
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
     apply_services_disable_secure_flag "$decompile_dir"
+  fi
+
+  # One-shot callback: for fresh installations, not APK updates.
+  if [ "$FEATURE_AUTO_APP_OPS" -eq 1 ]; then
+    python3 "$work_dir/bin/package/AUTO_APP_OPS/patch.py" "$decompile_dir" || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
