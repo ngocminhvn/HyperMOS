@@ -85,15 +85,28 @@ def first_boot_broadcast(text: str) -> str:
     signature = "updateBlockBroadcast()V"
     if "mIsBlockBroadcastFirstBoot:Z" not in text:
         raise ValueError("first-boot broadcast field not found")
-    # RYU exits updateBlockBroadcast() before enabling its first-boot blocker.
+    m = method(text, signature)
+    body = m.group()
+    if ":hypermos_ryu_first_boot_marker" in body:
+        return text
+    # On RYU the security service is initialized first, then its
+    # first-boot blocking policy is skipped. Preserve that setup here.
+    guard = re.compile(
+        r"(?m)^[ \t]*invoke-virtual[^\n]*"
+        r"Lmiui/security/SecurityManagerInternal;->isAllowedDeviceProvision\(\)Z[ \t]*$"
+    )
+    hits = list(guard.finditer(body))
+    if len(hits) != 1:
+        raise ValueError("updateBlockBroadcast: expected one provision guard")
     code = """
-    # RYU A16: keep first-boot broadcast blocker disabled.
+    # RYU A16: keep first-boot broadcast blocker disabled, after service init.
     const/4 v0, 0x0
     iput-boolean v0, p0, Lcom/android/server/am/BroadcastQueueModernStubImpl;->mIsBlockBroadcastFirstBoot:Z
     return-void
 :hypermos_ryu_first_boot_marker
 """
-    return inject(text, signature, ":hypermos_ryu_first_boot_marker", code, 1)
+    updated = body[:hits[0].start()] + code + body[hits[0].start():]
+    return text[:m.start()] + updated + text[m.end():]
 
 
 def foreground_service_protection(text: str) -> str:
