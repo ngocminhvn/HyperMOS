@@ -8,6 +8,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import json
+import difflib
 import re
 
 METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method\s*$")
@@ -55,6 +56,37 @@ def methods(root, classname):
     return result
 
 
+def chosen_method_text(root, name, method_id):
+    source = find_one(root, name).read_text(encoding="utf-8")
+    matching = [
+        m.group() for m in METHOD.finditer(source)
+        if m.group().splitlines()[0].strip().removeprefix(".method ").split(" ")[-1] == method_id
+    ]
+    if len(matching) != 1:
+        return []
+    return normalize(matching[0]).splitlines()
+
+
+def print_focused_diffs(stock, ryu):
+    selected = {
+        "GmsObserver": ["<init>(Landroid/content/Context;)V", "updateGoogleSync(Z)V"],
+        "KillProcessController": ["setUidState(IZ)V", "shouldKillByCheckerPolicy(I)Z"],
+        "PowerKeeperApplication": ["onCreate()V", "d()Z"],
+    }
+    for name, method_ids in selected.items():
+        for method_id in method_ids:
+            a = chosen_method_text(stock, name, method_id)
+            b = chosen_method_text(ryu, name, method_id)
+            print(f"[DIFF] {name}.{method_id}")
+            diffs = list(difflib.unified_diff(
+                a, b, fromfile="Stock/Xiaomi", tofile="RYUOS", lineterm=""
+            ))
+            for line in diffs[:120]:
+                print(line)
+            if len(diffs) > 120:
+                print(f"... {len(diffs)-120} more diff lines omitted")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ryu", type=Path, required=True)
@@ -93,6 +125,7 @@ def main():
         print(f"  {name}: unchanged={item['unchanged_methods']} different={item['different_methods']}")
     print("  GmsObserver.isGmsControlEnabled identical:", results["summary"]["gms_control_unchanged"])
     print("  RYU contains PerfHook:", results["summary"]["ryu_has_perf_hook"])
+    print_focused_diffs(a.stock, a.ryu)
 
 
 if __name__ == "__main__":
