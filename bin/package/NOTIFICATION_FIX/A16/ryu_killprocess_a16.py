@@ -70,7 +70,7 @@ def digest(tokens: list[str]) -> str:
 
 def only_method(source: str, name: str):
     regex = re.compile(
-        rf"(?ms)^\\.method[^\\n]*\\s{re.escape(name)}\\s*$.*?^\\.end method\\s*$"
+        rf"(?ms)^\.method[^\n]*\s{re.escape(name)}\s*$.*?^\.end method\s*$"
     )
     results = list(regex.finditer(source))
     if len(results) != 1:
@@ -114,7 +114,7 @@ def patch_class(source: str) -> str:
         if digest(items) != TARGET_SHA:
             raise ValueError("Unexpected post-patch instructions (RYU parity failed)")
         post = source[:m.start()] + build_method(items, 6) + source[m.end():]
-    found = re.findall(r"(?m)^\\.method[^\\n]*shouldKillByCheckerPolicy\\(I\\)Z\\s*$", post)
+    found = re.findall(r"(?m)^\.method[^\n]*shouldKillByCheckerPolicy\(I\)Z\s*$", post)
     if len(found) == 0:
         if digest(canonical(HELPER)) != HELPER_SHA:
             raise ValueError("Bundled checker method differs from verified RYU")
