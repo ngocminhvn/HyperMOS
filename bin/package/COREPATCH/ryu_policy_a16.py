@@ -53,10 +53,12 @@ def inject(text: str, signature: str, marker: str, source: str,
 
 
 def fcm_autostart(text: str) -> str:
-    """Make the FCM exemption only after stock ResolveInfo/ApplicationInfo checks.
+    """Replicate the one-instruction RYU FCM gate delta, in its stock position.
 
-    Never overwrite a live local: a new register is allocated for the result.
-    The helper is action-only, and has no effect on Android broadcast permissions.
+    Xiaomi stock already parses ResolveInfo, ApplicationInfo and C2DM action.
+    RYU changes IS_INTERNATIONAL_BUILD(false on CN) to IS_RYU_BUILD(true),
+    after reading ApplicationInfo.uid and before the C2DM action test.
+    Do NOT insert an early return or duplicate the FCM check.
     """
     signature = ("checkApplicationAutoStart("
                  "Lcom/android/server/am/BroadcastQueue;"
@@ -64,100 +66,63 @@ def fcm_autostart(text: str) -> str:
                  "Landroid/content/pm/ResolveInfo;)Z")
     m = method(text, signature)
     body = m.group()
-    marker = ":hypermos_ryu_autostart_original"
-    helper_sig = "hypermosRyuIsFcmBroadcast(Lcom/android/server/am/BroadcastRecord;)Z"
+    marker = "# HyperMOS RYU FCM: enable existing post-ApplicationInfo gate"
     if marker in body:
-        if text.count(".method private static " + helper_sig) != 1:
-            raise ValueError("FCM exemption marker exists without its helper")
         return text
-    # Preserve an existing FCM exemption only if receiver/application
-    # resolution already precedes the action check, as it does in RYU.
-    if ACTION in body:
-        action_at = body.find(ACTION)
-        resolve_at = body.find("ResolveInfo;->")
-        app_at = body.find("ApplicationInfo;")
-        print(f"[RYU-A16-FCM] existing action at {action_at}, "
-              f"ResolveInfo at {resolve_at}, ApplicationInfo at {app_at}",
-              flush=True)
-        if min(resolve_at, app_at) < 0 or action_at <= max(resolve_at, app_at):
-            raise ValueError("Existing FCM path is not after receiver/app resolution")
+    if ACTION not in body or "ResolveInfo;->activityInfo:" not in body or (
+            "ActivityInfo;->applicationInfo:" not in body or
+            "ApplicationInfo;->uid:I" not in body):
+        raise ValueError("FCM method lacks stock receiver/app/action sequence")
+
+    action_at = body.index(ACTION)
+    app_at = body.index("ApplicationInfo;->uid:I")
+    if app_at >= action_at:
+        raise ValueError("FCM action is not after ApplicationInfo uid resolution")
+
+    # The authentic RYU JAR already uses its own true-build flag here.
+    if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
         return text
 
-    if "Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;" not in body:
-        raise ValueError("Expected BroadcastRecord.intent missing")
-    # Require the actual Xiaomi receiver path, not a guessed method entry.
-    resolve = re.search(
-        r"(?m)^    iget-object\s+v\d+,\s*[vp]\d+,\s*"
-        r"Landroid/content/pm/ResolveInfo;->activityInfo:Landroid/content/pm/ActivityInfo;\s*$",
-        body)
-    if not resolve:
-        raise ValueError("ResolveInfo.activityInfo gate not found")
-    app_matches = list(re.finditer(
-        r"(?m)^    iget-object\s+(?P<app>v\d+),\s*[vp]\d+,\s*"
-        r"Landroid/content/pm/ActivityInfo;->applicationInfo:Landroid/content/pm/ApplicationInfo;\s*$",
-        body))
-    if len(app_matches) != 1 or app_matches[0].start() <= resolve.start():
-        raise ValueError("Expected one ApplicationInfo extraction after ResolveInfo")
-    app = app_matches[0]
-    # Insert only on the validated receiver path: preserve Xiaomi's null guard.
-    tail = body[app.end():]
-    guard = re.search(rf"(?m)^[ \t]*if-eqz[ \t]+{re.escape(app.group('app'))},[ \t]*:\w+[ \t]*$", tail)
-    if not guard or len(tail[:guard.start()].splitlines()) > 12:
-        raise ValueError("Expected nearby ApplicationInfo null guard; fail closed")
-    insert_at = app.end() + guard.end()
-    if ".method static " in body.splitlines()[0]:
-        raise ValueError("Unexpected static Xiaomi autostart method")
-    reg = re.search(r"(?m)^    \.(locals|registers)\s+(\d+)\s*$", body)
-    if not reg:
-        raise ValueError("Autostart register directive missing")
-    kind, num = reg.group(1), int(reg.group(2))
-    # Nonstatic parameters: this, BroadcastQueue, BroadcastRecord, ResolveInfo.
-    available = num if kind == "locals" else num - 4
-    if available < 0 or available >= 255:
-        raise ValueError("No safe fresh Dalvik local available")
-    # Xiaomi generally uses pN parameter aliases. Explicit vN aliases to
-    # parameter registers would shift if register count is increased.
-    used = [int(x) for x in re.findall(r"\bv(\d+)\b", body[reg.end():])]
-    if kind == "registers" and any(i >= available for i in used):
-        raise ValueError("Autostart uses vN parameter aliases; cannot grow registers")
-    temp = f"v{available}"
-    klass = re.search(
-        r"(?m)^\.class[^\n]*\s+(Lcom/android/server/am/BroadcastQueueModernStubImpl;)\s*$", text)
-    if not klass:
-        raise ValueError("Unexpected BroadcastQueue class descriptor")
-    invoke = klass.group(1) + "->" + helper_sig
-    addition = f"""
-    # RYU FCM: only after ResolveInfo/ActivityInfo/ApplicationInfo validation.
-    invoke-static/range {{p2 .. p2}}, {invoke}
-    move-result {temp}
-    if-eqz {temp}, {marker}
-    return {temp}
-{marker}
-"""
-    new_body = body[:insert_at] + "\n" + addition + body[insert_at:]
-    new_reg = f"    .{kind} {num + 1}"
-    new_body = new_body[:reg.start()] + new_reg + new_body[reg.end():]
-    patched = text[:m.start()] + new_body + text[m.end():]
-    if helper_sig in text:
-        raise ValueError("FCM helper signature already present without patch marker")
-    helper = f"""
-.method private static {helper_sig}
-    .locals 2
-    if-eqz p0, :hypermos_ryu_fcm_no
-    iget-object v0, p0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
-    if-eqz v0, :hypermos_ryu_fcm_no
-    invoke-virtual {{v0}}, Landroid/content/Intent;->getAction()Ljava/lang/String;
-    move-result-object v0
-    const-string v1, "{ACTION}"
-    invoke-virtual {{v1, v0}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
-    move-result v0
-    return v0
-:hypermos_ryu_fcm_no
-    const/4 v0, 0x0
-    return v0
-.end method
-"""
-    return patched.rstrip() + "\n\n" + helper.strip() + "\n"
+    lines = body.splitlines(keepends=True)
+    gate_pat = re.compile(
+        r"^([ \t]*)sget-boolean[ \t]+(?P<reg>v\d+),[ \t]*"
+        r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z[ \t]*(?:\n|$)"
+    )
+    candidates = []
+    for i, line in enumerate(lines):
+        g = gate_pat.match(line)
+        if not g:
+            continue
+        reg = g.group("reg")
+        # Skip only smali debug directives and comments. These instruction
+        # neighbors match the actual stock/RYU HAOTIAN method-level delta.
+        nxt = []
+        for extra in lines[i + 1:]:
+            stmt = extra.strip()
+            if not stmt or stmt.startswith(("#", ".line", ".local", ".end local",
+                                             ".restart local", ".prologue")):
+                continue
+            nxt.append(stmt)
+            if len(nxt) == 2:
+                break
+        if (len(nxt) == 2
+                and re.fullmatch(rf"if-eqz[ \t]+{re.escape(reg)},[ \t]*:\w+", nxt[0])
+                and re.fullmatch(
+                    rf"const-string(?:/jumbo)?[ \t]+v\d+,[ \t]*\"{re.escape(ACTION)}\"",
+                    nxt[1])):
+            candidates.append((i, g, reg))
+    if len(candidates) != 1:
+        raise ValueError(f"Expected one stock FCM build gate, found {len(candidates)}")
+    i, g, reg = candidates[0]
+    if int(reg[1:]) > 15:
+        raise ValueError("FCM gate register cannot use const/4")
+    if sum(len(x) for x in lines[:i]) <= app_at:
+        raise ValueError("FCM build gate is before ApplicationInfo check")
+    lines[i] = f"{g.group(1)}{marker}\n{g.group(1)}const/4 {reg}, 0x1\n"
+    patched = "".join(lines)
+    if patched.count(marker) != 1 or patched.count(ACTION) != 1:
+        raise ValueError("FCM one-instruction gate postcondition failed")
+    return text[:m.start()] + patched + text[m.end():]
 
 def first_boot_broadcast(text: str) -> str:
     signature = "updateBlockBroadcast()V"
@@ -283,11 +248,10 @@ def main(root: Path) -> None:
                  "Lcom/android/server/am/BroadcastRecord;"
                  "Landroid/content/pm/ResolveInfo;)Z")
     post_fcm = method(changed, signature).group()
-    if ":hypermos_ryu_autostart_original" not in post_fcm and ACTION not in post_fcm:
-        raise ValueError("FCM postcondition failed: no action or guarded fast path")
-    if ":hypermos_ryu_autostart_original" in post_fcm and (
-            "hypermosRyuIsFcmBroadcast(" not in post_fcm or ACTION not in changed):
-        raise ValueError("FCM postcondition failed: helper/marker mismatch")
+    if ACTION not in post_fcm or not (
+            "# HyperMOS RYU FCM: enable existing post-ApplicationInfo gate" in post_fcm
+            or "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in post_fcm):
+        raise ValueError("FCM postcondition failed: exact RYU gate not present")
     # Atomic-ish: make no write until every target validated.
     bq.write_text(changed, encoding="utf-8")
     psc.write_text(ps_changed, encoding="utf-8")
