@@ -88,6 +88,14 @@ python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py" "$t
   exit 1
 }
 
+# Port the RYUOS conditional UID-kill policy without replacing the APK.
+# The checker field already exists in Xiaomi's PowerKeeper; only these two
+# methods differ in RYU. Fail fast on any unknown base-bytecode layout.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py" "$tmp/out" || {
+  error "RYU_TEST: KillProcessController parity failed"
+  exit 1
+}
+
 mkdir -p "$tmp/final"
 if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null; then
   error "RYU_TEST: selective PowerKeeper APK recompile failed"
@@ -101,5 +109,5 @@ unzip -tq "$tmp/final/PowerKeeper.apk" >/dev/null
 apk_dir=$(dirname "$apk")
 rm -rf "$apk_dir/oat"
 cp -f "$tmp/final/PowerKeeper.apk" "$apk"
-mods "RYU PowerKeeper: stock policy + two isolated GmsObserver RYU gates"
-patch "PowerKeeper A16 RYU selective GMS gate -> Done"
+mods "RYU PowerKeeper: two GmsObserver gates + conditional KillProcessController checker"
+patch "PowerKeeper A16 RYU GMS + conditional UID kill -> Done"
