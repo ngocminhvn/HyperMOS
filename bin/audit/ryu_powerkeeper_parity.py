@@ -129,6 +129,16 @@ def main():
         for line in obj.splitlines():
             if line.lstrip().startswith(".field"):
                 print(" ", line.strip())
+    for label, root in (("stock", a.stock), ("ryu", a.ryu)):
+        cls = find_one(root, "KillProcessController").read_text(encoding="utf-8")
+        for sig in ("setUidState(IZ)V", "shouldKillByCheckerPolicy(I)Z"):
+            found = [m.group() for m in METHOD.finditer(cls) if
+                     m.group().splitlines()[0].strip().endswith(sig)]
+            print(f"==== AUDIT RAW METHOD {label} {sig} ({len(found)}) ====")
+            if found:
+                for line in found[0].splitlines():
+                    print(line)
+            print(f"==== AUDIT END METHOD {label} {sig} ====")
     perf = list(a.ryu.rglob("PerfHook.smali"))
     results["summary"]["ryu_has_perf_hook"] = bool(perf)
     gms = results["methods"]["GmsObserver"].get("isGmsControlEnabled()Z")
