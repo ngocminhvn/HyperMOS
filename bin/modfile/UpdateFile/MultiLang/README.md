@@ -79,6 +79,29 @@ Only a successful `Merge original Vietnamese translations into existing RROs`
 workflow and its subsequent APK commit establish a compiled update. Device
 idmap/render testing remains necessary.
 
+## Xiaomi framework-dependent overlay repair
+
+The stock-HyperOS audit run `37869472353` confirmed a missing Apktool
+Xiaomi framework resource package ID 18. It now extracts the matching
+`miuisystem.apk` from the `OS3.0.308.0.WOBCNXM` OTA, installs it using
+`apktool if`, and archives installed framework files for subsequent RRO
+decoding and verified signing. It successfully decoded **FileExplorer,
+MiuiGallery and MiuiBluetooth** overlays that previously failed.
+
+This batch stages **290 independently authored Vietnamese strings** for
+these three existing overlay APKs, without translating application-internal
+class names, fonts, encoded keys, Android permission constants or other
+non-UI resources:
+
+- `Nothings.FileExplorer.apk`: 22 new strings
+- `Nothings.MiuiGallery.apk`: 86 new strings
+- `Nothings.MiuiBluetooth.apk`: 182 new strings
+
+The merge workflow is configured to use audit run `37869472353` and its
+`stock-frameworks/18.apk` for decompilation and recompilation. Existing
+Vietnamese values are append-only and unchanged. Successful build/commit
+is required before an APK update is considered complete.
+
 ## Extending Vietnamese to more built-in apps
 
 The 67 original Nothings RROs already cover many Xiaomi apps. The full

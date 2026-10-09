@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_tab_statedesc_unselect">Chưa được chọn</string>
+    <string name="miuix_alphabet_indexer_name">Thanh chỉ mục</string>
+    <string name="miuix_edit_dialog_fragment_empty_arg_title">Không có tham số</string>
+    <string name="miuix_item_view_accessibility_unselected">Chưa được chọn</string>
+    <string name="mtrl_picker_a11y_next_month">Chuyển sang tháng sau</string>
+    <string name="mtrl_picker_a11y_prev_month">Chuyển về tháng trước</string>
+    <string name="mtrl_picker_announce_current_selection">Đang chọn: %1$s</string>
+    <string name="mtrl_picker_date_header_title">Chọn ngày</string>
+    <string name="mtrl_picker_date_header_unselected">Ngày đã chọn</string>
+    <string name="mtrl_picker_day_of_week_column_header">Cột ngày: %1$s</string>
+    <string name="mtrl_picker_invalid_format">Định dạng không hợp lệ.</string>
+    <string name="mtrl_picker_invalid_range">Khoảng thời gian không hợp lệ.</string>
+    <string name="mtrl_picker_navigate_to_year_description">Chuyển đến năm %1$s</string>
+    <string name="mtrl_picker_out_of_range">Ngoài phạm vi: %1$s</string>
+    <string name="mtrl_picker_range_header_title">Chọn khoảng ngày</string>
+    <string name="mtrl_picker_range_header_unselected">Ngày bắt đầu – Ngày kết thúc</string>
+    <string name="mtrl_picker_text_input_date_range_end_hint">Ngày kết thúc</string>
+    <string name="mtrl_picker_text_input_date_range_start_hint">Ngày bắt đầu</string>
+    <string name="mtrl_picker_toggle_to_calendar_input_mode">Chuyển sang nhập bằng lịch</string>
+    <string name="mtrl_picker_toggle_to_day_selection">Nhấn để chọn ngày</string>
+    <string name="mtrl_picker_toggle_to_text_input_mode">Chuyển sang nhập văn bản</string>
+    <string name="mtrl_picker_toggle_to_year_selection">Nhấn để chọn năm</string>
+</resources>

@@ -51,11 +51,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/stock-en"
-          gh run download 37803649836 \
+          gh run download 37869472353 \
             --repo "$GITHUB_REPOSITORY" \
             --name vietnamese-translation-audit \
             --dir "$RUNNER_TEMP/stock-en"
           test -s "$RUNNER_TEMP/stock-en/english-vietnamese-review.csv"
+          test -s "$RUNNER_TEMP/stock-en/stock-frameworks/18.apk" || { echo "[VI-MERGE] Xiaomi framework ID 18 missing"; exit 1; }
 
       - name: Validate merge engine and compile reviewed overlays
         shell: bash
@@ -76,6 +77,7 @@ jobs:
               --english-review "$RUNNER_TEMP/stock-en/english-vietnamese-review.csv" \
               --output "$RUNNER_TEMP/vi-batch/$name" \
               --apktool bin/apktool/apktool.jar \
+              --frame-path "$RUNNER_TEMP/stock-en/stock-frameworks" \
               --apksigner-jar bin/apktool/apksigner.jar \
               --aapt "$(command -v aapt)" \
               --zipalign "$(command -v zipalign)" \
