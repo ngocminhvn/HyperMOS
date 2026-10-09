@@ -24,11 +24,16 @@ Reference: `RYUOS_HAOTIAN_PowerKeeper.apk` extracted from RYUOS
 
 ## Changes on this experiment
 
-1. `bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh` no longer
-   modifies, re-signs or replaces `PowerKeeper.apk`. It decodes solely for
-   a fail-fast compatibility audit and keeps stock/base APK byte-for-byte.
-   Thus the base PowerKeeper retains conditional UID killing, its own GMS
-   control and device-specific Millet/Doze/wakelock/thermal policy.
+1. `bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh` now audits and
+   performs a **selective two-method patch** to the **base** PowerKeeper APK:
+   in `GmsObserver.<init>` and `updateGoogleSync(Z)` RYUOS reads
+   `com.projectryu.Build.IS_RYU_BUILD=true`, while Xiaomi stock reads
+   `miui.os.Build.IS_INTERNATIONAL_BUILD=false` on CN ROMs. HyperMOS
+   test changes only those original gate results to true and recompiles the
+   base APK with the existing APKEditor path. The actual
+   `isGmsControlEnabled()`, Millet, Doze, KillProcessController and
+   thermal code remain Xiaomi stock. Validate signing/package acceptance
+   on device before treating this as production-ready.
 2. `hypermos-google-push-keepalive.xml`: retain GMS FCM delivery
    exemptions and all three implicit-broadcast actions; remove the **extra**
    blanket GSF and Play Store exemptions from this specific custom XML.
@@ -63,6 +68,31 @@ Reference: `RYUOS_HAOTIAN_PowerKeeper.apk` extracted from RYUOS
 experiment, NOT a claim that the ROM has bit-identical notification,
 background, Doze or power behavior to RYU. Differences without a verified
 portable equivalent stay HyperMOS/base stock.
+
+## Verified Xiaomi-vs-RYU PowerKeeper method parity (2026-10-09)
+
+Actual `RYUOS_HAOTIAN_PowerKeeper.apk` from RYUOS 3.0.309.0 was
+compared against `PowerKeeper.apk` extracted from official HAOTIAN
+Xiaomi 3.0.308.0 system_ext by the parity workflow:
+
+- GmsObserver: **56 of 58 methods identical** (only two RYU-build gates).
+  `isGmsControlEnabled()` itself is identical and must not be reimplemented.
+- ActiveStateController: **49 of 49 identical**.
+- DeviceIdleController **in PowerKeeper**: **28 of 28 identical**.
+  This does not include the separate `miui-services.jar` Doze field patch.
+- KillProcessController: RYU adds `shouldKillByCheckerPolicy()` and its
+  related conditional path. This is **not imported** until the exact
+  verifier/register safety and default checker behavior are validated.
+- PowerKeeperApplication: RYU invokes a proprietary PerfHook on start.
+  HyperMOS intentionally leaves the base APK's app lifecycle alone.
+
+See `.github/workflows/ryu-powerkeeper-parity.yml` and
+`bin/audit/ryu_powerkeeper_parity.py`.
+
+A separate, opt-in, event-driven profile manager has been implemented
+on the **isolated TNM test branch** `test-ryu-per-app-thermal` in repo
+`ngocminhvn/app`. It is **not** a complete PerfHook clone, uses
+no RYU-private classes, and has not been added to TNM main/release.
 
 ## Building and testing
 
