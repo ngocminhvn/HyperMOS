@@ -10,6 +10,8 @@ images="$work_dir/build/baserom/images"
 
 [[ -f "$src_rc" ]] || { error "TNM Hosts: tnm-hosts.rc missing"; exit 1; }
 [[ -f "$src_ctl" ]] || { error "TNM Hosts: tnm-hostsctl.sh missing"; exit 1; }
+# Fail fast on backend syntax errors before copying the controller into ROM.
+sh -n "$src_ctl" || { error "TNM Hosts: controller shell syntax invalid"; exit 1; }
 
 if [[ -d "$images/system_ext" ]]; then
   init_dst="$images/system_ext/etc/init"
