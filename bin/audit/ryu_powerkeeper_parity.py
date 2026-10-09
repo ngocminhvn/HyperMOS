@@ -114,6 +114,21 @@ def main():
                     "ryu": ryu.get(sig),
                 }
         results["methods"][name] = result
+    for label, root in (("stock", a.stock), ("ryu", a.ryu)):
+        obj = find_one(root, "KillProcessController").read_text(encoding="utf-8")
+        print("[AUDIT]", label, "KillProcessController rule checker field definitions:")
+        for line in obj.splitlines():
+            if line.lstrip().startswith(".field") and (
+                "mKillProcessAppRuleChecker" in line or "PowerKeeperInterface" in line
+            ):
+                print(" ", line.strip())
+        print("[AUDIT]", label, "rule checker references:",
+              obj.count("mKillProcessAppRuleChecker"),
+              "setter/callback refs:", obj.count("getUidPolicy("))
+        print("[AUDIT]", label, "all field definitions:")
+        for line in obj.splitlines():
+            if line.lstrip().startswith(".field"):
+                print(" ", line.strip())
     perf = list(a.ryu.rglob("PerfHook.smali"))
     results["summary"]["ryu_has_perf_hook"] = bool(perf)
     gms = results["methods"]["GmsObserver"].get("isGmsControlEnabled()Z")
