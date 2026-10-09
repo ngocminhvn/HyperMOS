@@ -92,7 +92,7 @@ def patch_class(source: str) -> str:
     if source.count(FIELD) != 1:
         raise ValueError("PowerKeeper rule checker field missing or duplicated")
     for call in ("PowerKeeperInterface$l;", "ProcessManager;->isLockedApplication",
-                 "ProcessManager;->kill(", "checkAppOnWindowsStatus"):
+                 "checkAppOnWindowsStatus"):
         if call not in source:
             raise ValueError(f"Missing expected Xiaomi KillProcessController dependency: {call}")
     m = only_method(source, SIG)
@@ -129,6 +129,9 @@ def patch_class(source: str) -> str:
         raise ValueError("setUidState no longer matches RYU after patch")
     if post.count("->shouldKillByCheckerPolicy(I)Z") != 1:
         raise ValueError("Expected one RYU checker invocation")
+    set_uid = only_method(post, SIG).group()
+    if set_uid.count("Lmiui/process/ProcessManager;->kill(") != 1:
+        raise ValueError("Expected exactly one RYU conditional UID kill call")
     return post
 
 
