@@ -5,6 +5,8 @@
 DATA_DIR=/data/system/tnm
 SRC="$DATA_DIR/hosts"
 TARGET=/system/etc/hosts
+DISABLED="$DATA_DIR/disabled"
+STOCK="$DATA_DIR/stock-hosts"
 MARKER=tnm-hosts-test.invalid
 MARKER_IP=127.0.0.2
 
@@ -32,10 +34,37 @@ marker_visible() {
     grep -Eq "(^|[[:space:]])${MARKER}([[:space:]]|$)" "$TARGET" 2>/dev/null
 }
 
+# Save the real, unmodified ROM file before the first bind. We need its
+# contents on disable because running apps may retain an older mount namespace.
+save_stock() {
+    if [ ! -s "$STOCK" ] && ! marker_visible; then
+        cp "$TARGET" "$STOCK" || return 1
+        chown 0:0 "$STOCK" 2>/dev/null || true
+        chmod 0644 "$STOCK" 2>/dev/null || true
+    fi
+}
+
+restore_source() {
+    [ -f "$SRC" ] || return 0
+    # Rewrite the SAME inode so that apps already holding a bind mount stop
+    # blocking, including apps outside the controller's mount namespace.
+    if [ -s "$STOCK" ]; then
+        cat "$STOCK" > "$SRC" || return 1
+    else
+        printf '127.0.0.1 localhost\n::1 localhost\n' > "$SRC" || return 1
+    fi
+    chown 0:0 "$SRC" 2>/dev/null || true
+    chmod 0644 "$SRC" 2>/dev/null || true
+}
+
 apply_hosts() {
     ensure_source || { log "source setup failed"; return 1; }
-    umount "$TARGET" 2>/dev/null || true
-    mount --bind "$SRC" "$TARGET" || { log "bind mount failed"; return 1; }
+    save_stock || { log "could not back up stock hosts"; return 1; }
+    # Do not replace a verified mount: preserving its inode allows live updates
+    # across apps that inherited the bind at boot.
+    if ! is_bound; then
+        mount --bind "$SRC" "$TARGET" || { log "bind mount failed"; return 1; }
+    fi
     is_bound || { log "bind verification failed"; return 1; }
     marker_visible || { log "marker not visible after bind"; return 1; }
     ndc resolver flushdefaultif 2>/dev/null || true
@@ -46,8 +75,36 @@ apply_hosts() {
 }
 
 disable_hosts() {
-    umount "$TARGET" 2>/dev/null || true
+    # Marker was already persisted and source rewritten before switching to
+    # init's namespace, so disabling is safe even for still-running apps.
+    if is_bound; then
+        umount "$TARGET" || { log "unmount failed"; return 1; }
+    fi
     log "disabled"
+}
+
+# su (Magisk/KernelSU) can run in an isolated mount namespace. A successful
+# bind there is NOT evidence that ordinary Android app processes see the file.
+# Prefer init's mount namespace for new binds; if setns is unavailable,
+# fail clearly and let the already staged file activate at next boot.
+enter_init_mount_ns() {
+    action="$1"
+    current_ns="$(readlink /proc/self/ns/mnt 2>/dev/null)"
+    init_ns="$(readlink /proc/1/ns/mnt 2>/dev/null)"
+    if [ -z "$current_ns" ] || [ -z "$init_ns" ]; then
+        log "mount namespace could not be inspected"
+        return 1
+    fi
+    [ "$current_ns" = "$init_ns" ] && return 0
+    if ! command -v nsenter >/dev/null 2>&1; then
+        log "nsenter unavailable, reboot required"
+        return 1
+    fi
+    if ! nsenter -t 1 -m -- /system/bin/true 2>/dev/null; then
+        log "cannot access init mount namespace, reboot required"
+        return 1
+    fi
+    exec nsenter -t 1 -m -- /system/bin/sh "$0" "$action"
 }
 
 status_hosts() {
@@ -63,10 +120,8 @@ resolve_marker() {
         out="$(getent hosts "$MARKER" 2>/dev/null | head -n 1)"
         echo "$out" | grep -Eq "(^|[[:space:]])${MARKER_IP}([[:space:]]|$)" && return 0
     fi
-    if command -v nslookup >/dev/null 2>&1; then
-        out="$(nslookup "$MARKER" 2>&1)"
-        echo "$out" | grep -q "$MARKER_IP" && return 0
-    fi
+    # nslookup talks directly to DNS and normally ignores /etc/hosts.
+    # It must not be used as evidence that Android apps honour the bind.
     first="$(ping -c 1 -W 1 "$MARKER" 2>&1 | head -n 1)"
     echo "$first" | grep -q "$MARKER_IP" && return 0
     return 1
@@ -83,9 +138,26 @@ test_hosts() {
 }
 
 case "${1:-status}" in
-    boot) [ -s "$SRC" ] && apply_hosts || log "no user hosts yet; stock hosts retained" ;;
-    apply|enable|reload) apply_hosts ;;
-    disable|off) disable_hosts ;;
+    boot)
+        if [ -s "$SRC" ] && [ ! -f "$DISABLED" ]; then
+            apply_hosts
+        else
+            log "hosts disabled or not yet configured; stock hosts retained"
+        fi
+        ;;
+    apply|enable|reload)
+        mkdir -p "$DATA_DIR" || exit 1
+        rm -f "$DISABLED" || exit 1
+        enter_init_mount_ns "${1}" || { log "PENDING_REBOOT=1"; exit 78; }
+        apply_hosts
+        ;;
+    disable|off)
+        mkdir -p "$DATA_DIR" || exit 1
+        touch "$DISABLED" || exit 1
+        restore_source || { log "could not restore stock hosts"; exit 1; }
+        enter_init_mount_ns "${1}" || { log "PENDING_REBOOT=1"; exit 78; }
+        disable_hosts
+        ;;
     status) status_hosts ;;
     test) test_hosts ;;
     *) echo "usage: tnm-hostsctl {boot|apply|disable|status|test}" >&2; exit 64 ;;
