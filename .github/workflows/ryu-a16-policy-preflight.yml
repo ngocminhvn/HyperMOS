@@ -15,6 +15,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_gms_observer_a16.py
           bash -n bin/package/NOTIFICATION_FIX/notificationFIX.sh
           python3 bin/modfile/Universal/gmsservices16/validate-sysconfig.py
       - name: Test RYU A16 framework transplant on synthetic smali
