@@ -39,7 +39,7 @@ def find_one(name):
     return found[0].read_text(encoding="utf-8")
 
 def method_body(src, name, proto):
-    pattern = rf"(?ms)^\\.method\\b[^\\n]*\\b{re.escape(name)}{re.escape(proto)}\\s*$.*?^\\.end method\\s*$"
+    pattern = rf"(?ms)^\.method\b[^\n]*\b{re.escape(name)}{re.escape(proto)}\s*$.*?^\.end method\s*$
     found = re.findall(pattern, src)
     if len(found) != 1:
         raise RuntimeError(f"{name}{proto}: expected exactly one method; got {len(found)}")
