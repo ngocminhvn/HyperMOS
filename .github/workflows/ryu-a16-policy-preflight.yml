@@ -41,8 +41,12 @@ jobs:
           assert 'ProcessManager;->kill' in script, 'Missing kill audit marker'
           assert 'isGmsControlEnabled' in script, 'Missing GMS policy audit marker'
           assert 'hypermosEnforceGmsMillet' in script, 'Missing legacy injection guard'
-          assert '$APKEDITOR b ' not in script, 'APK must not be repacked'
-          assert 'cp -f "$tmp/final' not in script, 'APK must not be overwritten'
+          # The test branch now repacks *only* the two verified RYU
+          # GmsObserver gates, using HyperMOS's existing APKEditor path.
+          assert 'ryu_gms_observer_a16.py' in script
+          assert '$APKEDITOR b -f -i "$tmp/out"' in script
+          assert 'cp -f "$tmp/final/PowerKeeper.apk" "$apk"' in script
+          assert 'killOnce' not in script, 'PowerKeeper kill override unexpectedly added'
           assert '<allow-implicit-broadcast action="com.google.android.c2dm.intent.RECEIVE"' in xml
           assert '<allow-in-power-save package="com.google.android.gms"' in xml
           assert 'package="com.google.android.gsf"' not in xml
