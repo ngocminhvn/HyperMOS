@@ -48,9 +48,14 @@ def method_body(src, name, proto):
 try:
     kill = find_one("KillProcessController.smali")
     state = method_body(kill, "setUidState", "(IZ)V")
-    # RYU still has this call; don't install HyperMOS's broad ZKOS kill suppression.
-    if "Lmiui/process/ProcessManager;->kill(Lmiui/process/ProcessConfig;)Z" not in state:
-        raise RuntimeError("conditional ProcessManager.kill was removed from stock path")
+    # Xiaomi stock has the rule-checker field but does NOT yet invoke
+    # ProcessManager.kill in setUidState(). RYU adds a conditional call.
+    if "mKillProcessAppRuleChecker:Lcom/miui/powerkeeper/PowerKeeperInterface$l;" not in kill:
+        raise RuntimeError("Xiaomi UID checker field missing")
+    for required in ("ProcessManager;->isLockedApplication", "checkAppOnWindowsStatus",
+                     "PowerKeeperManager;->getCurrentIME"):
+        if required not in state:
+            raise RuntimeError("Unexpected Xiaomi setUidState layout: " + required)
 
     observer = find_one("GmsObserver.smali")
     gms = method_body(observer, "isGmsControlEnabled", "()Z")
@@ -73,10 +78,10 @@ try:
 except RuntimeError as exc:
     print(f"[RYU_TEST] FAIL: {exc}", file=sys.stderr)
     sys.exit(1)
-print("[RYU_TEST] PASS: conditional UID kill retained")
+print("[RYU_TEST] PASS: stock checker field and guarded setUidState path present")
 print("[RYU_TEST] PASS: stock GmsObserver control retained")
 print("[RYU_TEST] PASS: no HyperMOS forced MILLET helper")
-print("[RYU_TEST] Base PowerKeeper untouched; RYU-only extensions excluded")
+print("[RYU_TEST] PowerKeeper base validated; only RYU GMS + UID checker methods will be patched")
 PY
 
 # RYU PowerKeeper differences verified against the actual RYU HAOTIAN APK:
