@@ -47,8 +47,13 @@ Reference: `RYUOS_HAOTIAN_PowerKeeper.apk` extracted from RYUOS
      Android's sender/receiver permission enforcement.
    - `BroadcastQueueModernStubImpl.updateBlockBroadcast()`: after Xiaomi
      security-service setup, leave RYU's first-boot broadcast blocker off.
-   - `ProcessSceneCleaner.killAppForHasOtherTask(...)`: protect a
-     process with a currently running foreground service during task cleanup.
+   - `ProcessSceneCleaner.killAppForHasOtherTask(...)`: on stock HAOTIAN
+     Xiaomi already has a `hasForegroundServices()` guard, but executes it
+     only when `IS_INTERNATIONAL_BUILD=true`. RYUOS uses
+     `IS_RYU_BUILD=true` at precisely this gate. HyperMOS test changes
+     only the guard input to `const/4 v2, 0x1`; no duplicate
+     `hasForegroundServices()`, no modified `killOnce()`, and no change
+     to the original common `return true` exit.
    All changes are guarded by exact method signatures and fail on drift.
 6. No `miui-services.jar`, `services.jar`, `framework.jar`
    or `MiuiSystemUI.apk` RYU binaries are copied. The preexisting
