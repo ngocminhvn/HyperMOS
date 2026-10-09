@@ -31,6 +31,26 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile bin/audit/extract_ryu_thermal_files.py
+          python3 -m py_compile bin/audit/ryu_super_partitions.py
+          # Regression: LP super metadata may contain zero-extent partitions.
+          # The previous lpunpack --info --format json emitted only two
+          # newlines (empty JSON), so verify our own metadata projection.
+          python3 - <<'PY'
+          from types import SimpleNamespace
+          from bin.audit.ryu_super_partitions import partition_summary
+          fake = SimpleNamespace(
+              partitions=[
+                  SimpleNamespace(name='vendor_a', first_extent_index=0, num_extents=0),
+                  SimpleNamespace(name='odm_a', first_extent_index=0, num_extents=1),
+              ],
+              extents=[SimpleNamespace(num_sectors=8)],
+          )
+          data = partition_summary(fake)
+          assert [p['name'] for p in data['partitions']] == ['vendor_a', 'odm_a']
+          assert data['partitions'][0]['size_bytes'] == 0
+          assert data['partitions'][1]['size_bytes'] == 4096
+          print('[PASS] LP metadata reader handles zero-extent partitions')
+          PY
           root="$(mktemp -d)"
           mkdir -p "$root/source/etc/init" "$root/output"
           printf 'sample raw thermal\n' > "$root/source/etc/thermal-normal.conf"
@@ -123,21 +143,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 bin/lpunpack.py --info --format json /tmp/ryu-super.img \
-            > /tmp/ryu-thermal/partition-info.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          src = Path('/tmp/ryu-thermal/partition-info.json')
-          data = json.loads(src.read_text())
-          names = sorted(x['name'] for x in data['partitions'])
-          print('Partitions:', names)
-          if not any(n in names for n in ('vendor', 'vendor_a')):
-              raise SystemExit('RYU super image has no vendor partition')
-          Path('/tmp/ryu-thermal/partitions.txt').write_text(
-              '\n'.join(names) + '\n'
-          )
-          PY
+          # lpunpack --info --format json can print an empty string when
+          # _get_info encounters a zero-extent partition. Its exception is
+          # suppressed internally; the previous output was just "\\n\\n".
+          # Read the raw LP metadata instead to write valid JSON/names.
+          python3 bin/audit/ryu_super_partitions.py \\
+            --super /tmp/ryu-super.img \\
+            --json /tmp/ryu-thermal/partition-info.json \\
+            --names /tmp/ryu-thermal/partitions.txt
+          python3 -m json.tool /tmp/ryu-thermal/partition-info.json > /dev/null
+          grep -Eq '^vendor(_a|_b)?$' /tmp/ryu-thermal/partitions.txt
 
       - name: Extract vendor, odm and supplementary thermal files
         shell: bash
@@ -227,7 +242,7 @@ jobs:
           find /tmp/ryu-thermal/files -type f | wc -l
 
       - name: Upload original thermal configuration artifact
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: RYUOS-HAOTIAN-Thermal-Configs
