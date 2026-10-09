@@ -1,0 +1,89 @@
+name: RYU vs HAOTIAN PowerKeeper Parity
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-notification-battery-a16
+    paths:
+      - '.github/workflows/ryu-powerkeeper-parity.yml'
+      - 'bin/audit/ryu_powerkeeper_parity.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install official OTA extractor
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache /usr/local/share/powershell || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq erofs-utils e2fsprogs unzip
+          curl -fsSL --retry 4 -o /tmp/payload-dumper.tar.gz \
+            https://github.com/xishang0128/payload-dumper-go/releases/download/v0.1.6/payload-dumper-linux-amd64-v3.tar.gz
+          mkdir -p /tmp/dumper
+          tar -xf /tmp/payload-dumper.tar.gz -C /tmp/dumper
+          chmod +x /tmp/dumper/payload-dumper-linux-amd64-v3
+      - name: Download verified RYU HAOTIAN PowerKeeper artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-PowerKeeper
+          run-id: 37916279893
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: /tmp/ryu-apk
+      - name: Extract official OS3.0.308.0 Xiaomi PowerKeeper from system_ext
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
+          mkdir -p /tmp/haotian-base /tmp/haotian-fs /tmp/stock-apk
+          /tmp/dumper/payload-dumper-linux-amd64-v3 extract "$url" -p system_ext -o /tmp/haotian-base
+          img=$(find /tmp/haotian-base -type f -name 'system_ext.img' -print -quit)
+          test -s "$img"
+          if file "$img" | grep -qi erofs; then
+            fsck.erofs --extract=/tmp/haotian-fs "$img"
+            stock=$(find /tmp/haotian-fs -type f -name 'PowerKeeper.apk' -print -quit)
+            test -s "$stock"
+            cp "$stock" /tmp/stock-apk/PowerKeeper.apk
+          else
+            found=0
+            for dir in /priv-app/PowerKeeper /system_ext/priv-app/PowerKeeper /app/PowerKeeper /system_ext/app/PowerKeeper; do
+              debugfs -R "dump $dir/PowerKeeper.apk /tmp/stock-apk/PowerKeeper.apk" "$img" 2>/dev/null || true
+              if test -s /tmp/stock-apk/PowerKeeper.apk; then found=1; break; fi
+            done
+            test "$found" -eq 1
+          fi
+          unzip -tq /tmp/stock-apk/PowerKeeper.apk
+          test -s /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk
+          unzip -tq /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk
+      - name: Decompile and compare actual RYU and Xiaomi PowerKeeper APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk -o /tmp/ryu-powerkeeper-smali
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i /tmp/stock-apk/PowerKeeper.apk -o /tmp/stock-powerkeeper-smali
+          mkdir -p reports
+          python3 bin/audit/ryu_powerkeeper_parity.py \
+            --ryu /tmp/ryu-powerkeeper-smali \
+            --stock /tmp/stock-powerkeeper-smali \
+            --out reports/powerkeeper-ryu-vs-xiaomi.json
+          sha256sum /tmp/stock-apk/PowerKeeper.apk /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk > reports/sha256sum.txt
+      - name: Upload analysis only, no proprietary APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryu-powerkeeper-parity-report
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
