@@ -107,6 +107,7 @@ def main():
     parser.add_argument("--stock-root", type=Path)
     parser.add_argument("--overlay-xml", type=Path)
     parser.add_argument("--apktool", type=Path)
+    parser.add_argument("--frame-path", type=Path)
     parser.add_argument("--output", type=Path, default=Path("translation-audit"))
     parser.add_argument("--self-test", action="store_true")
     a = parser.parse_args()
@@ -165,10 +166,12 @@ def main():
                 warnings.append(name + ": missing stock file or decoded overlay XML")
                 continue
             location = Path(temp) / name
+            command = ["java", "-Xmx4g", "-jar", str(a.apktool), "d", "-f", "-s",
+                       str(stock), "-o", str(location)]
+            if a.frame_path:
+                command += ["-p", str(a.frame_path)]
             build = subprocess.run(
-                ["java", "-Xmx4g", "-jar", str(a.apktool), "d", "-f", "-s",
-                 str(stock), "-o", str(location)],
-                capture_output=True, text=True, errors="replace",
+                command, capture_output=True, text=True, errors="replace",
             )
             if build.returncode:
                 warnings.append(name + ": apktool failed: " + build.stderr[-200:])

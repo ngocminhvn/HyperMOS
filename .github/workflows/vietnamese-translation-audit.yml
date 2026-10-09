@@ -109,6 +109,31 @@ jobs:
           done
           echo "STOCK_APKS=$STOCK" >> "$GITHUB_ENV"
 
+      - name: Install stock Xiaomi framework IDs for Apktool
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRAME="$RUNNER_TEMP/stock-apktool-frameworks"
+          mkdir -p "$FRAME" translation-audit/stock-frameworks
+          for filename in framework-res.apk framework-ext-res.apk miui.apk miuisystem.apk; do
+            mapfile -d '' -t found < <(find "$STOCK_APKS" -type f -iname "$filename" -print0)
+            if (( ${#found[@]} > 1 )); then
+              echo "[ERROR] Ambiguous $filename framework candidates: ${found[*]}"
+              exit 1
+            fi
+            if (( ${#found[@]} == 1 )); then
+              echo "[APKTOOL-FRAME] Installing $filename from ${found[0]}"
+              java -Xmx2g -jar bin/apktool/apktool.jar if "${found[0]}" -p "$FRAME"
+            fi
+          done
+          [[ -s "$FRAME/18.apk" ]] || {
+            echo "[ERROR] Stock Xiaomi miuisystem framework package 18.apk missing"
+            exit 1
+          }
+          cp "$FRAME/"*.apk translation-audit/stock-frameworks/
+          echo "APKTOOL_FRAME_DIR=$FRAME" >> "$GITHUB_ENV"
+          echo "[APKTOOL-FRAME] Installed package IDs: $(find "$FRAME" -name '*.apk' -printf '%f ')"
+
       - name: Audit all shipped translation overlays
         shell: bash
         run: |
@@ -146,7 +171,7 @@ jobs:
             apk="$src/$name.apk"
             tmp="$RUNNER_TEMP/decoded-$name"
             echo "[TRANSLATION] Decoding $name"
-            if ! java -Xmx3g -jar "$tool" d -f -s "$apk" -o "$tmp" > "$RUNNER_TEMP/$name.log" 2>&1; then
+            if ! java -Xmx3g -jar "$tool" d -f -s "$apk" -o "$tmp" -p "$APKTOOL_FRAME_DIR" > "$RUNNER_TEMP/$name.log" 2>&1; then
               echo "[WARN] Could not decode $name" | tee -a translation-audit/apktool-errors.txt
               tail -n 12 "$RUNNER_TEMP/$name.log" >> translation-audit/apktool-errors.txt
               continue
@@ -176,6 +201,7 @@ jobs:
               --stock-root "$STOCK_APKS" \
               --overlay-xml translation-audit/current-xml \
               --apktool bin/apktool/apktool.jar \
+              --frame-path "$APKTOOL_FRAME_DIR" \
               --output translation-audit
             cat translation-audit/ENGLISH_VI.md >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -194,6 +220,7 @@ jobs:
             translation-audit/english-vi-summary.json
             translation-audit/ENGLISH_VI.md
             translation-audit/current-xml/
+            translation-audit/stock-frameworks/
             translation-audit/apktool-errors.txt
           if-no-files-found: warn
           retention-days: 14

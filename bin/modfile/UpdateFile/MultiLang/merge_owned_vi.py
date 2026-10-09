@@ -153,11 +153,15 @@ def add_public_string_symbols(public_xml: Path, keys: list[str]) -> int:
 
 
 def check_compiled_strings(apktool: Path, compiled_apk: Path,
-                           expected: dict[str, str], base: Path, log: Path) -> None:
+                           expected: dict[str, str], base: Path, log: Path,
+                           frame_path: Path | None = None) -> None:
     """Fail closed if the final signed APK dropped any Vietnamese additions."""
     decoded = base / "verified-final"
-    process(["java", "-Xmx3g", "-jar", str(apktool), "d", "-f", "-s",
-             str(compiled_apk), "-o", str(decoded)], log)
+    cmd = ["java", "-Xmx3g", "-jar", str(apktool), "d", "-f", "-s",
+           str(compiled_apk), "-o", str(decoded)]
+    if frame_path:
+        cmd += ["-p", str(frame_path)]
+    process(cmd, log)
     combined = {}
     for folder in sorted((decoded / "res").glob("values-vi*")):
         if not folder.is_dir():
@@ -193,8 +197,11 @@ def run(a: argparse.Namespace) -> None:
         decoded = root / "decoded"
         unsigned, aligned = root / "unsigned.apk", root / "aligned.apk"
         target = a.output / a.original.name
-        process(["java", "-Xmx3g", "-jar", str(a.apktool),
-                 "d", "-f", "-s", str(a.original), "-o", str(decoded)], log)
+        decode_cmd = ["java", "-Xmx3g", "-jar", str(a.apktool),
+                      "d", "-f", "-s", str(a.original), "-o", str(decoded)]
+        if a.frame_path:
+            decode_cmd += ["-p", str(a.frame_path)]
+        process(decode_cmd, log)
         xml = decoded / "res" / "values-vi" / "strings.xml"
         if not xml.is_file():
             raise RuntimeError("Expected original Vietnamese overlay strings.xml")
@@ -204,12 +211,16 @@ def run(a: argparse.Namespace) -> None:
             # Preserve the exact installed APK bytes on an idempotent rerun.
             shutil.copy2(a.original, target)
         else:
-            process(["java", "-Xmx3g", "-jar", str(a.apktool),
-                     "b", str(decoded), "-o", str(unsigned)], log)
+            build_cmd = ["java", "-Xmx3g", "-jar", str(a.apktool),
+                         "b", str(decoded), "-o", str(unsigned)]
+            if a.frame_path:
+                build_cmd += ["-p", str(a.frame_path)]
+            process(build_cmd, log)
             process([a.zipalign, "-f", "4", str(unsigned), str(aligned)], log)
             process(signer + ["sign", "--key", str(a.key), "--cert", str(a.cert),
                               "--out", str(target), str(aligned)], log)
-        check_compiled_strings(a.apktool, target, additions, root, log)
+        check_compiled_strings(a.apktool, target, additions, root, log,
+                               frame_path=a.frame_path)
         new_id = identity(a.aapt, target, log)
         new_cert = cert(signer, target, log)
         if new_id != original_id:
@@ -279,6 +290,7 @@ def main():
     p.add_argument("--english-review", type=Path)
     p.add_argument("--output", type=Path, default=Path("tested-vi-apks"))
     p.add_argument("--apktool", type=Path)
+    p.add_argument("--frame-path", type=Path)
     p.add_argument("--apksigner-jar", type=Path)
     p.add_argument("--aapt")
     p.add_argument("--zipalign")
