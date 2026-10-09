@@ -92,8 +92,11 @@ not enabled here to avoid increasing heat, breaking expected user-initiated
 force-stop, weakening notification permissions or introducing unsupported
 RYU-private classes:
 
-- `DeviceIdleControllerStubImpl.mIsLowPowerDozeDevice=false`:
-  might worsen power consumption on a hot handset.
+- RYU's `DeviceIdleControllerStubImpl.mIsLowPowerDozeDevice=false`
+  **is now included** as an isolated one-field patch for HAOTIAN A16.
+  This matches the final field value when `IS_RYU_BUILD=true`, not
+  a full replacement of DeviceIdleController, and it can change battery
+  or push behavior. It is not a claim of improved battery life.
 - `ProcessManagerService.isForceStopEnable(...)=false`:
   broad inhibition of force-stop can keep apps alive unnecessarily.
 - `NotificationManagerServiceImpl.checkFullScreenIntent` AppOp bypass:
@@ -102,6 +105,23 @@ RYU-private classes:
   fake-lock and RYU telemetry. These must remain native HyperMOS.
 - Whole-method transplant of Xiaomi services or full RYU PowerKeeper.apk:
   risks dropping HyperMOS's patches and class/permission mismatches.
+
+## RYU DeviceIdleController flag experiment
+
+`bin/package/COREPATCH/ryu_doze_a16.py` runs in the existing A16
+`miui-services.jar` decompile/recompile step under the branch-only
+`--ryu-low-power-doze` switch. It changes the final static initialization
+write of `mIsLowPowerDozeDevice` to `false`, equivalent to the RYUOS
+HAOTIAN `IS_RYU_BUILD` path. It does not import RYU classes, disable the
+Android Doze system, rewrite other methods or update root/boot/keystore.
+
+Fail-fast protections: unique class, unique static initializer, unique field
+assignment, safe existing register, and idempotency. The preflight exercises
+these cases and the real-JAR check assembles the result against RYU JARs.
+
+**Caveat:** This can alter idle/standby behavior and may increase drain;
+the effect cannot be inferred from the field name alone. Keep thermal
+safeguards and use the ROM test branch only.
 
 ## One-build trial and acceptance gates
 
