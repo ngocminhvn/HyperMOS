@@ -12,8 +12,8 @@ def method_text(path, name):
     if path is None:
         return ""
     text = path.read_text(encoding="utf-8", errors="replace")
-    for block in re.findall(r"(?ms)^\\.method\\s+.*?^\\.end method", text):
-        if re.search(r"^\\.method[^\\n]*\\b" + re.escape(name) + r"\\(", block):
+    for block in re.findall(r"(?ms)^\.method\s+.*?^\.end method", text):
+        if re.search(r"^\.method[^\n]*\b" + re.escape(name) + r"\(", block):
             return block
     return ""
 
@@ -51,7 +51,7 @@ def main():
         ("GmsObserver.isGmsControlEnabled present", bool(g),
          "HyperMOS forces false only within this method"),
         ("GmsObserver hardcoded return false",
-         bool(re.search(r"const/4\\s+v0,\\s*0x0.*?return\\s+v0", g, re.S)),
+         bool(re.search(r"const/4\s+v0,\s*0x0.*?return\s+v0", g, re.S)),
          "Heuristic: verify exact method logic before porting"),
         ("GMS MILLET key in PowerKeeperApplication",
          "MILLET_NO_RESTRICT_APP" in a,
@@ -83,7 +83,7 @@ def main():
     )
     lines.append("Matched relevant classes: **" + str(len(matches)) + "**.")
     for path in matches[:100]:
-        lines.append("- \`" + path.relative_to(root).as_posix() + "\`")
+        lines.append("- `" + path.relative_to(root).as_posix() + "`")
     lines.extend([
         "",
         "## Before adopting RYU behavior",
