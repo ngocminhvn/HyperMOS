@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # RYU-compatible baseline for A16 PowerKeeper.
-# Deliberately leave the ROM-base APK byte-for-byte intact:
-# RYUOS keeps the conditional kill path and a functional GmsObserver.
-# Do not import ProjectRYU-only PerfHook, notify hooks, signing or resources.
+# Preserve all stock APK classes and implement only two verified RYU GMS
+# gates in the existing GmsObserver. RYU-only PerfHook classes/resources are
+# deliberately excluded; this stays restricted to the HAOTIAN test branch.
 set -euo pipefail
 
 work_dir=$(pwd)
@@ -11,7 +11,7 @@ MAIN_FOLDER="$work_dir/build/baserom/images"
 APKEDITOR="java -jar $work_dir/bin/apktool/apke.jar"
 tmp="$work_dir/apk_temp/notification-ryu-policy-audit"
 
-patch "PowerKeeper A16 -> RYU-compatible policy audit (no APK rewriting)"
+patch "PowerKeeper A16 -> RYU selective GMS gate + stock policy validation"
 apk=$(find "$MAIN_FOLDER" -type f -name PowerKeeper.apk -print -quit)
 [[ -n "$apk" && -s "$apk" ]] || { error "RYU_TEST: PowerKeeper.apk missing"; exit 1; }
 
@@ -79,7 +79,27 @@ print("[RYU_TEST] PASS: no HyperMOS forced MILLET helper")
 print("[RYU_TEST] Base PowerKeeper untouched; RYU-only extensions excluded")
 PY
 
-# Intentionally no APK copy/repack/oat deletion. This avoids stale odex
-# changes and preserves the base ROM's power/device-specific parameters.
-mods "RYU-style PowerKeeper: keep conditional kill, stock GMS policy and Millet logic"
-patch "PowerKeeper A16 RYU compatibility audit -> Done"
+# RYU PowerKeeper differences verified against the actual RYU HAOTIAN APK:
+# GmsObserver.<init> and updateGoogleSync use IS_RYU_BUILD instead of the
+# Xiaomi international-build flag. Reproduce its enabled outcome ONLY
+# inside those two methods. Do not alter isGmsControlEnabled() or kill paths.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py" "$tmp/out" || {
+  error "RYU_TEST: GmsObserver gate parity failed"
+  exit 1
+}
+
+mkdir -p "$tmp/final"
+if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null; then
+  error "RYU_TEST: selective PowerKeeper APK recompile failed"
+  exit 1
+fi
+[[ -s "$tmp/final/PowerKeeper.apk" ]] || { error "RYU_TEST: empty PowerKeeper output"; exit 1; }
+unzip -tq "$tmp/final/PowerKeeper.apk" >/dev/null
+
+# Same APKEditor replacement path used by stable HyperMOS notification patch.
+# Signature/Android package-manager acceptance still needs on-device testing.
+apk_dir=$(dirname "$apk")
+rm -rf "$apk_dir/oat"
+cp -f "$tmp/final/PowerKeeper.apk" "$apk"
+mods "RYU PowerKeeper: stock policy + two isolated GmsObserver RYU gates"
+patch "PowerKeeper A16 RYU selective GMS gate -> Done"
