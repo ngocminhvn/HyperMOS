@@ -1,0 +1,37 @@
+name: Android 16 Auto AppOps checks
+
+on:
+  push:
+    branches:
+      - test-auto-3-miui-appops-a16
+  workflow_dispatch:
+
+jobs:
+  offline-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Source and contract checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s bin/package/AUTO_APP_OPS/tests -p 'test_*.py' -v
+          python3 -m py_compile bin/package/AUTO_APP_OPS/patch.py
+          bash -n bin/package/COREPATCH/update.sh
+          bash -n bin/package/COREPATCH/jar_patcher_a16.sh
+          grep -q -- '--auto-app-ops' bin/package/COREPATCH/update.sh
+          grep -qF 'AUTO_APP_OPS/patch.py' bin/package/COREPATCH/jar_patcher_a16.sh
+      - name: Assemble injected smali class
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s bin/apktool/smaliv2.jar
+          java -jar bin/apktool/smaliv2.jar a --api 36 \
+            bin/package/AUTO_APP_OPS/HyperMOSAutoOps.smali \
+            -o "$RUNNER_TEMP/hypermos-auto-appops.dex"
+          test -s "$RUNNER_TEMP/hypermos-auto-appops.dex"
