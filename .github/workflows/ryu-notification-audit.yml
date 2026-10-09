@@ -1,12 +1,8 @@
 name: RYUOS HAOTIAN Full Framework Audit
 
+# Manual-only like the HyperMOS ROM build: avoid long, overlapping auto-audits
+# on every change to the audit scripts. Manual dispatch runs can still run in parallel.
 on:
-  push:
-    branches:
-      - audit-ryuos-haotian-notification
-    paths:
-      - '.github/workflows/ryu-notification-audit.yml'
-      - 'bin/audit/**'
   workflow_dispatch:
     inputs:
       ryu_url:
