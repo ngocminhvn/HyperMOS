@@ -1,0 +1,36 @@
+name: RYU A16 Policy Preflight
+on:
+  push:
+    branches:
+      - test-ryu-notification-battery-a16
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell and Android 16 GMS sysconfig
+        run: |
+          set -euo pipefail
+          bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          bash -n bin/package/NOTIFICATION_FIX/notificationFIX.sh
+          python3 bin/modfile/Universal/gmsservices16/validate-sysconfig.py
+      - name: Guard RYU-private features and HyperMOS power overrides
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path("bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh").read_text()
+          xml = Path("bin/modfile/Universal/gmsservices16/product/etc/sysconfig/hypermos-google-push-keepalive.xml").read_text()
+          assert 'ProcessManager;->kill' in script, 'Missing kill audit marker'
+          assert 'isGmsControlEnabled' in script, 'Missing GMS policy audit marker'
+          assert 'hypermosEnforceGmsMillet' in script, 'Missing legacy injection guard'
+          assert '$APKEDITOR b ' not in script, 'APK must not be repacked'
+          assert 'cp -f "$tmp/final' not in script, 'APK must not be overwritten'
+          assert '<allow-implicit-broadcast action="com.google.android.c2dm.intent.RECEIVE"' in xml
+          assert '<allow-in-power-save package="com.google.android.gms"' in xml
+          assert 'package="com.google.android.gsf"' not in xml
+          assert 'package="com.android.vending"' not in xml
+          print('[OK] RYU-compatible A16 policy source preflight passed')
+          PY
