@@ -16,7 +16,7 @@
     <string name="share_device_near_share_condition">Điều kiện chia sẻ</string>
     <string name="share_device_near_share_content_title">Nội dung đang chia sẻ</string>
     <string name="share_device_near_share_subtitle">Đưa hai thiết bị lại gần nhau để chia sẻ</string>
-    <string name="tap_share_connecting_wifi">Đang kết nối với "%1$s"</string>
+    <string name="tap_share_connecting_wifi">Đang kết nối với %1$s</string>
     <string name="tap_share_wifi_cannot_share">Không thể chia sẻ mạng này</string>
     <string name="tap_share_wifi_connect_cancel">Đã hủy kết nối</string>
     <string name="tap_share_wifi_connect_success">Đã kết nối</string>
