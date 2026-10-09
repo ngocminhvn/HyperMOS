@@ -61,6 +61,10 @@ def patch_xiaomi_prefs(lines: list[str], name: str) -> tuple[list[str], int] | N
     }
     n, getter, key = expectations[name]
     loads = list(WHITE_LIST_LOAD.finditer(source))
+    # Some Xiaomi variants have the same $Prefs helper but no whitelist
+    # fallback at all; keep the already-tested contains() patcher for those.
+    if not loads:
+        return None
     pref_contains = source.count(CONTAINS)
     if (len(loads) != n or pref_contains != n or getter not in source
             or (key is not None and key not in source)):
