@@ -113,6 +113,12 @@ for required in "${required_payload[@]}"; do
   fi
 done
 
+# The bundled Google Maps APK is excluded (Google Maps compatibility JAR stays).
+[[ ! -e "$GMS_SOURCE/product/app/Maps/Maps.apk" ]] || {
+  error "GMS16: bundled Google Maps APK must not be installed"
+  exit 1
+}
+
 [[ -f "$MAIN_FOLDER/system/system/build.prop" ]] || {
   error "gmsservices16: system build.prop not found"
   exit 1
@@ -127,7 +133,59 @@ cp -rf "$GMS_SOURCE/system_ext/." "$MAIN_FOLDER/system_ext/" || {
   exit 1
 }
 
-if ! grep -q '^ro.miui.has_gmscore=1$' "$MAIN_FOLDER/system/system/build.prop"; then
+# Exclude preinstalled Maps from source and possible older China stock images.
+for maps_path in \
+  "$MAIN_FOLDER/product/app/Maps" \
+  "$MAIN_FOLDER/product/priv-app/Maps" \
+  "$MAIN_FOLDER/system_ext/app/Maps" \
+  "$MAIN_FOLDER/system_ext/priv-app/Maps" \
+  "$MAIN_FOLDER/system/system/app/Maps" \
+  "$MAIN_FOLDER/system/system/priv-app/Maps"; do
+  if [[ -d "$maps_path" ]]; then
+    rm -rf -- "$maps_path"
+    mods "GMS16: removed preinstalled Maps directory -> $maps_path"
+  fi
+done
+
+# Build-time only: remove stock Google Backup transport registrations.
+# Does not disable GMS, Android's backup service or FCM exemptions.
+python3 "$GMS_SOURCE/strip-google-backup.py" "$MAIN_FOLDER" || {
+  error "GMS16: could not safely remove inherited Google Backup transports"
+  exit 1
+}
+
+if ! grep -q '^ro.miui.has_gmscore=1
+  echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
+fi
+
+mkdir -p "$MAIN_FOLDER/product/framework"
+cp -f "$GMS_SOURCE/maps/com.google.android.maps.jar" "$MAIN_FOLDER/product/framework/" || {
+  error "gmsservices16: maps framework copy failed"
+  exit 1
+}
+
+required_installed=(
+  "$MAIN_FOLDER/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk"
+  "$MAIN_FOLDER/product/priv-app/GmsCore/GmsCore.apk"
+  "$MAIN_FOLDER/product/priv-app/Phonesky/Phonesky.apk"
+  "$MAIN_FOLDER/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
+  "$MAIN_FOLDER/system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk"
+  "$MAIN_FOLDER/product/framework/com.google.android.maps.jar"
+)
+for required in "${required_installed[@]}"; do
+  if [[ ! -s "$required" ]]; then
+    error "gmsservices16 installed payload missing: $required"
+    exit 1
+  fi
+done
+
+patch_enhanced_keyboard || {
+  error "gmsservices16: Enhanced Keyboard patch failed"
+  exit 1
+}
+mods "GMS16: Google Backup transports and Maps APK excluded; FCM unchanged"
+mods "Added GMS16 Done"
+ "$MAIN_FOLDER/system/system/build.prop"; then
   echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
 fi
 
