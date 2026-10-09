@@ -1,68 +1,67 @@
-# RYUOS HAOTIAN Notification Fix audit
+# RYUOS HAOTIAN — Full Framework JAR Audit
 
-Branch: `audit-ryuos-haotian-notification`. This is an investigation workflow,
-**not** a patch automatically merged into HyperMOS.
+## Objective
 
-## Sources
+Compare **every defined class, method and field** in three RYUOS JARs against
+the same three Xiaomi stock JARs, without restricting the analysis to
+notifications or battery optimizations.
 
-- RYUOS: `RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip`
-  on SourceForge ProjectRYU / RYU-CN.
-- SourceForge advertises full ZIP SHA-256:
-  `42dc542c9024c478e6b45af8e6fef6ba133176fe8201a14cf59496954516ba28`.
-  The default range-based workflow validates ZIP member CRCs on extraction,
-  but does **not** download the entire archive and therefore cannot verify
-  this full-file SHA-256. Do not confuse ZIP CRC with full-archive SHA-256.
-- User-supplied stock `framework.jar`, `services.jar`,
-  `miui-services.jar`: hashed locally; only a small subset of
-  notification-relevant method fingerprints was saved in
-  `ryu_stock_reference.json`, **not binary JARs**.
-  Exact stock version must be verified; user previously referenced
-  HyperMOS base OS3.0.308.0, but RYU is OS3.0.309.0.
+ROM being investigated:
+`RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip`.
 
-## What the Action does
+Baseline choices:
+- **Preferred**: unmodified Xiaomi 15 Pro OS3.0.309.0.WOBCNXM JARs,
+  matching the RYUOS OS version, to isolate actual RYU patches.
+- **Secondary**: the three stock JARs attached in the original chat,
+  which may have been obtained from OS3.0.308.0; any resulting differences
+  would mix Xiaomi firmware updates with RYU edits.
 
-1. Read the remote ZIP directory over HTTP byte-range requests; inventory
-   `images/` without storing the entire 8.4GB ZIP.
-2. Stream only useful partition IMG entries. Process partition images
-   one at a time, or handle `super.img` via this repo's `lpunpack.py`.
-3. Read ext4/EROFS readonly. Copy framework/MIUI services JARs and
-   PowerKeeper/SystemUI/SecurityCenter APKs **only within the temporary runner**.
-4. Fingerprint DEX methods; compare notification/doze-related code hashes with
-   the locally derived stock reference.
-5. Disassemble RYU `PowerKeeper.apk` and report methods and markers:
-   `MilletConfig`, `KillProcessController`, `GmsObserver`,
-   `PowerKeeperApplication`, GMS MILLET settings.
-6. Upload **text/JSON reports only**. Never upload stock or RYU ROM, APK,
-   JAR, keybox, proprietary code or disassembled smali files.
+## Audit implementation
 
-## What it does NOT prove
+Files:
+- `ryu_fetch_extract.py`: inspect the SourceForge ZIP and find specific IMG
+  partition files without publishing the original ROM.
+- `ryu_full_jar_diff.py`: scan **all** DEX classes, methods, and fields.
+  This is NOT a notifications-only allowlist. Output is gzip-compressed JSON.
+- `ryu_decode_smali.py` / `ryu_semantic_smali.py`: compare all smali
+  methods while omitting debug line directives. Output tracks changed method
+  bodies, method calls, constants, field declarations and branch structure.
+- `ryu_powerkeeper_report.py`: supplementary detailed notification audit.
 
-- A RYU vs stock **version mismatch** may change DEX method hashes without
-  any notification patch. To identify true RYU alterations, repeat against
-  an **unmodified Xiaomi OS3.0.309.0** build.
-- Markers do not prove push timing or battery impact. Test screen-off Doze,
-  foreground/background push behavior and battery stats.
-- It does not modify framework/services, PowerKeeper or the main branch.
+The DEX scan reports *candidates*. A raw DEX instruction hash can change due
+to constant-pool remapping, so a changed DEX hash is not enough to claim
+changed behavior. Verify with the smali comparison. The reports group findings
+by power/Doze, notifications, process lifecycle, package management, network,
+security, input, media, display, location, scheduling and other subsystems.
+The report includes each changed class and method, not just totals.
 
-## Run
+## Using the GitHub workflow
 
-Open repository Actions and select **RYUOS HAOTIAN Notification Fix Audit**.
-Choose branch `audit-ryuos-haotian-notification`. Because newly created
-`workflow_dispatch` workflow files sometimes must exist on the default branch
-to appear in the UI, a **push trigger scoped to this audit branch** is
-also provided for the initial run. Check Actions and download the
-`ryous-haotian-notification-audit` report artifact.
+GitHub Actions -> **RYUOS HAOTIAN Full Framework Audit**, from
+`audit-ryuos-haotian-notification`.
 
-GitHub-hosted standard runners have limited disk. If sparse `super.img`
-exceeds free space, the workflow will fail with a clear size diagnostic.
-Use `inventory_only=true` to inspect archive structure first, or
-switch to a large/self-hosted runner if the partition set cannot fit.
-Use a SourceForge mirror with working HTTP Range support; do not commit
-expiring signed URLs.
+- By default, scans RYUOS and produces a complete **RYU inventory**.
+- Optional workflow input `stock_bundle_url`: HTTPS URL of a ZIP
+  containing exactly one each of `framework.jar`, `services.jar`,
+  `miui-services.jar`. With that input the workflow executes the
+  complete RYU-vs-stock DEX and smali comparisons.
+- If no stock bundle is provided the workflow **cannot** truthfully
+  identify RYU-vs-stock changes. It publishes a RYU inventory only.
+- Repository artifacts include text reports and compressed JSON
+  fingerprints. JAR/APK, partition IMG and decompressed smali are
+  never included in artifacts.
+- The default SourceForge link is stable, avoiding an expiring signed URL.
+- Action runtime depends on SourceForge range request support and runner
+  free space; a successful CI report is not yet confirmed.
 
-## Next step
+## Review criteria
 
-Only after reviewing reports, port verified minimal method patches into
-a second test branch. Preserve working FCM notifications; never blindly
-replace the entire RYU PowerKeeper/SystemUI and do not add persistent
-wake-lock/network bypass loops.
+For every genuine difference:
+1. List file, class, method, access/field changes.
+2. Show calls/constants/control-flow that changed.
+3. Describe what behavior could change and distinguish hypothesis from proof.
+4. Classify possible impact on stability, battery life, performance,
+   notification delivery and compatibility.
+5. Never auto-merge unknown third-party code into HyperMOS main.
+
+The main branch and ROM boot chain are unchanged.
