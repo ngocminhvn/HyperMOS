@@ -4,4 +4,6 @@
 
 on post-fs-data
     mkdir /data/system/tnm 0755 root root
-    exec - root root -- @TNM_HOSTSCTL@ boot
+    # The controller is a shell script, not an ELF init service.
+    # Execute via /system/bin/sh in the init mount namespace before zygote.
+    exec - root root -- /system/bin/sh @TNM_HOSTSCTL@ boot
