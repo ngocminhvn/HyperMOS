@@ -22,8 +22,10 @@ FOCUS = {
 SECURITY_SENSITIVE = ("checkFullScreenIntent", "AppOp", "Permission")
 
 
-def read_class(folder: Path, name: str):
+def read_class(folder: Path, name: str, required: bool = True):
     hits = list(folder.rglob(name + ".smali"))
+    if not hits and not required:
+        return ""
     if len(hits) != 1:
         raise ValueError(f"{folder}: {name}.smali count={len(hits)}")
     return hits[0].read_text(encoding="utf-8")
@@ -73,19 +75,23 @@ def audit(stock: Path, ryu: Path):
                   "auto_port_other_notification_methods": False,
               }}
     for classname, needles in FOCUS.items():
-        a = methods(read_class(stock, classname))
-        b = methods(read_class(ryu, classname))
+        required = classname in ("BroadcastQueueModernStubImpl", "ProcessSceneCleaner")
+        a = methods(read_class(stock, classname, required=required))
+        b = methods(read_class(ryu, classname, required=required))
         for needle in needles:
             matching = sorted(x for x in set(a) | set(b) if x.startswith(needle))
             if not matching:
-                raise ValueError(f"{classname}: no {needle} method in either JAR")
+                output["focused"][classname + "." + needle + "..."] = {
+                    "state": "not-found-in-either", "port_decision": "NO_CHANGE"}
             for sig in matching:
                 output["focused"][classname + "." + sig] = method_summary(a.get(sig), b.get(sig))
 
     # Compare NotificationManager methods, but never auto-import unknown hooks.
     classname = "NotificationManagerServiceImpl"
-    a = methods(read_class(stock, classname))
-    b = methods(read_class(ryu, classname))
+    a = methods(read_class(stock, classname, required=False))
+    b = methods(read_class(ryu, classname, required=False))
+    if not a or not b:
+        output["warning"] += "; NotificationManagerServiceImpl absent from at least one JAR"
     for sig in sorted(set(a) | set(b)):
         entry = method_summary(a.get(sig), b.get(sig))
         if entry["state"] == "identical":
