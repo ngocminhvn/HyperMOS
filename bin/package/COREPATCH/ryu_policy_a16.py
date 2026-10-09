@@ -150,9 +150,11 @@ def foreground_service_protection(text: str) -> str:
     process_regs = re.findall(
         r'(?m)^\s*\.local\s+(v\d+),\s*"taskTopApp":'
         r'Lcom/android/server/am/ProcessRecord;\s*$', body)
-    if len(process_regs) != 1:
+    if not process_regs:
         raise ValueError("FGS: cannot establish current ProcessRecord local")
-    process_reg = process_regs[0]
+    # RYU reassigns taskTopApp from v0 to v3 after its null-handling
+    # branches; the final .local binding is the live process at cleanup.
+    process_reg = process_regs[-1]
     call = re.compile(
         r"invoke-static\s+\{[^}]+\},\s*"
         r"Lcom/android/server/wm/WindowProcessUtils;"
