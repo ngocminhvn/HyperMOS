@@ -1,0 +1,32 @@
+{
+  "source": "User-supplied stock JARs, fingerprinted locally; original binaries are NOT stored in GitHub. Exact OS version not cryptographically established; compare methods cautiously with RYU OS3.0.309.",
+  "files": {
+    "framework.jar": {
+      "sha256": "36426149118b109a33f4a8b143bb5390dbe50ca0e21d00fd16f357710b368f0f",
+      "methods": {
+        "Landroid/app/NotificationManager;->areNotificationsEnabled()Z": "5ad43ff03f6053f4617c7588",
+        "Landroid/app/NotificationManager;->areNotificationsPaused()Z": "0c35e9f5f55a368a1dba6242",
+        "Landroid/app/NotificationManager;->canNotifyAsPackage(Ljava/lang/String;)Z": "c3d183c15e62a7ce177286ab"
+      }
+    },
+    "services.jar": {
+      "sha256": "00b899d027d940cdf7c130bab8e3a08cf7cf4fefef464eb476572392551ec799",
+      "methods": {
+        "Lcom/android/server/DeviceIdleController;->addPowerSaveTempAllowlistAppChecked(Ljava/lang/String;JIILjava/lang/String;)V": "fc4b19bde3ddcdba9efd0bb5",
+        "Lcom/android/server/DeviceIdleController;->addPowerSaveWhitelistAppsInternal(Ljava/util/List;)I": "67d9985bb66983a14c8b8b78",
+        "Lcom/android/server/DeviceIdleController;->becomeInactiveIfAppropriateLocked()V": "180d115472a4082a17e6615d",
+        "Lcom/android/server/notification/NotificationManagerService;->addEnqueuedNotification(Lcom/android/server/notification/NotificationRecord;)V": "95e1d8d83485a733f595fc14",
+        "Lcom/android/server/notification/NotificationManagerService;->addNotification(Lcom/android/server/notification/NotificationRecord;)V": "d1b869ff2ed800936b6bfb2f",
+        "Lcom/android/server/notification/NotificationManagerService;->areNotificationsEnabledForPackageInt(I)Z": "818f3a6c8503f868817e9983"
+      }
+    },
+    "miui-services.jar": {
+      "sha256": "00561c82eccd541a1935a4ed608283afdba712234aa5f884f4ba276c17104144",
+      "methods": {
+        "Lcom/android/server/DeviceIdleControllerStubImpl;->isLowPowerDozeEnable(Landroid/content/Context;)Z": "86b6e0b4ef9497ed3a9c02dd",
+        "Lcom/android/server/notification/NotificationManagerServiceImpl;->fixCheckInterceptListenerAutoGroup(Landroid/app/Notification;Ljava/lang/String;)V": "a05de17b8c59677507466255",
+        "Lcom/android/server/notification/NotificationManagerServiceImpl;->getAppNotificationLightEnabled(Ljava/lang/String;ILcom/android/server/notification/PreferencesHelper;)Z": "ecad2c472ef0c5269ad70f9e"
+      }
+    }
+  }
+}
