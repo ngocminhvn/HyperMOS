@@ -24,7 +24,13 @@ jobs:
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
           grep -Fq -- '--ryu-notification-policy' bin/package/COREPATCH/update.sh
+          grep -Fq -- '--ryu-low-power-doze' bin/package/COREPATCH/update.sh
           python3 bin/package/COREPATCH/test_ryu_policy_a16.py
+      - name: Test RYU HAOTIAN low-power Doze flag
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/package/COREPATCH/ryu_doze_a16.py
+          python3 bin/package/COREPATCH/test_ryu_doze_a16.py
       - name: Guard RYU-private features and HyperMOS power overrides
         run: |
           python3 - <<'PY'
