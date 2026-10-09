@@ -72,6 +72,57 @@ def stage_from_image(image, files, root):
         invoke("sudo", "umount", mountpoint)
     return image
 
+def select_logical_partitions(super_image):
+    """Read real LP names; Xiaomi super images usually use system_a, product_a, etc."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from lpunpack import LpUnpack
+
+    reader = LpUnpack(SUPER_IMAGE=str(super_image))
+    try:
+        metadata = reader._read_metadata()
+        available = {part.name: part.num_extents for part in metadata.partitions}
+    finally:
+        reader._fd.close()
+    print("AVAILABLE LP PARTITIONS", available, flush=True)
+
+    selected = []
+    for base in PARTITIONS:
+        # Prefer the active A slot; skip empty B-slot placeholders.
+        name = next((candidate for candidate in
+                     (base + "_a", base, base + "_b")
+                     if available.get(candidate, 0) > 0), None)
+        if name:
+            selected.append(name)
+        else:
+            print("LP PARTITION ABSENT", base, flush=True)
+    if not selected:
+        raise RuntimeError("No target logical partitions found in super metadata: "
+                           + ", ".join(available))
+    print("SELECTED LP PARTITIONS", selected, flush=True)
+    return selected
+
+
+def copy_member_with_progress(source, target, expected, label):
+    """Emit a heartbeat during the 11+ GB SourceForge ZIP-member transfer."""
+    import time
+    copied = 0
+    last_log = time.monotonic()
+    while True:
+        chunk = source.read(4 * 1024 * 1024)
+        if not chunk:
+            break
+        target.write(chunk)
+        copied += len(chunk)
+        now = time.monotonic()
+        if now - last_log >= 30:
+            print(f"READ PROGRESS {label}: {copied}/{expected} bytes "
+                  f"({copied * 100 / expected:.1f}%)", flush=True)
+            last_log = now
+    if copied != expected:
+        raise RuntimeError(f"ZIP member {label}: incomplete download "
+                           f"({copied} != {expected})")
+
+
 def process_image(image, root, found):
     print("PROCESS", image, "size=", image.stat().st_size, flush=True)
     if "super.img" in image.name or image.name.startswith("super"):
@@ -87,14 +138,12 @@ def process_image(image, root, found):
             image2 = root / "super.raw.img"
             invoke("simg2img", image, image2)
             image.unlink()
-        # Extract one logical partition at a time, removing its IMG promptly.
-        for partition in PARTITIONS:
+        # Inspect LP metadata before extraction; unsuffixed partition names fail on A/B ROMs.
+        # Extract just selected logical partitions, not the entire 11+ GB super image.
+        for partition in select_logical_partitions(image2):
             outdir = root / "partition"
             outdir.mkdir(exist_ok=True)
-            cmd = [sys.executable, "bin/lpunpack.py", "-p", partition, image2, outdir]
-            if subprocess.run([str(x) for x in cmd]).returncode != 0:
-                print("PARTITION SKIP", partition, flush=True)
-                continue
+            invoke(sys.executable, "bin/lpunpack.py", "-p", partition, image2, outdir)
             images = list(outdir.glob("*.img"))
             for partimage in images:
                 processed = stage_from_image(partimage, found, root)
@@ -148,20 +197,21 @@ def main():
             # Segment super.img.0, super.img.1 ... when split.
             eligible = super_files
         print("SELECTED IMAGES", eligible, flush=True)
+        by_name = {item["name"]: item["size"] for item in inventory}
         if len(eligible) > 1 and all("super.img" in x for x in eligible):
             dest = args.work / "super.img"
             with dest.open("wb") as out:
                 for entry in eligible:
                     print("READ ZIP MEMBER", entry, flush=True)
                     with z.open(entry) as inp:
-                        shutil.copyfileobj(inp, out, 4*1024*1024)
+                        copy_member_with_progress(inp, out, by_name[entry], entry)
             process_image(dest, args.work, args.out)
         else:
             for entry in eligible:
                 path = args.work / Path(entry).name
                 print("READ ZIP MEMBER", entry, flush=True)
                 with z.open(entry) as inp, path.open("wb") as out:
-                    shutil.copyfileobj(inp, out, 4 * 1024 * 1024)
+                    copy_member_with_progress(inp, out, by_name[entry], entry)
                 process_image(path, args.work, args.out)
                 path.unlink(missing_ok=True)
     required = ("framework.jar", "services.jar", "miui-services.jar", "PowerKeeper.apk")
