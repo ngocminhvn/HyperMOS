@@ -19,8 +19,25 @@ ensure_source() {
     elif ! grep -Eq "(^|[[:space:]])${MARKER}([[:space:]]|$)" "$SRC"; then
         printf '\n%s %s\n' "$MARKER_IP" "$MARKER" >> "$SRC" || return 1
     fi
-    chown 0:0 "$SRC" 2>/dev/null
-    chmod 0644 "$SRC" 2>/dev/null
+    chown 0:0 "$SRC" || return 1
+    chmod 0644 "$SRC" || return 1
+    # A bind mount retains the data file's SELinux label. Files under
+    # /data/system are not necessarily readable by ordinary app processes.
+    # Match a stock /system file BEFORE mounting; never disable SELinux.
+    if command -v chcon >/dev/null 2>&1; then
+        chcon --reference=/system/build.prop "$SRC" || {
+            log "cannot label hosts like /system/build.prop"
+            return 1
+        }
+    fi
+    if [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+        src_type="$(ls -Zd "$SRC" 2>/dev/null | awk '{print $1}')"
+        sys_type="$(ls -Zd /system/build.prop 2>/dev/null | awk '{print $1}')"
+        if [ -z "$src_type" ] || [ -z "$sys_type" ] || [ "$src_type" != "$sys_type" ]; then
+            log "SELINUX_CONTEXT_MISMATCH source=$src_type expected=$sys_type"
+            return 1
+        fi
+    fi
 }
 
 is_bound() {
@@ -113,6 +130,10 @@ status_hosts() {
     echo "TARGET=$TARGET"
     echo "SOURCE_LINES=$(wc -l < "$SRC" 2>/dev/null || echo 0)"
     marker_visible && echo "MARKER_VISIBLE=1" || echo "MARKER_VISIBLE=0"
+    echo "SOURCE_CONTEXT=$(ls -Zd "$SRC" 2>/dev/null | awk '{print $1}')"
+    echo "SYSTEM_CONTEXT=$(ls -Zd /system/build.prop 2>/dev/null | awk '{print $1}')"
+    echo "SELINUX=$(getenforce 2>/dev/null)"
+    [ -f "$DISABLED" ] && echo "DISABLED=1" || echo "DISABLED=0"
 }
 
 resolve_marker() {
