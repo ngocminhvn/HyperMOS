@@ -1,0 +1,57 @@
+name: RYU A16 Real JAR Compatibility
+on:
+  push:
+    branches:
+      - test-ryu-notification-battery-a16
+    paths:
+      - 'bin/package/COREPATCH/ryu_policy_a16.py'
+      - 'bin/package/COREPATCH/test_ryu_policy_a16.py'
+      - '.github/workflows/ryu-a16-real-jar-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  test-real-jar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Get original RYU HAOTIAN Android 16 JAR audit artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS_HAOTIAN_3_framework_JARs
+          run-id: 37912511684
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: /tmp/ryu-jars
+      - name: Disassemble, port, and reassemble RYU miui-services for verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=$(find /tmp/ryu-jars -type f -name miui-services.jar -print -quit)
+          if [[ -z "$src" ]]; then echo "RYU jar artifact missing" >&2; exit 1; fi
+          echo "JAR source: $src"
+          test -s bin/apktool/baksmaliv2.jar
+          test -s bin/apktool/smaliv2.jar
+          mkdir -p /tmp/ryu-real-jar
+          cd /tmp/ryu-real-jar
+          unzip -j "$src" 'classes*.dex'
+          for f in classes*.dex; do
+            name="${f%.dex}"
+            if [[ "$name" == classes ]]; then out=smali; else out="smali_$name"; fi
+            java -jar "$GITHUB_WORKSPACE/bin/apktool/baksmaliv2.jar" d --api 36 "$f" -o "$out"
+          done
+          python3 "$GITHUB_WORKSPACE/bin/package/COREPATCH/ryu_policy_a16.py" /tmp/ryu-real-jar
+          for dir in smali smali_classes*; do
+            [[ -d "$dir" ]] || continue
+            if [[ "$dir" == smali ]]; then dex=classes.dex; else dex="${dir#smali_}.dex"; fi
+            java -jar "$GITHUB_WORKSPACE/bin/apktool/smaliv2.jar" a --api 36 "$dir" -o "/tmp/ryu-real-jar/verify-$dex"
+            test -s "/tmp/ryu-real-jar/verify-$dex"
+          done
+          echo "[PASS] Exact RYUOS Android 16 miui-services methods are compatible with selective patcher; smali builds."
