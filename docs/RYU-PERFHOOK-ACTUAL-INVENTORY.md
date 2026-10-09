@@ -5,6 +5,14 @@
 RYU PowerKeeper classes: 2974; stock APK supplied: False.
 PerfHook family: 20 classes, 124 methods.
 
+## Perf-mode field definitions
+
+- .field private static final KEY_SCONFIG:Ljava/lang/String; = "projectryu_thermal_sconfig"
+- .field private static final PERF_MODE_DEFAULT:I = 0x0
+- .field private static final PERF_MODE_PERFORMANCE:I = 0x1
+- .field private static final PERF_MODE_POWERSAVE:I = 0x2
+- .field private static final SCONFIG_PATH:Ljava/lang/String; = "/sys/class/thermal/thermal_message/sconfig"
+
 ## Activation call sites
 
 - `Lcom/miui/powerkeeper/PowerKeeperApplication;` → `onCreate()V`
