@@ -78,6 +78,10 @@ jobs:
             --ryu /tmp/ryu-powerkeeper-smali \
             --stock /tmp/stock-powerkeeper-smali \
             --out reports/powerkeeper-ryu-vs-xiaomi.json
+          python3 bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py /tmp/stock-powerkeeper-smali
+          java -jar bin/apktool/apke.jar b -f -i /tmp/stock-powerkeeper-smali -o /tmp/verify-ryu-gms-powerkeeper.apk
+          unzip -tq /tmp/verify-ryu-gms-powerkeeper.apk
+          echo '[PASS] RYU GMS gate selective patch assembles against genuine Xiaomi PowerKeeper'
           sha256sum /tmp/stock-apk/PowerKeeper.apk /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk > reports/sha256sum.txt
       - name: Upload analysis only, no proprietary APK
         if: always()
