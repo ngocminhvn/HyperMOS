@@ -7,9 +7,11 @@ on:
     paths:
       - '.github/workflows/ryu-a16-stock-base-check.yml'
       - 'bin/package/COREPATCH/ryu_policy_a16.py'
+      - 'bin/audit/ryu_targeted_notification_a16.py'
       - 'bin/package/COREPATCH/ryu_doze_a16.py'
 permissions:
   contents: read
+  actions: read
 jobs:
   check-base:
     runs-on: ubuntu-latest
@@ -20,6 +22,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Get audited original RYU HAOTIAN JARs (read only)
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS_HAOTIAN_3_framework_JARs
+          run-id: 37912511684
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: /tmp/ryu-jars
       - name: Prepare stock OTA extractor
         shell: bash
         run: |
@@ -71,6 +81,20 @@ jobs:
             [[ "$name" == classes ]] && out=smali || out="smali_$name"
             java -jar "$GITHUB_WORKSPACE/bin/apktool/baksmaliv2.jar" d --api 36 "$dex" -o "$out"
           done
+          # Compare real stock and RYU methods before touching Xiaomi bytecode.
+          ryu_jar=$(find /tmp/ryu-jars -type f -name miui-services.jar -print -quit)
+          [[ -s "$ryu_jar" ]] || { echo "Missing original RYU JAR" >&2; exit 1; }
+          mkdir -p /tmp/ryu-dex
+          cd /tmp/ryu-dex
+          unzip -j "$ryu_jar" 'classes*.dex'
+          for dex in classes*.dex; do
+            name="${dex%.dex}"
+            [[ "$name" == classes ]] && out=smali || out="smali_$name"
+            java -jar "$GITHUB_WORKSPACE/bin/apktool/baksmaliv2.jar" d --api 36 "$dex" -o "$out"
+          done
+          python3 "$GITHUB_WORKSPACE/bin/audit/ryu_targeted_notification_a16.py" \
+            --stock /tmp/stock-dex --ryu /tmp/ryu-dex --output /tmp/haotian-jar/audit
+          cd /tmp/stock-dex
           # Report the actual stock Xiaomi FGS call path before editing it.
           python3 - <<'PY'
           from pathlib import Path
@@ -118,4 +142,6 @@ jobs:
           name: HAOTIAN-Stock-Base-JAR-Verification
           path: |
             /tmp/haotian-jar/SHA256SUMS.txt
+            /tmp/haotian-jar/audit/ryu-targeted-notification.md
+            /tmp/haotian-jar/audit/ryu-targeted-notification.json
           retention-days: 7
