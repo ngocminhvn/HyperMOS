@@ -112,32 +112,97 @@ def first_boot_broadcast(text: str) -> str:
 
 
 def foreground_service_protection(text: str) -> str:
+    """Match RYU's task-cleanup guard, preserving the original successful return.
+
+    Only skip killOnce() after Xiaomi has established that the task-top
+    process has no activity in another task. Follow the existing success
+    branch instead of returning false or aborting the method at entry.
+    """
     signature = "killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z"
-    body = method(text, signature).group()
-    for need in ("getTaskTopApp(I)", "isProcessHasActivityInOtherTaskLocked"):
-        if need not in body:
-            raise ValueError(f"ProcessSceneCleaner differs from RYU: missing {need}")
-    # Avoid killing an activity's process if it still hosts an active FGS.
-    # RYU makes this check on the 'other task' cleanup path.
-    code = """
-    # RYU A16: protect foreground-service processes in task cleanup.
-    invoke-static {p1}, Lcom/android/server/wm/WindowProcessUtils;->getTaskTopApp(I)Lcom/android/server/wm/WindowProcessController;
-    move-result-object v0
-    if-eqz v0, :hypermos_ryu_fgs_continue
-    iget-object v0, v0, Lcom/android/server/wm/WindowProcessController;->mOwner:Ljava/lang/Object;
-    instance-of v1, v0, Lcom/android/server/am/ProcessRecord;
-    if-eqz v1, :hypermos_ryu_fgs_continue
-    check-cast v0, Lcom/android/server/am/ProcessRecord;
-    iget-object v0, v0, Lcom/android/server/am/ProcessRecord;->mServices:Lcom/android/server/am/ProcessServiceRecord;
-    if-eqz v0, :hypermos_ryu_fgs_continue
-    invoke-virtual {v0}, Lcom/android/server/am/ProcessServiceRecord;->hasForegroundServices()Z
-    move-result v0
-    if-eqz v0, :hypermos_ryu_fgs_continue
-    const/4 v0, 0x0
-    return v0
+    m = method(text, signature)
+    body = m.group()
+    if ":hypermos_ryu_fgs_continue" in body:
+        return text
+
+    if "hasForegroundServices()Z" in body:
+        # The genuine RYU JAR already contains this guard. Do not inject it
+        # twice or rewrite proprietary com.projectryu.Build checks.
+        if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
+            return text
+        raise ValueError("Unknown preexisting foreground-service protection")
+
+    lines = body.splitlines(keepends=True)
+
+    def next_instruction(index: int) -> int:
+        for pos in range(index + 1, len(lines)):
+            stripped = lines[pos].strip()
+            if not stripped or stripped.startswith(("#", ".")):
+                continue
+            if stripped.startswith(":"):
+                raise ValueError("Unexpected branch label inside FGS insertion point")
+            return pos
+        raise ValueError("Unexpected end of ProcessSceneCleaner method")
+
+    matches = [
+        index for index, line in enumerate(lines)
+        if "Lcom/android/server/wm/WindowProcessUtils;->isProcessHasActivityInOtherTaskLocked(" in line
+        and "invoke-static" in line
+    ]
+    if len(matches) != 1:
+        raise ValueError("Expected one Xiaomi cross-task activity check")
+    check_idx = matches[0]
+    move_idx = next_instruction(check_idx)
+    move = re.fullmatch(r"move-result\s+(v\d+)", lines[move_idx].strip())
+    if not move:
+        raise ValueError("Cross-task activity check lacks move-result")
+    branch_idx = next_instruction(move_idx)
+    branch = re.fullmatch(
+        rf"if-nez\s+{re.escape(move.group(1))},\s*(:[A-Za-z_]\w*)",
+        lines[branch_idx].strip()
+    )
+    if not branch:
+        raise ValueError("Unexpected Xiaomi cross-task activity branch")
+    exit_label = branch.group(1)
+
+    label_sites = [i for i, line in enumerate(lines) if line.strip() == exit_label]
+    if len(label_sites) != 1:
+        raise ValueError(f"Expected one success branch {exit_label}")
+    success_idx = next_instruction(label_sites[0])
+    success = re.fullmatch(r"const/4\s+(v\d+),\s*0x1", lines[success_idx].strip())
+    if not success:
+        raise ValueError("Cross-task exit is not the Xiaomi return-true branch")
+    return_idx = next_instruction(success_idx)
+    if lines[return_idx].strip() != f"return {success.group(1)}":
+        raise ValueError("Cross-task branch does not return true")
+
+    info_idx = next_instruction(branch_idx)
+    info = re.fullmatch(
+        r"iget-object\s+(v\d+),\s*(v\d+),\s*"
+        r"Lcom/android/server/am/ProcessRecord;->info:Landroid/content/pm/ApplicationInfo;",
+        lines[info_idx].strip()
+    )
+    if not info:
+        raise ValueError("Expected Xiaomi ProcessRecord.info immediately after task check")
+    scratch, process_reg = info.groups()
+    if scratch == process_reg or any(int(reg[1:]) > 15 for reg in (scratch, process_reg)):
+        raise ValueError("Cannot safely borrow original ProcessRecord.info registers")
+    # The next original instruction overwrites scratch, so its preexisting
+    # live value is not needed on the fallthrough path.
+    code = f"""
+    # RYU HAOTIAN A16: keep a task-top process running an active FGS.
+    iget-object {scratch}, {process_reg}, Lcom/android/server/am/ProcessRecord;->mServices:Lcom/android/server/am/ProcessServiceRecord;
+    invoke-virtual {{{scratch}}}, Lcom/android/server/am/ProcessServiceRecord;->hasForegroundServices()Z
+    move-result {scratch}
+    if-nez {scratch}, {exit_label}
 :hypermos_ryu_fgs_continue
 """
-    return inject(text, signature, ":hypermos_ryu_fgs_continue", code)
+    # The existing cross-task branch already guarantees process_reg != null.
+    # Preserve original control flow and the method's return true for FGS.
+    lines.insert(branch_idx + 1, code)
+    changed = "".join(lines)
+    if "return v0\n:hypermos_ryu_fgs_continue" in changed:
+        raise ValueError("Unexpected early return in FGS patch")
+    return text[:m.start()] + changed + text[m.end():]
 
 
 def main(root: Path) -> None:
