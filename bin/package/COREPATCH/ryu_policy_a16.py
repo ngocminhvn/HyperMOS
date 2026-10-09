@@ -53,35 +53,102 @@ def inject(text: str, signature: str, marker: str, source: str,
 
 
 def fcm_autostart(text: str) -> str:
+    """Make the FCM exemption only after stock ResolveInfo/ApplicationInfo checks.
+
+    Never overwrite a live local: a new register is allocated for the result.
+    The helper is action-only, and has no effect on Android broadcast permissions.
+    """
     signature = ("checkApplicationAutoStart("
                  "Lcom/android/server/am/BroadcastQueue;"
                  "Lcom/android/server/am/BroadcastRecord;"
                  "Landroid/content/pm/ResolveInfo;)Z")
     m = method(text, signature)
     body = m.group()
+    marker = ":hypermos_ryu_autostart_original"
+    helper_sig = "hypermosRyuIsFcmBroadcast(Lcom/android/server/am/BroadcastRecord;)Z"
+    if marker in body:
+        if text.count(".method private static " + helper_sig) != 1:
+            raise ValueError("FCM exemption marker exists without its helper")
+        return text
+    # RYU already has an FCM test in the method: do not add a second path.
+    if ACTION in body:
+        return text
+
     if "Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;" not in body:
-        raise ValueError("BroadcastQueue target lacks expected BroadcastRecord intent")
-    # Closely follows RYU's action-specific fast path; the underlying Android
-    # sender/receiver permission checks are not modified by this patch.
-    code = f"""
-    # RYU A16: Xiaomi autostart exemption for incoming FCM action only.
-    # p2 can map to v20+ on A16; iget-object has a 4-bit source register.
-    move-object/from16 v0, p2
-    if-eqz v0, :hypermos_ryu_autostart_original
-    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
-    if-eqz v0, :hypermos_ryu_autostart_original
+        raise ValueError("Expected BroadcastRecord.intent missing")
+    # Require the actual Xiaomi receiver path, not a guessed method entry.
+    resolve = re.search(
+        r"(?m)^    iget-object\s+v\d+,\s*[vp]\d+,\s*"
+        r"Landroid/content/pm/ResolveInfo;->activityInfo:Landroid/content/pm/ActivityInfo;\s*$",
+        body)
+    if not resolve:
+        raise ValueError("ResolveInfo.activityInfo gate not found")
+    app_matches = list(re.finditer(
+        r"(?m)^    iget-object\s+(?P<app>v\d+),\s*[vp]\d+,\s*"
+        r"Landroid/content/pm/ActivityInfo;->applicationInfo:Landroid/content/pm/ApplicationInfo;\s*$",
+        body))
+    if len(app_matches) != 1 or app_matches[0].start() <= resolve.start():
+        raise ValueError("Expected one ApplicationInfo extraction after ResolveInfo")
+    app = app_matches[0]
+    # Insert only on the validated receiver path: preserve Xiaomi's null guard.
+    tail = body[app.end():]
+    guard = re.search(rf"(?m)^[ \t]*if-eqz[ \t]+{re.escape(app.group('app'))},[ \t]*:\w+[ \t]*$", tail)
+    if not guard or len(tail[:guard.start()].splitlines()) > 12:
+        raise ValueError("Expected nearby ApplicationInfo null guard; fail closed")
+    insert_at = app.end() + guard.end()
+    if ".method static " in body.splitlines()[0]:
+        raise ValueError("Unexpected static Xiaomi autostart method")
+    reg = re.search(r"(?m)^    \.(locals|registers)\s+(\d+)\s*$", body)
+    if not reg:
+        raise ValueError("Autostart register directive missing")
+    kind, num = reg.group(1), int(reg.group(2))
+    # Nonstatic parameters: this, BroadcastQueue, BroadcastRecord, ResolveInfo.
+    available = num if kind == "locals" else num - 4
+    if available < 0 or available >= 255:
+        raise ValueError("No safe fresh Dalvik local available")
+    # Xiaomi generally uses pN parameter aliases. Explicit vN aliases to
+    # parameter registers would shift if register count is increased.
+    used = [int(x) for x in re.findall(r"\bv(\d+)\b", body[reg.end():])]
+    if kind == "registers" and any(i >= available for i in used):
+        raise ValueError("Autostart uses vN parameter aliases; cannot grow registers")
+    temp = f"v{available}"
+    klass = re.search(
+        r"(?m)^\.class[^\n]*\s+(Lcom/android/server/am/BroadcastQueueModernStubImpl;)\s*$", text)
+    if not klass:
+        raise ValueError("Unexpected BroadcastQueue class descriptor")
+    invoke = klass.group(1) + "->" + helper_sig
+    addition = f"""
+    # RYU FCM: only after ResolveInfo/ActivityInfo/ApplicationInfo validation.
+    invoke-static/range {{p2 .. p2}}, {invoke}
+    move-result {temp}
+    if-eqz {temp}, {marker}
+    return {temp}
+{marker}
+"""
+    new_body = body[:insert_at] + "\n" + addition + body[insert_at:]
+    new_reg = f"    .{kind} {num + 1}"
+    new_body = new_body[:reg.start()] + new_reg + new_body[reg.end():]
+    patched = text[:m.start()] + new_body + text[m.end():]
+    if helper_sig in text:
+        raise ValueError("FCM helper signature already present without patch marker")
+    helper = f"""
+.method private static {helper_sig}
+    .locals 2
+    if-eqz p0, :hypermos_ryu_fcm_no
+    iget-object v0, p0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
+    if-eqz v0, :hypermos_ryu_fcm_no
     invoke-virtual {{v0}}, Landroid/content/Intent;->getAction()Ljava/lang/String;
     move-result-object v0
     const-string v1, "{ACTION}"
     invoke-virtual {{v1, v0}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
     move-result v0
-    if-eqz v0, :hypermos_ryu_autostart_original
-    const/4 v0, 0x1
     return v0
-:hypermos_ryu_autostart_original
+:hypermos_ryu_fcm_no
+    const/4 v0, 0x0
+    return v0
+.end method
 """
-    return inject(text, signature, ":hypermos_ryu_autostart_original", code)
-
+    return patched.rstrip() + "\n\n" + helper.strip() + "\n"
 
 def first_boot_broadcast(text: str) -> str:
     signature = "updateBlockBroadcast()V"
