@@ -5,11 +5,17 @@ on:
     paths:
       - 'bin/modfile/Universal/gmsservices16/product/etc/sysconfig/**'
       - 'bin/modfile/Universal/gmsservices16/validate-sysconfig.py'
+      - 'bin/modfile/Universal/gmsservices16/strip-google-backup.py'
+      - 'bin/modfile/Universal/gmsservices16/update.sh'
+      - 'bin/modfile/Universal/gmsservices16/product/app/Maps/Maps.apk'
       - '.github/workflows/gms16-sysconfig-validation.yml'
   pull_request:
     paths:
       - 'bin/modfile/Universal/gmsservices16/product/etc/sysconfig/**'
       - 'bin/modfile/Universal/gmsservices16/validate-sysconfig.py'
+      - 'bin/modfile/Universal/gmsservices16/strip-google-backup.py'
+      - 'bin/modfile/Universal/gmsservices16/update.sh'
+      - 'bin/modfile/Universal/gmsservices16/product/app/Maps/Maps.apk'
       - '.github/workflows/gms16-sysconfig-validation.yml'
   workflow_dispatch:
 
@@ -26,5 +32,7 @@ jobs:
           lfs: false
       - name: Validate XML and FCM invariants
         run: python3 bin/modfile/Universal/gmsservices16/validate-sysconfig.py
+      - name: Test Google Backup transport cleanup without affecting FCM
+        run: python3 bin/modfile/Universal/gmsservices16/strip-google-backup.py --self-test
       - name: Verify GMS installer syntax
         run: bash -n bin/modfile/Universal/gmsservices16/update.sh
