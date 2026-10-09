@@ -25,14 +25,15 @@ Reference: `RYUOS_HAOTIAN_PowerKeeper.apk` extracted from RYUOS
 ## Changes on this experiment
 
 1. `bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh` now audits and
-   performs a **selective two-method patch** to the **base** PowerKeeper APK:
+   performs **selective GMS and KillProcessController method patches** to the base PowerKeeper APK:
    in `GmsObserver.<init>` and `updateGoogleSync(Z)` RYUOS reads
    `com.projectryu.Build.IS_RYU_BUILD=true`, while Xiaomi stock reads
    `miui.os.Build.IS_INTERNATIONAL_BUILD=false` on CN ROMs. HyperMOS
    test changes only those original gate results to true and recompiles the
    base APK with the existing APKEditor path. The actual
-   `isGmsControlEnabled()`, Millet, Doze, KillProcessController and
-   thermal code remain Xiaomi stock. Validate signing/package acceptance
+   `isGmsControlEnabled()`, Millet, Doze and thermal code remain Xiaomi stock.
+   The separate `ryu_killprocess_a16.py` applies the verified RYU changes
+   only inside KillProcessController. Validate signing/package acceptance
    on device before treating this as production-ready.
 2. `hypermos-google-push-keepalive.xml`: retain GMS FCM delivery
    exemptions and all three implicit-broadcast actions; remove the **extra**
@@ -80,9 +81,14 @@ Xiaomi 3.0.308.0 system_ext by the parity workflow:
 - ActiveStateController: **49 of 49 identical**.
 - DeviceIdleController **in PowerKeeper**: **28 of 28 identical**.
   This does not include the separate `miui-services.jar` Doze field patch.
-- KillProcessController: RYU adds `shouldKillByCheckerPolicy()` and its
-  related conditional path. This is **not imported** until the exact
-  verifier/register safety and default checker behavior are validated.
+- KillProcessController: RYU adds `shouldKillByCheckerPolicy(I)Z` and
+  extends `setUidState(IZ)V` to run the conditional kill branch when the
+  existing `mKillProcessAppRuleChecker` yields `POLICY=1` or `POLICY=2`.
+  Xiaomi stock already declares the checker field and interface.
+  **Ported on this TEST branch as a validated instruction delta**, using
+  actual stock and RYU method hashes; method layout mismatches fail closed.
+  Policy absent, other values, or checker errors => no newly added UID kill.
+  Runtime behavior and battery impact still require testing on device.
 - PowerKeeperApplication: RYU invokes a proprietary PerfHook on start.
   HyperMOS intentionally leaves the base APK's app lifecycle alone.
 
