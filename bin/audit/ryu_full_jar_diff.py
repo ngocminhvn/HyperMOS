@@ -200,9 +200,29 @@ def markdown(diff,description):
 def main():
     p=argparse.ArgumentParser();s=p.add_subparsers(dest="cmd",required=True)
     a=s.add_parser("scan");a.add_argument("--directory",type=Path,required=True);a.add_argument("--output",type=Path,required=True)
+    x=s.add_parser("summary");x.add_argument("--input",type=Path,required=True);x.add_argument("--markdown",type=Path,required=True)
     b=s.add_parser("compare");b.add_argument("--stock",type=Path,required=True);b.add_argument("--custom",type=Path,required=True);b.add_argument("--output",type=Path,required=True);b.add_argument("--markdown",type=Path,required=True)
     args=p.parse_args()
     if args.cmd=="scan":write_json(args.output,scan(args.directory))
+    elif args.cmd=="summary":
+        snapshot=read_json(args.input)
+        lines=["# RYUOS full 3-JAR DEX inventory","",
+               "This inventories ALL classes, methods and fields.",
+               "Stock comparison has not run unless a separate validated stock snapshot is supplied.",
+               "", "| JAR | DEX | Classes | Methods | Fields | SHA256 |",
+               "|---|---:|---:|---:|---:|---|"]
+        for name,item in snapshot["files"].items():
+            classes=item["classes"]
+            lines.append(f"| {name} | {len(item['dex'])} | {len(classes)} | "
+                         f"{sum(len(v['methods']) for v in classes.values())} | "
+                         f"{sum(len(v['fields']) for v in classes.values())} | "
+                         f"{item['sha256'][:20]}... |")
+        lines += ["","## Important limitation","",
+          "Inventory does NOT identify RYU changes versus Xiaomi stock.",
+          "Use compare with the matching stock fingerprint and verify smali changes.",
+          ""]
+        args.markdown.parent.mkdir(parents=True,exist_ok=True)
+        args.markdown.write_text("\\n".join(lines),encoding="utf-8")
     else:
         diff=compare(read_json(args.stock),read_json(args.custom))
         write_json(args.output,diff)
