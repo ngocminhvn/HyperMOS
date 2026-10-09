@@ -1,0 +1,115 @@
+name: RYUOS HAOTIAN Notification Fix Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      ryu_url:
+        description: Stable SourceForge direct URL (do not include expiring st/e query tokens)
+        required: true
+        type: string
+        default: https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip
+      inventory_only:
+        description: Only read ZIP central directory (use if runner lacks disk space)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ryu-notification-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read RYU images and compare notification internals
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout HyperMOS audit branch
+        uses: actions/checkout@v4
+
+      - name: Python setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare filesystem utilities and HTTP-range ZIP reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq erofs-utils e2fsprogs android-sdk-libsparse-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir remotezip==0.12.3
+          mkdir -p ryu-reports ryu-extracted ryu-work
+          df -h .
+
+      - name: Read RYUOS ZIP inventory and extract targeted IMG contents
+        id: extract
+        shell: bash
+        env:
+          RYU_URL: ${{ inputs.ryu_url }}
+          INVENTORY_ONLY: ${{ inputs.inventory_only }}
+        run: |
+          set -euo pipefail
+          opts=()
+          if [[ "$INVENTORY_ONLY" == "true" ]]; then opts+=(--inventory-only); fi
+          python bin/audit/ryu_fetch_extract.py \
+            --url "$RYU_URL" --work ryu-work --out ryu-extracted "${opts[@]}"
+
+      - name: Fingerprint RYU JAR methods and compare to uploaded stock references
+        if: ${{ success() && !inputs.inventory_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python bin/audit/ryu_notification_dex.py scan \
+            --input ryu-extracted --output ryu-reports/ryu-dex-methods.json
+          python bin/audit/ryu_notification_dex.py compare \
+            --stock bin/audit/ryu_stock_reference.json \
+            --ryu ryu-reports/ryu-dex-methods.json \
+            --output ryu-reports/notification-method-diff.md
+
+      - name: Decompile only RYU PowerKeeper and inspect FCM changes
+        if: ${{ success() && !inputs.inventory_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i ryu-extracted/PowerKeeper.apk -o ryu-smali
+          python bin/audit/ryu_powerkeeper_report.py \
+            --smali ryu-smali \
+            --output ryu-reports/powerkeeper-audit.md
+
+      - name: Save ZIP inventory with reports (never upload ROM/JAR/APK or smali)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ryu-reports
+          if [[ -f ryu-extracted/zip_inventory.json ]]; then
+            cp ryu-extracted/zip_inventory.json ryu-reports/zip_inventory.json
+          fi
+          {
+            echo "## RYUOS audit"
+            echo
+            if [[ -f ryu-reports/notification-method-diff.md ]]; then
+              cat ryu-reports/notification-method-diff.md | head -n 75
+            else
+              echo "Method comparison not available; see logs and ZIP inventory."
+            fi
+            if [[ -f ryu-reports/powerkeeper-audit.md ]]; then
+              echo
+              cat ryu-reports/powerkeeper-audit.md
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish text and JSON evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryous-haotian-notification-audit
+          path: ryu-reports/
+          retention-days: 14
+          if-no-files-found: warn
