@@ -26,9 +26,20 @@ bq_src = """
     if-eqz v2, :invalid_receiver
     iget-object v3, v2, Landroid/content/pm/ActivityInfo;->applicationInfo:Landroid/content/pm/ApplicationInfo;
     if-eqz v3, :invalid_receiver
+    iget v8, v3, Landroid/content/pm/ApplicationInfo;->uid:I
+    sget-boolean v2, Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z
+    if-eqz v2, :skip_fcm
+    const-string v2, "com.google.android.c2dm.intent.RECEIVE"
+    invoke-virtual {v2, v9}, Ljava/lang/Object;->equals(Ljava/lang/Object;)Z
+    move-result v2
+    if-nez v2, :allow_fcm
+:skip_fcm
     iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
 :invalid_receiver
     const/4 v0, 0x0
+    return v0
+:allow_fcm
+    const/4 v0, 0x1
     return v0
 .end method
 """
@@ -65,6 +76,21 @@ ps_src = """
     iget-object v2, v2, Landroid/content/pm/ApplicationInfo;->packageName:Ljava/lang/String;
     invoke-virtual {p0, v2}, Lcom/android/server/am/ProcessSceneCleaner;->killOnce(Ljava/lang/String;)V
 :cond_done
+    const/4 v0, 0x1
+    return v0
+.end method
+.method private handleSwipeKill(Lmiui/process/ProcessConfig;)Z
+    .registers 8
+    sget-boolean v4, Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z
+    if-eqz v4, :swipe_stop
+    iget-object v4, v5, Lcom/android/server/am/ProcessRecord;->mServices:Lcom/android/server/am/ProcessServiceRecord;
+    invoke-virtual {v4}, Lcom/android/server/am/ProcessServiceRecord;->hasForegroundServices()Z
+    move-result v4
+    if-nez v4, :swipe_keep
+:swipe_stop
+    const/4 v0, 0x0
+    return v0
+:swipe_keep
     const/4 v0, 0x1
     return v0
 .end method
@@ -114,15 +140,15 @@ with tempfile.TemporaryDirectory() as d:
     ps.write_text(ps_src)
     m.main(root)
     a, b = bq.read_bytes(), ps.read_bytes()
-    assert b"com.google.android.c2dm.intent.RECEIVE" in a
-    assert b"invoke-static/range {p2 .. p2}" in a
-    assert b".locals 11" in a
-    assert b"move-result v10" in a
-    assert b"hypermosRyuIsFcmBroadcast" in a
-    assert a.index(b"if-eqz v3, :invalid_receiver") < a.index(b"invoke-static/range {p2 .. p2}")
     assert a.count(b"com.google.android.c2dm.intent.RECEIVE") == 1
-    assert b"iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent" in a
+    assert b"# HyperMOS RYU FCM: enable existing post-ApplicationInfo gate" in a
+    assert b"const/4 v2, 0x1" in a
+    assert b"hypermosRyuIsFcmBroadcast" not in a
+    assert b".locals 10" in a
+    assert a.index(b"ApplicationInfo;->uid:I") < a.index(b"# HyperMOS RYU FCM")
     assert b"# HyperMOS RYU FGS: enable existing Xiaomi guard" in b
+    assert b"# HyperMOS RYU swipe: enable original Xiaomi FGS guard" in b
+    assert b"const/4 v4, 0x1" in b
     m.main(root)
     assert (a, b) == (bq.read_bytes(), ps.read_bytes()), "patch not idempotent"
 
@@ -137,22 +163,38 @@ with tempfile.TemporaryDirectory() as d:
     else:
         raise AssertionError("unknown layout was not rejected")
 
-# FCM must not bypass receiver or ApplicationInfo eligibility checks.
+# The original RYU JAR gate must not be rewritten.
+ryu_bq = bq_src.replace(
+    "Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z",
+    "Lcom/projectryu/Build;->IS_RYU_BUILD:Z",
+)
+assert m.fcm_autostart(ryu_bq) == ryu_bq
+assert m.swipe_foreground_service_protection(original_ryu) == original_ryu
+
+# Refuse unknown layouts rather than globally granting autostart.
 for damaged in (
     bq_src.replace("ResolveInfo;->activityInfo", "ResolveInfo;->unexpectedInfo"),
-    bq_src.replace("if-eqz v3, :invalid_receiver", "if-nez v3, :invalid_receiver"),
-    bq_src.replace("ActivityInfo;->applicationInfo", "ActivityInfo;->otherInfo"),
+    bq_src.replace("if-eqz v2, :skip_fcm", "if-nez v2, :skip_fcm"),
+    bq_src.replace("ApplicationInfo;->uid:I", "ApplicationInfo;->flags:I"),
+    bq_src.replace("IS_INTERNATIONAL_BUILD:Z", "IS_GLOBAL_BUILD:Z"),
 ):
     try:
         m.fcm_autostart(damaged)
     except ValueError:
         pass
     else:
-        raise AssertionError("Unsafe receiver layout accepted for FCM patch")
+        raise AssertionError("Unknown or unsafe FCM gate was accepted")
 
-already_ryu = bq_src.replace(
-    "    iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;",
-    '    const-string v7, "com.google.android.c2dm.intent.RECEIVE"\n'
-    '    iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;')
-assert m.fcm_autostart(already_ryu) == already_ryu
-print("[PASS] FCM guarded after receiver validation; live registers preserved; FGS return-true unchanged")
+for damaged in (
+    ps_src.replace("if-eqz v4, :swipe_stop", "if-nez v4, :swipe_stop"),
+    ps_src.replace("handleSwipeKill(Lmiui/process/ProcessConfig;)Z",
+                   "handleOtherSwipe(Lmiui/process/ProcessConfig;)Z"),
+):
+    try:
+        m.swipe_foreground_service_protection(damaged)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Unknown swipe-kill FGS gate was accepted")
+
+print("[PASS] Exact RYU FCM and two FGS build gates; original returns/permissions preserved")
