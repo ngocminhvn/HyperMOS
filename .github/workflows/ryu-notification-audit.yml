@@ -28,10 +28,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ryu-notification-audit-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   audit:
     name: Extract RYU and inspect every framework class/method
