@@ -24,61 +24,7 @@ jobs:
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
           grep -Fq -- '--ryu-notification-policy' bin/package/COREPATCH/update.sh
-          python3 - <<'PY'
-          import importlib.util
-          import tempfile
-          from pathlib import Path
-          p = Path('bin/package/COREPATCH/ryu_policy_a16.py')
-          spec = importlib.util.spec_from_file_location('ryup', p)
-          m = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(m)
-          with tempfile.TemporaryDirectory() as d:
-              root = Path(d)
-              bq = root / 'smali/com/android/server/am/BroadcastQueueModernStubImpl.smali'
-              bq.parent.mkdir(parents=True)
-              bq.write_text('''.class public Lcom/android/server/am/BroadcastQueueModernStubImpl;
-.super Ljava/lang/Object;
-.field private mIsBlockBroadcastFirstBoot:Z
-.method public updateBlockBroadcast()V
-    .locals 4
-    const/4 v0, 0x1
-    iput-boolean v0, p0, Lcom/android/server/am/BroadcastQueueModernStubImpl;->mIsBlockBroadcastFirstBoot:Z
-    return-void
-.end method
-.method public checkApplicationAutoStart(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Landroid/content/pm/ResolveInfo;)Z
-    .locals 10
-    iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
-    const/4 v0, 0x0
-    return v0
-.end method
-''')
-              ps = root / 'smali/com/android/server/am/ProcessSceneCleaner.smali'
-              ps.write_text('''.class public Lcom/android/server/am/ProcessSceneCleaner;
-.super Ljava/lang/Object;
-.method public killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z
-    .locals 10
-    invoke-static {p1}, Lcom/android/server/wm/WindowProcessUtils;->getTaskTopApp(I)Lcom/android/server/wm/WindowProcessController;
-    invoke-static {}, Lcom/android/server/wm/WindowProcessUtils;->isProcessHasActivityInOtherTaskLocked()Z
-    const/4 v0, 0x0
-    return v0
-.end method
-''')
-              m.main(root)
-              a, b = bq.read_bytes(), ps.read_bytes()
-              assert b'com.google.android.c2dm.intent.RECEIVE' in a
-              assert b'hasForegroundServices' in b
-              m.main(root)
-              assert (a,b) == (bq.read_bytes(),ps.read_bytes()), 'not idempotent'
-              # Changed Xiaomi class layouts must stop the build, not patch blindly.
-              ps.write_text(ps.read_text().replace('isProcessHasActivityInOtherTaskLocked','unknownMethod'))
-              try:
-                  m.main(root)
-              except ValueError:
-                  print('[OK] fail-closed target drift')
-              else:
-                  raise AssertionError('target drift not rejected')
-          print('[OK] RYU A16 synthetic smali and idempotency checks')
-          PY
+          python3 bin/package/COREPATCH/test_ryu_policy_a16.py
       - name: Guard RYU-private features and HyperMOS power overrides
         run: |
           python3 - <<'PY'
