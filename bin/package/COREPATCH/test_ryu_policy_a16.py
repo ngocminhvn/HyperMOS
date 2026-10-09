@@ -22,7 +22,12 @@ bq_src = """
 .end method
 .method public checkApplicationAutoStart(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Landroid/content/pm/ResolveInfo;)Z
     .locals 10
+    iget-object v2, p3, Landroid/content/pm/ResolveInfo;->activityInfo:Landroid/content/pm/ActivityInfo;
+    if-eqz v2, :invalid_receiver
+    iget-object v3, v2, Landroid/content/pm/ActivityInfo;->applicationInfo:Landroid/content/pm/ApplicationInfo;
+    if-eqz v3, :invalid_receiver
     iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
+:invalid_receiver
     const/4 v0, 0x0
     return v0
 .end method
@@ -110,8 +115,13 @@ with tempfile.TemporaryDirectory() as d:
     m.main(root)
     a, b = bq.read_bytes(), ps.read_bytes()
     assert b"com.google.android.c2dm.intent.RECEIVE" in a
-    assert b"move-object/from16 v0, p2" in a
-    assert b"iget-object v0, p2," not in a.split(b":hypermos_ryu_autostart_original")[0]
+    assert b"invoke-static/range {p2 .. p2}" in a
+    assert b".locals 11" in a
+    assert b"move-result v10" in a
+    assert b"hypermosRyuIsFcmBroadcast" in a
+    assert a.index(b"if-eqz v3, :invalid_receiver") < a.index(b"invoke-static/range {p2 .. p2}")
+    assert a.count(b"com.google.android.c2dm.intent.RECEIVE") == 1
+    assert b"iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent" in a
     assert b"# HyperMOS RYU FGS: enable existing Xiaomi guard" in b
     m.main(root)
     assert (a, b) == (bq.read_bytes(), ps.read_bytes()), "patch not idempotent"
@@ -127,4 +137,22 @@ with tempfile.TemporaryDirectory() as d:
     else:
         raise AssertionError("unknown layout was not rejected")
 
-print("[PASS] FCM preserved, existing FGS gate enabled for CN, return-true unchanged")
+# FCM must not bypass receiver or ApplicationInfo eligibility checks.
+for damaged in (
+    bq_src.replace("ResolveInfo;->activityInfo", "ResolveInfo;->unexpectedInfo"),
+    bq_src.replace("if-eqz v3, :invalid_receiver", "if-nez v3, :invalid_receiver"),
+    bq_src.replace("ActivityInfo;->applicationInfo", "ActivityInfo;->otherInfo"),
+):
+    try:
+        m.fcm_autostart(damaged)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Unsafe receiver layout accepted for FCM patch")
+
+already_ryu = bq_src.replace(
+    "    iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;",
+    '    const-string v7, "com.google.android.c2dm.intent.RECEIVE"\n'
+    '    iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;')
+assert m.fcm_autostart(already_ryu) == already_ryu
+print("[PASS] FCM guarded after receiver validation; live registers preserved; FGS return-true unchanged")
