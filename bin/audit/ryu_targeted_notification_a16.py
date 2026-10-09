@@ -6,6 +6,7 @@ or private RYU classes. A stock/RYU difference is NOT proof of a RYU fix.
 """
 import argparse
 import hashlib
+import difflib
 import json
 import re
 from pathlib import Path
@@ -135,6 +136,29 @@ def markdown(obj):
     return "\n".join(rows)
 
 
+def focused_diffs(stock: Path, ryu: Path):
+    """Inspect method-local changes without transplanting any RYU code."""
+    for classname, needle in (
+        ("BroadcastQueueModernStubImpl", "checkApplicationAutoStart("),
+        ("ProcessSceneCleaner", "handleSwipeKill("),
+        ("NotificationManagerServiceImpl", "readDefaultsAndFixMiuiVersion("),
+    ):
+        a = read_class(stock, classname, required=False)
+        b = read_class(ryu, classname, required=False)
+        def block(src):
+            for m in METHOD.finditer(src):
+                if m.group().splitlines()[0].strip().split()[-1].startswith(needle):
+                    return [line.strip() for line in m.group().splitlines()
+                            if line.strip() and not line.strip().startswith(IGNORE)]
+            return []
+        left, right = block(a), block(b)
+        print(f"[RYU-AUDIT-DELTA] {classname}.{needle} stock={len(left)} ryu={len(right)}")
+        delta = list(difflib.unified_diff(left, right, fromfile="Xiaomi", tofile="RYU", n=3))
+        for line in delta[:100]:
+            print(line)
+        if len(delta) > 100:
+            print(f"... {len(delta)-100} extra diff lines omitted")
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--stock", type=Path, required=True)
@@ -148,6 +172,7 @@ def main():
     (args.output / "ryu-targeted-notification.md").write_text(
         markdown(report), encoding="utf-8")
     print(markdown(report), flush=True)
+    focused_diffs(args.stock, args.ryu)
 
 
 if __name__ == "__main__":
