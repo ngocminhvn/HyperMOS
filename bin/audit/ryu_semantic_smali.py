@@ -10,9 +10,9 @@ import json
 import re
 from pathlib import Path
 
-SKIP_RE=re.compile(r"^\\s*(?:\\.line\\s|\\.prologue|\\.epilogue|\\.local\\s|\\.end local|\\.restart local|\\.param\\s|\\.end param|\\.source\\s|#)")
-INVOKE=re.compile(r"\\binvoke-[\\w/-]+\\s+\\{[^}]*\\},\\s*(\\S+)")
-CONST=re.compile(r"\\bconst(?:-wide|-string|-class|/[\\w]+)?\\s+\\S+,\\s*(.+)")
+SKIP_RE=re.compile(r"^\s*(?:\.line\s|\.prologue|\.epilogue|\.local\s|\.end local|\.restart local|\.param\s|\.end param|\.source\s|#)")
+INVOKE=re.compile(r"\binvoke-[\w/-]+\s+\{[^}]*\},\s*(\S+)")
+CONST=re.compile(r"\bconst(?:-wide|-string|-class|/[\w]+)?\s+\S+,\s*(.+)")
 BRANCH=re.compile(r"^(?:if-|goto|packed-switch|sparse-switch|throw|return)")
 CATEGORIES=(
  ("POWER",re.compile("(?i)(power|battery|doze|idle|thermal|wakelock|millet|greezer)")),
@@ -48,7 +48,7 @@ def analyze_method(lines):
         if match:cons.add(match.group(1)[:160])
         head=line.split(None,1)[0]
         if BRANCH.match(head):ctrl[head.split("/")[0]]+=1
-    return {"digest":hashlib.sha256("\\n".join(text).encode()).hexdigest()[:24],
+    return {"digest":hashlib.sha256("\n".join(text).encode()).hexdigest()[:24],
       "calls":sorted(inv),"constants":sorted(cons),"control":dict(ctrl),
       "opcodes":len(text)}
 
@@ -149,7 +149,7 @@ def build_md(diff):
         if obj["methods_added"] or obj["methods_removed"]:
             out.append(f"- Methods +{len(obj['methods_added'])} / -{len(obj['methods_removed'])}")
         for method,data in obj["changed_methods"].items():
-            out.append("- \`"+method.replace("\`","")+"\`")
+            out.append("- `"+method.replace("`","")+"`")
             if data["calls_added"]:out.append("  - Calls added: "+", ".join(data["calls_added"][:6]))
             if data["calls_removed"]:out.append("  - Calls removed: "+", ".join(data["calls_removed"][:6]))
             if data["constants_added"] or data["constants_removed"]:
@@ -159,7 +159,7 @@ def build_md(diff):
         out.append("")
     out += ["","This report covers all three JARs, not notification-only. "
         "Only port methods after reviewing side-by-side logic and device runtime impact."]
-    return "\\n".join(out)+"\\n"
+    return "\n".join(out)+"\n"
 
 def main():
     p=argparse.ArgumentParser()
@@ -170,7 +170,7 @@ def main():
     a=p.parse_args()
     diff=differences(collect(a.stock),collect(a.ryu))
     a.output.parent.mkdir(parents=True,exist_ok=True)
-    a.output.write_text(json.dumps(diff,ensure_ascii=False,indent=2)+"\\n",encoding="utf8")
+    a.output.write_text(json.dumps(diff,ensure_ascii=False,indent=2)+"\n",encoding="utf8")
     a.markdown.write_text(build_md(diff),encoding="utf8")
     print(f"Changed classes: {len(diff['changed_classes'])}; added: {len(diff['classes_added'])}; removed: {len(diff['classes_removed'])}")
 if __name__=="__main__":main()
