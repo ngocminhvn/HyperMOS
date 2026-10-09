@@ -114,9 +114,19 @@ jobs:
           bash -n bin/modfile/UpdateFile/Fonts/install-emoji.sh
           test -s bin/modfile/UpdateFile/Fonts/Shared/NotoColorEmoji.ttf
           test ! -e bin/modfile/UpdateFile/Fonts/HyperOS/NotoColorEmoji.ttf
+          python3 bin/modfile/UpdateFile/Fonts/font_utils.py prepare \
+            bin/modfile/UpdateFile/Fonts/HyperOS "$RUNNER_TEMP/hypermos-font-preflight/sources"
           python3 bin/modfile/UpdateFile/Fonts/font_utils.py catalog \
-            bin/modfile/UpdateFile/Fonts/HyperOS "$RUNNER_TEMP/hypermos-font-preflight"
+            "$RUNNER_TEMP/hypermos-font-preflight/sources" "$RUNNER_TEMP/hypermos-font-preflight"
           test -s "$RUNNER_TEMP/hypermos-font-preflight/catalog.tsv"
+          python3 - "$RUNNER_TEMP/hypermos-font-preflight/catalog.json" <<'PYFONT'
+          import json
+          import sys
+          names = {item["title"] for item in json.load(open(sys.argv[1], encoding="utf-8"))}
+          assert {"Roboto", "Noto Sans", "Open Sans"} <= names, names
+          assert "SF Pro" not in names, names
+          print("[FONT-CATALOG] Required fonts present; SF Pro retired")
+          PYFONT
           sh -n bin/modfile/UpdateFile/TNM/tnm-bridge
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           grep -Fq 'BACKEND=/data/adb/tnm/bin/tnmctl' bin/modfile/UpdateFile/TNM/tnm-bridge

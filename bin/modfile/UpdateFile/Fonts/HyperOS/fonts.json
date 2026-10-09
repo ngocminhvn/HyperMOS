@@ -1,0 +1,12 @@
+{
+  "NotoSans-VF.ttf": {
+    "title": "Noto Sans",
+    "author": "The Noto Project",
+    "normalize_line_gap": false
+  },
+  "OpenSans-VF.ttf": {
+    "title": "Open Sans",
+    "author": "The Open Sans Project",
+    "normalize_line_gap": false
+  }
+}

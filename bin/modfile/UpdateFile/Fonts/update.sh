@@ -47,7 +47,12 @@ cleanup_legacy_generated_fonts() {
         rm -f \
             "$root/SF-Pro.mtz" "$root/Roboto.mtz" \
             "$root/.data/meta/fonts/SF-Pro.mrm" \
-            "$root/.data/meta/fonts/Roboto.mrm"
+            "$root/.data/meta/fonts/Roboto.mrm" \
+            "$root/.data/meta/fonts/9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102.mrm" \
+            "$root/.data/content/fonts/9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102.mrc" \
+            "$root/.data/meta/theme/9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101.mrm" \
+            "$root/.data/content/theme/9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101.mrc"
+        rm -rf "$root/.data/preview/theme/9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101"
     done
 }
 
@@ -324,12 +329,15 @@ select_theme_root || {
     exit 1
 }
 mods "Fonts: using one catalog only -> $THEME_RUNTIME"
-cleanup_legacy_generated_fonts
 
-# Validate the full font directory before altering any ThemeManager resources.
-# A new variable font requires only a .ttf/.otf in Fonts/HyperOS; font_utils.py
-# generates stable IDs and weight metadata (not evaluated as shell commands).
-if ! python3 "$FONT_UTILS" catalog "$FONT_SOURCE" "$FONT_PREPARED_DIR"; then
+# Verify pinned upstream Google Fonts and stage local VF files. Stock MiSans
+# stays exactly as shipped with the ROM; no framework or fonts.xml patches.
+FONT_STAGED_DIR="$FONT_PREPARED_DIR/sources"
+if ! python3 "$FONT_UTILS" prepare "$FONT_SOURCE" "$FONT_STAGED_DIR"; then
+    error "FAST-FAIL: official Noto Sans / Open Sans download or integrity check failed"
+    exit 1
+fi
+if ! python3 "$FONT_UTILS" catalog "$FONT_STAGED_DIR" "$FONT_PREPARED_DIR"; then
     error "FAST-FAIL: custom font catalog invalid; all fonts need a real wght axis"
     exit 1
 fi
@@ -339,6 +347,8 @@ FONT_CATALOG="$FONT_PREPARED_DIR/catalog.tsv"
     exit 1
 }
 
+# Remove former SF Pro resources only after source validation succeeds.
+cleanup_legacy_generated_fonts
 custom_font_count=0
 while IFS=$'\t' read -r font_file font_id theme_id title author weights; do
     [ -n "$font_file" ] || continue
@@ -354,6 +364,12 @@ done < "$FONT_CATALOG"
     exit 1
 }
 mods "Fonts: $custom_font_count validated variable fonts registered"
+
+# Keep the copyright and OFL notices with the distributed ROM font payloads.
+LICENSE_TARGET="${THEME_TARGET%/media/theme}/etc/licenses/hypermos-fonts"
+mkdir -p "$LICENSE_TARGET"
+install -m 0644 "$FONT_SOURCE/licenses/NotoSans-OFL.txt" "$LICENSE_TARGET/NotoSans-OFL.txt"
+install -m 0644 "$FONT_SOURCE/licenses/OpenSans-OFL.txt" "$LICENSE_TARGET/OpenSans-OFL.txt"
 
 # Stock MiSans/default resource is deliberately untouched. Custom fonts are
 # installed only as separate native resources in the chosen ThemeManager root.

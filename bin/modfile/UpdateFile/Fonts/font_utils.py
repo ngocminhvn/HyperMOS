@@ -9,27 +9,42 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import re
+import shutil
 import sys
+import time
 import uuid
 from pathlib import Path
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from fontTools.ttLib import TTFont, TTLibError
 from PIL import Image, ImageDraw, ImageFont
 
-# Match Xiaomi's ten positions in the weight slider, within a particular font's
-# supported wght axis. This does not itself make Xiaomi Settings show its slider.
+# Preserve the ten relative weight positions used for MiSans-style adjustment.
+# Each VF maps these steps into its own real wght axis; stock Settings decides
+# whether a selected third-party font actually exposes the slider.
 MIUI_STOPS = (100, 200, 300, 350, 400, 500, 700, 800, 900, 950)
 EXCLUDED_FILES = {"notocoloremoji.ttf", "misansvf.ttf"}
+RETIRED_FILES = {"sf-pro.ttf"}
+# Pin font sources to an immutable upstream revision; Git blob hashes verify
+# exact bytes before a binary is admitted into the Xiaomi ThemeManager catalog.
+GOOGLE_FONTS_REV = "2eb0b48d5f760f62e286216f0859a8c540dbc1bd"
+OFFICIAL_FONTS = {
+    "NotoSans-VF.ttf": (
+        "ofl/notosans/NotoSans[wdth,wght].ttf",
+        "75575046c015ff623a848096a15779867ba71453",
+        2049096,
+    ),
+    "OpenSans-VF.ttf": (
+        "ofl/opensans/OpenSans[wdth,wght].ttf",
+        "9db85693b027f3b05f6d77471d215f20707127c1",
+        532636,
+    ),
+}
 LEGACY = {
-    "sf-pro.ttf": {
-        "title": "SF Pro",
-        "author": "Apple",
-        "font_id": "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2102",
-        "theme_id": "9c6f0f9a-4c74-4bd1-9c18-1d7f5b3a2101",
-        "normalize_line_gap": True,
-    },
     "roboto-vf.ttf": {
         "title": "Roboto",
         "author": "Google",
@@ -38,6 +53,79 @@ LEGACY = {
         "normalize_line_gap": False,
     },
 }
+
+
+
+def verified_google_blob(path: Path, expected_sha: str, expected_size: int) -> bool:
+    """Check content by the immutable Git blob SHA-1, including its length."""
+    if not path.is_file() or path.stat().st_size != expected_size:
+        return False
+    data = path.read_bytes()
+    digest = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\\0" + data)
+    return digest.hexdigest() == expected_sha
+
+
+def prepare_fonts(source_dir: Path, staging_dir: Path) -> None:
+    """Stage bundled VF fonts plus pinned, verified Noto Sans and Open Sans.
+
+    Only the temporary build directory is modified. The ROM source stays clean.
+    """
+    if not source_dir.is_dir():
+        raise ValueError(f"Missing font directory: {source_dir}")
+    if staging_dir.resolve() == source_dir.resolve():
+        raise ValueError("Font staging must not overwrite the source directory")
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    for old in staging_dir.iterdir():
+        if old.is_file() and (old.suffix.casefold() in (".ttf", ".otf")
+                              or old.name == "fonts.json"):
+            old.unlink()
+
+    for font in source_dir.iterdir():
+        if font.is_file() and font.suffix.casefold() in (".ttf", ".otf"):
+            if font.name.casefold() not in RETIRED_FILES:
+                shutil.copy2(font, staging_dir / font.name)
+    overrides = source_dir / "fonts.json"
+    if overrides.is_file():
+        shutil.copy2(overrides, staging_dir / overrides.name)
+
+    for filename, (upstream_path, blob_sha, length) in OFFICIAL_FONTS.items():
+        target = staging_dir / filename
+        bundled = source_dir / filename
+        if verified_google_blob(bundled, blob_sha, length):
+            shutil.copy2(bundled, target)
+            print(f"[FONT-CATALOG] Verified local {filename}")
+            continue
+
+        url = ("https://raw.githubusercontent.com/google/fonts/" +
+               GOOGLE_FONTS_REV + "/" + quote(upstream_path, safe="/"))
+        partial = staging_dir / (filename + ".part")
+        last_error: Exception | None = None
+        try:
+            for attempt in range(1, 4):
+                try:
+                    request = Request(url, headers={"User-Agent": "HyperMOS-FontCatalog/1.0"})
+                    with urlopen(request, timeout=50) as response, partial.open("wb") as output:
+                        shutil.copyfileobj(response, output)
+                    if not verified_google_blob(partial, blob_sha, length):
+                        raise ValueError(f"{filename}: pinned upstream blob SHA or size mismatch")
+                    partial.replace(target)
+                    print(f"[FONT-CATALOG] Fetched and verified {filename} ({length} bytes)")
+                    last_error = None
+                    break
+                except (OSError, ValueError) as exc:
+                    last_error = exc
+                    partial.unlink(missing_ok=True)
+                    if attempt < 3:
+                        time.sleep(attempt * 2)
+            if last_error is not None:
+                raise ValueError(f"{filename}: unable to fetch verified official font: {last_error}")
+        finally:
+            partial.unlink(missing_ok=True)
+
+    for retired in RETIRED_FILES:
+        if (staging_dir / retired).exists():
+            raise ValueError(f"Retired font must not be included: {retired}")
+    print("[FONT-CATALOG] Staged official Noto Sans + Open Sans; stock MiSans unchanged")
 
 
 def weight_stops(font: TTFont, title: str) -> str:
@@ -86,7 +174,7 @@ def read_overrides(source_dir: Path) -> dict:
 
 
 def font_identity(filename: str) -> tuple[str, str]:
-    # Preserve SF Pro / Roboto IDs so an OTA build cannot register duplicates.
+    # Keep Roboto's existing ID stable across ROM upgrades.
     prior = LEGACY.get(filename.casefold())
     if prior:
         return prior["font_id"], prior["theme_id"]
@@ -217,6 +305,9 @@ def preview(title: str, font_path: Path, output: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="action", required=True)
+    pr = commands.add_parser("prepare")
+    pr.add_argument("source_dir", type=Path)
+    pr.add_argument("staging_dir", type=Path)
     ct = commands.add_parser("catalog")
     ct.add_argument("source_dir", type=Path)
     ct.add_argument("output_dir", type=Path)
@@ -226,7 +317,9 @@ def main() -> int:
     pv.add_argument("output", type=Path)
     args = parser.parse_args()
     try:
-        if args.action == "catalog":
+        if args.action == "prepare":
+            prepare_fonts(args.source_dir, args.staging_dir)
+        elif args.action == "catalog":
             catalog(args.source_dir, args.output_dir)
         else:
             preview(args.title, args.font, args.output)
