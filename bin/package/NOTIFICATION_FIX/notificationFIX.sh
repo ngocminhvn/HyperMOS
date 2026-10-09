@@ -16,7 +16,7 @@ elif [[ $AndroidVER == "15" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A15/PowerKeeper.sh
 elif [[ $AndroidVER == "16" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A16/SystemUI.sh
+    # Keep the stock Android 16 MiuiSystemUI.apk untouched.
 elif [[ $AndroidVER == "17" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A17/PowerKeeper.sh
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A17/SystemUI.sh
