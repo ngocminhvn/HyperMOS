@@ -164,6 +164,31 @@ these cases and the real-JAR check assembles the result against RYU JARs.
 the effect cannot be inferred from the field name alone. Keep thermal
 safeguards and use the ROM test branch only.
 
+## FCM ordering and focused RYU audits (2026-10-09)
+
+- The experimental C2DM fast path is now restricted to the receiver/app
+  validation branch of `checkApplicationAutoStart()`: it requires a unique
+  `ResolveInfo.activityInfo` and `ActivityInfo.applicationInfo` extraction,
+  followed by the original ApplicationInfo null guard. A new local register
+  receives a tiny private action helper's boolean result; the original
+  Xiaomi locals and non-FCM branch remain untouched.
+- When a source JAR already checks the FCM action, no duplicate exemption
+  is injected. Such an existing action is accepted **only if receiver and
+  application resolution occur first**. Unknown layouts fail the patch.
+- `bin/audit/ryu_targeted_notification_a16.py` performs a read-only
+  cross-JAR comparison of `ProcessSceneCleaner.handleSwipeKill()`,
+  `killAppForHasOtherTask()`, `NotificationManagerServiceImpl` methods,
+  and `ProcessManagerService.isForceStopEnable()`.
+- The actual-stock verification workflow runs this audit against the
+  extracted original RYU JAR artifact before patching, and uploads Markdown
+  and JSON results. Differences are **audit findings**, not automatic ports,
+  because the Xiaomi and RYU base build labels differ.
+- `PerfHook`, broad force-stop suppression, and full-screen notification
+  AppOp bypasses remain excluded. This preserves device power policy,
+  user control and notification permission enforcement.
+- Synthetic preflight PASS only verifies patch logic; genuine smali
+  reassembly and notification/idle-drain tests remain necessary.
+
 ## One-build trial and acceptance gates
 
 The branch intentionally combines the vetted notification and battery policy
