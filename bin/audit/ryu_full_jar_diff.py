@@ -222,7 +222,7 @@ def main():
           "Use compare with the matching stock fingerprint and verify smali changes.",
           ""]
         args.markdown.parent.mkdir(parents=True,exist_ok=True)
-        args.markdown.write_text("\\n".join(lines),encoding="utf-8")
+        args.markdown.write_text("\n".join(lines),encoding="utf-8")
     else:
         diff=compare(read_json(args.stock),read_json(args.custom))
         write_json(args.output,diff)
