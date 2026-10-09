@@ -45,11 +45,14 @@ def inventory(ryu_root, stock_root=None):
         raise ValueError("RYU PerfHook not found in supplied PowerKeeper APK")
     perf_family = sorted(k for k in ryu if k == TARGET or k.startswith(TARGET[:-1] + "$"))
     methods = []
+    mode_fields = []
     outgoing = Counter()
     literals = set()
     direct_nodes = set()
     for name in perf_family:
         path, body = ryu[name]
+        for field in re.findall(r"(?m)^\.field[^\n]*(?:PERF_MODE|SCONFIG)[^\n]*$", body):
+            mode_fields.append(field.strip())
         for m in METHOD.finditer(body):
             src = m.group()
             refs = sorted(set(REF.findall(src)) - {name})
@@ -62,9 +65,15 @@ def inventory(ryu_root, stock_root=None):
                     literals.add(item)
                 if any(term in item.lower() for term in SENSITIVE):
                     direct_nodes.add(item)
+            api_calls = sorted(set(re.findall(
+                r"invoke-[\w/-]+\s+\{[^}]*\},\s*(L[^;\s]+;->[A-Za-z0-9_$<>]+\([^\n]*?\)[^\s\n]+)", src
+            )))
             methods.append({
                 "class": name,
                 "signature": signature(src),
+                "api_calls": api_calls[:120],
+                "referenced_settings": sorted(item for item in strings if "projectryu_" in item or "thermal_" in item),
+                "perf_mode_constants": sorted(set(re.findall(r"\bPERF_MODE_[A-Z_]+\b", src))),
                 "ryu_private_refs": sorted(ref for ref in refs if ref.startswith("Lcom/projectryu/")),
                 "thermal_or_perf_related": any(s in signature(src).lower() for s in FOCUS),
                 "node_writes_possible": any(s in src for s in ("Ljava/io/FileOutputStream;", "Ljava/io/RandomAccessFile;", "Landroid/system/Os;->write")),
@@ -83,6 +92,7 @@ def inventory(ryu_root, stock_root=None):
         "perf_family": perf_family,
         "perf_method_count": len(methods),
         "method_inventory": methods,
+        "perf_mode_field_definitions": mode_fields,
         "ryu_private_dependencies": dict(outgoing.most_common()),
         "call_sites": sorted(callers, key=lambda x: (x["class"], x["method"])),
         "focused_string_literals": sorted(literals),
@@ -103,6 +113,8 @@ def markdown(report):
         "**Status: ANALYSIS ONLY — PerfHook is NOT ported by this workflow.**", "",
         f"RYU PowerKeeper classes: {report['ryu_classes']}; stock APK supplied: {report['stock_classes'] is not None}.",
         f"PerfHook family: {len(report['perf_family'])} classes, {report['perf_method_count']} methods.", "",
+        "## Perf-mode field definitions", "",
+        *["- " + str(f) for f in report["perf_mode_field_definitions"]], "" ,
         "## Activation call sites", "",
     ]
     for site in report["call_sites"]:
