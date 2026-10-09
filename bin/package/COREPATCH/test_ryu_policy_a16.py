@@ -104,10 +104,14 @@ with tempfile.TemporaryDirectory() as d:
     assert marker.encode() in b
     m.main(root)
     assert (a, b) == (bq.read_bytes(), ps.read_bytes()), "patch not idempotent"
-    ps.write_text(ps.read_text().replace("isProcessHasActivityInOtherTaskLocked", "unknownMethod"))
+    # Validate layout drift on fresh, unpatched source: an already-patched
+    # class intentionally becomes a no-op when the idempotency marker exists.
+    ps.write_text(ps_src.replace("isProcessHasActivityInOtherTaskLocked", "unknownMethod"))
+    bq.write_text(bq_src)
     try:
         m.main(root)
     except ValueError:
+        assert bq.read_text() == bq_src, "partial write on failed patch"
         print("[OK] fail-closed on unknown Xiaomi smali method")
     else:
         raise AssertionError("target drift not rejected")
