@@ -152,6 +152,60 @@ def first_boot_broadcast(text: str) -> str:
     return text[:m.start()] + updated + text[m.end():]
 
 
+
+def swipe_foreground_service_protection(text: str) -> str:
+    """Enable Xiaomi's existing foreground-service guard on swipe cleanup.
+
+    Authentic RYU changes exactly one IS_INTERNATIONAL_BUILD read to
+    IS_RYU_BUILD immediately before hasForegroundServices(). Keep original
+    branches and return values; do not replace the swipe-cleanup method.
+    """
+    sig = "handleSwipeKill(Lmiui/process/ProcessConfig;)Z"
+    m = method(text, sig)
+    body = m.group()
+    marker = "# HyperMOS RYU swipe: enable original Xiaomi FGS guard"
+    if marker in body:
+        return text
+    if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
+        return text
+    if body.count("hasForegroundServices()Z") != 1:
+        raise ValueError("Swipe-kill method lacks unique existing Xiaomi FGS check")
+    lines = body.splitlines(keepends=True)
+    pattern = re.compile(
+        r"^([ \t]*)sget-boolean[ \t]+(?P<reg>v\d+),[ \t]*"
+        r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z[ \t]*(?:\n|$)"
+    )
+    found = []
+    for i, line in enumerate(lines):
+        g = pattern.match(line)
+        if not g:
+            continue
+        reg = g.group("reg")
+        next_code = []
+        for later in lines[i+1:]:
+            stmt = later.strip()
+            if not stmt or stmt.startswith(("#", ".line", ".local", ".end local",
+                                             ".restart local", ".prologue")):
+                continue
+            next_code.append(stmt)
+            if len(next_code) >= 3:
+                break
+        if (len(next_code) == 3
+                and re.fullmatch(rf"if-eqz[ \t]+{re.escape(reg)},[ \t]*:\w+", next_code[0])
+                and "ProcessRecord;->mServices:Lcom/android/server/am/ProcessServiceRecord;" in next_code[1]
+                and "ProcessServiceRecord;->hasForegroundServices()Z" in next_code[2]):
+            found.append((i, g, reg))
+    if len(found) != 1:
+        raise ValueError(f"Swipe-kill FGS build gate ambiguous: {len(found)}")
+    i, g, reg = found[0]
+    if int(reg[1:]) > 15:
+        raise ValueError("FGS swipe register does not fit const/4")
+    lines[i] = f"{g.group(1)}{marker}\n{g.group(1)}const/4 {reg}, 0x1\n"
+    updated = "".join(lines)
+    if updated.count("hasForegroundServices()Z") != 1:
+        raise ValueError("FGS swipe check unexpectedly modified")
+    return text[:m.start()] + updated + text[m.end():]
+
 def foreground_service_protection(text: str) -> str:
     """Enable Xiaomi's EXISTING FGS guard, exactly as RYU does for HAOTIAN.
 
@@ -242,7 +296,7 @@ def main(root: Path) -> None:
     original = bq.read_text(encoding="utf-8")
     changed = first_boot_broadcast(fcm_autostart(original))
     ps_original = psc.read_text(encoding="utf-8")
-    ps_changed = foreground_service_protection(ps_original)
+    ps_changed = swipe_foreground_service_protection(foreground_service_protection(ps_original))
     signature = ("checkApplicationAutoStart("
                  "Lcom/android/server/am/BroadcastQueue;"
                  "Lcom/android/server/am/BroadcastRecord;"
@@ -255,7 +309,7 @@ def main(root: Path) -> None:
     # Atomic-ish: make no write until every target validated.
     bq.write_text(changed, encoding="utf-8")
     psc.write_text(ps_changed, encoding="utf-8")
-    print("[RYU-A16] FCM broadcast + first-boot policy + FGS task cleanup patched")
+    print("[RYU-A16] Verified RYU FCM build gate, first-boot policy and both FGS cleanup guards patched")
     print("[RYU-A16] Android permission checks, RYU-private hooks, Doze, forced force-stop policies untouched")
 
 
