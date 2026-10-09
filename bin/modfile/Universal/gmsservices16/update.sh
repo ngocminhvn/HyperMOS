@@ -154,7 +154,7 @@ python3 "$GMS_SOURCE/strip-google-backup.py" "$MAIN_FOLDER" || {
   exit 1
 }
 
-if ! grep -q '^ro.miui.has_gmscore=1
+if ! grep -q '^ro.miui.has_gmscore=1$' "$MAIN_FOLDER/system/system/build.prop"; then
   echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
 fi
 
