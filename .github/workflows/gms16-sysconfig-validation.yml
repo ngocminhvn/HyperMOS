@@ -1,0 +1,30 @@
+name: GMS16 Sysconfig XML Validation
+
+on:
+  push:
+    paths:
+      - 'bin/modfile/Universal/gmsservices16/product/etc/sysconfig/**'
+      - 'bin/modfile/Universal/gmsservices16/validate-sysconfig.py'
+      - '.github/workflows/gms16-sysconfig-validation.yml'
+  pull_request:
+    paths:
+      - 'bin/modfile/Universal/gmsservices16/product/etc/sysconfig/**'
+      - 'bin/modfile/Universal/gmsservices16/validate-sysconfig.py'
+      - '.github/workflows/gms16-sysconfig-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-gms16-sysconfig:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Validate XML and FCM invariants
+        run: python3 bin/modfile/Universal/gmsservices16/validate-sysconfig.py
+      - name: Verify GMS installer syntax
+        run: bash -n bin/modfile/Universal/gmsservices16/update.sh
