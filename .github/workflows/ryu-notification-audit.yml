@@ -60,7 +60,7 @@ jobs:
       - name: Validate all audit Python scripts before starting the download
         run: |
           python -m py_compile bin/audit/ryu_fetch_extract.py bin/audit/ryu_notification_dex.py \
-            bin/audit/ryu_full_jar_diff.py bin/audit/ryu_semantic_smali.py \
+            bin/audit/ryu_full_jar_diff.py bin/audit/ryu_semantic_smali.py bin/audit/ryu_decode_smali.py \
             bin/audit/ryu_powerkeeper_report.py
 
       - name: Read RYUOS ZIP inventory and extract targeted IMG contents
@@ -126,6 +126,20 @@ jobs:
             --custom ryu-reports/ryu-full-dex.json.gz \
             --output ryu-reports/full-dex-diff.json.gz \
             --markdown ryu-reports/full-dex-diff.md
+
+      - name: Verify all changed methods with full smali comparison
+        if: ${{ success() && !inputs.inventory_only && inputs.stock_bundle_url != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python bin/audit/ryu_decode_smali.py --input stock-jars --out stock-all-smali
+          python bin/audit/ryu_decode_smali.py --input ryu-extracted --out ryu-all-smali
+          python bin/audit/ryu_semantic_smali.py \
+            --stock stock-all-smali --ryu ryu-all-smali \
+            --output ryu-reports/full-smali-diff.json \
+            --markdown ryu-reports/full-smali-diff.md
+          gzip -f ryu-reports/full-smali-diff.json
+          rm -rf stock-all-smali ryu-all-smali
 
       - name: Decompile only RYU PowerKeeper and inspect FCM changes
         if: ${{ success() && !inputs.inventory_only }}
