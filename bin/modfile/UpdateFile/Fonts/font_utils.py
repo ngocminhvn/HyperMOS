@@ -61,7 +61,7 @@ def verified_google_blob(path: Path, expected_sha: str, expected_size: int) -> b
     if not path.is_file() or path.stat().st_size != expected_size:
         return False
     data = path.read_bytes()
-    digest = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\\0" + data)
+    digest = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data)
     return digest.hexdigest() == expected_sha
 
 
