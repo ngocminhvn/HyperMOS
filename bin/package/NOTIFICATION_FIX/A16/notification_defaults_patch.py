@@ -23,6 +23,7 @@ METHOD = re.compile(r"^\s*\.method\s+[^\n]*?\b(canShowBadge|canFloat|canShowOnKe
 END = re.compile(r"^\s*\.end method\s*$")
 CONTAINS = "Landroid/content/SharedPreferences;->contains(Ljava/lang/String;)Z"
 MOVE = re.compile(r"^\s*move-result(?:/from16)?\s+([vp]\d+)\s*$")
+CONST4 = re.compile(r"^\s*const/4\s+[vp]\d+,\s*(?:-?0x[\da-fA-F]+|-?\d+)\s*$")
 BRANCH = re.compile(r"^(\s*)if-(eqz|nez)\s+([vp]\d+),\s*(:[\w$]+)\s*$")
 VENDOR_KEY = ("FilterHelperCompat;", "getBadgeKey", "getFloatKey", "getKeyguardKey")
 MARK = "# HyperMOS NotificationDefaults: only missing user preference"
@@ -46,7 +47,11 @@ def patch_method(lines: list[str], name: str) -> tuple[list[str], int]:
         return lines, 1  # Idempotent on already-patched ROMs.
     # Require the Xiaomi preference-key and read patterns; another same-named
     # method must not be patched solely because it returns a boolean.
-    if "FilterHelperCompat" not in source or not any(x in source for x in ("->getBoolean(", "->getInt(")):
+    # HyperOS 3.0.308.0 stock uses NotificationSettingsManager$Prefs
+    # rather than FilterHelperCompat. Both are known Xiaomi key providers.
+    if not any(tag in source for tag in ("FilterHelperCompat;", "NotificationSettingsManager$Prefs;")):
+        return lines, 0
+    if not any(x in source for x in ("->getBoolean(", "->getInt(")):
         return lines, 0
 
     matches: list[tuple[int, int, str, str, str]] = []
@@ -59,16 +64,39 @@ def patch_method(lines: list[str], name: str) -> tuple[list[str], int]:
         mm = MOVE.match(lines[move_at])
         if not mm:
             continue
+        # Stock HyperOS emits 1–3 const/4 setup operations between
+        # move-result and if-eqz. Skipping these does not affect the test
+        # register; reject any other instruction before the preference branch.
         branch_at = next_instruction(lines, move_at + 1)
+        const_count = 0
+        while branch_at < len(lines) and CONST4.match(lines[branch_at]) and const_count < 4:
+            branch_at = next_instruction(lines, branch_at + 1)
+            const_count += 1
         if branch_at >= len(lines):
             continue
         bm = BRANCH.match(lines[branch_at])
-        if bm and bm.group(3) == mm.group(1):
-            matches.append((branch_at, i, bm.group(1), bm.group(2), mm.group(1)))
+        if not bm or bm.group(3) != mm.group(1):
+            continue
+        # Ensure the branch's saved-value path reads the same Xiaomi
+        # SharedPreferences. A similarly named boolean function is not enough.
+        value_reader = "".join(lines[branch_at + 1:branch_at + 14])
+        if not any("Landroid/content/SharedPreferences;->" + method in value_reader
+                   for method in ("getBoolean(", "getInt(")):
+            continue
+        if "NotificationSettingsManager$Prefs;" in source:
+            earlier = "".join(lines[:i])
+            if ("NotificationSettingsManager$Prefs;->getNotif(" not in earlier
+                    or not any(x in earlier for x in (
+                        "NotificationSettingsManager$Prefs;->getFloatKey(",
+                        "NotificationSettingsManager$Prefs;->getKeyguardKey(",
+                        'const-string'))):
+                continue
+        matches.append((branch_at, i, bm.group(1), bm.group(2), mm.group(1)))
 
-    # One explicit user-preference existence check per overload. Refuse to
-    # touch multi-gate methods rather than changing a non-default branch.
-    if len(matches) != 1:
+    # Xiaomi can check a package key and then a channel key. The first
+    # matching contains() branch is the initial per-app preference. Modify
+    # only that initial missing-key path. Leave the channel branch untouched.
+    if not matches:
         return lines, 0
     branch_at, _, indent, kind, register = matches[0]
     original = lines[branch_at]
@@ -177,6 +205,40 @@ def self_test() -> None:
     # The no-pref path returns true while saved values remain delegated to the
     # original SharedPreferences getter.
     assert result.count("const/4 v0, 0x1") == 3
+    # Real OS3 layout: Prefs helpers, const/4 setup between result and
+    # if-eqz, and a secondary channel SharedPreferences.contains() check.
+    actual = [
+        ".method public final canShowOnKeyguard(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z\n",
+        "    .locals 5\n",
+        "    invoke-static {p2, p3}, Lcom/miui/systemui/notification/NotificationSettingsManager$Prefs;->getKeyguardKey(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;\n",
+        "    move-result-object v0\n",
+        "    invoke-static {p1}, Lcom/miui/systemui/notification/NotificationSettingsManager$Prefs;->getNotif(Landroid/content/Context;)Landroid/content/SharedPreferences;\n",
+        "    move-result-object v1\n",
+        "    invoke-interface {v1, v0}, Landroid/content/SharedPreferences;->contains(Ljava/lang/String;)Z\n",
+        "    move-result v2\n",
+        "    const/4 v3, 0x1\n",
+        "    const/4 v4, 0x0\n",
+        "    if-eqz v2, :cond_default\n",
+        "    invoke-interface {v1, v0, v4}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z\n",
+        "    move-result v0\n",
+        "    return v0\n",
+        "    :cond_default\n",
+        "    invoke-interface {v1, v0}, Landroid/content/SharedPreferences;->contains(Ljava/lang/String;)Z\n",
+        "    move-result v0\n",
+        "    if-eqz v0, :cond_final\n",
+        "    invoke-interface {v1, v0, v4}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z\n",
+        "    move-result v0\n",
+        "    return v0\n",
+        "    :cond_final\n",
+        "    return v4\n",
+        ".end method\n",
+    ]
+    patched_real, found_real = patch_file("".join(actual))
+    assert found_real["canShowOnKeyguard"] == 1, found_real
+    assert patched_real.count(MARK) == 1
+    assert patched_real.count("Landroid/content/SharedPreferences;->contains(") == 2
+    assert patched_real.count("invoke-interface") == 4
+    assert patched_real == patch_file(patched_real)[0]
     # An incompatible class is a no-op (directory-level validation rejects it).
     unchanged, zeroes = patch_file(".class public La;\n")
     assert unchanged == ".class public La;\n"
