@@ -1,6 +1,12 @@
 name: RYUOS HAOTIAN Notification Fix Audit
 
 on:
+  push:
+    branches:
+      - audit-ryuos-haotian-notification
+    paths:
+      - '.github/workflows/ryu-notification-audit.yml'
+      - 'bin/audit/**'
   workflow_dispatch:
     inputs:
       ryu_url:
@@ -50,8 +56,8 @@ jobs:
         id: extract
         shell: bash
         env:
-          RYU_URL: ${{ inputs.ryu_url }}
-          INVENTORY_ONLY: ${{ inputs.inventory_only }}
+          RYU_URL: ${{ inputs.ryu_url || 'https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip' }}
+          INVENTORY_ONLY: ${{ inputs.inventory_only || 'false' }}
         run: |
           set -euo pipefail
           opts=()
