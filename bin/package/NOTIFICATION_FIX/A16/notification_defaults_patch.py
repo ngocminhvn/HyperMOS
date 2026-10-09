@@ -33,6 +33,66 @@ class PatchError(RuntimeError):
     pass
 
 
+# HyperOS 3 / Android 16 (haotian) stores its keys in the nested $Prefs
+# class, not FilterHelperCompat. Only the *absence-of-saved-choice* fallback
+# may change. Direct user and per-channel choices remain untouched.
+WHITE_LIST_LOAD = re.compile(
+    r"^(\s*)sget-boolean\s+([vp]\d+),\s*"
+    r"Lcom/miui/systemui/notification/NotificationSettingsManager;"
+    r"->USE_WHITE_LISTS:Z\s*$", re.M
+)
+
+
+def patch_xiaomi_prefs(lines: list[str], name: str) -> tuple[list[str], int] | None:
+    """Patch Xiaomi's verified two-stage pref layout, or return None for legacy.
+
+    No extra locals/registers are used. First missing app preference defaults
+    to allow but continues checking the channel choice. The second missing
+    channel preference returns true directly. Existing choices still flow
+    through the original getBoolean/getInt methods.
+    """
+    source = "".join(lines)
+    if "NotificationSettingsManager$Prefs;->getNotif(" not in source:
+        return None
+    expectations = {
+        "canShowBadge": (1, "getBoolean(", None),
+        "canFloat": (2, "getInt(", "getFloatKey("),
+        "canShowOnKeyguard": (2, "getBoolean(", "getKeyguardKey("),
+    }
+    n, getter, key = expectations[name]
+    loads = list(WHITE_LIST_LOAD.finditer(source))
+    pref_contains = source.count(CONTAINS)
+    if (len(loads) != n or pref_contains != n or getter not in source
+            or (key is not None and key not in source)):
+        raise PatchError(
+            f"unsupported Xiaomi preference layout in {name}: "
+            f"whitelist_loads={len(loads)}, contains={pref_contains}, "
+            f"expected={n}"
+        )
+    # Every fallback must be an if-eqz branch from a contains result.
+    if len(re.findall(r"(?m)^\s*if-eqz\s+[vp]\d+,\s*:[\w$]+\s*$", source)) < n:
+        raise PatchError(f"no guarded missing-pref branch in {name}")
+
+    order = 0
+
+    def replace_load(m: re.Match[str]) -> str:
+        nonlocal order
+        idx = order
+        order += 1
+        indent, register = m.group(1), m.group(2)
+        result = indent + MARK + "\n" + indent + f"const/4 {register}, 0x1"
+        if idx == n - 1:
+            # Badge has one pref; float/keyguard have a second, channel pref.
+            result += "\n" + indent + f"return {register}"
+        return result
+
+    result, count = WHITE_LIST_LOAD.subn(replace_load, source)
+    if count != n:
+        raise PatchError(f"unexpected Xiaomi edit count in {name}: {count}")
+    # Revisit after a second pass without ever changing a saved choice.
+    return result.splitlines(keepends=True), 1
+
+
 def next_instruction(lines: list[str], start: int) -> int:
     i = start
     while i < len(lines) and (not lines[i].strip()
@@ -45,6 +105,9 @@ def patch_method(lines: list[str], name: str) -> tuple[list[str], int]:
     source = "".join(lines)
     if MARK in source:
         return lines, 1  # Idempotent on already-patched ROMs.
+    xiaomi = patch_xiaomi_prefs(lines, name)
+    if xiaomi is not None:
+        return xiaomi
     # Require the Xiaomi preference-key and read patterns; another same-named
     # method must not be patched solely because it returns a boolean.
     # HyperOS 3.0.308.0 stock uses NotificationSettingsManager$Prefs
@@ -243,6 +306,51 @@ def self_test() -> None:
     unchanged, zeroes = patch_file(".class public La;\n")
     assert unchanged == ".class public La;\n"
     assert not any(zeroes.values())
+    # The actual Android 16 Xiaomi SystemUI uses a different method layout
+    # with a primary package setting followed by a channel setting.
+    for name, number, getter, key in (
+        ("canShowBadge", 1, "getBoolean", ""),
+        ("canFloat", 2, "getInt", "getFloatKey"),
+        ("canShowOnKeyguard", 2, "getBoolean", "getKeyguardKey"),
+    ):
+        fixture = [f".method public {name}(Landroid/content/Context;Ljava/lang/String;)Z\n",
+                   "    .locals 9\n"]
+        fixture += [
+            "    invoke-static {p1}, Lcom/miui/systemui/notification/"
+            "NotificationSettingsManager$Prefs;->getNotif(Landroid/content/Context;)"
+            "Landroid/content/SharedPreferences;\n",
+        ]
+        if key:
+            fixture += [
+                "    invoke-static {p1}, Lcom/miui/systemui/notification/"
+                f"NotificationSettingsManager$Prefs;->{key}(Ljava/lang/String;)"
+                "Ljava/lang/String;\n",
+            ]
+        for i in range(number):
+            fixture += [
+                "    invoke-interface {v0, v1}, Landroid/content/"
+                "SharedPreferences;->contains(Ljava/lang/String;)Z\n",
+                "    move-result v2\n",
+                f"    if-eqz v2, :missing_{i}\n",
+                "    invoke-interface {v0, v1, v2}, Landroid/content/"
+                f"SharedPreferences;->{getter}(Ljava/lang/String;Z)Z\n",
+                "    move-result v3\n",
+                "    return v3\n",
+                f"    :missing_{i}\n",
+                "    sget-boolean v4, Lcom/miui/systemui/notification/"
+                "NotificationSettingsManager;->USE_WHITE_LISTS:Z\n",
+            ]
+        fixture += ["    return v4\n", ".end method\n"]
+        original = "".join(fixture)
+        changed, how_many = patch_file(original)
+        assert how_many[name] == 1
+        assert changed.count(MARK) == number
+        assert changed.count("const/4 v4, 0x1") == number
+        assert changed.count(f"SharedPreferences;->{getter}") == number
+        assert changed.count("return v4") == 2
+        again, again_count = patch_file(changed)
+        assert changed == again and again_count[name] == 1
+
     print("NotificationDefaults patch self-test: PASS (3 switches, " +
           "both conditional forms, idempotent, unknown layout skip)")
 
