@@ -39,7 +39,9 @@ jobs:
           from pathlib import Path
           script = Path("bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh").read_text()
           xml = Path("bin/modfile/Universal/gmsservices16/product/etc/sysconfig/hypermos-google-push-keepalive.xml").read_text()
-          assert 'ProcessManager;->kill' in script, 'Missing kill audit marker'
+          checker = Path("bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py").read_text()
+          assert 'ProcessManager;->kill(' in checker, 'RYU conditional kill delta missing'
+          assert 'mKillProcessAppRuleChecker' in script, 'Stock checker field audit missing'
           assert 'isGmsControlEnabled' in script, 'Missing GMS policy audit marker'
           assert 'hypermosEnforceGmsMillet' in script, 'Missing legacy injection guard'
           # The test branch now repacks *only* the two verified RYU
