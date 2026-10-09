@@ -16,6 +16,7 @@ jobs:
           set -euo pipefail
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_gms_observer_a16.py
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py
           bash -n bin/package/NOTIFICATION_FIX/notificationFIX.sh
           python3 bin/modfile/Universal/gmsservices16/validate-sysconfig.py
       - name: Test RYU A16 framework transplant on synthetic smali
@@ -44,6 +45,11 @@ jobs:
           # The test branch now repacks *only* the two verified RYU
           # GmsObserver gates, using HyperMOS's existing APKEditor path.
           assert 'ryu_gms_observer_a16.py' in script
+          assert 'ryu_killprocess_a16.py' in script
+          kill = Path("bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py").read_text()
+          assert 'shouldKillByCheckerPolicy' in kill
+          assert 'SOURCE_SHA' in kill and 'TARGET_SHA' in kill
+          assert 'HELPER_SHA' in kill
           assert '$APKEDITOR b -f -i "$tmp/out"' in script
           assert 'cp -f "$tmp/final/PowerKeeper.apk" "$apk"' in script
           assert 'killOnce' not in script, 'PowerKeeper kill override unexpectedly added'
