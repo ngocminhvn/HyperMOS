@@ -65,8 +65,10 @@ def fcm_autostart(text: str) -> str:
     # sender/receiver permission checks are not modified by this patch.
     code = f"""
     # RYU A16: Xiaomi autostart exemption for incoming FCM action only.
-    if-eqz p2, :hypermos_ryu_autostart_original
-    iget-object v0, p2, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
+    # p2 can map to v20+ on A16; iget-object has a 4-bit source register.
+    move-object/from16 v0, p2
+    if-eqz v0, :hypermos_ryu_autostart_original
+    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;
     if-eqz v0, :hypermos_ryu_autostart_original
     invoke-virtual {{v0}}, Landroid/content/Intent;->getAction()Ljava/lang/String;
     move-result-object v0
