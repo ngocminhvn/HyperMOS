@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A16 RYU-style battery trial:
-     Keep direct GMS FCM delivery exemptions; no extra broad GSF/Play Store
-     background exemptions. Does NOT change the base ROM's Google apps. -->
 <config>
     <allow-in-power-save package="com.google.android.gms" />
     <allow-in-data-usage-save package="com.google.android.gms" />
     <bg-restriction-exemption package="com.google.android.gms" />
+
+    <allow-in-power-save package="com.google.android.gsf" />
+    <allow-in-data-usage-save package="com.google.android.gsf" />
+    <bg-restriction-exemption package="com.google.android.gsf" />
+
+    <allow-in-power-save package="com.android.vending" />
+    <allow-in-data-usage-save package="com.android.vending" />
+    <bg-restriction-exemption package="com.android.vending" />
 
     <allow-implicit-broadcast action="com.google.android.c2dm.intent.RECEIVE" />
     <allow-implicit-broadcast action="com.google.android.gcm.intent.RETRY" />

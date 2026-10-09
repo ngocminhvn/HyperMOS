@@ -52,16 +52,16 @@ def validate() -> None:
            for el in preinstall.iter()):
         raise ValueError("Google Maps auto-install rule remains")
 
-    # RYU A16 trial: protect GMS push delivery but do not force background
-    # exemption for GSF/Play Store. Keep authorization and broadcast rules.
+    # Guard the current FCM connectivity exemptions; this change must NOT
+    # reproduce the aggressive Google Play services Doze restrictions.
     for tag in ("allow-in-power-save", "allow-in-data-usage-save"):
         require(google, GOOGLE, tag, "package", "com.google.android.gms")
-        require(push, PUSH, tag, "package", "com.google.android.gms")
-    require(push, PUSH, "bg-restriction-exemption", "package", "com.google.android.gms")
-    for package in ("com.google.android.gsf", "com.android.vending"):
-        for tag in ("allow-in-power-save", "allow-in-data-usage-save", "bg-restriction-exemption"):
-            if any(node.tag == tag and node.get("package") == package for node in push):
-                raise ValueError(f"{PUSH.name}: unexpected broad {tag} exemption for {package}")
+        for package in ("com.google.android.gms", "com.google.android.gsf",
+                        "com.android.vending"):
+            require(push, PUSH, tag, "package", package)
+    for package in ("com.google.android.gms", "com.google.android.gsf",
+                    "com.android.vending"):
+        require(push, PUSH, "bg-restriction-exemption", "package", package)
     require(google, GOOGLE, "allow-implicit-broadcast", "action",
             "com.google.android.c2dm.intent.RECEIVE")
     for action in ("com.google.android.c2dm.intent.RECEIVE",
@@ -71,7 +71,7 @@ def validate() -> None:
     print("[OK] Android 16 GMS sysconfig parses correctly")
     print("[OK] Both GMS backup transports preserved")
     print("[OK] Google Maps APK and auto-install rule absent")
-    print("[OK] GMS FCM exemptions kept; extra GSF and Play Store exemptions retired")
+    print("[OK] Existing GMS/GSF/Play Store FCM exemptions unchanged")
 
 
 if __name__ == "__main__":
