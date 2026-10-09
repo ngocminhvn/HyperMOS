@@ -12,6 +12,8 @@ from pathlib import Path
 CONFIG_DIR = Path(__file__).resolve().parent / "product/etc/sysconfig"
 GOOGLE = CONFIG_DIR / "google.xml"
 PUSH = CONFIG_DIR / "hypermos-google-push-keepalive.xml"
+PREINSTALL = CONFIG_DIR / "preinstalled-packages-product-pixel-2017-and-newer.xml"
+MAPS_APK = Path(__file__).resolve().parent / "product/app/Maps/Maps.apk"
 
 
 def read(path: Path) -> ET.Element:
@@ -32,15 +34,24 @@ def require(root: ET.Element, path: Path, tag: str, attr: str, value: str) -> No
 def validate() -> None:
     google = read(GOOGLE)
     push = read(PUSH)
-    # The two existing, valid Google backup transport declarations must be preserved.
-    backup = [node.get("service") for node in google
-              if node.tag == "backup-transport-whitelisted-service"]
-    required_backup = [
-        "com.google.android.gms/.backup.BackupTransportService",
-        "com.google.android.gms/.backup.component.D2dTransportService",
-    ]
-    if sorted(backup) != sorted(required_backup):
-        raise ValueError(f"google.xml: unexpected backup transports: {backup!r}")
+    # Cloud Google Backup / Google device-to-device transports are intentionally
+    # absent. Android backup itself and local transports are not disabled.
+    services = [node.get("service") for node in google.iter()
+                if node.tag == "backup-transport-whitelisted-service"]
+    if any((svc or "").split("/", 1)[0] in
+           {"com.google.android.gms", "com.google.android.backuptransport"}
+           for svc in services):
+        raise ValueError(f"Google Backup transport still allowlisted: {services!r}")
+    if MAPS_APK.exists():
+        raise ValueError("Google Maps APK is still bundled with GMS16")
+    if any(node.tag == "app-link" and
+           node.get("package") == "com.google.android.apps.maps"
+           for node in google.iter()):
+        raise ValueError("Google Maps app-link still in google.xml")
+    preinstall = read(PREINSTALL)
+    if any(node.get("package") == "com.google.android.apps.maps"
+           for node in preinstall.iter()):
+        raise ValueError("Google Maps still in auto-install rules")
 
     # Guard the current FCM connectivity exemptions; this change must NOT
     # reproduce the aggressive Google Play services Doze restrictions.
@@ -59,7 +70,7 @@ def validate() -> None:
                    "com.google.android.intent.action.GCM_RECONNECT"):
         require(push, PUSH, "allow-implicit-broadcast", "action", action)
     print("[OK] Android 16 GMS sysconfig parses correctly")
-    print("[OK] Both GMS backup transports preserved")
+    print("[OK] Google Backup transports excluded; Maps APK not preinstalled")
     print("[OK] Existing GMS/GSF/Play Store FCM exemptions unchanged")
 
 
