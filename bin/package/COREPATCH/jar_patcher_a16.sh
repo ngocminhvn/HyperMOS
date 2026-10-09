@@ -18,6 +18,7 @@ API_LEVEL=36
 # ============================================
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
+FEATURE_RYU_NOTIFICATION_POLICY=0
 FEATURE_DISABLE_SECURE_FLAG=0
 
 parse_feature_flags() {
@@ -28,6 +29,9 @@ parse_feature_flags() {
         ;;
       --cn-notification-fix)
         FEATURE_CN_NOTIFICATION_FIX=1
+        ;;
+      --ryu-notification-policy)
+        FEATURE_RYU_NOTIFICATION_POLICY=1
         ;;
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
@@ -43,10 +47,12 @@ parse_feature_flags() {
   log "Android 16 COREPATCH features:"
   [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
+  [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ] && log "  [PATCH] RYU FCM + first-boot + foreground-service handling"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
+     [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
@@ -1185,6 +1191,9 @@ patch_miui_services() {
       apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
     fi
     apply_miui_services_gboard "$decompile_dir"
+    if [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ]; then
+      python3 "$SCRIPT_DIR/ryu_policy_a16.py" "$decompile_dir" || return 1
+    fi
   fi
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
