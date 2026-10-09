@@ -28,15 +28,15 @@ jobs:
           mkdir -p /tmp/dumper
           tar -xf /tmp/payload-dumper.tar.gz -C /tmp/dumper
           find /tmp/dumper -maxdepth 3 -type f -printf '%p\n'
-          chmod +x /tmp/dumper/payload-dumper
-          /tmp/dumper/payload-dumper --help | head -30
+          chmod +x /tmp/dumper/payload-dumper-linux-amd64-v3
+          /tmp/dumper/payload-dumper-linux-amd64-v3 --help | head -30
       - name: Fetch official Xiaomi 15 Pro OS3.0.308.0 base system_ext only
         shell: bash
         run: |
           set -euo pipefail
           url='https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
           mkdir -p /tmp/haotian-stock
-          /tmp/dumper/payload-dumper extract "$url" -p system_ext -o /tmp/haotian-stock --no-fec
+          /tmp/dumper/payload-dumper-linux-amd64-v3 extract "$url" -p system_ext -o /tmp/haotian-stock --no-fec
           img=$(find /tmp/haotian-stock -type f -name system_ext.img -print -quit)
           [[ -s "$img" ]] || { echo "Could not locate extracted system_ext.img" >&2; exit 1; }
           file "$img"
