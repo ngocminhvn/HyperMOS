@@ -1,0 +1,82 @@
+name: RYU PerfHook Port Preflight
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - '.github/workflows/ryu-perfhook-port-preflight.yml'
+      - 'bin/audit/ryu_perfhook_dependency_map.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Validate analyzer (fast fail)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/audit/ryu_perfhook_dependency_map.py
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/ryu"
+          cat > "$tmp/ryu/PerfHook.smali" <<'EOF'
+          .class public Lcom/projectryu/perf/PerfHook;
+          .super Ljava/lang/Object;
+          .method public static start()V
+              .locals 1
+              const-string v0, "projectryu_thermal_sconfig"
+              return-void
+          .end method
+          EOF
+          python3 bin/audit/ryu_perfhook_dependency_map.py --ryu "$tmp/ryu" --out "$tmp/out"
+          python3 - "$tmp/out/ryu-perfhook-dependency-map.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d["perf_method_count"] == 1
+          assert "projectryu_thermal_sconfig" in d["focused_string_literals"]
+          print("[OK] analyzer parses actual smali format and settings keys")
+          PY
+      - name: Get previously extracted genuine RYUOS PowerKeeper
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-PowerKeeper
+          run-id: 37916279893
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: /tmp/ryu-apk
+      - name: Decode RYU APK and map PerfHook and callers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk
+          unzip -tq /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk -o /tmp/ryu-perfhook-smali
+          python3 bin/audit/ryu_perfhook_dependency_map.py \
+            --ryu /tmp/ryu-perfhook-smali --out reports
+          python3 - reports/ryu-perfhook-dependency-map.json <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d["perf_method_count"] > 0
+          assert d["call_sites"], "PerfHook has no observed activation site"
+          print("[RYU] Activation sites:")
+          for s in d["call_sites"][:20]:
+              print(s["class"], s["method"])
+          print("[RYU] Private dependencies:", len(d["ryu_private_dependencies"]))
+          PY
+      - name: Publish metadata report, not proprietary APK/smali
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryu-perfhook-port-preflight-report
+          path: reports/ryu-perfhook-dependency-map.*
+          retention-days: 14
+          if-no-files-found: warn
