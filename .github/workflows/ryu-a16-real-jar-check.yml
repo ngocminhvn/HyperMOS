@@ -5,6 +5,8 @@ on:
       - test-ryu-notification-battery-a16
     paths:
       - 'bin/package/COREPATCH/ryu_policy_a16.py'
+      - 'bin/package/COREPATCH/ryu_doze_a16.py'
+      - 'bin/package/COREPATCH/test_ryu_doze_a16.py'
       - 'bin/package/COREPATCH/test_ryu_policy_a16.py'
       - '.github/workflows/ryu-a16-real-jar-check.yml'
   workflow_dispatch:
@@ -48,6 +50,9 @@ jobs:
             java -jar "$GITHUB_WORKSPACE/bin/apktool/baksmaliv2.jar" d --api 36 "$f" -o "$out"
           done
           python3 "$GITHUB_WORKSPACE/bin/package/COREPATCH/ryu_policy_a16.py" /tmp/ryu-real-jar
+          python3 "$GITHUB_WORKSPACE/bin/package/COREPATCH/ryu_doze_a16.py" /tmp/ryu-real-jar
+          grep -q 'mIsLowPowerDozeDevice:Z' smali/com/android/server/DeviceIdleControllerStubImpl.smali
+          python3 "$GITHUB_WORKSPACE/bin/package/COREPATCH/test_ryu_doze_a16.py"
           for dir in smali smali_classes*; do
             [[ -d "$dir" ]] || continue
             if [[ "$dir" == smali ]]; then dex=classes.dex; else dex="${dir#smali_}.dex"; fi
