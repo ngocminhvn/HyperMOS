@@ -21,7 +21,7 @@ TOPICS = (
  ("Notifications / push", r"(?i)(notification|fcm|gms|push|toast|alert)"),
  ("App lifecycle / process", r"(?i)(activitymanager|activitythread|process|kill|broadcast|service|oomadjuster)"),
  ("Security / permissions", r"(?i)(keystore|keymint|permission|security|packageverify|integrity|signature|appops|selinux)"),
- ("Package install / identity", r"(?i)(packagemanager|installer|packageparser|fingerprint|deviceid|build\\;)"),
+ ("Package install / identity", r"(?i)(packagemanager|installer|packageparser|fingerprint|deviceid|build\;)"),
  ("Network / DNS / telephony", r"(?i)(network|wifi|dns|connectivity|telephony|radio|netd)"),
  ("Display / graphics", r"(?i)(display|surface|render|windowmanager|refresh|animation|aod)"),
  ("Location / sensors", r"(?i)(location|sensor|gnss|geofenc)"),
@@ -41,12 +41,12 @@ def leb(b,p):
         if v<128:return n,p
     raise ValueError("bad uleb")
 def scan_dex(b):
-    if b[:4]!=b"dex\\n":raise ValueError("not a DEX")
+    if b[:4]!=b"dex\n":raise ValueError("not a DEX")
     count,off=u32(b,56),u32(b,60)
     strings=[]
     for i in range(count):
         p=u32(b,off+4*i);_,p=leb(b,p)
-        q=b.index(b"\\0",p)
+        q=b.index(b"\0",p)
         strings.append(b[p:q].decode("utf-8","replace"))
     count,off=u32(b,64),u32(b,68)
     types=[strings[u32(b,off+4*i)] for i in range(count)]
@@ -106,7 +106,7 @@ def write_json(path,obj):
     path.parent.mkdir(parents=True,exist_ok=True)
     if str(path).endswith(".gz"):
         with gzip.open(path,"wt",encoding="utf-8",compresslevel=6) as f:json.dump(obj,f,separators=(",",":"),ensure_ascii=False)
-    else:path.write_text(json.dumps(obj,indent=2,ensure_ascii=False)+"\\n",encoding="utf-8")
+    else:path.write_text(json.dumps(obj,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
 def scan(directory):
     result={"format":2,"files":{}}
     for jar in JARS:
@@ -116,7 +116,7 @@ def scan(directory):
         item={"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"classes":{},"dex":{}}
         with zipfile.ZipFile(p) as z:
             for name in z.namelist():
-                if not re.fullmatch(r"classes\\d*\\.dex",name):continue
+                if not re.fullmatch(r"classes\d*\.dex",name):continue
                 raw=z.read(name)
                 item["dex"][name]=hashlib.sha256(raw).hexdigest()
                 item["classes"].update(scan_dex(raw))
@@ -179,7 +179,7 @@ def markdown(diff,description):
         "| JAR | Added classes | Removed classes | Changed classes | Raw method candidates |",
         "|---|---:|---:|---:|---:|"]
     for jar,row in diff["summary"].items():
-        lines.append(f"| \`{jar}\` | {row['classes_added']} | {row['classes_removed']} | "
+        lines.append(f"| `{jar}` | {row['classes_added']} | {row['classes_removed']} | "
                      f"{row['classes_changed']} | {row['methods_changed_raw']} |")
     lines.extend(["","## Full coverage by area",""])
     for jar,entry in diff["files"].items():
@@ -196,7 +196,7 @@ def markdown(diff,description):
         "Inspect the JSON inventory to get **every** added, deleted or potentially changed "
         "class, method and field. Do not claim functional differences from hashes alone.",
         ""])
-    return "\\n".join(lines)
+    return "\n".join(lines)
 def main():
     p=argparse.ArgumentParser();s=p.add_subparsers(dest="cmd",required=True)
     a=s.add_parser("scan");a.add_argument("--directory",type=Path,required=True);a.add_argument("--output",type=Path,required=True)
