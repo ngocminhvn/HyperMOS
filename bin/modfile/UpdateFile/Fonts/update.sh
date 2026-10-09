@@ -330,11 +330,11 @@ select_theme_root || {
 }
 mods "Fonts: using one catalog only -> $THEME_RUNTIME"
 
-# Verify pinned upstream Google Fonts and stage local VF files. Stock MiSans
-# stays exactly as shipped with the ROM; no framework or fonts.xml patches.
+# Verify bundled Google Fonts files offline and stage local VF files. Stock
+# MiSans remains unchanged; no network, framework or fonts.xml patches.
 FONT_STAGED_DIR="$FONT_PREPARED_DIR/sources"
 if ! python3 "$FONT_UTILS" prepare "$FONT_SOURCE" "$FONT_STAGED_DIR"; then
-    error "FAST-FAIL: official Noto Sans / Open Sans download or integrity check failed"
+    error "FAST-FAIL: bundled Noto Sans / Open Sans font missing or failed integrity verification"
     exit 1
 fi
 if ! python3 "$FONT_UTILS" catalog "$FONT_STAGED_DIR" "$FONT_PREPARED_DIR"; then

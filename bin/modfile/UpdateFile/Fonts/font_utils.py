@@ -14,11 +14,8 @@ import json
 import re
 import shutil
 import sys
-import time
 import uuid
 from pathlib import Path
-from urllib.parse import quote
-from urllib.request import Request, urlopen
 
 from fontTools.ttLib import TTFont, TTLibError
 from PIL import Image, ImageDraw, ImageFont
@@ -29,9 +26,8 @@ from PIL import Image, ImageDraw, ImageFont
 MIUI_STOPS = (100, 200, 300, 350, 400, 500, 700, 800, 900, 950)
 EXCLUDED_FILES = {"notocoloremoji.ttf", "misansvf.ttf"}
 RETIRED_FILES = {"sf-pro.ttf"}
-# Pin font sources to an immutable upstream revision; Git blob hashes verify
-# exact bytes before a binary is admitted into the Xiaomi ThemeManager catalog.
-GOOGLE_FONTS_REV = "2eb0b48d5f760f62e286216f0859a8c540dbc1bd"
+# Bundled font binaries are checked against upstream Git blob SHA-1 and size.
+# No network access or late build-time download is ever attempted.
 OFFICIAL_FONTS = {
     "NotoSans-VF.ttf": (
         "ofl/notosans/NotoSans[wdth,wght].ttf",
@@ -66,9 +62,9 @@ def verified_google_blob(path: Path, expected_sha: str, expected_size: int) -> b
 
 
 def prepare_fonts(source_dir: Path, staging_dir: Path) -> None:
-    """Stage bundled VF fonts plus pinned, verified Noto Sans and Open Sans.
+    """Validate and stage bundled VF fonts offline, with no network dependency.
 
-    Only the temporary build directory is modified. The ROM source stays clean.
+    A missing/corrupt bundled font is a hard error. The ROM source stays clean.
     """
     if not source_dir.is_dir():
         raise ValueError(f"Missing font directory: {source_dir}")
@@ -88,44 +84,23 @@ def prepare_fonts(source_dir: Path, staging_dir: Path) -> None:
     if overrides.is_file():
         shutil.copy2(overrides, staging_dir / overrides.name)
 
-    for filename, (upstream_path, blob_sha, length) in OFFICIAL_FONTS.items():
-        target = staging_dir / filename
+    for filename, (_, blob_sha, length) in OFFICIAL_FONTS.items():
         bundled = source_dir / filename
-        if verified_google_blob(bundled, blob_sha, length):
-            shutil.copy2(bundled, target)
-            print(f"[FONT-CATALOG] Verified local {filename}")
-            continue
+        staged = staging_dir / filename
+        if not verified_google_blob(bundled, blob_sha, length):
+            raise ValueError(
+                f"{filename}: bundled font is missing or does not match "
+                f"its pinned upstream SHA/size; restore the file in Git"
+            )
+        if not verified_google_blob(staged, blob_sha, length):
+            raise ValueError(f"{filename}: staging copy did not pass integrity check")
+        print(f"[FONT-CATALOG] Verified bundled {filename} ({length} bytes)")
 
-        url = ("https://raw.githubusercontent.com/google/fonts/" +
-               GOOGLE_FONTS_REV + "/" + quote(upstream_path, safe="/"))
-        partial = staging_dir / (filename + ".part")
-        last_error: Exception | None = None
-        try:
-            for attempt in range(1, 4):
-                try:
-                    request = Request(url, headers={"User-Agent": "HyperMOS-FontCatalog/1.0"})
-                    with urlopen(request, timeout=50) as response, partial.open("wb") as output:
-                        shutil.copyfileobj(response, output)
-                    if not verified_google_blob(partial, blob_sha, length):
-                        raise ValueError(f"{filename}: pinned upstream blob SHA or size mismatch")
-                    partial.replace(target)
-                    print(f"[FONT-CATALOG] Fetched and verified {filename} ({length} bytes)")
-                    last_error = None
-                    break
-                except (OSError, ValueError) as exc:
-                    last_error = exc
-                    partial.unlink(missing_ok=True)
-                    if attempt < 3:
-                        time.sleep(attempt * 2)
-            if last_error is not None:
-                raise ValueError(f"{filename}: unable to fetch verified official font: {last_error}")
-        finally:
-            partial.unlink(missing_ok=True)
 
     for retired in RETIRED_FILES:
         if (staging_dir / retired).exists():
             raise ValueError(f"Retired font must not be included: {retired}")
-    print("[FONT-CATALOG] Staged official Noto Sans + Open Sans; stock MiSans unchanged")
+    print("[FONT-CATALOG] Bundled Noto Sans + Open Sans verified offline; stock MiSans unchanged")
 
 
 def weight_stops(font: TTFont, title: str) -> str:

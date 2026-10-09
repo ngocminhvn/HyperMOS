@@ -114,6 +114,10 @@ jobs:
           bash -n bin/modfile/UpdateFile/Fonts/install-emoji.sh
           test -s bin/modfile/UpdateFile/Fonts/Shared/NotoColorEmoji.ttf
           test ! -e bin/modfile/UpdateFile/Fonts/HyperOS/NotoColorEmoji.ttf
+          test -s bin/modfile/UpdateFile/Fonts/HyperOS/NotoSans-VF.ttf
+          test -s bin/modfile/UpdateFile/Fonts/HyperOS/OpenSans-VF.ttf
+          test ! -e bin/modfile/UpdateFile/Fonts/HyperOS/SF-Pro.ttf
+          # Font verification and catalog staging are offline: no downloads.
           python3 bin/modfile/UpdateFile/Fonts/font_utils.py prepare \
             bin/modfile/UpdateFile/Fonts/HyperOS "$RUNNER_TEMP/hypermos-font-preflight/sources"
           python3 bin/modfile/UpdateFile/Fonts/font_utils.py catalog \

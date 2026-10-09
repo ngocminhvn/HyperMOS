@@ -14,11 +14,16 @@ No framework patch, boot-chain modification, or font mirroring is used.
 - **SF Pro**: binary removed and previous generated ThemeManager resource IDs
   cleaned up at build time.
 
-The two new fonts are downloaded **at ROM build time**, not from the phone:
-`font_utils.py prepare` pins a specific `google/fonts` commit and validates
-the actual downloaded bytes against their known Git blob hashes and sizes.
-A failed fetch or mismatch fails the build; it never silently substitutes a
-font. This avoids embedding two large third-party binaries in Git history.
+Both fonts are now committed **directly into the HyperMOS repository** as:
+- `bin/modfile/UpdateFile/Fonts/HyperOS/NotoSans-VF.ttf`
+- `bin/modfile/UpdateFile/Fonts/HyperOS/OpenSans-VF.ttf`
+
+**No font downloads during ROM builds.** `font_utils.py prepare` reads only
+locally checked-out files, verifies their immutable upstream Git blob SHA-1
+and exact byte size, and stages the verified copies. Missing or corrupted
+files trigger fast-fail rather than any network request or fallback font.
+The embedded binaries are sourced from the pinned `google/fonts` revision
+`2eb0b48d5f760f62e286216f0859a8c540dbc1bd`.
 
 ## Weight adjustment and limitations
 
@@ -62,7 +67,7 @@ python3 bin/modfile/UpdateFile/Fonts/font_utils.py catalog \
     /tmp/hypermos-font-sources /tmp/hypermos-font-catalog
 ```
 
-The ROM workflow performs this preflight before unpacking stock partitions.
+The ROM workflow performs this fully offline font preflight before unpacking stock partitions.
 The actual installer repeats validation and checks each ThemeManager resource
 graph. Original default theme and MiSans are not modified.
 
