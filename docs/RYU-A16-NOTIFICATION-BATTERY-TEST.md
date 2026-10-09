@@ -37,9 +37,22 @@ Reference: `RYUOS_HAOTIAN_PowerKeeper.apk` extracted from RYUOS
 3. `validate-sysconfig.py` validates the test variant, with an explicit
    guard against broad GSF/Play Store exemptions in the custom XML.
 4. Android 16 CN notification framework policy including Greezer
-   `PolicyManager.CN_MODEL=false` remains as on main for the first
-   iteration. No `miui-services.jar`, `services.jar`, `framework.jar`
-   or `MiuiSystemUI.apk` RYU binaries are copied.
+   `PolicyManager.CN_MODEL=false` remains as on main. In RYU the actual
+   `PolicyManager.<clinit>` also derives CN policy from `ro.miui.region`;
+   do not fake `ro.miui.region=RYU` on HyperMOS.
+5. `ryu_policy_a16.py` patches the *base* `miui-services.jar`
+   during the normal A16 COREPATCH stage. It selectively matches RYU:
+   - `BroadcastQueueModernStubImpl.checkApplicationAutoStart(...)`: allow
+     Xiaomi autostart for the exact FCM RECEIVE action; this does not change
+     Android's sender/receiver permission enforcement.
+   - `BroadcastQueueModernStubImpl.updateBlockBroadcast()`: after Xiaomi
+     security-service setup, leave RYU's first-boot broadcast blocker off.
+   - `ProcessSceneCleaner.killAppForHasOtherTask(...)`: protect a
+     process with a currently running foreground service during task cleanup.
+   All changes are guarded by exact method signatures and fail on drift.
+6. No `miui-services.jar`, `services.jar`, `framework.jar`
+   or `MiuiSystemUI.apk` RYU binaries are copied. The preexisting
+   HyperMOS CorePatch/translation/font/TNM/root integration remains intact.
 
 **Faithfulness limitation:** This is a selected *RYU-compatible policy*
 experiment, NOT a claim that the ROM has bit-identical notification,
@@ -72,14 +85,33 @@ If notifications worsen, first restore this branch's PowerKeeper policy and
 custom XML to main. Never disable thermal safety or use a RYU `PerfHook`
 frequency write as a substitute for diagnosis.
 
-## Pending RYU FCM BroadcastQueue port
+## RYU changes deliberately NOT copied
 
-RYU has early handling of `com.google.android.c2dm.intent.RECEIVE`
-in `BroadcastQueueModernStubImpl.checkApplicationAutoStart(...)`, but
-that JAR also uses RYU-specific classes. Porting the method wholesale or
-returning `true` before Android/Xiaomi permission/security checks may
-bypass the wrong guard. This branch **does not yet patch that method**.
-First compare decompiled method paths against the exact HAOTIAN base and
-validate sender/receiver identity and permissions before implementing a
-narrow conditional exception. Keeping FCM permissions and GMS sysconfig
-prevents an untested notification regression in this round.
+These RYU behaviors are confirmed in RYU framework bytecode but intentionally
+not enabled here to avoid increasing heat, breaking expected user-initiated
+force-stop, weakening notification permissions or introducing unsupported
+RYU-private classes:
+
+- `DeviceIdleControllerStubImpl.mIsLowPowerDozeDevice=false`:
+  might worsen power consumption on a hot handset.
+- `ProcessManagerService.isForceStopEnable(...)=false`:
+  broad inhibition of force-stop can keep apps alive unnecessarily.
+- `NotificationManagerServiceImpl.checkFullScreenIntent` AppOp bypass:
+  unrelated to FCM delivery and potentially changes user-facing security.
+- RYU custom `ProjectRYU Build`, `PerfHook`, per-app governors, updater,
+  fake-lock and RYU telemetry. These must remain native HyperMOS.
+- Whole-method transplant of Xiaomi services or full RYU PowerKeeper.apk:
+  risks dropping HyperMOS's patches and class/permission mismatches.
+
+## One-build trial and acceptance gates
+
+The branch intentionally combines the vetted notification and battery policy
+changes in a single build, to reduce the number of device flashes.
+`ryu-a16-policy-preflight.yml` tests deterministic edits and unknown-layout
+rejection; still **does not prove a working ROM**.
+
+Only flash if the full Android 16 build completes, `miui-services.jar` is
+rebuilt and the phone matches HAOTIAN. Compare with current HyperMOS on:
+normal Zalo/Facebook browsing for thermal and 20 minutes screen-off push
+latency. If it heats more or messages delay, roll back to the previous
+known-booting ROM. Keep thermal protection on in both test runs.
