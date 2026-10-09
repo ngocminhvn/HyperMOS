@@ -1,4 +1,4 @@
-name: RYUOS HAOTIAN Full Framework Audit
+name: RYUOS HAOTIAN Notification Mechanism Audit
 
 on:
   push:
@@ -19,18 +19,13 @@ on:
         required: true
         type: boolean
         default: false
-      stock_fastboot_url:
-        description: Official Xiaomi haotian 3.0.308 Fastboot TGZ reference
-        required: true
-        type: string
-        default: https://bigota.d.miui.com/OS3.0.308.0.WOBCNXM/haotian_images_OS3.0.308.0.WOBCNXM_20260729.0000.00_16.0_cn_15bf1ee7da.tgz
 
 permissions:
   contents: read
 
 jobs:
   audit:
-    name: Extract RYU and inspect every framework class/method
+    name: Inspect RYU PowerKeeper and framework classes
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -57,7 +52,7 @@ jobs:
         run: |
           python -m py_compile bin/audit/ryu_fetch_extract.py bin/audit/ryu_notification_dex.py \
             bin/audit/ryu_full_jar_diff.py bin/audit/ryu_semantic_smali.py bin/audit/ryu_decode_smali.py \
-            bin/audit/ryu_stock_fastboot_extract.py bin/audit/ryu_powerkeeper_full_diff.py
+            bin/audit/ryu_notification_impl_map.py
 
       - name: Read RYUOS ZIP inventory and extract targeted IMG contents
         id: extract
@@ -84,79 +79,18 @@ jobs:
             --input ryu-reports/ryu-full-dex.json.gz \
             --markdown ryu-reports/ryu-full-inventory.md
 
-      - name: Stream matching Xiaomi stock image and extract APK plus JARs
-        if: success() && !inputs.inventory_only
-        shell: bash
-        env:
-          STOCK_URL: ${{ inputs.stock_fastboot_url || 'https://bigota.d.miui.com/OS3.0.308.0.WOBCNXM/haotian_images_OS3.0.308.0.WOBCNXM_20260729.0000.00_16.0_cn_15bf1ee7da.tgz' }}
-        run: |
-          set -euo pipefail
-          python bin/audit/ryu_stock_fastboot_extract.py \
-            --url "$STOCK_URL" --work stock-work --out stock-extracted
-          cp stock-extracted/stock-file-hashes.json ryu-reports/stock-file-hashes.json
-
-      - name: Compare every JAR method RYU vs stock (raw DEX)
-        if: success() && !inputs.inventory_only
-        shell: bash
-        run: |
-          set -euo pipefail
-          python bin/audit/ryu_full_jar_diff.py scan \
-            --directory stock-extracted --output ryu-reports/stock-full-dex.json.gz
-          python bin/audit/ryu_full_jar_diff.py compare \
-            --stock ryu-reports/stock-full-dex.json.gz \
-            --custom ryu-reports/ryu-full-dex.json.gz \
-            --output ryu-reports/full-dex-diff.json.gz \
-            --markdown ryu-reports/full-dex-diff.md
-
-      - name: Verify all 3 JARs using full smali method comparison
-        if: success() && !inputs.inventory_only
-        shell: bash
-        run: |
-          set -euo pipefail
-          python bin/audit/ryu_decode_smali.py --input stock-extracted --out stock-all-smali
-          python bin/audit/ryu_decode_smali.py --input ryu-extracted --out ryu-all-smali
-          python bin/audit/ryu_semantic_smali.py \
-            --stock stock-all-smali --ryu ryu-all-smali \
-            --output ryu-reports/full-smali-diff.json \
-            --markdown ryu-reports/full-smali-diff.md
-          gzip -f ryu-reports/full-smali-diff.json
-          rm -rf stock-all-smali ryu-all-smali
-
-      - name: Apply latest main's HyperMOS A16 PowerKeeper patch to stock APK
-        if: success() && !inputs.inventory_only
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --depth=1 origin main
-          git rev-parse FETCH_HEAD > ryu-reports/hypermos-patch-source-commit.txt
-          git show FETCH_HEAD:bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh \
-            > ryu-work/latest-hypermos-a16.sh
-          mkdir -p build/baserom/images/system_ext/app/PowerKeeper hypermos-patched
-          cp stock-extracted/PowerKeeper.apk \
-            build/baserom/images/system_ext/app/PowerKeeper/PowerKeeper.apk
-          bash ryu-work/latest-hypermos-a16.sh
-          cp build/baserom/images/system_ext/app/PowerKeeper/PowerKeeper.apk \
-            hypermos-patched/PowerKeeper.apk
-          sha256sum ryu-extracted/PowerKeeper.apk stock-extracted/PowerKeeper.apk \
-            hypermos-patched/PowerKeeper.apk > ryu-reports/powerkeeper-sha256.txt
-
-      - name: Exhaustive PowerKeeper 3-way method and field comparison
+      - name: Decompile RYU PowerKeeper and map all methods and call edges
         if: success() && !inputs.inventory_only
         shell: bash
         run: |
           set -euo pipefail
           java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
             -i ryu-extracted/PowerKeeper.apk -o ryu-powerkeeper-smali
-          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
-            -i stock-extracted/PowerKeeper.apk -o stock-powerkeeper-smali
-          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
-            -i hypermos-patched/PowerKeeper.apk -o hypermos-powerkeeper-smali
-          python bin/audit/ryu_powerkeeper_full_diff.py \
-            --ryu ryu-powerkeeper-smali --stock stock-powerkeeper-smali \
-            --hypermos hypermos-powerkeeper-smali \
-            --output ryu-reports/powerkeeper-full-diff.json \
-            --markdown ryu-reports/powerkeeper-full-diff.md
-          rm -rf ryu-powerkeeper-smali stock-powerkeeper-smali hypermos-powerkeeper-smali
+          python bin/audit/ryu_notification_impl_map.py \
+            --smali ryu-powerkeeper-smali \
+            --output ryu-reports/ryu-notification-methods.json \
+            --markdown ryu-reports/ryu-notification-methods.md
+          rm -rf ryu-powerkeeper-smali
 
       - name: Save ZIP inventory with reports (never upload ROM/JAR/APK or smali)
         if: always()
@@ -170,24 +104,21 @@ jobs:
           {
             echo "## RYUOS audit"
             echo
-            if [[ -f ryu-reports/full-dex-diff.md ]]; then
-              head -n 85 ryu-reports/full-dex-diff.md
+            if [[ -f ryu-reports/ryu-notification-methods.md ]]; then
+              head -n 100 ryu-reports/ryu-notification-methods.md
             elif [[ -f ryu-reports/ryu-full-inventory.md ]]; then
               cat ryu-reports/ryu-full-inventory.md
             else
               echo "No full JAR results; inspect preceding logs."
             fi
-            if [[ -f ryu-reports/powerkeeper-full-diff.md ]]; then
-              echo
-              head -n 100 ryu-reports/powerkeeper-full-diff.md
-            fi
+
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish text and JSON evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ryuos-haotian-full-framework-audit
+          name: ryuos-haotian-notification-mechanism-audit
           path: ryu-reports/
           retention-days: 14
           if-no-files-found: warn
