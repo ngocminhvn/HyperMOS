@@ -20,7 +20,8 @@ elif [[ $AndroidVER == "16" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a16.sh \
         --disable-signature-verification \
         --cn-notification-fix \
-        --disable-secure-flag
+        --disable-secure-flag \
+        --auto-app-ops
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh
 fi
