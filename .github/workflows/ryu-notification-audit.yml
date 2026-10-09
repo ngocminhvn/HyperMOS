@@ -67,6 +67,91 @@ jobs:
           python bin/audit/ryu_fetch_extract.py \
             --url "$RYU_URL" --work ryu-work --out ryu-extracted "${opts[@]}"
 
+      - name: Validate and fingerprint three extracted RYU JARs
+        if: ${{ success() && !inputs.inventory_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ryu-extracted
+          for jar in framework.jar services.jar miui-services.jar; do
+            test -s "$jar" || { echo "::error::Missing extracted $jar"; exit 1; }
+            unzip -tq "$jar"
+            unzip -Z1 "$jar" | grep -Eq '^classes([0-9]+)?\.dex
+        if: ${{ success() && !inputs.inventory_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python bin/audit/ryu_full_jar_diff.py scan \
+            --directory ryu-extracted \
+            --output ryu-reports/ryu-full-dex.json.gz
+          python bin/audit/ryu_full_jar_diff.py summary \
+            --input ryu-reports/ryu-full-dex.json.gz \
+            --markdown ryu-reports/ryu-full-inventory.md
+
+      - name: Decompile RYU PowerKeeper and map all methods and call edges
+        if: success() && !inputs.inventory_only
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i ryu-extracted/PowerKeeper.apk -o ryu-powerkeeper-smali
+          python bin/audit/ryu_notification_impl_map.py \
+            --smali ryu-powerkeeper-smali \
+            --output ryu-reports/ryu-notification-methods.json \
+            --markdown ryu-reports/ryu-notification-methods.md
+          rm -rf ryu-powerkeeper-smali
+
+      - name: Save ZIP inventory with reports (never upload ROM/JAR/APK or smali)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ryu-reports
+          if [[ -f ryu-extracted/zip_inventory.json ]]; then
+            cp ryu-extracted/zip_inventory.json ryu-reports/zip_inventory.json
+          fi
+          {
+            echo "## RYUOS audit"
+            echo
+            if [[ -f ryu-reports/ryu-notification-methods.md ]]; then
+              head -n 100 ryu-reports/ryu-notification-methods.md
+            elif [[ -f ryu-reports/ryu-full-inventory.md ]]; then
+              cat ryu-reports/ryu-full-inventory.md
+            else
+              echo "No full JAR results; inspect preceding logs."
+            fi
+
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish text and JSON evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryuos-haotian-notification-mechanism-audit
+          path: ryu-reports/
+          retention-days: 14
+          if-no-files-found: warn
+ || {
+              echo "::error::No DEX payload in $jar"; exit 1;
+            }
+          done
+          sha256sum framework.jar services.jar miui-services.jar > JAR_SHA256SUMS.txt
+          cat JAR_SHA256SUMS.txt
+
+      - name: Upload three RYU framework JARs for personal analysis
+        if: ${{ success() && !inputs.inventory_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS_HAOTIAN_3_framework_JARs
+          path: |
+            ryu-extracted/framework.jar
+            ryu-extracted/services.jar
+            ryu-extracted/miui-services.jar
+            ryu-extracted/JAR_SHA256SUMS.txt
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+
       - name: Scan all 3 RYU JARs - every class method and field
         if: ${{ success() && !inputs.inventory_only }}
         shell: bash
