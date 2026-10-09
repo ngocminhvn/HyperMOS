@@ -112,96 +112,84 @@ def first_boot_broadcast(text: str) -> str:
 
 
 def foreground_service_protection(text: str) -> str:
-    """Match RYU's task-cleanup guard, preserving the original successful return.
+    """Enable Xiaomi's EXISTING FGS guard, exactly as RYU does for HAOTIAN.
 
-    Only skip killOnce() after Xiaomi has established that the task-top
-    process has no activity in another task. Follow the existing success
-    branch instead of returning false or aborting the method at entry.
+    Stock Xiaomi already protects a foreground service in
+    killAppForHasOtherTask(), but only if IS_INTERNATIONAL_BUILD is true.
+    Real RYUOS replaces that gate with IS_RYU_BUILD (true on RYU).
+    Reproduce the same true-gate outcome on HyperMOS CN without inserting
+    another hasForegroundServices() call or changing the success return.
     """
     signature = "killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z"
     m = method(text, signature)
     body = m.group()
-    if ":hypermos_ryu_fgs_continue" in body:
+    marker = "# HyperMOS RYU FGS: enable existing Xiaomi guard"
+    if marker in body:
         return text
 
-    if "hasForegroundServices()Z" in body:
-        # The genuine RYU JAR already contains this guard. Do not inject it
-        # twice or rewrite proprietary com.projectryu.Build checks.
-        if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
-            return text
-        raise ValueError("Unknown preexisting foreground-service protection")
+    if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
+        # The reference RYU JAR already implements exactly this behavior.
+        return text
 
-    lines = body.splitlines(keepends=True)
+    if body.count("hasForegroundServices()Z") != 1:
+        raise ValueError("Expected exactly one existing Xiaomi FGS check")
 
-    def next_instruction(index: int) -> int:
-        for pos in range(index + 1, len(lines)):
-            stripped = lines[pos].strip()
-            if not stripped or stripped.startswith(("#", ".")):
-                continue
-            if stripped.startswith(":"):
-                raise ValueError("Unexpected branch label inside FGS insertion point")
-            return pos
-        raise ValueError("Unexpected end of ProcessSceneCleaner method")
-
-    matches = [
-        index for index, line in enumerate(lines)
-        if "Lcom/android/server/wm/WindowProcessUtils;->isProcessHasActivityInOtherTaskLocked(" in line
-        and "invoke-static" in line
-    ]
-    if len(matches) != 1:
-        raise ValueError("Expected one Xiaomi cross-task activity check")
-    check_idx = matches[0]
-    move_idx = next_instruction(check_idx)
-    move = re.fullmatch(r"move-result\s+(v\d+)", lines[move_idx].strip())
-    if not move:
-        raise ValueError("Cross-task activity check lacks move-result")
-    branch_idx = next_instruction(move_idx)
-    branch = re.fullmatch(
-        rf"if-nez\s+{re.escape(move.group(1))},\s*(:[A-Za-z_]\w*)",
-        lines[branch_idx].strip()
+    gate = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)sget-boolean[ \t]+(?P<reg>v\d+),[ \t]*"
+        r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z[ \t]*$"
     )
-    if not branch:
-        raise ValueError("Unexpected Xiaomi cross-task activity branch")
-    exit_label = branch.group(1)
-
-    label_sites = [i for i, line in enumerate(lines) if line.strip() == exit_label]
-    if len(label_sites) != 1:
-        raise ValueError(f"Expected one success branch {exit_label}")
-    success_idx = next_instruction(label_sites[0])
-    success = re.fullmatch(r"const/4\s+(v\d+),\s*0x1", lines[success_idx].strip())
-    if not success:
-        raise ValueError("Cross-task exit is not the Xiaomi return-true branch")
-    return_idx = next_instruction(success_idx)
-    if lines[return_idx].strip() != f"return {success.group(1)}":
-        raise ValueError("Cross-task branch does not return true")
-
-    info_idx = next_instruction(branch_idx)
-    info = re.fullmatch(
-        r"iget-object\s+(v\d+),\s*(v\d+),\s*"
-        r"Lcom/android/server/am/ProcessRecord;->info:Landroid/content/pm/ApplicationInfo;",
-        lines[info_idx].strip()
+    found = list(gate.finditer(body))
+    if len(found) != 1:
+        raise ValueError("Expected exactly one Xiaomi international FGS gate")
+    g = found[0]
+    reg = g.group("reg")
+    if int(reg[1:]) > 15:
+        raise ValueError("International FGS gate register cannot use const/4")
+    # Match the original Xiaomi sequence, including debug metadata.
+    tail = body[g.end():]
+    next_branch = re.match(
+        rf"(?s)^[ \t]*\n(?:[ \t]*(?:\.[^\n]+|#[^\n]*)?\n)*"
+        rf"[ \t]*if-eqz[ \t]+{re.escape(reg)},[ \t]*(?P<skip>:\w+)[ \t]*",
+        tail
     )
-    if not info:
-        raise ValueError("Expected Xiaomi ProcessRecord.info immediately after task check")
-    scratch, process_reg = info.groups()
-    if scratch == process_reg or any(int(reg[1:]) > 15 for reg in (scratch, process_reg)):
-        raise ValueError("Cannot safely borrow original ProcessRecord.info registers")
-    # The next original instruction overwrites scratch, so its preexisting
-    # live value is not needed on the fallthrough path.
-    code = f"""
-    # RYU HAOTIAN A16: keep a task-top process running an active FGS.
-    iget-object {scratch}, {process_reg}, Lcom/android/server/am/ProcessRecord;->mServices:Lcom/android/server/am/ProcessServiceRecord;
-    invoke-virtual {{{scratch}}}, Lcom/android/server/am/ProcessServiceRecord;->hasForegroundServices()Z
-    move-result {scratch}
-    if-nez {scratch}, {exit_label}
-:hypermos_ryu_fgs_continue
-"""
-    # The existing cross-task branch already guarantees process_reg != null.
-    # Preserve original control flow and the method's return true for FGS.
-    lines.insert(branch_idx + 1, code)
-    changed = "".join(lines)
-    if "return v0\n:hypermos_ryu_fgs_continue" in changed:
-        raise ValueError("Unexpected early return in FGS patch")
+    if not next_branch:
+        raise ValueError("Expected Xiaomi FGS gate's original if-eqz")
+    skip = next_branch.group("skip")
+    block_start = g.end() + next_branch.end()
+    block = body[block_start:]
+    check = re.match(
+        rf"(?s)^\s*iget-object[ \t]+(?P<tmp>v\d+),[ \t]*(?P<proc>v\d+),[ \t]*"
+        rf"Lcom/android/server/am/ProcessRecord;->mServices:Lcom/android/server/am/ProcessServiceRecord;"
+        rf"\s*(?:\.[^\n]+\s*)?"
+        rf"invoke-virtual[ \t]+\{{(?P=tmp)\}},[ \t]*"
+        rf"Lcom/android/server/am/ProcessServiceRecord;->hasForegroundServices\(\)Z"
+        rf"\s*move-result[ \t]+(?P=tmp)\s*"
+        rf"if-nez[ \t]+(?P=tmp),[ \t]*(?P<done>:\w+)",
+        block,
+    )
+    if not check:
+        raise ValueError("Unexpected Xiaomi FGS guard body; refusing rewrite")
+    done = check.group("done")
+    if done == skip:
+        raise ValueError("FGS skip label cannot be the success return")
+    skip_locations = re.findall(rf"(?m)^[ \t]*{re.escape(skip)}[ \t]*$", body)
+    done_locations = list(re.finditer(rf"(?m)^[ \t]*{re.escape(done)}[ \t]*$", body))
+    if len(skip_locations) != 1 or len(done_locations) != 1:
+        raise ValueError("Missing or ambiguous original Xiaomi FGS branch labels")
+    if done_locations[0].start() <= g.start():
+        raise ValueError("Unexpected Xiaomi FGS return branch ordering")
+    done_tail = body[done_locations[0].end():]
+    if not re.match(r"(?s)^\s*const/4[ \t]+(?P<reg>v\d+),[ \t]*0x1\s*return[ \t]+(?P=reg)\b", done_tail):
+        raise ValueError("FGS exit does not return true on the stock Xiaomi path")
+    cross = body.find("isProcessHasActivityInOtherTaskLocked(")
+    if cross < 0 or cross >= g.start():
+        raise ValueError("FGS guard not located on the Xiaomi cross-task cleanup path")
+    # Only change the existing stock international-build gate to true.
+    # Retain the original FGS call, killOnce(), branches and return value.
+    edit = f"{g.group('indent')}{marker}\n{g.group('indent')}const/4 {reg}, 0x1"
+    changed = body[:g.start()] + edit + body[g.end():]
+    if changed.count("hasForegroundServices()Z") != 1:
+        raise ValueError("FGS call count changed unexpectedly")
     return text[:m.start()] + changed + text[m.end():]
 
 
