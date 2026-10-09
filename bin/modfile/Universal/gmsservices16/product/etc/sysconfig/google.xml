@@ -73,7 +73,6 @@
     <!-- Apps below are required on all GMS devices -->
     <app-link package="com.android.vending" />
     <app-link package="com.google.android.gms" />
-    <app-link package="com.google.android.apps.maps" />
     <app-link package="com.google.android.youtube" />
     <app-link package="com.google.android.apps.docs" />
     <app-link package="com.google.android.talk" />
@@ -93,12 +92,7 @@
     <app-link package="com.google.android.apps.wallpaper" />
     <app-link package="com.google.android.apps.tips" />
 
-    <!-- Whitelist of what components are permitted as backup data transports.  The
-         'service' attribute here is a flattened ComponentName string. -->
-    <backup-transport-whitelisted-service
-        service="com.google.android.gms/.backup.BackupTransportService" />
-    <backup-transport-whitelisted-service
-        service="com.google.android.gms/.backup.component.D2dTransportService" />
+    <!-- HyperMOS: Google Backup cloud/D2D transports not allowlisted; GMS and FCM unchanged. -->
 
 
     <!-- Specify the explicit set of other applications that AI services are allowed to
