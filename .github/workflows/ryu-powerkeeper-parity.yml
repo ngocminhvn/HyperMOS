@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - test-ryu-notification-battery-a16
+      - test-ryu-performance-haotian
     paths:
       - '.github/workflows/ryu-powerkeeper-parity.yml'
       - 'bin/audit/ryu_powerkeeper_parity.py'
       - 'bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py'
       - 'bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py'
       - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
+      - 'bin/audit/ryu_performance_parity.py'
 permissions:
   contents: read
   actions: read
@@ -77,6 +79,11 @@ jobs:
           java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
             -i /tmp/stock-apk/PowerKeeper.apk -o /tmp/stock-powerkeeper-smali
           mkdir -p reports
+          python3 -m py_compile bin/audit/ryu_performance_parity.py
+          python3 bin/audit/ryu_performance_parity.py \
+            --stock /tmp/stock-powerkeeper-smali \
+            --ryu /tmp/ryu-powerkeeper-smali \
+            --out reports
           python3 bin/audit/ryu_powerkeeper_parity.py \
             --ryu /tmp/ryu-powerkeeper-smali \
             --stock /tmp/stock-powerkeeper-smali \
