@@ -51,7 +51,11 @@ jobs:
           for dir in smali smali_classes*; do
             [[ -d "$dir" ]] || continue
             if [[ "$dir" == smali ]]; then dex=classes.dex; else dex="${dir#smali_}.dex"; fi
-            java -jar "$GITHUB_WORKSPACE/bin/apktool/smaliv2.jar" a --api 36 "$dir" -o "/tmp/ryu-real-jar/verify-$dex"
+            if ! java -jar "$GITHUB_WORKSPACE/bin/apktool/smaliv2.jar" a --api 36 "$dir" -o "/tmp/ryu-real-jar/verify-$dex"; then
+              echo "smali assembly failed; offending RYU BroadcastQueue code context:"
+              nl -ba smali/com/android/server/am/BroadcastQueueModernStubImpl.smali | sed -n '2476,2495p' || true
+              exit 1
+            fi
             test -s "/tmp/ryu-real-jar/verify-$dex"
           done
           echo "[PASS] Exact RYUOS Android 16 miui-services methods are compatible with selective patcher; smali builds."
