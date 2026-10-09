@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_tab_statedesc_unselect">Chưa được chọn</string>
+    <string name="miuix_alphabet_indexer_name">Thanh chỉ mục</string>
+    <string name="sound_id_music_one_title">Thành phố trong mưa</string>
+    <string name="sound_id_music_two_title">Đêm sôi động</string>
+</resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_tab_statedesc_unselect">Chưa được chọn</string>
+    <string name="format_solar_lunar_calendar_month_day_desc">Ngày lễ: %1$s, ngày theo âm lịch: %2$s</string>
+    <string name="miuix_alphabet_indexer_name">Thanh chỉ mục</string>
+</resources>
