@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_pet_tips_network_exception_desc">Kiểm tra cài đặt mạng rồi thử lại.</string>
+    <string name="ai_pet_tips_network_exception_title">Lỗi mạng</string>
+    <string name="ai_wallpaper_network_connection_exception">Không thể kết nối mạng</string>
+    <string name="ai_wallpaper_network_exception">Đã xảy ra lỗi mạng</string>
+    <string name="apply_wallpaper_to_lockscreen">Áp dụng hình nền này cho màn hình khóa?</string>
+    <string name="back_screen_delete_template">Xóa mẫu này?</string>
+    <string name="back_screen_dynamic_notification">Thông báo</string>
+    <string name="call_notification_hang_up_action">Kết thúc cuộc gọi</string>
+    <string name="call_notification_incoming_text">Cuộc gọi đến</string>
+    <string name="call_notification_ongoing_text">Cuộc gọi đang diễn ra</string>
+    <string name="font_pad_setting_find_more_title">Thêm phông chữ</string>
+    <string name="icon_pad_setting_local_icon">Biểu tượng cục bộ</string>
+    <string name="kg_depth_preset_network_fail">Không có kết nối mạng</string>
+    <string name="kg_depth_preset_network_fail_download_pause">Không có kết nối mạng. Đã tạm dừng tải xuống.</string>
+    <string name="kg_main_dual_clock_close_ask_dialog_negative_button">Giữ bật</string>
+    <string name="kg_main_dual_clock_close_ask_dialog_positive_button">Tắt</string>
+    <string name="kg_main_dual_clock_close_ask_dialog_title">Đồng hồ kép</string>
+</resources>

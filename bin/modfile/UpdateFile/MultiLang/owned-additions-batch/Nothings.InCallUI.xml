@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_tab_statedesc_unselect">Chưa được chọn</string>
+    <string name="calibrate_rotate_again">Thử lại</string>
+    <string name="description_image_button_reject_block">Từ chối và chặn</string>
+    <string name="satellite_get_gps_timeout">Không thể lấy thông tin vị trí. Hãy đứng ở nơi thoáng và tránh vật cản tín hiệu.</string>
+    <string name="satellite_guide_azimuth_floating">Di chuyển vào khu vực dò tìm</string>
+    <string name="satellite_guide_azimuth_in">Vệ tinh nằm trong khu vực dò tìm</string>
+    <string name="satellite_guide_azimuth_leave">Vệ tinh đã rời khỏi khu vực dò tìm</string>
+    <string name="satellite_knew">Đã hiểu</string>
+    <string name="satellite_state_gps_noti_content">Đang sử dụng thông tin vị trí…</string>
+    <string name="satellite_state_gps_noti_title">Liên lạc vệ tinh</string>
+    <string name="satellite_state_occlusion_prompt">Tránh các tòa nhà hoặc cây cối có thể cản tín hiệu</string>
+    <string name="spam_call_add_number_to_blacklist">Chặn số điện thoại này?</string>
+</resources>

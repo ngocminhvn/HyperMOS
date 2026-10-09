@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_tab_statedesc_unselect">Chưa được chọn</string>
+    <string name="missed_call">Cuộc gọi nhỡ</string>
+    <string name="state_not_selected">Chưa được chọn</string>
+</resources>

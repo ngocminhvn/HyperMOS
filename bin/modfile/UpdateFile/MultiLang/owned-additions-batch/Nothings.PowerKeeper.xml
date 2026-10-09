@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="avg_current_title">Dòng điện trung bình:</string>
+    <string name="clear_temperature">Nhiệt độ kết thúc</string>
+    <string name="cloud_allow_change_addr">Thay đổi trạng thái tự đồng bộ đám mây</string>
+    <string name="current_allow_sync_is">Tự động cập nhật từ đám mây:</string>
+    <string name="high_temp_state_message_orange_es">Để cải thiện hiệu năng thiết bị, một số ứng dụng đã tạm thời bị vô hiệu hóa.</string>
+    <string name="kill_all_back_pro_toast_message">Thiết bị đang quá nóng. Đã tạm đóng tất cả ứng dụng chạy nền.</string>
+    <string name="kill_some_back_pro_toast_message">Thiết bị đang quá nóng. Đã tạm đóng một số ứng dụng chạy nền.</string>
+    <string name="screen_off_current">Dòng điện khi tắt màn hình</string>
+    <string name="screen_on_current">Dòng điện khi bật màn hình</string>
+    <string name="trig_temperature">Nhiệt độ bắt đầu</string>
+</resources>

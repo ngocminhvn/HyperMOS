@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bottomsheet_action_collapse">Thu gọn bảng dưới</string>
+    <string name="bottomsheet_action_expand">Mở rộng bảng dưới</string>
+    <string name="bottomsheet_drag_handle_clicked">Đã chạm hai lần vào tay nắm kéo</string>
+    <string name="bottomsheet_drag_handle_content_description">Tay nắm kéo</string>
+    <string name="error_a11y_label">Lỗi: không hợp lệ</string>
+    <string name="searchview_clear_text_content_description">Xóa văn bản</string>
+    <string name="side_sheet_accessibility_pane_title">Bảng bên</string>
+    <string name="system_cta_theme_store_all_purpose">Chào mừng đến với cửa hàng Chủ đề! Bạn có thể quản lý và áp dụng chủ đề, hình nền, nhạc chuông và phông chữ tại đây.</string>
+</resources>

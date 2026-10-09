@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="account_read_only_birthday">Sự kiện này chỉ có thể xem. Hãy chỉnh sửa trong Danh bạ.</string>
+    <string name="all_events">Tất cả sự kiện</string>
+    <string name="apply_auto_insert_ai_event_button">Bật</string>
+    <string name="auth_notification_error_ssl_cert_invalid">Chứng chỉ SSL không hợp lệ. Tiếp tục?</string>
+    <string name="auth_notification_error_ssl_expired">Chứng chỉ SSL đã hết hạn. Tiếp tục?</string>
+    <string name="auth_notification_error_ssl_untrusted">Chứng chỉ SSL không đáng tin cậy. Tiếp tục?</string>
+    <string name="calendar_account_manager">Quản lý lịch theo tài khoản</string>
+    <string name="calendar_sync_frequency">Tần suất đồng bộ lịch</string>
+    <string name="certificate_notification_connection_security">Bảo mật kết nối</string>
+    <string name="certificate_notification_user_interaction">Vui lòng kiểm tra chứng chỉ</string>
+    <string name="count_down_close_reminder">Tắt lời nhắc đếm ngược?</string>
+    <string name="count_down_holiday">Đếm ngược ngày lễ</string>
+    <string name="count_down_open_reminder">Bật lời nhắc đếm ngược?</string>
+    <string name="count_down_out_range_all_day">Không thể đặt đếm ngược cho sự kiện cả ngày</string>
+    <string name="count_down_out_range_below">Không thể đặt đếm ngược tại thời điểm sự kiện bắt đầu</string>
+    <string name="count_down_reminder_status">Đã bắt đầu đếm ngược</string>
+    <string name="count_down_reminder_status_new">Đã bật nhắc nhở đếm ngược</string>
+    <string name="display_dynamic_information">Hiển thị sự kiện</string>
+    <string name="event_all_selected">Đã chọn tất cả</string>
+    <string name="event_none_selected">Đã bỏ chọn tất cả</string>
+    <string name="focus_notification_open_setting_button_ok">Bật</string>
+    <string name="focus_notification_open_setting_message">Bật thông báo nổi bật cho Lịch để sử dụng lời nhắc đếm ngược.</string>
+    <string name="focus_notification_open_setting_title">Bật thông báo nổi bật?</string>
+    <string name="no_location_network">Không thể kết nối mạng</string>
+    <string name="schedule_time_zone_setting">Cài đặt múi giờ sự kiện</string>
+    <string name="setting_auto_insert_v1">Tự động nhập sự kiện</string>
+    <string name="setting_show_extend_month">Hiển thị tháng mở rộng</string>
+</resources>

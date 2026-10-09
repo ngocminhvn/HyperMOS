@@ -53,6 +53,32 @@ The retired-language-region.keys list prevents future accidental re-addition.
 - No framework, system service, `boot.img`, `vendor_boot.img`, AVB, or runtime
   property changes. No periodic background service.
 
+## Additional apps — original Vietnamese batch
+
+An additional **106 independently authored Vietnamese strings across 8 existing overlays** are staged in `owned-additions-batch/`:
+
+- `Nothings.Calendar.apk`: 27 new keys
+- `Nothings.MiShare.apk`: 21 new keys
+- `Nothings.InCallUI.apk`: 12 new keys
+- `Nothings.PowerKeeper.apk`: 10 new keys
+- `Nothings.ThemeManagerV2.apk`: 8 new keys
+- `Nothings.ThemeManager.apk`: 17 new keys
+- `Nothings.MiuiHome.apk`: 8 new keys
+- `Nothings.Contacts.apk`: 3 new keys
+
+These are new, manually authored translations of resource names verified by the
+matching HyperOS OS3.0.308.0 stock-resource audit (successful run
+`37803649836`). The merge workflow now discovers all reviewed XML additions
+rather than only four fixed overlays. It checks the English `MISSING_VI`
+rows, preserves old values, validates format placeholders, compiled resource IDs,
+overlay package/target identity and original signing certificate. It changes
+no ROM framework, boot image or Kashi asset.
+
+The XML source commit alone does **not** mean the APK files were rebuilt.
+Only a successful `Merge original Vietnamese translations into existing RROs`
+workflow and its subsequent APK commit establish a compiled update. Device
+idmap/render testing remains necessary.
+
 ## Extending Vietnamese to more built-in apps
 
 The 67 original Nothings RROs already cover many Xiaomi apps. The full

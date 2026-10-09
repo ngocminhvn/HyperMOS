@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_tab_statedesc_unselect">Chưa được chọn</string>
+    <string name="announce_for_drop_line">Đã thả vào dòng số %1$d</string>
+    <string name="announce_for_drop_line_number">Đã thả vào dòng số %1$d</string>
+    <string name="gadget_setup_text">Cài đặt tiện ích</string>
+    <string name="pa_need_download_talkback">Chưa tải xuống "%s"</string>
+    <string name="third_party_wallpaper_not_support_effect">Hình nền bên thứ ba không hỗ trợ hiệu ứng</string>
+    <string name="xiaomi_update_sdk_dialog_title">Có bản cập nhật mới</string>
+    <string name="xiaomi_update_sdk_update_dialog_cancel">Để sau</string>
+</resources>

@@ -51,13 +51,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/stock-en"
-          gh run download 37764405522 \
+          gh run download 37803649836 \
             --repo "$GITHUB_REPOSITORY" \
             --name vietnamese-translation-audit \
             --dir "$RUNNER_TEMP/stock-en"
           test -s "$RUNNER_TEMP/stock-en/english-vietnamese-review.csv"
 
-      - name: Validate merge engine and compile all original overlays
+      - name: Validate merge engine and compile reviewed overlays
         shell: bash
         run: |
           set -euo pipefail
@@ -65,7 +65,10 @@ jobs:
           dir="bin/modfile/UpdateFile/MultiLang"
           python3 -m py_compile "$script"
           python3 "$script" --self-test
-          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
+          mapfile -t names < <(find "$dir/owned-additions-batch" -maxdepth 1 -type f -name 'Nothings.*.xml' -printf '%f\n' | sed 's/\.xml$//' | LC_ALL=C sort)
+          (( ${#names[@]} >= 4 )) || { echo "[VI-MERGE] Not enough reviewed translation packs"; exit 1; }
+          for name in "${names[@]}"; do
+            test -s "$dir/updatesource/$name.apk" || { echo "[VI-MERGE] Missing original APK: $name"; exit 1; }
             echo "::group::Add reviewed Vietnamese: $name"
             python3 "$script" \
               --original "$dir/updatesource/$name.apk" \
@@ -83,12 +86,13 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Commit all four original APKs only if every validation passed
+      - name: Commit reviewed original APKs only if every validation passed
         shell: bash
         run: |
           set -euo pipefail
           dir="bin/modfile/UpdateFile/MultiLang/updatesource"
-          for name in Nothings.Settings Nothings.MiuiSystemUI Nothings.MiuiSystemUIPlugin Nothings.SecurityCenter; do
+          mapfile -t names < <(find "bin/modfile/UpdateFile/MultiLang/owned-additions-batch" -maxdepth 1 -type f -name 'Nothings.*.xml' -printf '%f\n' | sed 's/\.xml$//' | LC_ALL=C sort)
+          for name in "${names[@]}"; do
             cp "$RUNNER_TEMP/vi-batch/$name/$name.apk" "$dir/$name.apk"
             git add "$dir/$name.apk"
           done
