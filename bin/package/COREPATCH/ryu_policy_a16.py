@@ -174,9 +174,11 @@ def foreground_service_protection(text: str) -> str:
     if process_reg in ("v2",) or decision == "v2":
         raise ValueError("FGS: unsafe temp/process register overlap")
     # In RYU the common exit branch returns true. Preserve that contract.
-    exit_pos = body.find(exit_label + "\n", hits[0].end() + guard.end())
-    if exit_pos < 0:
-        raise ValueError("FGS: branch exit label undefined")
+    label_hits = list(re.finditer(
+        rf"(?m)^[ \t]*{re.escape(exit_label)}[ \t]*$", body))
+    if len(label_hits) != 1:
+        raise ValueError("FGS: expected one defined exit label")
+    exit_pos = label_hits[0].start()
     if not re.search(r"const/4\s+v0,\s*0x1\s*[\r\n]+\s*return\s+v0",
                      body[exit_pos:exit_pos + 210]):
         raise ValueError("FGS: common exit no longer returns success")
@@ -204,7 +206,7 @@ def main(root: Path) -> None:
     changed = first_boot_broadcast(fcm_autostart(original))
     ps_original = psc.read_text(encoding="utf-8")
     ps_changed = foreground_service_protection(ps_original)
-    if ACTION not in changed or ":hypermos_ryu_autostart_original" not in changed:
+    if ACTION not in changed or ":hypermos_ryu_fcm_autostart_only" not in changed:
         raise ValueError("FCM postcondition failed")
     # Atomic-ish: make no write until every target validated.
     bq.write_text(changed, encoding="utf-8")
