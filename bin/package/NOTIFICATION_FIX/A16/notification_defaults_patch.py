@@ -37,9 +37,9 @@ class PatchError(RuntimeError):
 # class, not FilterHelperCompat. Only the *absence-of-saved-choice* fallback
 # may change. Direct user and per-channel choices remain untouched.
 WHITE_LIST_LOAD = re.compile(
-    r"^(\s*)sget-boolean\s+([vp]\d+),\s*"
+    r"^([ \t]*)sget-boolean[ \t]+([vp]\d+),[ \t]*"
     r"Lcom/miui/systemui/notification/NotificationSettingsManager;"
-    r"->USE_WHITE_LISTS:Z\s*$", re.M
+    r"->USE_WHITE_LISTS:Z[ \t]*$", re.M
 )
 
 
