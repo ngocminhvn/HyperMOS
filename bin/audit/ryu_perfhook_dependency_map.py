@@ -10,9 +10,9 @@ import re
 from collections import Counter
 from pathlib import Path
 
-METHOD = re.compile(r"(?ms)^\\.method[^\\n]*\\n.*?^\\.end method[ \\t]*$")
-CLASS = re.compile(r"(?m)^\\.class[^\\n]*\\s(L[^;]+;)[ \\t]*$")
-REF = re.compile(r"L[^;\\s{}]+;")
+METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
+CLASS = re.compile(r"(?m)^\.class[^\n]*\s(L[^;]+;)[ \t]*$")
+REF = re.compile(r"L[^;\s{}]+;")
 TARGET = "Lcom/projectryu/perf/PerfHook;"
 FOCUS = (
     "sconfig", "thermal", "perf", "governor", "cpu", "gpu",
@@ -56,7 +56,7 @@ def inventory(ryu_root, stock_root):
             for ref in refs:
                 if ref.startswith("Lcom/projectryu/"):
                     outgoing[ref] += 1
-            strings = re.findall(r'const-string(?:/jumbo)?\\s+[^,]+,\\s*"([^"]{1,180})"', src)
+            strings = re.findall(r'const-string(?:/jumbo)?\s+[^,]+,\s*"([^"]{1,180})"', src)
             for item in strings:
                 if any(term in item.lower() for term in FOCUS):
                     literals.add(item)
