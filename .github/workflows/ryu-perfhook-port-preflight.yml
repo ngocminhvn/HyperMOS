@@ -8,7 +8,7 @@ on:
       - '.github/workflows/ryu-perfhook-port-preflight.yml'
       - 'bin/audit/ryu_perfhook_dependency_map.py'
 permissions:
-  contents: read
+  contents: write
   actions: read
 jobs:
   inspect:
@@ -80,3 +80,17 @@ jobs:
           path: reports/ryu-perfhook-dependency-map.*
           retention-days: 14
           if-no-files-found: warn
+      - name: Save lightweight RYU PerfHook method inventory to test branch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs
+          cp reports/ryu-perfhook-dependency-map.md docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
+          if ! git diff --cached --quiet; then
+            git commit -m "audit: record verified RYU PerfHook entrypoints (metadata only)"
+            git push origin HEAD:test-ryu-performance-haotian
+          fi
