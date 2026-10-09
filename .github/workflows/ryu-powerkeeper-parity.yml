@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/workflows/ryu-powerkeeper-parity.yml'
       - 'bin/audit/ryu_powerkeeper_parity.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
 permissions:
   contents: read
   actions: read
