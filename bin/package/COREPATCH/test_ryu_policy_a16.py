@@ -48,6 +48,8 @@ with tempfile.TemporaryDirectory() as d:
     m.main(root)
     a, b = bq.read_bytes(), ps.read_bytes()
     assert b"com.google.android.c2dm.intent.RECEIVE" in a
+    assert b"move-object/from16 v0, p2" in a
+    assert b"iget-object v0, p2," not in a.split(b":hypermos_ryu_autostart_original")[0]
     assert b"hasForegroundServices" in b
     m.main(root)
     assert (a, b) == (bq.read_bytes(), ps.read_bytes()), "patch not idempotent"
