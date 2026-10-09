@@ -41,7 +41,7 @@ chmod 0755 "$bin_dst/tnm-hostsctl"
 [[ -s "$init_dst/tnm-hosts.rc" ]] || { error "TNM Hosts: installed rc missing"; exit 1; }
 [[ -x "$bin_dst/tnm-hostsctl" ]] || { error "TNM Hosts: controller not executable"; exit 1; }
 
-grep -qF "$runtime_ctl boot" "$init_dst/tnm-hosts.rc" || {
+grep -qF "/system/bin/sh $runtime_ctl boot" "$init_dst/tnm-hosts.rc" || {
   error "TNM Hosts: init controller verification failed"
   exit 1
 }
