@@ -1,0 +1,104 @@
+name: Extract RYUOS HAOTIAN PowerKeeper APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/ryu-extract-powerkeeper.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Free runner storage
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache /usr/local/share/powershell /usr/share/swift || true
+          df -h .
+
+      - name: Install extraction tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends erofs-utils e2fsprogs android-sdk-libsparse-utils unzip
+          git clone --depth=1 https://github.com/unix3dgforce/lpunpack.git /tmp/ryu-lpunpack
+
+      - name: Download RYUOS HAOTIAN ROM
+        working-directory: /tmp
+        run: |
+          url='https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip'
+          curl --fail --location --retry 5 --retry-delay 10 --connect-timeout 30 --output ryu-rom.zip "$url"
+          ls -lh ryu-rom.zip
+          unzip -Z -1 ryu-rom.zip | grep -F 'images/super.img'
+          df -h .
+
+      - name: Extract only super.img from ZIP
+        working-directory: /tmp
+        run: |
+          python3 - <<'PY'
+          import zipfile, shutil
+          with zipfile.ZipFile('ryu-rom.zip') as z:
+              name = next((x for x in z.namelist() if x.endswith('/super.img')), None)
+              if not name: raise RuntimeError('No images/super.img in ROM')
+              print('Extract:', name, flush=True)
+              with z.open(name) as src, open('ryu-super.img', 'wb') as dst:
+                  shutil.copyfileobj(src, dst, length=16*1024*1024)
+          PY
+          rm -f ryu-rom.zip
+          ls -lh ryu-super.img
+          df -h .
+
+      - name: Extract PowerKeeper.apk from logical partitions
+        working-directory: /tmp
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ryu-partitions /tmp/ryu-apk
+          python3 /tmp/ryu-lpunpack/lpunpack.py --info /tmp/ryu-super.img /tmp/ryu-partitions | head -100 || true
+          found=0
+          for part in system_a system product_a product system_ext_a system_ext mi_ext_a mi_ext; do
+            echo "Searching partition: $part"
+            rm -rf /tmp/ryu-partitions/* /tmp/ryu-filesystem
+            if ! python3 /tmp/ryu-lpunpack/lpunpack.py -p "$part" /tmp/ryu-super.img /tmp/ryu-partitions; then
+              continue
+            fi
+            img=$(find /tmp/ryu-partitions -maxdepth 1 -type f -name '*.img' -print -quit)
+            if [[ -z "$img" ]]; then continue; fi
+            file "$img"
+            if file "$img" | grep -qi 'ext[234] filesystem'; then
+              for prefix in /system/app /app /system/priv-app /priv-app; do
+                for dirname in PowerKeeper MiuiPowerKeeper; do
+                  dest=/tmp/ryu-apk/PowerKeeper.apk
+                  debugfs -R "dump $prefix/$dirname/PowerKeeper.apk $dest" "$img" 2>/dev/null || true
+                  if [[ -s "$dest" ]] && unzip -tq "$dest" >/dev/null 2>&1; then found=1; break 2; fi
+                  rm -f "$dest"
+                done
+              done
+            else
+              mkdir -p /tmp/ryu-filesystem
+              fsck.erofs --extract=/tmp/ryu-filesystem "$img" || true
+              apk=$(find /tmp/ryu-filesystem -type f -name PowerKeeper.apk -print -quit)
+              if [[ -n "$apk" ]]; then cp "$apk" /tmp/ryu-apk/PowerKeeper.apk; found=1; fi
+            fi
+            if [[ "$found" -eq 1 ]]; then
+              echo "Located PowerKeeper.apk in $part"
+              break
+            fi
+          done
+          if [[ "$found" -ne 1 ]]; then
+            echo 'PowerKeeper.apk not found in the searched partitions' >&2
+            exit 1
+          fi
+          mv /tmp/ryu-apk/PowerKeeper.apk /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk
+          unzip -tq /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk
+          (cd /tmp/ryu-apk && sha256sum RYUOS_HAOTIAN_PowerKeeper.apk > SHA256SUMS.txt)
+          ls -lh /tmp/ryu-apk
+
+      - name: Upload extracted RYU APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-PowerKeeper
+          path: /tmp/ryu-apk/*
+          retention-days: 7
