@@ -38,9 +38,9 @@ def signature(method):
     return method.splitlines()[0].strip().split()[-1]
 
 
-def inventory(ryu_root, stock_root):
+def inventory(ryu_root, stock_root=None):
     ryu = classes(ryu_root)
-    stock = classes(stock_root)
+    stock = classes(stock_root) if stock_root else {}
     if TARGET not in ryu:
         raise ValueError("RYU PerfHook not found in supplied PowerKeeper APK")
     perf_family = sorted(k for k in ryu if k == TARGET or k.startswith(TARGET[:-1] + "$"))
@@ -79,7 +79,7 @@ def inventory(ryu_root, stock_root):
                     callers.append({"class": name, "method": signature(m.group())})
     return {
         "ryu_classes": len(ryu),
-        "stock_classes": len(stock),
+        "stock_classes": len(stock) if stock_root else None,
         "perf_family": perf_family,
         "perf_method_count": len(methods),
         "method_inventory": methods,
@@ -101,7 +101,7 @@ def markdown(report):
     lines = [
         "# RYU HAOTIAN PerfHook — real APK dependency map", "",
         "**Status: ANALYSIS ONLY — PerfHook is NOT ported by this workflow.**", "",
-        f"RYU PowerKeeper classes: {report['ryu_classes']}; stock classes: {report['stock_classes']}.",
+        f"RYU PowerKeeper classes: {report['ryu_classes']}; stock APK supplied: {report['stock_classes'] is not None}.",
         f"PerfHook family: {len(report['perf_family'])} classes, {report['perf_method_count']} methods.", "",
         "## Activation call sites", "",
     ]
@@ -125,7 +125,7 @@ def markdown(report):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ryu", type=Path, required=True)
-    parser.add_argument("--stock", type=Path, required=True)
+    parser.add_argument("--stock", type=Path, help="optional decoded stock APK for context")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     result = inventory(args.ryu, args.stock)
