@@ -43,8 +43,10 @@ jobs:
           xml = Path("bin/modfile/Universal/gmsservices16/product/etc/sysconfig/hypermos-google-push-keepalive.xml").read_text()
           checker = Path("bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py").read_text()
           ryu_policy = Path("bin/package/COREPATCH/ryu_policy_a16.py").read_text()
-          assert 'invoke-static/range {{p2 .. p2}}' in ryu_policy
-          assert 'ApplicationInfo null guard' in ryu_policy
+          assert 'const/4 {reg}, 0x1' in ryu_policy
+          assert 'HyperMOS RYU FCM: enable existing post-ApplicationInfo gate' in ryu_policy
+          assert 'HyperMOS RYU swipe: enable original Xiaomi FGS guard' in ryu_policy
+          assert 'hypermosRyuIsFcmBroadcast' not in ryu_policy
           assert 'ProcessManagerService' not in ryu_policy
           assert 'PerfHook' not in ryu_policy
           assert 'ProcessManager;->kill(' in checker, 'RYU conditional kill delta missing'
