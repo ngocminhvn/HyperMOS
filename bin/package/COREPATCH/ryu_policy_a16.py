@@ -70,8 +70,17 @@ def fcm_autostart(text: str) -> str:
         if text.count(".method private static " + helper_sig) != 1:
             raise ValueError("FCM exemption marker exists without its helper")
         return text
-    # RYU already has an FCM test in the method: do not add a second path.
+    # Preserve an existing FCM exemption only if receiver/application
+    # resolution already precedes the action check, as it does in RYU.
     if ACTION in body:
+        action_at = body.find(ACTION)
+        resolve_at = body.find("ResolveInfo;->")
+        app_at = body.find("ApplicationInfo;")
+        print(f"[RYU-A16-FCM] existing action at {action_at}, "
+              f"ResolveInfo at {resolve_at}, ApplicationInfo at {app_at}",
+              flush=True)
+        if min(resolve_at, app_at) < 0 or action_at <= max(resolve_at, app_at):
+            raise ValueError("Existing FCM path is not after receiver/app resolution")
         return text
 
     if "Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;" not in body:
@@ -269,8 +278,16 @@ def main(root: Path) -> None:
     changed = first_boot_broadcast(fcm_autostart(original))
     ps_original = psc.read_text(encoding="utf-8")
     ps_changed = foreground_service_protection(ps_original)
-    if ACTION not in changed or ":hypermos_ryu_autostart_original" not in changed:
-        raise ValueError("FCM postcondition failed")
+    signature = ("checkApplicationAutoStart("
+                 "Lcom/android/server/am/BroadcastQueue;"
+                 "Lcom/android/server/am/BroadcastRecord;"
+                 "Landroid/content/pm/ResolveInfo;)Z")
+    post_fcm = method(changed, signature).group()
+    if ":hypermos_ryu_autostart_original" not in post_fcm and ACTION not in post_fcm:
+        raise ValueError("FCM postcondition failed: no action or guarded fast path")
+    if ":hypermos_ryu_autostart_original" in post_fcm and (
+            "hypermosRyuIsFcmBroadcast(" not in post_fcm or ACTION not in changed):
+        raise ValueError("FCM postcondition failed: helper/marker mismatch")
     # Atomic-ish: make no write until every target validated.
     bq.write_text(changed, encoding="utf-8")
     psc.write_text(ps_changed, encoding="utf-8")
