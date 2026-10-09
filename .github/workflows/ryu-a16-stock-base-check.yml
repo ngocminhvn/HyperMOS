@@ -78,13 +78,13 @@ jobs:
           import re
           p = next(Path("/tmp/stock-dex").rglob("ProcessSceneCleaner.smali"))
           s = p.read_text()
-          m = re.search(r"(?ms)^\\.method[^\\n]*killAppForHasOtherTask\\(ILmiui/process/ProcessConfig;\\)Z.*?^\\.end method", s)
+          m = re.search(r"(?ms)^\.method[^\n]*killAppForHasOtherTask\(ILmiui/process/ProcessConfig;\)Z.*?^\.end method", s)
           assert m, "Stock task cleaner method not found"
           body = m.group()
           assert body.count("hasForegroundServices()Z") == 1, "FGS check missing or duplicated"
           assert ":hypermos_ryu_fgs_continue" in body, "RYU FGS branch not added"
-          assert not re.search(r"const/4 v0, 0x0\\s*return v0", body), "FGS early return false"
-          assert re.search(r"(?s)hasForegroundServices\\(\\)Z.*?if-nez v\\d+, (:[\\w]+)", body)
+          assert not re.search(r"const/4 v0, 0x0\s*return v0", body), "FGS early return false"
+          assert re.search(r"(?s)hasForegroundServices\(\)Z.*?if-nez v\d+, (:[\w]+)", body)
           print("[PASS] Stock HAOTIAN FGS: one guard, no return-false; RYU Doze patched")
           PY
 
