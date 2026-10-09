@@ -147,9 +147,9 @@ jobs:
           # _get_info encounters a zero-extent partition. Its exception is
           # suppressed internally; the previous output was just "\\n\\n".
           # Read the raw LP metadata instead to write valid JSON/names.
-          python3 bin/audit/ryu_super_partitions.py \\
-            --super /tmp/ryu-super.img \\
-            --json /tmp/ryu-thermal/partition-info.json \\
+          python3 bin/audit/ryu_super_partitions.py \
+            --super /tmp/ryu-super.img \
+            --json /tmp/ryu-thermal/partition-info.json \
             --names /tmp/ryu-thermal/partitions.txt
           python3 -m json.tool /tmp/ryu-thermal/partition-info.json > /dev/null
           grep -Eq '^vendor(_a|_b)?$' /tmp/ryu-thermal/partitions.txt
