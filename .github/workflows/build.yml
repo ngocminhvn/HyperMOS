@@ -106,8 +106,6 @@ jobs:
           # Validate Android 16 GMS XML and protect existing FCM exemptions.
           # Pure preflight: no Doze, PowerKeeper or notification settings changed.
           python3 bin/modfile/Universal/gmsservices16/validate-sysconfig.py
-          python3 bin/modfile/Universal/gmsservices16/strip-google-backup.py --self-test
-          test ! -e bin/modfile/Universal/gmsservices16/product/app/Maps/Maps.apk
 
           # The Android 16 SystemUI notification-defaults patch has been retired.
           bash -n bin/package/NOTIFICATION_FIX/notificationFIX.sh

@@ -113,12 +113,6 @@ for required in "${required_payload[@]}"; do
   fi
 done
 
-# The bundled Google Maps APK is excluded (Google Maps compatibility JAR stays).
-[[ ! -e "$GMS_SOURCE/product/app/Maps/Maps.apk" ]] || {
-  error "GMS16: bundled Google Maps APK must not be installed"
-  exit 1
-}
-
 [[ -f "$MAIN_FOLDER/system/system/build.prop" ]] || {
   error "gmsservices16: system build.prop not found"
   exit 1
@@ -130,27 +124,6 @@ cp -rf "$GMS_SOURCE/product/." "$MAIN_FOLDER/product/" || {
 }
 cp -rf "$GMS_SOURCE/system_ext/." "$MAIN_FOLDER/system_ext/" || {
   error "gmsservices16: system_ext payload copy failed"
-  exit 1
-}
-
-# Exclude preinstalled Maps from source and possible older China stock images.
-for maps_path in \
-  "$MAIN_FOLDER/product/app/Maps" \
-  "$MAIN_FOLDER/product/priv-app/Maps" \
-  "$MAIN_FOLDER/system_ext/app/Maps" \
-  "$MAIN_FOLDER/system_ext/priv-app/Maps" \
-  "$MAIN_FOLDER/system/system/app/Maps" \
-  "$MAIN_FOLDER/system/system/priv-app/Maps"; do
-  if [[ -d "$maps_path" ]]; then
-    rm -rf -- "$maps_path"
-    mods "GMS16: removed preinstalled Maps directory -> $maps_path"
-  fi
-done
-
-# Build-time only: remove stock Google Backup transport registrations.
-# Does not disable GMS, Android's backup service or FCM exemptions.
-python3 "$GMS_SOURCE/strip-google-backup.py" "$MAIN_FOLDER" || {
-  error "GMS16: could not safely remove inherited Google Backup transports"
   exit 1
 }
 
@@ -183,5 +156,4 @@ patch_enhanced_keyboard || {
   error "gmsservices16: Enhanced Keyboard patch failed"
   exit 1
 }
-mods "GMS16: Google Backup transports and Maps APK excluded; FCM unchanged"
 mods "Added GMS16 Done"
