@@ -32,13 +32,7 @@ permissions:
   actions: read
 
 jobs:
-  extract-ryu-thermal:
-    uses: ./.github/workflows/ryu-extract-thermal.yml
-    permissions:
-      contents: read
-
   build:
-    needs: extract-ryu-thermal
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -107,14 +101,8 @@ jobs:
           echo "RYU_POWERKEEPER_APK=$RYU_APK" >> "$GITHUB_ENV"
           echo "[PASS] Genuine RYU PerfHook source and integration scripts ready"
 
-      # Same-run RYU artifact: eliminates stale/missing reference and allows
-      # a single Run workflow action to perform extraction plus full ROM build.
-      - name: Download RYU powerhint/perf from prerequisite job
-        uses: actions/download-artifact@v4
-        with:
-          name: RYUOS-HAOTIAN-Thermal-Configs
-          path: ${{ runner.temp }}/ryu-reference
-
+      # Use the 181 KB source archive committed to this test branch.
+      # No RYU ROM download, super.img unpack, or extraction job required.
       - name: Verify full RYU performance reference before ROM download
         shell: bash
         run: |
@@ -125,7 +113,12 @@ jobs:
             echo "::error::Full RYU performance test must run only from the test branch"
             exit 1
           }
+          zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
+          test -s "$zip" || { echo "::error::RYU thermal archive not found in test branch"; exit 1; }
+          unzip -tq "$zip"
           ref="$RUNNER_TEMP/ryu-reference"
+          mkdir -p "$ref"
+          unzip -q "$zip" -d "$ref"
           test -s "$ref/manifest.json"
           python3 - "$ref" <<'PY'
           import hashlib,json,sys
