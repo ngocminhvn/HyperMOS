@@ -123,94 +123,29 @@ jobs:
             -i /tmp/ryu-perfhook-synthetic -o /tmp/ryu-perfhook-verify.apk
           test -s /tmp/ryu-perfhook-verify.apk
           unzip -tq /tmp/ryu-perfhook-verify.apk
-          unzip -Z1 /tmp/ryu-perfhook-verify.apk | grep -Eq '^classes[2-9][0-9]*\.dex        with:
-          name: ryu-perfhook-port-preflight-report
-          path: reports/ryu-perfhook-dependency-map.*
-          retention-days: 14
-          if-no-files-found: warn
-      - name: Save lightweight RYU PerfHook method inventory to test branch
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p docs
-          cp reports/ryu-perfhook-dependency-map.md docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
-          if ! git diff --cached --quiet; then
-            git commit -m "audit: record verified RYU PerfHook entrypoints (metadata only)"
-            git push origin HEAD:test-ryu-performance-haotian
-          fi
-
+          unzip -Z1 /tmp/ryu-perfhook-verify.apk | grep -Eq '^classes[2-9][0-9]*\.dex$'
           echo '[PASS] Original RYU PerfHook injected, bytecode reassembled, valid multidex APK'
-      - name: Publish metadata report, not proprietary APK/smali
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ryu-perfhook-port-preflight-report
-          path: reports/ryu-perfhook-dependency-map.*
-          retention-days: 14
-          if-no-files-found: warn
-      - name: Save lightweight RYU PerfHook method inventory to test branch
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p docs
-          cp reports/ryu-perfhook-dependency-map.md docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
-          if ! git diff --cached --quiet; then
-            git commit -m "audit: record verified RYU PerfHook entrypoints (metadata only)"
-            git push origin HEAD:test-ryu-performance-haotian
-          fi
 
-          echo '[PASS] Original RYU PerfHook static port and multidex APK assembly completed'
-      - name: Upload PerfHook preflight diagnostics
+      - name: Publish test report (no APK or proprietary smali)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ryu-perfhook-port-preflight-report
-          path: reports/ryu-perfhook-dependency-map.*
+          path: reports/
           retention-days: 14
           if-no-files-found: warn
-      - name: Save lightweight RYU PerfHook method inventory to test branch
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p docs
-          cp reports/ryu-perfhook-dependency-map.md docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
-          if ! git diff --cached --quiet; then
-            git commit -m "audit: record verified RYU PerfHook entrypoints (metadata only)"
-            git push origin HEAD:test-ryu-performance-haotian
-          fi
 
-          echo '[PASS] Original RYU PerfHook injected, bytecode reassembled, valid multidex APK'
-      - name: Publish metadata report, not proprietary APK/smali
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ryu-perfhook-port-preflight-report
-          path: reports/ryu-perfhook-dependency-map.*
-          retention-days: 14
-          if-no-files-found: warn
-      - name: Save lightweight RYU PerfHook method inventory to test branch
+      - name: Save RYU PerfHook method inventory to test branch
         if: success()
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p docs
           cp reports/ryu-perfhook-dependency-map.md docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add docs/RYU-PERFHOOK-ACTUAL-INVENTORY.md
           if ! git diff --cached --quiet; then
-            git commit -m "audit: record verified RYU PerfHook entrypoints (metadata only)"
+            git commit -m 'audit: update RYU PerfHook method inventory on test branch'
             git push origin HEAD:test-ryu-performance-haotian
           fi
