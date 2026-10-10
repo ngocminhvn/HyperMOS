@@ -107,6 +107,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py
           python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py
+          python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py
           bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
           case "$GITHUB_REF_NAME" in
             test-ryu-performance-haotian|test-powerkeeper-ryu-uid-identity) ;;
@@ -248,6 +249,18 @@ jobs:
         with:
           name: HyperMOS-PowerKeeper-Xiaomi-Stock-Identity
           path: build/reports/powerkeeper-a16/stock-identity.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish RYU CPU/thermal retention audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HyperMOS-RYU-CPU-Thermal-Audit
+          path: |
+            build/reports/performance/ryu-cpu-thermal-final.json
+            build/baserom/ryu-test-perf-manifest.json
+            build/baserom/ryu-test-thermal-profiles.json
           if-no-files-found: warn
           retention-days: 7
 
