@@ -1,0 +1,47 @@
+name: PowerKeeper A16 Safety Checks (test branch)
+on:
+  push:
+    branches: [test-powerkeeper-ryu-uid-identity]
+    paths:
+      - 'bin/package/NOTIFICATION_FIX/A16/**'
+      - 'packROM.sh'
+      - '.github/workflows/test-powerkeeper-a16-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
+          python3 -m py_compile \
+            bin/package/NOTIFICATION_FIX/A16/ryu_uid_policy_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py \
+            bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py \
+            bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
+      - name: Prevent unsafe staging of testkey system-UID APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path('bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh').read_text()
+          verifier = Path('bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh').read_text()
+          xiaomi_cert = 'c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025'
+          assert 'HYPERMOS_POWERKEEPER_MODE:-stock' in script
+          assert 'stock_check=$(java -jar "$signjar" verify' in script
+          assert 'cp -f "$signed" "$apk"' not in script
+          assert 'PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk' in script
+          assert xiaomi_cert in script and xiaomi_cert in verifier
+          assert 'cmp -s "$apk" "$packed"' in verifier
+          assert 'setenforce 0' not in script + verifier
+          print('PASS: stock signed PowerKeeper retained, offline-only patched APK')
+          PY
