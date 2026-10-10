@@ -33,7 +33,7 @@ def validate(artifact, rom):
     if not manifest_path.is_file():
         raise RuntimeError("Missing RYU thermal artifact manifest.json")
     items = json.loads(manifest_path.read_text(encoding="utf-8"))
-    entry_map = {x["partition"] + x["original_path"].lstrip("/"): x
+    entry_map = {x["partition"] + "/" + x["original_path"].lstrip("/"): x
                  for x in items}
     prepared = []
     for rel, expected_sha in EXPECTED.items():
