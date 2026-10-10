@@ -132,6 +132,13 @@ if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null; t
 fi
 [[ -s "$tmp/final/PowerKeeper.apk" ]] || { error "RYU_TEST: empty PowerKeeper output"; exit 1; }
 unzip -tq "$tmp/final/PowerKeeper.apk" >/dev/null
+# APKEditor may silently ignore newly created dex directories. Assert the
+# class definitions are genuinely present in the final binary, not only smali.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
+  --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/perfhook-port.json" || {
+  error "RYU PERFHOOK: compiled APK is missing required original classes"
+  exit 1
+}
 
 # Same APKEditor replacement path used by stable HyperMOS notification patch.
 # Signature/Android package-manager acceptance still needs on-device testing.
