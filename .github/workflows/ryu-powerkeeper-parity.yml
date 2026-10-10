@@ -12,6 +12,8 @@ on:
       - 'bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py'
       - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
       - 'bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py'
       - 'bin/audit/ryu_performance_parity.py'
 permissions:
   contents: read
@@ -108,8 +110,15 @@ jobs:
           print('[RYU PERFHOOK] class dependency + one-time initialization checks PASS')
           PY
           java -jar bin/apktool/apke.jar b -f -i /tmp/stock-powerkeeper-smali -o /tmp/verify-ryu-gms-powerkeeper.apk
+          python3 bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
+            --decoded /tmp/stock-powerkeeper-smali \
+            --apk /tmp/verify-ryu-gms-powerkeeper.apk \
+            --smali-jar bin/apktool/smaliv2.jar --api 36
+          python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
+            --apk /tmp/verify-ryu-gms-powerkeeper.apk \
+            --report reports/ryu-perfhook-install-report.json
           unzip -tq /tmp/verify-ryu-gms-powerkeeper.apk
-          echo '[PASS] RYU GMS + KillProcessController + original PerfHook assembled against genuine Xiaomi PowerKeeper'
+          echo '[PASS] RYU GMS + KillProcessController + original PerfHook compiled into genuine Xiaomi PowerKeeper'
           sha256sum /tmp/stock-apk/PowerKeeper.apk /tmp/ryu-apk/RYUOS_HAOTIAN_PowerKeeper.apk > reports/sha256sum.txt
       - name: Upload analysis only, no proprietary APK
         if: always()
