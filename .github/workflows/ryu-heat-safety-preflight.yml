@@ -42,6 +42,48 @@ jobs:
           assert "Preserve the device stock Smart FPS / LTPO behavior" in refresh
           print(f"[PASS] {len(active)} active modules: no thermal-nolimit/forced-CPU module")
           PY
+      - name: Validate actual uploaded RYU thermal ZIP with isolated ODM stock fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHERM'
+          import json, tempfile, zipfile
+          from pathlib import Path
+          from bin.modfile.UpdateFile.RYUPerfProfile.port_ryu_thermal_profiles import (
+              PROFILES, PROTECTED, prepare, run
+          )
+          with tempfile.TemporaryDirectory(prefix='ryu-thermal-test-') as temp:
+              root=Path(temp)
+              with zipfile.ZipFile('RYUOS-HAOTIAN-Thermal-Configs (1).zip') as archive:
+                  archive.extractall(root/'source')
+              artifact=root/'source'
+              manifest=json.loads((artifact/'manifest.json').read_text())
+              entries={x['partition']+'/'+x['original_path'].lstrip('/'): x for x in manifest}
+              images=root/'rom'/'images'
+              (images/'odm/etc').mkdir(parents=True)
+              existing=0
+              for suffix in PROFILES:
+                  rel=f'odm/etc/thermal-{suffix}.conf'
+                  if rel not in entries: continue
+                  raw=(artifact/entries[rel]['artifact_path']).read_bytes()
+                  stock=bytearray(raw)
+                  if suffix=='normal':
+                      stock[0]^=1
+                  (images/rel).write_bytes(stock)
+                  existing+=1
+              installed, skipped=prepare(artifact,images)
+              assert len(installed)>=18,(len(installed),skipped)
+              assert not set(PROFILES)&PROTECTED
+              run(artifact, images)
+              report=json.loads((images.parent/'ryu-test-thermal-profiles.json').read_text())
+              assert len(report['installed'])>=18
+              assert any(x['file']=='odm/etc/thermal-normal.conf' and x['changed']
+                         for x in report['installed'])
+              assert report['excluded_safety_profiles']==sorted(PROTECTED)
+              print('[PASS] Verified real archive manifest and',len(installed),
+                    'RYU ODM app profiles; charging/no-limit excluded')
+          PYTHERM
+
       - name: Exercise read-only performance parity report on fixtures
         shell: bash
         run: |
