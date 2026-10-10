@@ -3,12 +3,6 @@ name: Extract RYUOS HAOTIAN Thermal Configs
 on:
   workflow_call:
   workflow_dispatch:
-  push:
-    branches:
-      - test-ryu-performance-haotian
-    paths:
-      - '.github/workflows/ryu-extract-thermal.yml'
-      - 'bin/modfile/UpdateFile/RYUPerfProfile/**'
 
 permissions:
   contents: read
