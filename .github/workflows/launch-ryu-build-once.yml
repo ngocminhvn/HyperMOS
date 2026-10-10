@@ -1,4 +1,5 @@
 name: Start RYU Test ROM Build
+# New test run: verified RYU ODM app thermal profiles; preserve thermal safety.
 # Re-run after validated tracked thermal ZIP + explicit PowerKeeper DEX repair.
 on:
   push:
