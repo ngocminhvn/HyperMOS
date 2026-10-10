@@ -32,7 +32,8 @@ def compatible_smali(body):
     if FOREIGN_CLASS not in body:
         return body
     if body.count(RYU_SETTING) != 1 or FOREIGN_CLASS in body.replace(RYU_SETTING, ''):
-        raise ValueError('Unexpected external RYU framework dependency in PerfHook')
+        extra = [line.strip() for line in body.splitlines() if FOREIGN_CLASS in line]
+        raise ValueError('Unexpected external RYU framework dependency in PerfHook: ' + repr(extra[:12]))
     return body.replace(RYU_SETTING, ANDROID_SETTING)
 
 
