@@ -42,10 +42,10 @@ class HookTests(unittest.TestCase):
         self.extra = extra
 
     def test_dependency_closure_and_single_call(self):
-        _, classes, app_file, new_text, dex, call = prepare(self.ryu, self.stock)
+        src, classes, app_file, new_text, dex, call = prepare(self.ryu, self.stock)
         self.assertEqual(len(classes), 21)
-        self.assertIn(ANDROID_SETTING, compatible_smali(classes['Lcom/projectryu/perf/PerfHook;'][1]))
-        self.assertNotIn(RYU_SETTING, compatible_smali(classes['Lcom/projectryu/perf/PerfHook;'][1]))
+        self.assertIn(ANDROID_SETTING, compatible_smali(src['Lcom/projectryu/perf/PerfHook;'][1]))
+        self.assertNotIn(RYU_SETTING, compatible_smali(src['Lcom/projectryu/perf/PerfHook;'][1]))
         self.assertEqual(new_text.count(CALL), 1)
         self.assertEqual(new_text.count('PerfHook;->init()V'), 1)
         self.assertIn('hypermosInitRyuPerfHook', new_text)
