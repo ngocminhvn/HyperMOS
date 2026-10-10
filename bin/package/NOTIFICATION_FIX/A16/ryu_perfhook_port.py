@@ -99,17 +99,19 @@ def prepare(source_root, stock_root):
     helper = 'hypermosInitRyuPerfHook'
     if CALL in block or helper in app_src:
         raise ValueError('PerfHook already integrated into stock Application')
+    # Original RYU onCreate starts PerfHook at the tail, after PowerKeeper
+    # has initialized its own controllers. Avoid starting it right after super.
     supercall = re.search(
-        r'(?m)^([ \t]*invoke-super(?:/range)?\s+\{p0\},\s*L[^;]+;->onCreate\(\)V)[ \t]*$',
+        r'(?m)^[ \t]*invoke-super(?:/range)?\s+\{p0\},\s*L[^;]+;->onCreate\(\)V',
         block)
-    if not supercall or len(re.findall(
-        r'(?m)^\s*invoke-super[^\n]*->onCreate\(\)V', block)) != 1:
-        raise ValueError('Unexpected super.onCreate layout')
-    invoke_helper = (
-        '\n    # RYU PerfHook singleton plus init, called only once\n'
+    returns = list(re.finditer(r'(?m)^[ \t]*return-void[ \t]*$', block))
+    if not supercall or len(returns) != 1:
+        raise ValueError('Unexpected stock PowerKeeperApplication onCreate layout')
+    helper_call = (
+        '    # RYU PerfHook: start after the other PowerKeeper components\n'
         '    invoke-direct {p0}, ' + APP + '->' + helper + '()V\n'
     )
-    new_method = block[:supercall.end()] + invoke_helper + block[supercall.end():]
+    new_method = block[:returns[0].start()] + helper_call + block[returns[0].start():]
     extra_method = (
         '\n.method private ' + helper + '()V\n'
         '    .locals 1\n\n'
