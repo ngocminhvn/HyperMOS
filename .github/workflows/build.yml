@@ -99,13 +99,19 @@ jobs:
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py
-          # PowerKeeper is signed during the ROM build, using the SAME fixed
-          # testkey as InstallerX. Missing signer/key is a pre-download error.
+          # Keep the RYU bytecode integration testable without silently
+          # staging its test-signed output as an Android UID-1000 system app.
           test -s bin/apktool/apksigner.jar
           test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8
           test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
-          grep -Fq 'cp -f "$signed" "$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
-          grep -Fq 'signature_output=' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          grep -Fq 'PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          if grep -Fq 'cp -f "$signed" "$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh; then
+            echo "::error::Refusing to replace UID-1000 PowerKeeper with a non-Xiaomi-signed APK"
+            exit 1
+          fi
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_uid_policy_a16.py
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_uid_policy_a16.py -v
           python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
           (cd bin/package/NOTIFICATION_FIX/A16 && python3 -m unittest -q test_ryu_perfhook_port.py)
           python3 bin/package/COREPATCH/test_ryu_policy_a16.py
@@ -128,10 +134,10 @@ jobs:
           python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py
           python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py
           bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
-          [[ "$GITHUB_REF_NAME" == "test-ryu-performance-haotian" ]] || {
-            echo "::error::Full RYU performance test must run only from the test branch"
-            exit 1
-          }
+          case "$GITHUB_REF_NAME" in
+            test-ryu-performance-haotian|test-powerkeeper-ryu-uid-identity) ;;
+            *) echo "::error::RYU performance test is allowed on dedicated RYU test branches only"; exit 1 ;;
+          esac
           zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
           test -s "$zip" || { echo "::error::RYU thermal archive not found in test branch"; exit 1; }
           expected_blob="34c23e2bc75d5e46c2e5688077d76d7e46562d64"
