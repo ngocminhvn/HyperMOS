@@ -33,7 +33,11 @@ def require(root: ET.Element, path: Path, tag: str, attr: str, value: str) -> No
 
 def validate() -> None:
     google = read(GOOGLE)
-    push = read(PUSH)
+    # RYU parity: Google's own stock sysconfig is the only GMS exemption source
+    # shipped by this module. The old HyperMOS push XML added rules absent from
+    # the original RYU HAOTIAN sysconfig.
+    if PUSH.exists():
+        raise ValueError(f"{PUSH.name}: extra GMS push exemptions not present in RYU")
     # The two existing, valid Google backup transport declarations must be preserved.
     backup = [node.get("service") for node in google
               if node.tag == "backup-transport-whitelisted-service"]
@@ -52,26 +56,29 @@ def validate() -> None:
            for el in preinstall.iter()):
         raise ValueError("Google Maps auto-install rule remains")
 
-    # RYU A16 trial: protect GMS push delivery but do not force background
-    # exemption for GSF/Play Store. Keep authorization and broadcast rules.
+    # Actual RYUOS HAOTIAN product/etc/sysconfig/google.xml grants GMS
+    # precisely these power/data-saver exemptions; it DOES NOT grant the
+    # extra bg-restriction-exemption HyperMOS previously injected.
     for tag in ("allow-in-power-save", "allow-in-data-usage-save"):
         require(google, GOOGLE, tag, "package", "com.google.android.gms")
-        require(push, PUSH, tag, "package", "com.google.android.gms")
-    require(push, PUSH, "bg-restriction-exemption", "package", "com.google.android.gms")
-    for package in ("com.google.android.gsf", "com.android.vending"):
-        for tag in ("allow-in-power-save", "allow-in-data-usage-save", "bg-restriction-exemption"):
-            if any(node.tag == tag and node.get("package") == package for node in push):
-                raise ValueError(f"{PUSH.name}: unexpected broad {tag} exemption for {package}")
+    for tag in ("allow-in-power-save", "allow-in-data-usage-save", "bg-restriction-exemption"):
+        for package in ("com.google.android.gsf", "com.android.vending"):
+            if any(node.tag == tag and node.get("package") == package for node in google):
+                raise ValueError(f"google.xml: extra {tag} for {package}")
+    if any(node.tag == "bg-restriction-exemption" and
+           node.get("package") == "com.google.android.gms" for node in google):
+        raise ValueError("google.xml: extra GMS background restriction exemption")
     require(google, GOOGLE, "allow-implicit-broadcast", "action",
             "com.google.android.c2dm.intent.RECEIVE")
-    for action in ("com.google.android.c2dm.intent.RECEIVE",
-                   "com.google.android.gcm.intent.RETRY",
+    for action in ("com.google.android.gcm.intent.RETRY",
                    "com.google.android.intent.action.GCM_RECONNECT"):
-        require(push, PUSH, "allow-implicit-broadcast", "action", action)
+        if any(node.tag == "allow-implicit-broadcast" and
+               node.get("action") == action for node in google):
+            raise ValueError(f"google.xml: extra non-RYU implicit broadcast {action}")
     print("[OK] Android 16 GMS sysconfig parses correctly")
     print("[OK] Both GMS backup transports preserved")
     print("[OK] Google Maps APK and auto-install rule absent")
-    print("[OK] GMS FCM exemptions kept; extra GSF and Play Store exemptions retired")
+    print("[OK] Exact RYU GMS power/data-saver exemption set; extra HyperMOS push XML absent")
 
 
 if __name__ == "__main__":
