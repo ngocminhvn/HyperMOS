@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ryu_perfhook_port import CALL, prepare, main
+from ryu_perfhook_port import CALL, RYU_SETTING, ANDROID_SETTING, compatible_smali, prepare
 
 class HookTests(unittest.TestCase):
     def setUp(self):
@@ -33,16 +33,19 @@ class HookTests(unittest.TestCase):
             name = 'Lcom/projectryu/perf/PerfHook' + ('$' + str(n) if n else '') + ';'
             dest = self.ryu / 'smali' / (name[1:-1] + '.smali')
             dest.parent.mkdir(parents=True, exist_ok=True)
-            extra = '    # Lcom/projectryu/ProjectRYUFramework;\n' if n == 0 else ''
+            extra = ('    invoke-static {v0, v1}, ' + RYU_SETTING + '\n' +
+                     '    invoke-static {}, Lcom/projectryu/RyuHelper;->noop()V\n') if n == 0 else ''
             dest.write_text('.class public ' + name + '\n.super Ljava/lang/Object;\n' + extra +
                             ('.method public init()V\n    .locals 0\n    return-void\n.end method\n' if n == 0 else ''))
-        extra = self.ryu / 'smali/com/projectryu/ProjectRYUFramework.smali'
-        extra.write_text('.class public Lcom/projectryu/ProjectRYUFramework;\n.super Ljava/lang/Object;\n')
+        extra = self.ryu / 'smali/com/projectryu/RyuHelper.smali'
+        extra.write_text('.class public Lcom/projectryu/RyuHelper;\n.super Ljava/lang/Object;\n')
         self.extra = extra
 
     def test_dependency_closure_and_single_call(self):
         _, classes, app_file, new_text, dex, call = prepare(self.ryu, self.stock)
         self.assertEqual(len(classes), 21)
+        self.assertIn(ANDROID_SETTING, compatible_smali(classes['Lcom/projectryu/perf/PerfHook;'][1]))
+        self.assertNotIn(RYU_SETTING, compatible_smali(classes['Lcom/projectryu/perf/PerfHook;'][1]))
         self.assertEqual(new_text.count(CALL), 1)
         self.assertEqual(new_text.count('PerfHook;->init()V'), 1)
         self.assertIn('hypermosInitRyuPerfHook', new_text)
