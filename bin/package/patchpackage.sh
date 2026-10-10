@@ -6,11 +6,11 @@ target_dir="$work_dir/bin/package/"
 
 # HyperMOS owns signature/CorePatch/FLAG_SECURE first.
 info "PATCH 1/5: CorePatch / signature"
-bash $target_dir/COREPATCH/update.sh
+bash $target_dir/COREPATCH/update.sh || exit 1
 info "PATCH 2/5: AVB"
 bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
 info "PATCH 3/5: Notification"
-bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh
+bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh || exit 1
 
 # Kaorios must see the final framework/services state from the patches above.
 # It only adds Kaorios hooks; it does not duplicate FLAG_SECURE/CorePatch.
