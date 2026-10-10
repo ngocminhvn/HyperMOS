@@ -26,6 +26,10 @@ on:
           - drive
           - pixeldrain
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -73,6 +77,50 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      # RYU experimental profile is fetched BEFORE ROM build and only on this branch.
+      # Reject stale/truncated artifacts; never silently fall back to Xiaomi stock.
+      - name: Load genuine RYU powerhint/perf artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py
+          bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
+          [[ "$GITHUB_REF_NAME" == "test-ryu-performance-haotian" ]] || {
+            echo "::error::RYU full test must run from test-ryu-performance-haotian"
+            exit 1
+          }
+          # Only valid, non-expired archives; one previous failed extraction had
+          # a 156-byte artifact containing only partition-info.json.
+          mapfile -t candidates < <(
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=RYUOS-HAOTIAN-Thermal-Configs&per_page=100" \
+              --jq '[.artifacts[] | select(.expired == false and .size_in_bytes > 30000)] | sort_by(.created_at) | reverse | .[].workflow_run.id'
+          )
+          if (( ${#candidates[@]} == 0 )); then
+            echo "::error::No complete RYU thermal artifact. Run ryu-extract-thermal.yml first."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/ryu-reference"
+          for run in "${candidates[@]}"; do
+            rm -rf "$RUNNER_TEMP/ryu-reference"
+            mkdir -p "$RUNNER_TEMP/ryu-reference"
+            if gh run download "$run" --repo "$GITHUB_REPOSITORY" \
+                --name RYUOS-HAOTIAN-Thermal-Configs \
+                --dir "$RUNNER_TEMP/ryu-reference"; then
+              if [[ -s "$RUNNER_TEMP/ryu-reference/manifest.json" \
+                 && -s "$RUNNER_TEMP/ryu-reference/files/vendor/etc/perf/perfboostsconfig.xml" \
+                 && -s "$RUNNER_TEMP/ryu-reference/files/odm/etc/powerhint.xml" ]]; then
+                echo "RYU_REF_DIR=$RUNNER_TEMP/ryu-reference" >> "$GITHUB_ENV"
+                echo "[RYU] Valid artifact from run $run"
+                exit 0
+              fi
+            fi
+            echo "::warning::Ignoring incomplete RYU artifact from run $run"
+          done
+          echo "::error::No usable RYU perf/powerhint extraction. Run ryu-extract-thermal.yml."
+          exit 1
 
       - name: Prepare build environment
         shell: bash
