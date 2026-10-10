@@ -131,6 +131,33 @@ jobs:
             -i /tmp/ryu-perfhook-synthetic -o /tmp/ryu-perfhook-verify.apk
           test -s /tmp/ryu-perfhook-verify.apk
           unzip -tq /tmp/ryu-perfhook-verify.apk
+          # Verify the raw smali files exist, and compare DEX definitions.
+          test -s /tmp/ryu-perfhook-synthetic/smali/com/projectryu/perf/PerfHook.smali
+          python3 - <<'PYDIAG'
+          import sys, zipfile
+          from pathlib import Path
+          sys.path.insert(0, 'bin/package/NOTIFICATION_FIX/A16')
+          from verify_perfhook_apk import defined_classes
+          p = Path('/tmp/ryu-perfhook-verify.apk')
+          with zipfile.ZipFile(p) as z:
+              for name in z.namelist():
+                  if name.startswith('classes') and name.endswith('.dex'):
+                      classes = defined_classes(z.read(name))
+                      ryu = [c for c in classes if c.startswith('Lcom/projectryu/')]
+                      print('[RYU TEST DIAG] APK dex:', name, 'class defs:', len(classes),
+                            'RYU defs:', len(ryu), 'sample:', ryu[:5])
+          PYDIAG
+          java -jar bin/apktool/smaliv2.jar a --api 36 \
+            /tmp/ryu-perfhook-synthetic/smali -o /tmp/ryu-direct-classes.dex
+          python3 - <<'PYDIAG'
+          import sys
+          sys.path.insert(0, 'bin/package/NOTIFICATION_FIX/A16')
+          from verify_perfhook_apk import defined_classes
+          data = open('/tmp/ryu-direct-classes.dex', 'rb').read()
+          classes = defined_classes(data)
+          print('[RYU TEST DIAG] Direct smali class defs:', len(classes),
+                'RYU defs:', len([c for c in classes if c.startswith('Lcom/projectryu/')]))
+          PYDIAG
           python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
             --apk /tmp/ryu-perfhook-verify.apk \
             --report reports/ryu-perfhook-synthetic-install.json
