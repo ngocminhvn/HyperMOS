@@ -51,7 +51,7 @@ def verify(apk: Path, report: Path) -> None:
         raise ValueError("Incomplete expected PerfHook class list")
     with zipfile.ZipFile(apk) as archive:
         files = [name for name in archive.namelist()
-                 if re.fullmatch(r"classes(?:[2-9]\\d*)?\\.dex", name)]
+                 if re.fullmatch(r"classes(?:[2-9]\d*)?\.dex", name)]
         if not files:
             raise ValueError("No compiled DEX found in APK")
         actual = set()
