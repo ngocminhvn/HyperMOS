@@ -110,6 +110,9 @@ jobs:
           (cd bin/package/NOTIFICATION_FIX/A16 && python3 -m unittest -q test_ryu_perfhook_port.py)
           python3 bin/package/COREPATCH/test_ryu_policy_a16.py
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
+          bash -n packROM.sh
+          grep -Fq 'verify_packed_powerkeeper.sh' packROM.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
           bash -n bin/package/patchpackage.sh
