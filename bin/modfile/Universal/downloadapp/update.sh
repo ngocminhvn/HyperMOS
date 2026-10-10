@@ -111,6 +111,20 @@ mods "Installing downloadapp APKs"
 
 for apk in "${apks[@]}"; do
   file="$(basename "$apk")"
+
+  # When the ROM is patched with KernelSU Next, do not preload its manager
+  # (or a competing SukiSU/KernelSU manager). The matching signed APK is
+  # copied to the phone's Download directory after first unlock instead.
+  # Stock mode deliberately preserves existing HyperMOS preload behavior.
+  if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
+    case "$file" in
+      SukiSU*.apk|KernelSU*.apk|KSU*.apk)
+        mods "downloadapp: skip competing/preinstalled root manager: $file"
+        continue
+        ;;
+    esac
+  fi
+
   name="${file%.apk}"
   safe_name="$(printf '%s' "$name" | tr -cs 'A-Za-z0-9._-' '_')"
 
