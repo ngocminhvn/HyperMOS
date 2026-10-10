@@ -97,7 +97,15 @@ jobs:
           echo "7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  $RYU_APK" | sha256sum -c -
           unzip -tq "$RYU_APK"
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py
+          python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
+          (cd bin/package/NOTIFICATION_FIX/A16 && python3 -m unittest -q test_ryu_perfhook_port.py)
+          python3 bin/package/COREPATCH/test_ryu_policy_a16.py
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          bash -n bin/package/COREPATCH/jar_patcher_a16.sh
+          bash -n bin/package/COREPATCH/update.sh
+          bash -n bin/package/patchpackage.sh
           echo "RYU_POWERKEEPER_APK=$RYU_APK" >> "$GITHUB_ENV"
           echo "[PASS] Genuine RYU PerfHook source and integration scripts ready"
 
@@ -115,6 +123,12 @@ jobs:
           }
           zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
           test -s "$zip" || { echo "::error::RYU thermal archive not found in test branch"; exit 1; }
+          expected_blob="34c23e2bc75d5e46c2e5688077d76d7e46562d64"
+          actual_blob="$(git hash-object "$zip")"
+          [[ "$actual_blob" == "$expected_blob" ]] || {
+            echo "::error::Checked-in RYU ZIP differs from approved source blob"
+            exit 1
+          }
           unzip -tq "$zip"
           ref="$RUNNER_TEMP/ryu-reference"
           mkdir -p "$ref"
