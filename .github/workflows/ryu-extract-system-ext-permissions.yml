@@ -39,20 +39,108 @@ jobs:
           python3 -m py_compile bin/lpunpack.py bin/audit/ryu_super_partitions.py
           df -h /tmp
 
-      - name: Download and validate original RYU CN ROM
+      - name: Probe US mirrors on the actual runner, then download RYU CN ROM
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 --speed-time 180 --speed-limit 1024 --output /tmp/ryu-rom.zip "$RYU_URL"
-          echo "$RYU_SHA256  /tmp/ryu-rom.zip" | sha256sum -c -
+          mkdir -p /tmp/ryu-audit
           python3 - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from pathlib import Path
+          import time
+          from urllib.request import Request, urlopen
+
+          # US mirrors are candidates, not guarantees: prefer measured speed.
+          rel = "project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip"
+          names = ("pilotfiber", "versaweb", "phoenixnap", "netactuate", "cfhcable")
+          candidates = [(n, f"https://{n}.dl.sourceforge.net/{rel}") for n in names]
+          candidates.append(("sourceforge-auto", "https://downloads.sourceforge.net/" + rel))
+
+          def probe(item):
+              label, url = item
+              started = time.monotonic()
+              try:
+                  req = Request(url, headers={
+                      "Range": "bytes=0-1048575",
+                      "User-Agent": "Mozilla/5.0 (compatible; HyperMOS-Action/1.0)",
+                      "Accept": "application/octet-stream",
+                  })
+                  with urlopen(req, timeout=14) as response:
+                      if response.status not in (200, 206):
+                          raise ValueError(f"HTTP {response.status}")
+                      data = response.read(4)
+                      if data != b"PK\x03\x04":
+                          raise ValueError("Not a ZIP response (mirror may return HTML)")
+                      received = len(data)
+                      while received < 1048576:
+                          if time.monotonic() - started >= 15:
+                              break
+                          buf = response.read(min(65536, 1048576 - received))
+                          if not buf:
+                              break
+                          received += len(buf)
+                      if received < 65536:
+                          raise ValueError("Insufficient download sample")
+                  elapsed = max(time.monotonic() - started, .001)
+                  rate = received / elapsed / 1048576
+                  return (label, url, rate, "")
+              except Exception as err:
+                  return (label, url, -1, str(err))
+
+          with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
+              results = [f.result() for f in as_completed(pool.submit(probe, c) for c in candidates)]
+          results.sort(key=lambda x: x[2], reverse=True)
+          print("=== RYU mirror probe (measured from GitHub runner) ===", flush=True)
+          for label, url, rate, reason in results:
+              print(f"{label:18} {'%.2f MiB/s' % rate if rate >= 0 else 'probe failed'} {reason}", flush=True)
+          # Even an unsuccessful probe must not prevent an actual download attempt.
+          Path("/tmp/ryu-audit/mirrors.txt").write_text(
+              "".join(url + "\n" for _, url, _, _ in results), encoding="utf-8"
+          )
+          PY
+
+          success=0
+          while IFS= read -r mirror; do
+            test -n "$mirror" || continue
+            echo "::group::Download RYU ROM via $mirror"
+            rm -f /tmp/ryu-rom.zip
+            # Abort stalled/very slow mirrors; never reuse a partial file across mirrors.
+            if curl --fail --location --retry 2 --retry-all-errors \
+                --retry-delay 3 --connect-timeout 20 --max-time 1500 \
+                --speed-time 60 --speed-limit 1048576 --progress-bar \
+                --output /tmp/ryu-rom.zip "$mirror"; then
+              if echo "$RYU_SHA256  /tmp/ryu-rom.zip" | sha256sum -c -; then
+                if python3 - <<'PY'
           import zipfile
           with zipfile.ZipFile('/tmp/ryu-rom.zip') as arc:
               entries = [x for x in arc.infolist() if x.filename.endswith('/super.img')]
               assert len(entries) == 1, f'Expected super.img, found {len(entries)}'
               assert entries[0].file_size > 1024**3
-              print(f'Source: {entries[0].filename}, super bytes: {entries[0].file_size}')
+              print(f'Validated RYU ROM: {entries[0].filename}, size {entries[0].file_size}')
           PY
+                then
+                  echo "Selected mirror: $mirror"
+                  printf '%s\n' "$mirror" > /tmp/ryu-audit/selected-mirror.txt
+                  success=1
+                  echo "::endgroup::"
+                  break
+                fi
+              else
+                echo "::warning::Pinned SHA256 does not match; refusing unverified ROM"
+                # Different mirrors should serve identical bytes. Avoid downloading
+                # the same invalid payload repeatedly if the checksum is wrong.
+                echo "::endgroup::"
+                exit 1
+              fi
+            fi
+            echo "::warning::Mirror download failed; trying next candidate"
+            echo "::endgroup::"
+          done < /tmp/ryu-audit/mirrors.txt
+          if [ "$success" -ne 1 ]; then
+            echo "::error::All RYU download mirrors failed"
+            exit 1
+          fi
+          ls -lh /tmp/ryu-rom.zip
           df -h /tmp
 
       - name: Extract only super.img and enumerate partitions
