@@ -106,7 +106,7 @@ jobs:
             rm -f /tmp/ryu-rom.zip
             # Abort stalled/very slow mirrors; never reuse a partial file across mirrors.
             if curl --fail --location --retry 2 --retry-all-errors \
-                --retry-delay 3 --connect-timeout 20 --max-time 1500 \
+                --retry-delay 3 --connect-timeout 20 --max-time 3600 \
                 --speed-time 60 --speed-limit 1048576 --progress-bar \
                 --output /tmp/ryu-rom.zip "$mirror"; then
               if echo "$RYU_SHA256  /tmp/ryu-rom.zip" | sha256sum -c -; then
