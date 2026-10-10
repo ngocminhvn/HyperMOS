@@ -34,7 +34,8 @@ class HookTests(unittest.TestCase):
             dest = self.ryu / 'smali' / (name[1:-1] + '.smali')
             dest.parent.mkdir(parents=True, exist_ok=True)
             extra = '    # Lcom/projectryu/ProjectRYUFramework;\n' if n == 0 else ''
-            dest.write_text('.class public ' + name + '\n.super Ljava/lang/Object;\n' + extra +\n                            ('.method public init()V\n    .locals 0\n    return-void\n.end method\n' if n == 0 else ''))
+            dest.write_text('.class public ' + name + '\n.super Ljava/lang/Object;\n' + extra +
+                            ('.method public init()V\n    .locals 0\n    return-void\n.end method\n' if n == 0 else ''))
         extra = self.ryu / 'smali/com/projectryu/ProjectRYUFramework.smali'
         extra.write_text('.class public Lcom/projectryu/ProjectRYUFramework;\n.super Ljava/lang/Object;\n')
         self.extra = extra
