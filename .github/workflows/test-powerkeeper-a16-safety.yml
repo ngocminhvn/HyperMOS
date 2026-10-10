@@ -1,11 +1,15 @@
-name: PowerKeeper A16 Safety Checks (test branch)
+name: RYU CPU Thermal + Xiaomi PowerKeeper Safety
 on:
   push:
     branches: [test-powerkeeper-ryu-uid-identity]
     paths:
       - 'bin/package/NOTIFICATION_FIX/A16/**'
-      - 'packROM.sh'
+      - 'bin/modfile/UpdateFile/RYUPerfProfile/**'
+      - 'bin/modfile/UpdateFile/TNM/**'
+      - 'bin/package/COREPATCH/**'
       - '.github/workflows/build.yml'
+      - 'build.sh'
+      - 'packROM.sh'
       - '.github/workflows/test-powerkeeper-a16-safety.yml'
   workflow_dispatch:
 
@@ -17,35 +21,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Syntax check
+      - name: Syntax of selected stock + RYU profile
         shell: bash
         run: |
           set -euo pipefail
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
+          bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
+          bash -n bin/modfile/UpdateFile/TNM/update.sh
+          bash -n bin/package/COREPATCH/update.sh
+          bash -n build.sh
+          bash -n packROM.sh
           python3 -m py_compile \
-            bin/package/NOTIFICATION_FIX/A16/ryu_uid_policy_a16.py \
-            bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py \
-            bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py \
-            bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
-      - name: RYU UID-policy ABI regression tests
-        run: |
-          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_uid_policy_a16.py -v
-      - name: Prevent unsafe staging of testkey system-UID APK
+            bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py \
+            bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py \
+            bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py \
+            bin/package/COREPATCH/ryu_policy_a16.py
+          python3 bin/package/COREPATCH/test_ryu_policy_a16.py
+      - name: Reject runtime hooks and testkey PowerKeeper replacement
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          script = Path('bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh').read_text()
-          verifier = Path('bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh').read_text()
-          xiaomi_cert = 'c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025'
-          assert 'HYPERMOS_POWERKEEPER_MODE:-offline' in script
-          assert 'stock_check=$(java -jar "$signjar" verify' in script
-          assert 'cp -f "$signed" "$apk"' not in script
-          assert 'PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk' in script
-          assert xiaomi_cert in script and xiaomi_cert in verifier
-          assert 'cmp -s "$apk" "$packed"' in verifier
-          assert 'setenforce 0' not in script + verifier
-          print('PASS: stock signed PowerKeeper retained, offline-only patched APK')
+          pk = Path('bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh').read_text()
+          packed = Path('bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh').read_text()
+          build = Path('build.sh').read_text()
+          workflow = Path('.github/workflows/build.yml').read_text()
+          perf = Path('bin/modfile/UpdateFile/RYUPerfProfile/update.sh').read_text()
+          tnm = Path('bin/modfile/UpdateFile/TNM/tnm-bridge').read_text()
+          expected = 'c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025'
+          assert expected in pk and expected in packed
+          assert 'xiaomi-stock-unchanged' in pk
+          assert 'RYU_POWERKEEPER_APK' not in pk and 'APKEDITOR' not in pk
+          assert 'PowerKeeper-RYU-OFFLINE-NOT-FOR-FLASH' not in workflow
+          assert 'Fetch verified original RYU PowerKeeper' not in workflow
+          assert 'verify_ryu_perf_final.py' in build
+          assert 'port_ryu_perf.py' in perf and 'port_ryu_thermal_profiles.py' in perf
+          assert 'exec "$BACKEND" "$@"' in tnm
+          assert 'setenforce 0' not in pk and 'setenforce 0' not in packed
+          print('PASS: Xiaomi PowerKeeper unchanged, RYU CPU/thermal verified, TNM on demand')
           PY
