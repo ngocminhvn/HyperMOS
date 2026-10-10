@@ -97,9 +97,17 @@ def run(artifact: Path, images: Path):
         for dst, stock in reversed(completed):
             dst.write_bytes(stock)
         raise
+    protected_before = {}
+    for partition in ("odm", "vendor"):
+        for suffix in sorted(PROTECTED):
+            rel = f"{partition}/etc/thermal-{suffix}.conf"
+            path = images / rel
+            if path.is_file() and not path.is_symlink():
+                protected_before[rel] = sha(path.read_bytes())
     result = dict(mode="RYU application-facing ODM thermal profiles",
                   installed=report, skipped=skipped,
                   excluded_safety_profiles=sorted(PROTECTED),
+                  protected_stock_sha256=protected_before,
                   kernel_thermald_and_charging_unchanged=True)
     (images.parent / "ryu-test-thermal-profiles.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
