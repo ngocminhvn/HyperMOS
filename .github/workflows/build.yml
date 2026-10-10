@@ -93,9 +93,11 @@ jobs:
           set -euo pipefail
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
-          grep -Fq 'xiaomi-stock-unchanged' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
-          if grep -Eq 'APKEDITOR|RYU_POWERKEEPER_APK|cp -f "\$signed" "\$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh; then
-            echo "::error::PowerKeeper is stock-only in this profile"
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_powerkeeper_rom_verifier.py
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p 'test_ryu*.py'
+          if grep -Eq 'apksigner.* sign|sign_key=|cp -f "\$signed" "\$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh; then
+            echo "::error::PowerKeeper must not be re-signed with Android/testkey"
             exit 1
           fi
           python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
@@ -105,7 +107,7 @@ jobs:
           bash -n bin/package/patchpackage.sh
           bash -n packROM.sh
           grep -Fq 'verify_packed_powerkeeper.sh' packROM.sh
-          echo "[PASS] Original PowerKeeper + RYU framework patch code validated"
+          echo "[PASS] Patched PowerKeeper with retained Xiaomi certificate + RYU framework validated"
 
       # Use the 181 KB source archive committed to this test branch.
       # No RYU ROM download, super.img unpack, or extraction job required.
@@ -158,6 +160,22 @@ jobs:
           print('[RYU] Genuine source hashes verified for',len(found),'key performance files')
           PY
           echo "RYU_REF_DIR=$ref" >> "$GITHUB_ENV"
+
+      - name: Fetch pinned RYU PowerKeeper metadata and PerfHook reference
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-PowerKeeper
+          run-id: 37916279893
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/ryu-powerkeeper
+
+      - name: Validate PowerKeeper reference
+        shell: bash
+        run: |
+          ref="$RUNNER_TEMP/ryu-powerkeeper/RYUOS_HAOTIAN_PowerKeeper.apk"
+          echo "7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  $ref" | sha256sum -c -
+          echo "RYU_POWERKEEPER_APK=$ref" >> "$GITHUB_ENV"
 
       - name: Prepare build environment
         shell: bash
@@ -266,12 +284,12 @@ jobs:
           sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
             "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
 
-      - name: Publish Xiaomi PowerKeeper identity report
+      - name: Publish patched PowerKeeper identity and DEX reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HyperMOS-PowerKeeper-Xiaomi-Stock-Identity
-          path: build/reports/powerkeeper-a16/stock-identity.json
+          name: HyperMOS-PowerKeeper-Xiaomi-Certificate-Identity
+          path: build/reports/powerkeeper-a16/
           if-no-files-found: warn
           retention-days: 7
 

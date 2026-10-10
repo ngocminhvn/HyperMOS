@@ -32,7 +32,8 @@ def rebuild(decoded: Path, apk: Path, smali_jar: Path, api: int) -> None:
         raise ValueError("No decoded smali directories to compile")
     if not apk.is_file() or not smali_jar.is_file():
         raise ValueError("Rebuilt PowerKeeper APK or smali assembler is missing")
-    with tempfile.TemporaryDirectory(prefix="ryu-powerkeeper-dex-") as temp_dir:
+    # os.replace must stay on the output filesystem (Windows and mounted CI disks).
+    with tempfile.TemporaryDirectory(prefix="ryu-powerkeeper-dex-", dir=apk.resolve().parent) as temp_dir:
         temp = Path(temp_dir)
         replacements = {}
         for folder in folders:

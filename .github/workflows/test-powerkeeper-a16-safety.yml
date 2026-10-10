@@ -24,12 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Syntax of selected stock + RYU profile
+      - name: Syntax of patched Xiaomi identity + RYU profile
         shell: bash
         run: |
           set -euo pipefail
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p 'test_ryu*.py'
           bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           bash -n bin/package/COREPATCH/update.sh
@@ -60,9 +61,12 @@ jobs:
           perf = Path('bin/modfile/UpdateFile/RYUPerfProfile/update.sh').read_text()
           tnm = Path('bin/modfile/UpdateFile/TNM/tnm-bridge').read_text()
           expected = 'c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025'
-          assert expected in pk and expected in packed
-          assert 'xiaomi-stock-unchanged' in pk
-          assert 'RYU_POWERKEEPER_APK' not in pk and 'APKEDITOR' not in pk
+          identity = Path('bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py').read_text()
+          assert expected in identity
+          assert 'preserve_powerkeeper_identity.py' in pk and 'preserve_powerkeeper_identity.py' in packed
+          assert 'verify_powerkeeper_rom_verifier.py' in pk
+          assert 'sign_key=' not in pk and 'sign_cert=' not in pk
+          assert 'RYU_POWERKEEPER_APK' in pk and 'APKEDITOR' in pk
           assert 'PowerKeeper-RYU-OFFLINE-NOT-FOR-FLASH' not in workflow
           assert 'Fetch verified original RYU PowerKeeper' not in workflow
           assert 'verify_ryu_perf_final.py' in build
