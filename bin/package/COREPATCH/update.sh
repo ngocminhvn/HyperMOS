@@ -22,7 +22,7 @@ elif [[ $AndroidVER == "16" ]];then
         --cn-notification-fix \
         --ryu-notification-policy \
         --ryu-low-power-doze \
-        --disable-secure-flag
+        --disable-secure-flag || exit 1
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh
 fi
