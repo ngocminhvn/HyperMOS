@@ -24,11 +24,21 @@ ensure_source() {
     # A bind mount retains the data file's SELinux label. Files under
     # /data/system are not necessarily readable by ordinary app processes.
     # Match a stock /system file BEFORE mounting; never disable SELinux.
+    # Android Toybox chcon accepts "chcon CONTEXT FILE", not GNU --reference.
+    # /system/build.prop is a stable stock reference, even when hosts is bound.
     if command -v chcon >/dev/null 2>&1; then
-        chcon --reference=/system/build.prop "$SRC" || {
-            log "cannot label hosts like /system/build.prop"
-            return 1
-        }
+        expected_context="$(ls -Zd /system/build.prop 2>/dev/null | awk 'NR==1 {print $1}')"
+        case "$expected_context" in
+            *:object_r:*:s*) ;;
+            *) log "cannot read stock system SELinux context"; return 1 ;;
+        esac
+        current_context="$(ls -Zd "$SRC" 2>/dev/null | awk 'NR==1 {print $1}')"
+        if [ "$current_context" != "$expected_context" ]; then
+            chcon "$expected_context" "$SRC" || {
+                log "cannot label hosts with $expected_context"
+                return 1
+            }
+        fi
     fi
     if [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
         src_type="$(ls -Zd "$SRC" 2>/dev/null | awk '{print $1}')"
