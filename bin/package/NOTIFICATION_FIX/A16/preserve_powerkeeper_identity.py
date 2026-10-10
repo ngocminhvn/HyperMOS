@@ -6,6 +6,7 @@ provides the original v1 metadata; only compiled DEX is taken from the rebuild.
 The ROM must have the already audited v1/digest bypass enabled.
 """
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -118,7 +119,9 @@ def rebuild(base, patched, reference, output, signer, java):
                     if member.filename.upper().startswith('META-INF/'):
                         continue
                     raw = rebuilt.read(member.filename) if member.filename in dex else original.read(member)
-                    dest.writestr(member, raw)
+                    # writestr updates header_offset and sizes on its ZipInfo.
+                    # Keep the original entry intact for subsequent stock reads.
+                    dest.writestr(copy.copy(member), raw)
                 for name, raw in meta.items():
                     dest.writestr(name, raw, compress_type=zipfile.ZIP_DEFLATED)
             report = verify(candidate, reference)

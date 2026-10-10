@@ -53,6 +53,20 @@ class IdentityTest(unittest.TestCase):
         with self.assertRaises(ValueError): self.build('a40da80a')
         self.assertFalse(self.output.exists())
 
+    def test_preserves_stock_offsets_when_metadata_removed_and_dex_grows(self):
+        self.write(self.base, {'META-INF/OLD.SF': b'old-stock-signature',
+                              'classes.dex': b'stock-dex',
+                              'assets/policy': b'unchanged-policy',
+                              'AndroidManifest.xml': b'stock-manifest'})
+        self.write(self.patched, {'classes.dex': b'larger-patched-dex' * 20})
+        before = self.base.read_bytes()
+        self.build()
+        self.assertEqual(self.base.read_bytes(), before)
+        with zipfile.ZipFile(self.base) as original, zipfile.ZipFile(self.output) as final:
+            self.assertEqual(original.read('assets/policy'), final.read('assets/policy'))
+            self.assertEqual(original.read('AndroidManifest.xml'), final.read('AndroidManifest.xml'))
+            self.assertEqual(final.read('classes.dex'), b'larger-patched-dex' * 20)
+
     def test_rejects_reference_tampering(self):
         self.reference.write_bytes(self.reference.read_bytes() + b'tamper')
         with self.assertRaisesRegex(ValueError, 'SHA256'): self.build()
