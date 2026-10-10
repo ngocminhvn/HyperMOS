@@ -1,4 +1,5 @@
 name: Start RYU Test ROM Build
+# Re-run after validated tracked thermal ZIP + explicit PowerKeeper DEX repair.
 on:
   push:
     branches:
