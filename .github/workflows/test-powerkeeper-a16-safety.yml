@@ -5,6 +5,7 @@ on:
     paths:
       - 'bin/package/NOTIFICATION_FIX/A16/**'
       - 'packROM.sh'
+      - '.github/workflows/build.yml'
       - '.github/workflows/test-powerkeeper-a16-safety.yml'
   workflow_dispatch:
 
