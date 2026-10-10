@@ -19,6 +19,14 @@ jobs:
           python3 -m py_compile bin/audit/ryu_performance_parity.py
           python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
           python3 -m py_compile bin/package/COREPATCH/ryu_doze_a16.py
+          python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py
+          python3 - <<'PYSUP'
+          from bin.modfile.UpdateFile.RYUPerfProfile.port_ryu_thermal_profiles import PROFILES, PROTECTED, REQUIRED
+          assert {'normal', 'per-normal', 'hp-normal', 'video'} <= set(PROFILES)
+          assert not set(PROFILES).intersection(PROTECTED)
+          assert len(PROFILES) >= 18
+          print('[PASS] RYU thermal app profiles exclude no-limit and charging modes')
+          PYSUP
           python3 - <<'PY'
           from pathlib import Path
           import re
