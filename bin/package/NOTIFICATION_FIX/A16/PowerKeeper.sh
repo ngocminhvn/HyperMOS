@@ -150,6 +150,11 @@ python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py" 
   exit 1
 }
 unzip -tq "$tmp/final/PowerKeeper.apk" >/dev/null
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
+  --apk "$tmp/final/PowerKeeper.apk" || {
+  error "RYU UID POLICY: compiled DEX missing interface or implementation"
+  exit 1
+}
 # APKEditor may silently ignore newly created dex directories. Assert the
 # class definitions are genuinely present in the final binary, not only smali.
 python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
@@ -216,6 +221,11 @@ signed_identity=$(aapt dump badging "$signed" |
 python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
   --apk "$signed" --report "$tmp/perfhook-port.json" || {
   error "RYU POWERKEEPER SIGN: signed APK lost PerfHook DEX"; exit 1;
+}
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
+  --apk "$signed" || {
+  error "RYU UID POLICY: signature stage lost UID policy method definitions"
+  exit 1
 }
 mods "RYU PowerKeeper: V2/V3 signature verified, InstallerX testkey ($actual_cert)"
 apk_dir=$(dirname "$apk")
