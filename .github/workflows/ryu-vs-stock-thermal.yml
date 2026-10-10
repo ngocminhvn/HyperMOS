@@ -70,6 +70,27 @@ jobs:
           test -s /tmp/ryu-reference/manifest.json
           test -d /tmp/ryu-reference/files/vendor
 
+      - name: Verify original RYU manifest before downloading Xiaomi stock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('/tmp/ryu-reference')
+          records=json.loads((root/'manifest.json').read_text())
+          odm=[x for x in records if x['partition']=='odm'
+               and x['original_path'].startswith('/etc/thermal-')
+               and x['original_path'].endswith('.conf')]
+          assert len(odm)==23, f"Expected 23 genuine RYU ODM profiles, got {len(odm)}"
+          for item in records:
+              file=(root/item['artifact_path']).resolve()
+              assert file.is_relative_to(root.resolve()) and file.is_file(),item
+              assert hashlib.sha256(file.read_bytes()).hexdigest()==item['sha256'],item
+          print(f"[PASS] Genuine RYU files: {len(records)}; ODM thermal: {len(odm)}")
+          print('[INFO] This audit never installs thermal profiles onto a phone or ROM')
+          PY
+
       - name: Free disk and install read-only filesystem tools
         shell: bash
         run: |
