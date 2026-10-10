@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Verify actual PowerKeeper.apk stored in the packed system_ext partition.
+# Verify patched PowerKeeper identity stored in the packed system_ext partition.
 # Run before super.img creation and before the partition image is removed.
-# Test branch: fail closed unless the packed APK retains stock Xiaomi identity.
+# Test branch: require patched DEX identity and pinned Xiaomi v1 metadata.
 set -euo pipefail
 
 work_dir="${1:?pass repository working directory}"
 fstype="${2:?pass partition filesystem type}"
-prefix="[POWERKEEPER STOCK PACK]"
+prefix="[POWERKEEPER XIAOMI IDENTITY PACK]"
 partition="$work_dir/build/baserom/images/system_ext"
 image="$work_dir/build/baserom/images/system_ext.img"
 signer="$work_dir/bin/apktool/apksigner.jar"
@@ -75,23 +75,20 @@ fi
   fail "cannot extract PowerKeeper APK from the PACKED image (EROFS or EXT)"
 }
 
-# Bit-for-bit match proves the signed APK survived partition filesystem packing.
-cmp -s "$apk" "$packed" || fail "packed PowerKeeper differs from the signed staging APK"
+# Bit-for-bit match proves the compiled APK survived partition filesystem packing.
+cmp -s "$apk" "$packed" || fail "packed PowerKeeper differs from the verified staging APK"
 unzip -tq "$packed" >/dev/null || fail "packed APK ZIP structure is corrupted"
-verification="$(java -jar "$signer" verify --verbose --print-certs --min-sdk-version 36 "$packed")" || {
-  fail "the packed PowerKeeper APK signature does not verify"
-}
-printf '%s\n' "$verification" |
-  grep -Eq '^Verified using v[23] scheme \(APK Signature Scheme v[23]\): true' ||
-  fail "packed APK has no verified v2/v3 signature"
-
-expected="c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025"
-actual="$(printf '%s\n' "$verification" |
-  sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
-  head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
-[[ -n "$expected" && "$actual" == "$expected" ]] ||
-  fail "packed PowerKeeper does not have Xiaomi MIUI certificate; rejecting unsafe UID 1000 testkey"
-
-printf '%s\n' "$prefix PASS: Xiaomi-signed PowerKeeper copied unchanged into system_ext.img"
-printf '%s\n' "$prefix sha256=$(sha256sum "$packed" | awk '{print $1}') cert=$actual"
-printf '%s\n' "$prefix checked V2/V3 APK signature in PACKED partition (device runtime NOT tested)"
+reference="${RYU_POWERKEEPER_APK:-}"
+[[ -s "$reference" ]] || fail "pinned RYU metadata reference missing"
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py" \
+  --apk "$packed" --reference "$reference" || fail "packed Xiaomi certificate metadata changed"
+report="$work_dir/build/reports/powerkeeper-a16/final-identity.json"
+python3 - "$report" "$packed" <<'PYVERIFY'
+import hashlib,json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r['mode']=='xiaomi-certificate-preserved-patched-v1'
+assert r['sha256']==hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()
+PYVERIFY
+echo "$prefix PASS: compiled patched APK and Xiaomi metadata survived filesystem packing"
+echo "$prefix Signature cryptographically invalid by design; ROM v1 bypass required; runtime NOT tested"
