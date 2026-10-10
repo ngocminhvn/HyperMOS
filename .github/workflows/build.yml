@@ -116,6 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py
+          python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py
           bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
           [[ "$GITHUB_REF_NAME" == "test-ryu-performance-haotian" ]] || {
             echo "::error::Full RYU performance test must run only from the test branch"
