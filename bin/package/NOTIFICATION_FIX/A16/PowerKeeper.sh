@@ -15,6 +15,31 @@ patch "PowerKeeper A16 -> RYU selective GMS gate + stock policy validation"
 apk=$(find "$MAIN_FOLDER" -type f -name PowerKeeper.apk -print -quit)
 [[ -n "$apk" && -s "$apk" ]] || { error "RYU_TEST: PowerKeeper.apk missing"; exit 1; }
 
+# The package joins android.uid.system. A testkey-signed APK was accepted
+# into #101 but could not receive a valid SELinux application context.
+# Default to the untouched Xiaomi-signed APK; keep modified builds offline.
+mode="${HYPERMOS_POWERKEEPER_MODE:-stock}"
+case "$mode" in stock|offline) ;; *) error "POWERKEEPER: unsupported mode $mode (stock/offline only)"; exit 1 ;; esac
+if [[ "$mode" == "stock" ]]; then
+  signjar="$work_dir/bin/apktool/apksigner.jar"
+  [[ -s "$signjar" ]] || { error "POWERKEEPER: missing apksigner verifier"; exit 1; }
+  stock_check=$(java -jar "$signjar" verify --verbose --print-certs --min-sdk-version 36 "$apk") || {
+    error "POWERKEEPER: original APK does not have a valid Android signature"; exit 1;
+  }
+  stock_cert=$(printf '%s\\n' "$stock_check" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+  xiaomi_cert="c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025"
+  [[ "$stock_cert" == "$xiaomi_cert" ]] || {
+    error "POWERKEEPER: ROM input is not signed by expected Xiaomi MIUI certificate ($stock_cert)"; exit 1;
+  }
+  printf '%s\\n' "$stock_check" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' || {
+    error "POWERKEEPER: expected stock APK v3 signature verification missing"; exit 1;
+  }
+  mods "PowerKeeper A16: preserve verified Xiaomi-signed stock APK (SELinux UID 1000 recovery)"
+  mods "PowerKeeper RYU bytecode only available for isolated offline audit; NOT installed on ROM"
+  patch "PowerKeeper A16: Xiaomi stock retained"
+  exit 0
+fi
+
 rm -rf "$tmp"
 mkdir -p "$tmp"
 trap 'rm -rf "$tmp"' EXIT
@@ -227,14 +252,14 @@ python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py
   error "RYU UID POLICY: signature stage lost UID policy method definitions"
   exit 1
 }
-mods "RYU PowerKeeper: V2/V3 signature verified, InstallerX testkey ($actual_cert)"
-apk_dir=$(dirname "$apk")
-rm -rf "$apk_dir/oat"
-cp -f "$signed" "$apk" || {
-  error "RYU POWERKEEPER SIGN: staging signed APK failed"; exit 1;
-}
-cmp -s "$signed" "$apk" || {
-  error "RYU POWERKEEPER SIGN: staged ROM APK differs from verified output"; exit 1;
-}
-mods "RYU PowerKeeper: GmsObserver + KillProcessController + original RYU PerfHook"
-patch "PowerKeeper A16 RYU GMS + conditional UID kill -> Done"
+# Offline-only APK for ABI/DEX testing. This is signed by the repository's
+# testkey, NOT the Xiaomi platform key. Never stage it into system_ext.
+report_dir="$work_dir/build/reports/powerkeeper-a16"
+mkdir -p "$report_dir"
+cp -f "$signed" "$report_dir/PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk"
+cp -f "$tmp/uid-policy-port.json" "$report_dir/uid-policy-port.json"
+cp -f "$tmp/perfhook-port.json" "$report_dir/perfhook-port.json"
+sha256sum "$apk" "$report_dir/PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk" > "$report_dir/SHA256SUMS.txt"
+mods "RYU PowerKeeper: compiled UID policy and PerfHook; offline artifact only ($actual_cert)"
+mods "Xiaomi-signed PowerKeeper in ROM remains unmodified"
+patch "PowerKeeper A16: offline-only verification completed; stock system app retained"
