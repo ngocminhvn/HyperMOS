@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       input_url:
-        description: 'URL of the ROM to build'
+        description: 'Xiaomi 15 Pro HAOTIAN stock OS3.0.308.0 (Android 16)'
         required: true
+        default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
       builder_name:
         description: 'Builder name'
         required: false
