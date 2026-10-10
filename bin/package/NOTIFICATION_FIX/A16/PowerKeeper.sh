@@ -149,10 +149,73 @@ python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
   exit 1
 }
 
-# Same APKEditor replacement path used by stable HyperMOS notification patch.
-# Signature/Android package-manager acceptance still needs on-device testing.
+# Sign the FINAL compiled APK, not APKEditor's stale DEX output. On #99 the
+# unsigned PowerKeeper was present in system_ext but absent from PackageManager.
+# Use the same fixed testkey as HyperMOS InstallerX on this TEST branch only.
+sign_jar="$work_dir/bin/apktool/apksigner.jar"
+sign_key="$work_dir/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
+sign_cert="$work_dir/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem"
+for required in "$sign_jar" "$sign_key" "$sign_cert"; do
+  [[ -s "$required" ]] || { error "RYU POWERKEEPER SIGN: missing $required"; exit 1; }
+done
+command -v zipalign >/dev/null || { error "RYU POWERKEEPER SIGN: zipalign missing"; exit 1; }
+command -v aapt >/dev/null || { error "RYU POWERKEEPER SIGN: aapt missing"; exit 1; }
+
+original_identity=$(aapt dump badging "$apk" |
+  sed -n "s/^package: name='\\([^']*\\)' versionCode='\\([^']*\\)' versionName='\\([^']*\\)'.*/\\1|\\2|\\3/p" | head -n 1)
+[[ "$original_identity" == "com.miui.powerkeeper|"* ]] || {
+  error "RYU POWERKEEPER SIGN: unexpected original APK identity: $original_identity"; exit 1;
+}
+
+unsigned="$tmp/final/PowerKeeper.apk"
+aligned="$tmp/final/PowerKeeper.aligned.apk"
+signed="$tmp/final/PowerKeeper.signed.apk"
+zipalign -p -f 4 "$unsigned" "$aligned" || {
+  error "RYU POWERKEEPER SIGN: zipalign failed"; exit 1;
+}
+zipalign -c -p 4 "$aligned" || {
+  error "RYU POWERKEEPER SIGN: aligned APK verification failed"; exit 1;
+}
+java -jar "$sign_jar" sign --key "$sign_key" --cert "$sign_cert" \
+  --out "$signed" "$aligned" || {
+  error "RYU POWERKEEPER SIGN: signing failed"; exit 1;
+}
+[[ -s "$signed" ]] || { error "RYU POWERKEEPER SIGN: signed APK empty"; exit 1; }
+zipalign -c -p 4 "$signed" || {
+  error "RYU POWERKEEPER SIGN: signed APK alignment failed"; exit 1;
+}
+unzip -tq "$signed" || { error "RYU POWERKEEPER SIGN: signed APK corrupted"; exit 1; }
+signature_output=$(java -jar "$sign_jar" verify --verbose --print-certs \
+  --min-sdk-version 36 "$signed") || {
+  error "RYU POWERKEEPER SIGN: APK signature verification failed"; exit 1;
+}
+printf '%s\n' "$signature_output" |
+  grep -Eq '^Verified using v[23] scheme \(APK Signature Scheme v[23]\): true' || {
+  error "RYU POWERKEEPER SIGN: expected V2/V3 signature verification missing"; exit 1;
+}
+expected_cert=$(openssl x509 -in "$sign_cert" -outform DER | sha256sum | awk '{print tolower($1)}')
+actual_cert=$(printf '%s\n' "$signature_output" |
+  sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+[[ -n "$expected_cert" && "$expected_cert" == "$actual_cert" ]] || {
+  error "RYU POWERKEEPER SIGN: output signer differs from fixed InstallerX testkey"; exit 1;
+}
+signed_identity=$(aapt dump badging "$signed" |
+  sed -n "s/^package: name='\\([^']*\\)' versionCode='\\([^']*\\)' versionName='\\([^']*\\)'.*/\\1|\\2|\\3/p" | head -n 1)
+[[ "$signed_identity" == "$original_identity" ]] || {
+  error "RYU POWERKEEPER SIGN: package/version changed: $original_identity -> $signed_identity"; exit 1;
+}
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
+  --apk "$signed" --report "$tmp/perfhook-port.json" || {
+  error "RYU POWERKEEPER SIGN: signed APK lost PerfHook DEX"; exit 1;
+}
+mods "RYU PowerKeeper: V2/V3 signature verified, InstallerX testkey ($actual_cert)"
 apk_dir=$(dirname "$apk")
 rm -rf "$apk_dir/oat"
-cp -f "$tmp/final/PowerKeeper.apk" "$apk"
+cp -f "$signed" "$apk" || {
+  error "RYU POWERKEEPER SIGN: staging signed APK failed"; exit 1;
+}
+cmp -s "$signed" "$apk" || {
+  error "RYU POWERKEEPER SIGN: staged ROM APK differs from verified output"; exit 1;
+}
 mods "RYU PowerKeeper: GmsObserver + KillProcessController + original RYU PerfHook"
 patch "PowerKeeper A16 RYU GMS + conditional UID kill -> Done"
