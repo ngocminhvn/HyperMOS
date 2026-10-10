@@ -53,9 +53,27 @@ for member in "/$rel" "/system_ext/$rel"; do
     break
   fi
 done
+# Ubuntu 24.04 ships erofs-utils 1.7.1, whose dump.erofs has no --cat.
+# Use fsck.erofs as a compatibility fallback. This reads the real packed
+# filesystem (not the staging directory) and fails closed on extraction errors.
+if [[ "$found" -ne 1 && "$fstype" == EROFS ]]; then
+  command -v fsck.erofs >/dev/null || fail "fsck.erofs missing for EROFS extraction"
+  mkdir -p "$tmp/unpacked"
+  if fsck.erofs --extract="$tmp/unpacked" "$image" >"$tmp/fsck-output.txt" 2>"$tmp/fsck-error.txt"; then
+    for candidate in "$tmp/unpacked/$rel" "$tmp/unpacked/system_ext/$rel"; do
+      if [[ -s "$candidate" ]]; then
+        cp "$candidate" "$packed"
+        echo "$prefix fsck.erofs extracted $candidate"
+        found=1
+        break
+      fi
+    done
+  else
+    tail -n 12 "$tmp/fsck-error.txt" >&2 || true
+  fi
+fi
 [[ "$found" -eq 1 ]] || {
-  [[ ! -s "$tmp/extract-error.txt" ]] || tail -n 8 "$tmp/extract-error.txt" >&2
-  fail "cannot extract PowerKeeper APK from the PACKED image (check paths/tools)"
+  fail "cannot extract PowerKeeper APK from the PACKED image (EROFS or EXT)"
 }
 
 # Bit-for-bit match proves the signed APK survived partition filesystem packing.
