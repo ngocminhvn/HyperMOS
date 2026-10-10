@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
 # Verify actual PowerKeeper.apk stored in the packed system_ext partition.
 # Run before super.img creation and before the partition image is removed.
-# RYU test branch only; fail closed on extraction/signature errors.
+# Test branch: fail closed unless the packed APK retains stock Xiaomi identity.
 set -euo pipefail
 
 work_dir="${1:?pass repository working directory}"
 fstype="${2:?pass partition filesystem type}"
-prefix="[RYU PACK SIGN]"
+prefix="[POWERKEEPER STOCK PACK]"
 partition="$work_dir/build/baserom/images/system_ext"
 image="$work_dir/build/baserom/images/system_ext.img"
 signer="$work_dir/bin/apktool/apksigner.jar"
-cert="$work_dir/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem"
 fail() { echo "$prefix ERROR: $*" >&2; exit 1; }
 
 [[ -s "$image" && -d "$partition" ]] || fail "system_ext image or extracted source is missing"
-[[ -s "$signer" && -s "$cert" ]] || fail "APK verifier or pinned testkey certificate is missing"
+[[ -s "$signer" ]] || fail "APK verifier is missing"
 
 mapfile -d '' apks < <(find "$partition" -type f -name PowerKeeper.apk -print0)
 [[ "${#apks[@]}" -eq 1 ]] || fail "expected one staged PowerKeeper.apk; found ${#apks[@]}"
@@ -86,13 +85,13 @@ printf '%s\n' "$verification" |
   grep -Eq '^Verified using v[23] scheme \(APK Signature Scheme v[23]\): true' ||
   fail "packed APK has no verified v2/v3 signature"
 
-expected="$(openssl x509 -in "$cert" -outform DER | sha256sum | awk '{print tolower($1)}')"
+expected="c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025"
 actual="$(printf '%s\n' "$verification" |
   sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
   head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
 [[ -n "$expected" && "$actual" == "$expected" ]] ||
-  fail "packed APK certificate does not match the ROM's pinned InstallerX testkey"
+  fail "packed PowerKeeper does not have Xiaomi MIUI certificate; rejecting unsafe UID 1000 testkey"
 
-printf '%s\n' "$prefix PASS: PowerKeeper copied unchanged into system_ext.img"
+printf '%s\n' "$prefix PASS: Xiaomi-signed PowerKeeper copied unchanged into system_ext.img"
 printf '%s\n' "$prefix sha256=$(sha256sum "$packed" | awk '{print $1}') cert=$actual"
 printf '%s\n' "$prefix checked V2/V3 APK signature in PACKED partition (device runtime NOT tested)"
