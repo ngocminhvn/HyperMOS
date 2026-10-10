@@ -39,7 +39,7 @@ def find_one(name):
     return found[0].read_text(encoding="utf-8")
 
 def method_body(src, name, proto):
-    pattern = rf"(?ms)^\.method\b[^\n]*\b{re.escape(name)}{re.escape(proto)}\s*$.*?^\.end method\s*$
+    pattern = rf"(?ms)^\.method\b[^\n]*\b{re.escape(name)}{re.escape(proto)}\s*$.*?^\.end method\s*$"
     found = re.findall(pattern, src)
     if len(found) != 1:
         raise RuntimeError(f"{name}{proto}: expected exactly one method; got {len(found)}")
@@ -101,6 +101,30 @@ python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py" "$tm
   exit 1
 }
 
+# Install original RYU HAOTIAN PerfHook and its dependency closure from the
+# validated user-supplied RYU APK. Do not distribute its smali in git/artifacts.
+# One-time activation matches RYU PowerKeeperApplication.onCreate.
+ryu_apk="${RYU_POWERKEEPER_APK:-}"
+[[ -n "$ryu_apk" && -s "$ryu_apk" ]] || {
+  error "RYU PERFHOOK: verified original RYU PowerKeeper APK is required"
+  exit 1
+}
+ryu_sha="7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108"
+echo "$ryu_sha  $ryu_apk" | sha256sum -c - || {
+  error "RYU PERFHOOK: original APK SHA256 does not match verified reference"
+  exit 1
+}
+if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$ryu_apk" -o "$tmp/source-ryu" >/dev/null; then
+  error "RYU PERFHOOK: original RYU APK decompile failed"
+  exit 1
+fi
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py" \
+  --ryu "$tmp/source-ryu" --stock "$tmp/out" \
+  --report "$tmp/perfhook-port.json" || {
+  error "RYU PERFHOOK: class dependency or startup hook incompatible"
+  exit 1
+}
+
 mkdir -p "$tmp/final"
 if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null; then
   error "RYU_TEST: selective PowerKeeper APK recompile failed"
@@ -114,5 +138,5 @@ unzip -tq "$tmp/final/PowerKeeper.apk" >/dev/null
 apk_dir=$(dirname "$apk")
 rm -rf "$apk_dir/oat"
 cp -f "$tmp/final/PowerKeeper.apk" "$apk"
-mods "RYU PowerKeeper: two GmsObserver gates + conditional KillProcessController checker"
+mods "RYU PowerKeeper: GmsObserver + KillProcessController + original RYU PerfHook"
 patch "PowerKeeper A16 RYU GMS + conditional UID kill -> Done"
