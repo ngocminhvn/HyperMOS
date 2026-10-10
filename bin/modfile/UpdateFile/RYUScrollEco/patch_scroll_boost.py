@@ -75,7 +75,7 @@ def patch(source):
                     return atr_match.group()
                 changed = CPU6_RE.sub(
                     lambda m: m.group(1) + str(new_cpu6), old_value, count=1)
-                modified.append((scene, trig, name, old_cpu6, new_cpu6))
+                modified.append((scene, trig, name[:-2], old_cpu6, new_cpu6))
                 return name + changed + close
 
             found_names = set(re.findall(r'\b(Target[12])="', tag))
