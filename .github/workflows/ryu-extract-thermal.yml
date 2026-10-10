@@ -1,0 +1,259 @@
+name: Extract RYUOS HAOTIAN Thermal Configs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - '.github/workflows/ryu-extract-thermal.yml'
+      - 'bin/modfile/UpdateFile/RYUPerfProfile/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ryu-haotian-thermal-extraction
+  cancel-in-progress: false
+
+env:
+  RYU_ROM_URL: https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip
+
+jobs:
+  extract-thermal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 160
+    steps:
+      - name: Checkout scripts (do not build or patch ROM)
+        uses: actions/checkout@v4
+
+      - name: Verify read-only collector before large download
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/audit/extract_ryu_thermal_files.py
+          python3 -m py_compile bin/audit/ryu_super_partitions.py
+          # Regression: LP super metadata may contain zero-extent partitions.
+          # The previous lpunpack --info --format json emitted only two
+          # newlines (empty JSON), so verify our own metadata projection.
+          python3 - <<'PY'
+          from types import SimpleNamespace
+          from bin.audit.ryu_super_partitions import partition_summary
+          fake = SimpleNamespace(
+              partitions=[
+                  SimpleNamespace(name='vendor_a', first_extent_index=0, num_extents=0),
+                  SimpleNamespace(name='odm_a', first_extent_index=0, num_extents=1),
+              ],
+              extents=[SimpleNamespace(num_sectors=8)],
+          )
+          data = partition_summary(fake)
+          assert [p['name'] for p in data['partitions']] == ['vendor_a', 'odm_a']
+          assert data['partitions'][0]['size_bytes'] == 0
+          assert data['partitions'][1]['size_bytes'] == 4096
+          print('[PASS] LP metadata reader handles zero-extent partitions')
+          PY
+          root="$(mktemp -d)"
+          mkdir -p "$root/source/etc/init" "$root/output"
+          printf 'sample raw thermal\n' > "$root/source/etc/thermal-normal.conf"
+          printf 'on boot\n' > "$root/source/etc/init/vendor.thermal.rc"
+          printf 'ignore\n' > "$root/source/etc/not-related.conf"
+          python3 bin/audit/extract_ryu_thermal_files.py \
+            --root "$root/source" --partition vendor --output "$root/output"
+          python3 - "$root/output" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          files = json.loads((root / 'manifest.json').read_text())
+          assert len(files) == 2, files
+          assert all((root / x['artifact_path']).is_file() for x in files)
+          assert all(x['partition'] == 'vendor' for x in files)
+          print("[PASS] Only thermal-related files are copied unchanged")
+          PY
+          rm -rf "$root"
+
+      - name: Free disk and install filesystem tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+            /opt/hostedtoolcache /usr/local/share/powershell \
+            /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            --no-install-recommends erofs-utils e2fsprogs \
+            android-sdk-libsparse-utils unzip file curl
+          df -h /tmp
+
+      - name: Download genuine RYUOS HAOTIAN release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ryu-thermal
+          curl --fail --location --retry 5 --retry-delay 10 \
+            --retry-all-errors --connect-timeout 30 \
+            --speed-time 180 --speed-limit 1024 \
+            --output /tmp/ryu-rom.zip "$RYU_ROM_URL"
+          python3 - <<'PY'
+          import zipfile
+          path = '/tmp/ryu-rom.zip'
+          with zipfile.ZipFile(path) as archive:
+              matches = [x for x in archive.infolist()
+                         if x.filename.endswith('/super.img')]
+              if len(matches) != 1:
+                  raise SystemExit(f'Expected one images/super.img, got {len(matches)}')
+              if matches[0].file_size < 1024 * 1024 * 1024:
+                  raise SystemExit('Unexpected small super.img (wrong download?)')
+              print('Verified RYU ROM member:', matches[0].filename)
+              print('Uncompressed super.img:', matches[0].file_size)
+          PY
+          ls -lh /tmp/ryu-rom.zip
+          df -h /tmp
+
+      - name: Extract only images/super.img and release ZIP space
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import shutil
+          import zipfile
+          with zipfile.ZipFile('/tmp/ryu-rom.zip') as archive:
+              name = next(x for x in archive.namelist() if x.endswith('/super.img'))
+              print('Extract:', name, flush=True)
+              with archive.open(name) as src, open('/tmp/ryu-super.img', 'wb') as dest:
+                  shutil.copyfileobj(src, dest, length=16 * 1024 * 1024)
+          PY
+          rm -f /tmp/ryu-rom.zip
+          if python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          with Path('/tmp/ryu-super.img').open('rb') as f:
+              magic = struct.unpack('<I', f.read(4))[0]
+          raise SystemExit(0 if magic == 0xED26FF3A else 1)
+          PY
+          then
+            echo "Sparse Android super image: converting to raw."
+            simg2img /tmp/ryu-super.img /tmp/ryu-super.raw.img
+            mv -f /tmp/ryu-super.raw.img /tmp/ryu-super.img
+          fi
+          file /tmp/ryu-super.img
+          ls -lh /tmp/ryu-super.img
+          df -h /tmp
+
+      - name: Enumerate real super partition names
+        shell: bash
+        run: |
+          set -euo pipefail
+          # lpunpack --info --format json can print an empty string when
+          # _get_info encounters a zero-extent partition. Its exception is
+          # suppressed internally; the previous output was just "\\n\\n".
+          # Read the raw LP metadata instead to write valid JSON/names.
+          python3 bin/audit/ryu_super_partitions.py \
+            --super /tmp/ryu-super.img \
+            --json /tmp/ryu-thermal/partition-info.json \
+            --names /tmp/ryu-thermal/partitions.txt
+          python3 -m json.tool /tmp/ryu-thermal/partition-info.json > /dev/null
+          grep -Eq '^vendor(_a|_b)?$' /tmp/ryu-thermal/partitions.txt
+
+      - name: Extract vendor, odm and supplementary thermal files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ryu-partition /tmp/ryu-files /tmp/ryu-thermal
+          for part in vendor odm system_ext mi_ext product; do
+            choice=""
+            if grep -Fxq "${part}_a" /tmp/ryu-thermal/partitions.txt; then
+              choice="${part}_a"
+            elif grep -Fxq "$part" /tmp/ryu-thermal/partitions.txt; then
+              choice="$part"
+            fi
+            if [[ -z "$choice" ]]; then
+              echo "::notice::RYU super has no $part; skip"
+              continue
+            fi
+            echo "::group::RYU partition $choice"
+            rm -rf /tmp/ryu-partition /tmp/ryu-files
+            mkdir -p /tmp/ryu-partition /tmp/ryu-files
+            python3 bin/lpunpack.py -p "$choice" /tmp/ryu-super.img /tmp/ryu-partition
+            img="/tmp/ryu-partition/${choice}.img"
+            test -s "$img"
+            file "$img"
+            if file -b "$img" | grep -iq 'erofs'; then
+              fsck.erofs --extract=/tmp/ryu-files "$img"
+            elif file -b "$img" | grep -Eiq 'ext[234] filesystem'; then
+              # Read ext4 without mounting it; only the /etc subtree is needed.
+              debugfs -R "rdump /etc /tmp/ryu-files" "$img" \
+                > /tmp/ryu-thermal/debugfs-${part}.log 2>&1
+              cat /tmp/ryu-thermal/debugfs-${part}.log | tail -12
+            else
+              echo "::error::Unsupported filesystem in $choice"
+              exit 1
+            fi
+            python3 bin/audit/extract_ryu_thermal_files.py \
+              --root /tmp/ryu-files --partition "$part" \
+              --output /tmp/ryu-thermal
+            rm -rf /tmp/ryu-files /tmp/ryu-partition
+            df -h /tmp
+            echo "::endgroup::"
+          done
+
+      - name: Verify extracted thermal configs and write hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path('/tmp/ryu-thermal')
+          manifest = json.loads((root / 'manifest.json').read_text())
+          if not manifest:
+              raise SystemExit('NO thermal files found in extracted partitions')
+          sums = []
+          for entry in manifest:
+              file = root / entry['artifact_path']
+              if not file.is_file():
+                  raise SystemExit('Missing extracted config: ' + str(file))
+              digest = hashlib.sha256(file.read_bytes()).hexdigest()
+              if digest != entry['sha256']:
+                  raise SystemExit('SHA256 mismatch: ' + str(file))
+              sums.append(f"{digest}  {entry['artifact_path']}")
+          (root / 'SHA256SUMS.txt').write_text('\n'.join(sums) + '\n')
+          counts = {}
+          for e in manifest:
+              counts[e['partition']] = counts.get(e['partition'], 0) + 1
+          readme = (
+              '# RYUOS HAOTIAN original thermal configuration files\n\n'
+              'Source: RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip\n'
+              'These are raw, unmodified thermal and power-hint configuration '
+              'files collected from the ROM logical partitions.\n'
+              f'Files: {len(manifest)}; partition counts: {counts}.\n\n'
+              'Do NOT directly flash, bind-mount or replace vendor/odm config '
+              'files with these on HyperMOS. Xiaomi stock sconfig numbers '
+              'can have different meanings from RYU PerfHook mode values.\n'
+              'The artifact does not contain RYU PerfHook executable code, '
+              'a working kernel governor or any thermal safety bypass.\n'
+              'See manifest.json for each original path and SHA256SUMS.txt.\n'
+          )
+          (root / 'README.txt').write_text(readme, encoding='utf-8')
+          print(readme, flush=True)
+          PY
+          echo "[RYU-THERMAL] Total extracted files:"
+          find /tmp/ryu-thermal/files -type f | wc -l
+
+      - name: Upload original thermal configuration artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-Thermal-Configs
+          path: |
+            /tmp/ryu-thermal/files/
+            /tmp/ryu-thermal/manifest.json
+            /tmp/ryu-thermal/SHA256SUMS.txt
+            /tmp/ryu-thermal/README.txt
+            /tmp/ryu-thermal/partition-info.json
+            /tmp/ryu-thermal/partitions.txt
+            /tmp/ryu-thermal/debugfs-*.log
+          retention-days: 14
+          if-no-files-found: warn
