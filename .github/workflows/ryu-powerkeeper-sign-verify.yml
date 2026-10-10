@@ -1,0 +1,257 @@
+name: RYU PowerKeeper - Patch Sign Verify (isolated)
+
+on:
+  push:
+    branches:
+      - test-ryu-powerkeeper-sign-verify
+    paths:
+      - .github/workflows/ryu-powerkeeper-sign-verify.yml
+  workflow_dispatch:
+    inputs:
+      source_apk_url:
+        description: 'Optional direct HTTPS APK URL; blank = extract Xiaomi OS3.0.308 system_ext'
+        required: false
+        type: string
+      source_sha256:
+        description: 'Required SHA-256 when using source_apk_url'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: isolated-ryu-powerkeeper-sign-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch-sign-verify:
+    if: github.ref_name == 'test-ryu-powerkeeper-sign-verify'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    env:
+      STOCK: ${{ runner.temp }}/pk-stock/PowerKeeper.apk
+      RYU: ${{ runner.temp }}/pk-ryu/RYUOS_HAOTIAN_PowerKeeper.apk
+      WORK: ${{ runner.temp }}/pk-work
+      SOURCE_APK_URL: ${{ inputs.source_apk_url }}
+      SOURCE_SHA256: ${{ inputs.source_sha256 }}
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Java 17 + Android build tools
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install tools and preflight check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'test-ryu-powerkeeper-sign-verify'
+          mkdir -p "$WORK" "$RUNNER_TEMP/pk-stock" reports
+          sdkmanager --install 'build-tools;35.0.0'
+          echo "SIGNER=$ANDROID_HOME/build-tools/35.0.0/apksigner" >> "$GITHUB_ENV"
+          echo "ZIPALIGN=$ANDROID_HOME/build-tools/35.0.0/zipalign" >> "$GITHUB_ENV"
+          echo "AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt" >> "$GITHUB_ENV"
+          python3 -m py_compile \
+            bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py \
+            bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
+            bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 \
+            -p 'test_ryu_perfhook_port.py' -q
+          test -s bin/apktool/apke.jar
+          test -s bin/apktool/smaliv2.jar
+
+      - name: Download pinned RYU PowerKeeper source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-PowerKeeper
+          run-id: 37916279893
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/pk-ryu
+
+      - name: Verify genuine RYU input
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RYU"
+          echo "7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  $RYU" | sha256sum -c -
+          unzip -tq "$RYU"
+          sha256sum "$RYU" > reports/ryu-sha256.txt
+
+      - name: Get Xiaomi stock PowerKeeper (or explicitly pinned APK URL)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$SOURCE_APK_URL" ]]; then
+            [[ "$SOURCE_APK_URL" == https://* ]] || { echo 'HTTPS URL required'; exit 1; }
+            [[ "$SOURCE_SHA256" =~ ^[[:xdigit:]]{64}$ ]] || { echo 'source_sha256 must contain 64 hex digits'; exit 1; }
+            curl --proto '=https' --tlsv1.2 -fL --retry 3 --max-time 1200 \
+              -o "$STOCK" "$SOURCE_APK_URL"
+            echo "$SOURCE_SHA256  $STOCK" | sha256sum -c -
+            echo 'Source: pinned direct APK download' > reports/input-source.txt
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq erofs-utils e2fsprogs unzip
+            url='https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
+            curl -fsSL --retry 4 -o "$WORK/dumper.tar.gz" \
+              'https://github.com/xishang0128/payload-dumper-go/releases/download/v0.1.6/payload-dumper-linux-amd64-v3.tar.gz'
+            mkdir -p "$WORK/dumper" "$WORK/base" "$WORK/fs"
+            tar -xf "$WORK/dumper.tar.gz" -C "$WORK/dumper"
+            chmod +x "$WORK/dumper/payload-dumper-linux-amd64-v3"
+            "$WORK/dumper/payload-dumper-linux-amd64-v3" extract "$url" -p system_ext -o "$WORK/base"
+            img="$WORK/base/system_ext.img"
+            test -s "$img"
+            if file "$img" | grep -qi erofs; then
+              fsck.erofs --extract="$WORK/fs" "$img"
+              apk="$(find "$WORK/fs" -type f -name PowerKeeper.apk -print -quit)"
+              test -n "$apk"
+              cp "$apk" "$STOCK"
+            else
+              found=0
+              for dir in /priv-app/PowerKeeper /system_ext/priv-app/PowerKeeper /app/PowerKeeper /system_ext/app/PowerKeeper; do
+                debugfs -R "dump $dir/PowerKeeper.apk $STOCK" "$img" 2>/dev/null || true
+                if test -s "$STOCK"; then found=1; break; fi
+              done
+              test "$found" -eq 1
+            fi
+            echo 'Source: official Xiaomi HAOTIAN OS3.0.308.0 system_ext OTA' > reports/input-source.txt
+          fi
+          test -s "$STOCK"
+          unzip -tq "$STOCK"
+          sha256sum "$STOCK" > reports/original-sha256.txt
+          "$SIGNER" verify --verbose --print-certs --min-sdk-version 36 "$STOCK" \
+            > reports/original-signature.txt
+          "$AAPT" dump badging "$STOCK" > reports/original-badging.txt
+          grep -q "package: name='com.miui.powerkeeper'" reports/original-badging.txt
+
+      - name: Apply RYU GMS, UID policy and actual PerfHook to stock
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i "$STOCK" -o "$WORK/decoded-stock"
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i "$RYU" -o "$WORK/decoded-ryu"
+          python3 bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py "$WORK/decoded-stock"
+          python3 bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py "$WORK/decoded-stock"
+          python3 bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py \
+            --ryu "$WORK/decoded-ryu" --stock "$WORK/decoded-stock" \
+            --report reports/perfhook-port.json
+          java -jar bin/apktool/apke.jar b -f \
+            -i "$WORK/decoded-stock" -o "$WORK/unsigned.apk"
+          python3 bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
+            --decoded "$WORK/decoded-stock" --apk "$WORK/unsigned.apk" \
+            --smali-jar bin/apktool/smaliv2.jar --api 36
+          python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
+            --apk "$WORK/unsigned.apk" --report reports/perfhook-port.json
+          unzip -tq "$WORK/unsigned.apk"
+          "$AAPT" dump badging "$WORK/unsigned.apk" > reports/patched-badging.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def identity(path):
+              txt=Path(path).read_text()
+              m=re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", txt, re.M)
+              if not m:
+                  raise SystemExit(f"Cannot read package/version identity: {path}")
+              return m.groups()
+          old=identity("reports/original-badging.txt")
+          new=identity("reports/patched-badging.txt")
+          assert old==new, f"Patched package or version changed: original={old} patched={new}"
+          assert old[0]=="com.miui.powerkeeper"
+          print("PASS: original and patched manifest identities match",new)
+          PY
+
+      - name: Confirm modified APK signature is NOT trusted before signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if "$SIGNER" verify --verbose --print-certs --min-sdk-version 36 \
+            "$WORK/unsigned.apk" > reports/unsigned-signature.txt 2>&1; then
+            echo 'WARNING: unsigned rebuild passed signature verification; inspect report' >> reports/unsigned-signature.txt
+          else
+            echo 'Expected: modified APK has an invalid or absent original signature.' >> reports/unsigned-signature.txt
+          fi
+
+      - name: Zipalign and sign test-only with short-lived ephemeral key
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ZIPALIGN" -p -f 4 "$WORK/unsigned.apk" "$WORK/aligned.apk"
+          "$ZIPALIGN" -c -p 4 "$WORK/aligned.apk"
+          pass="$(openssl rand -hex 20)"
+          keytool -genkeypair -storetype PKCS12 \
+            -keystore "$WORK/test-only.p12" -alias powerkeepertrial \
+            -storepass "$pass" -keypass "$pass" \
+            -keyalg RSA -keysize 3072 -validity 2 \
+            -dname 'CN=HyperMOS Isolated Test Only, OU=QA, O=HyperMOS' -noprompt >/dev/null
+          "$SIGNER" sign --ks "$WORK/test-only.p12" --ks-key-alias powerkeepertrial \
+            --ks-pass "pass:$pass" --key-pass "pass:$pass" \
+            --v1-signing-enabled true --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" "$WORK/aligned.apk"
+          unset pass
+          test -s "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk"
+          "$SIGNER" verify --verbose --print-certs --min-sdk-version 36 \
+            "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" \
+            > reports/test-signature.txt
+          "$ZIPALIGN" -c -p 4 "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk"
+          unzip -tq "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk"
+          python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
+            --apk "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" \
+            --report reports/perfhook-port.json
+          "$AAPT" dump badging "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" \
+            > reports/test-signed-badging.txt
+          grep -q "package: name='com.miui.powerkeeper'" reports/test-signed-badging.txt
+          sha256sum "$WORK/unsigned.apk" \
+            "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" > reports/output-sha256.txt
+
+      - name: Produce explicit offline QA conclusions
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          orig=Path('reports/original-signature.txt').read_text()
+          trial=Path('reports/test-signature.txt').read_text()
+          pat=r'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]+)'
+          a=re.search(pat,orig)
+          b=re.search(pat,trial)
+          assert a and b, "Signer certificate fingerprint missing"
+          assert a.group(1).lower()!=b.group(1).lower(), "Unexpected signer identity overlap"
+          report=(
+              "RESULT: OFFLINE PATCH + APK SIGNATURE VERIFICATION PASS\n"
+              "Original Xiaomi package certificate SHA256: "+a.group(1)+"\n"
+              "Ephemeral test package certificate SHA256: "+b.group(1)+"\n"
+              "CERTIFICATE MATCH: NO (expected)\n"
+              "DEVICE RUNTIME / PACKAGE MANAGER / PRIVILEGED PERMISSIONS: NOT TESTED\n"
+              "DO NOT INSTALL, FLASH OR REPLACE THE STOCK POWERKEEPER WITH THIS TEST-SIGNED APK.\n"
+              "Signing with an independent key does NOT preserve Xiaomi signature or shared-UID trust.\n"
+              "The APK is deliberately NOT uploaded as an artifact; reports only.\n"
+          )
+          Path('reports/RESULT.txt').write_text(report)
+          print(report)
+          PY
+          cat reports/RESULT.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report only (never APK or private signing key)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryu-powerkeeper-patch-sign-verification-report
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
