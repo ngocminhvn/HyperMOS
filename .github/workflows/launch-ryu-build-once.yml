@@ -1,6 +1,7 @@
 name: Start RYU Test ROM Build
-# New test run: verified RYU ODM app thermal profiles; preserve thermal safety.
-# Re-run after validated tracked thermal ZIP + explicit PowerKeeper DEX repair.
+# Integration test: Xiaomi-signed stock PowerKeeper, RYU FCM/CPU/thermal,
+# TNM, and KernelSU Next init_boot root from the main integration.
+# Push only to this workflow triggers one build dispatch.
 on:
   push:
     branches:
@@ -27,6 +28,7 @@ jobs:
           gh api -X POST "repos/${{ github.repository }}/actions/workflows/build.yml/dispatches" \
             -f ref=test-ryu-performance-haotian \
             -f 'inputs[input_url]=https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' \
+            -f 'inputs[root_mode]=root' \
             -f 'inputs[upload_method]=pixeldrain' \
             -f 'inputs[debug]=false'
-          echo "Dispatched build.yml for test-ryu-performance-haotian only."
+          echo "Dispatched ROOT=KernelSU Next build.yml for test-ryu-performance-haotian."
