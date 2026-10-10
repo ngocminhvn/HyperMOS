@@ -1,0 +1,214 @@
+name: Compare RYU vs Xiaomi Stock Thermal (HAOTIAN)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - .github/workflows/ryu-vs-stock-thermal.yml
+      - bin/audit/compare_ryu_stock_thermal.py
+      - bin/audit/extract_ryu_thermal_files.py
+      - bin/audit/ryu_super_partitions.py
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: haotian-thermal-stock-ryu-compare
+  cancel-in-progress: false
+
+env:
+  STOCK_VERSION: OS3.0.308.0.WOBCNXM
+  STOCK_FILENAME: haotian_images_OS3.0.308.0.WOBCNXM_20260729.0000.00_16.0_cn_15bf1ee7da.tgz
+  STOCK_MD5: 15bf1ee7da1e5626f77565e212b0d7a9
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout scripts
+        uses: actions/checkout@v4
+
+      - name: Fast-fail source syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/audit/compare_ryu_stock_thermal.py
+          python3 -m py_compile bin/audit/extract_ryu_thermal_files.py
+          python3 -m py_compile bin/audit/ryu_super_partitions.py
+          test -s bin/lpunpack.py
+
+      - name: Obtain original RYU thermal extraction artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ryu-reference
+          run=""
+          if [[ -z "$run" ]]; then
+            mapfile -t candidates < <(
+              gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ryu-extract-thermal.yml/runs?status=success&per_page=30" \
+                --jq '.workflow_runs[].id'
+            )
+            for candidate in "${candidates[@]}"; do
+              available="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate/artifacts?per_page=100" \
+                --jq '[.artifacts[] | select(.name=="RYUOS-HAOTIAN-Thermal-Configs" and .expired==false)] | length')"
+              if [[ "$available" -gt 0 ]]; then run="$candidate"; break; fi
+            done
+          fi
+          if [[ -z "$run" ]]; then
+            echo "::error::No non-expired RYU artifact. First run ryu-extract-thermal.yml."
+            exit 1
+          fi
+          echo "RYU reference workflow run: $run"
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" \
+            --name RYUOS-HAOTIAN-Thermal-Configs --dir /tmp/ryu-reference
+          test -s /tmp/ryu-reference/manifest.json
+          test -d /tmp/ryu-reference/files/vendor
+
+      - name: Free disk and install read-only filesystem tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+            /opt/hostedtoolcache /usr/local/share/powershell \
+            /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            --no-install-recommends erofs-utils e2fsprogs \
+            android-sdk-libsparse-utils file curl
+          df -h /tmp
+
+      - name: Automatically download verified Xiaomi stock Fastboot ROM
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for host in bigota.d.miui.com hugeota.d.miui.com; do
+            url="https://$host/$STOCK_VERSION/$STOCK_FILENAME"
+            echo "::notice::Trying stock ROM: $url"
+            rm -f /tmp/stock-fastboot.tgz
+            if curl --fail --location --retry 3 --retry-all-errors \
+              --retry-delay 12 --connect-timeout 40 \
+              --speed-time 180 --speed-limit 2048 \
+              --output /tmp/stock-fastboot.tgz "$url" \
+              && echo "$STOCK_MD5  /tmp/stock-fastboot.tgz" | md5sum -c -; then
+              success=1
+              break
+            fi
+            echo "::warning::Download or MD5 verification failed at $host; trying another official mirror."
+          done
+          if [[ "$success" -ne 1 ]]; then
+            echo "::error::Neither official Xiaomi mirror delivered the expected stock ROM MD5."
+            exit 1
+          fi
+          df -h /tmp
+
+      - name: Extract just super.img from stock archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import shutil, tarfile
+          n=0
+          with tarfile.open('/tmp/stock-fastboot.tgz',mode='r|gz') as tf:
+              for member in tf:
+                  if member.isfile() and (
+                      member.name == 'images/super.img'
+                      or member.name.endswith('/images/super.img')
+                  ):
+                      n+=1
+                      if n>1:
+                          raise SystemExit('Multiple super.img files in archive')
+                      with tf.extractfile(member) as src, open('/tmp/stock-super.img','wb') as dst:
+                          shutil.copyfileobj(src,dst,16*1024*1024)
+          if n!=1:
+              raise SystemExit('Expected exactly one images/super.img; found '+str(n))
+          PY
+          rm -f /tmp/stock-fastboot.tgz
+          if python3 - <<'PY'
+          import struct
+          with open('/tmp/stock-super.img','rb') as f:
+              magic=struct.unpack('<I',f.read(4))[0]
+          raise SystemExit(0 if magic==0xED26FF3A else 1)
+          PY
+          then
+            simg2img /tmp/stock-super.img /tmp/stock-super.raw.img
+            mv -f /tmp/stock-super.raw.img /tmp/stock-super.img
+          fi
+          file /tmp/stock-super.img
+          df -h /tmp
+
+      - name: Collect matching stock configs without altering ROM
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/stock-reference
+          python3 bin/audit/ryu_super_partitions.py \
+            --super /tmp/stock-super.img \
+            --json /tmp/stock-reference/partition-info.json \
+            --names /tmp/stock-reference/partitions.txt
+          for part in vendor odm system_ext mi_ext product; do
+            selected=""
+            for suffix in "_a" "" "_b"; do
+              candidate="${part}$suffix"
+              if grep -Fxq "$candidate" /tmp/stock-reference/partitions.txt; then
+                selected="$candidate"
+                break
+              fi
+            done
+            if [[ -z "$selected" ]]; then
+              echo "::notice::No stock partition: $part"
+              continue
+            fi
+            echo "::group::STOCK $selected"
+            rm -rf /tmp/stock-partition /tmp/stock-files
+            mkdir -p /tmp/stock-partition /tmp/stock-files
+            python3 bin/lpunpack.py -p "$selected" \
+              /tmp/stock-super.img /tmp/stock-partition
+            img="/tmp/stock-partition/${selected}.img"
+            test -s "$img"
+            if file -b "$img" | grep -iq 'erofs'; then
+              fsck.erofs --extract=/tmp/stock-files "$img"
+            elif file -b "$img" | grep -Eiq 'ext[234] filesystem'; then
+              debugfs -R 'rdump /etc /tmp/stock-files' "$img" \
+                > "/tmp/stock-reference/debugfs-${part}.log" 2>&1
+            else
+              echo "::error::Unsupported filesystem: $img"
+              exit 1
+            fi
+            python3 bin/audit/extract_ryu_thermal_files.py \
+              --root /tmp/stock-files --partition "$part" \
+              --output /tmp/stock-reference
+            rm -rf /tmp/stock-partition /tmp/stock-files
+            df -h /tmp
+            echo "::endgroup::"
+          done
+          test -s /tmp/stock-reference/manifest.json
+
+      - name: Compare all thermal, perf and powerhint files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/compare_ryu_stock_thermal.py \
+            --ryu /tmp/ryu-reference \
+            --stock /tmp/stock-reference \
+            --out /tmp/thermal-comparison
+          cat /tmp/thermal-comparison/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload comparison report and source manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYU-vs-Stock-HAOTIAN-Thermal-Audit
+          path: |
+            /tmp/thermal-comparison/
+            /tmp/ryu-reference/manifest.json
+            /tmp/stock-reference/manifest.json
+            /tmp/stock-reference/partition-info.json
+          retention-days: 30
+          if-no-files-found: warn
