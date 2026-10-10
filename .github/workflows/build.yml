@@ -79,51 +79,25 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Fetch verified original RYU PowerKeeper for PerfHook port
-        uses: actions/download-artifact@v4
-        with:
-          name: RYUOS-HAOTIAN-PowerKeeper
-          run-id: 37916279893
-          repository: ngocminhvn/HyperMOS
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/ryu-powerkeeper-source
-
-      - name: Verify PerfHook source and port script before base download
+      - name: Verify Xiaomi PowerKeeper and RYU framework patch scripts
         shell: bash
         run: |
           set -euo pipefail
-          RYU_APK="$RUNNER_TEMP/ryu-powerkeeper-source/RYUOS_HAOTIAN_PowerKeeper.apk"
-          test -s "$RYU_APK"
-          echo "7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  $RYU_APK" | sha256sum -c -
-          unzip -tq "$RYU_APK"
-          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py
-          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
-          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py
-          # Keep the RYU bytecode integration testable without silently
-          # staging its test-signed output as an Android UID-1000 system app.
-          test -s bin/apktool/apksigner.jar
-          test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8
-          test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
-          grep -Fq 'PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
-          if grep -Fq 'cp -f "$signed" "$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh; then
-            echo "::error::Refusing to replace UID-1000 PowerKeeper with a non-Xiaomi-signed APK"
-            exit 1
-          fi
-          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_uid_policy_a16.py
-          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py
-          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_uid_policy_a16.py -v
-          python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
-          (cd bin/package/NOTIFICATION_FIX/A16 && python3 -m unittest -q test_ryu_perfhook_port.py)
-          python3 bin/package/COREPATCH/test_ryu_policy_a16.py
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
-          bash -n packROM.sh
-          grep -Fq 'verify_packed_powerkeeper.sh' packROM.sh
+          grep -Fq 'xiaomi-stock-unchanged' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          if grep -Eq 'APKEDITOR|RYU_POWERKEEPER_APK|cp -f "\$signed" "\$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh; then
+            echo "::error::PowerKeeper is stock-only in this profile"
+            exit 1
+          fi
+          python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
+          python3 bin/package/COREPATCH/test_ryu_policy_a16.py
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
           bash -n bin/package/patchpackage.sh
-          echo "RYU_POWERKEEPER_APK=$RYU_APK" >> "$GITHUB_ENV"
-          echo "[PASS] Genuine RYU PerfHook source and integration scripts ready"
+          bash -n packROM.sh
+          grep -Fq 'verify_packed_powerkeeper.sh' packROM.sh
+          echo "[PASS] Original PowerKeeper + RYU framework patch code validated"
 
       # Use the 181 KB source archive committed to this test branch.
       # No RYU ROM download, super.img unpack, or extraction job required.
@@ -268,14 +242,12 @@ jobs:
           sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
             "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
 
-      # Inspect the fully compiled RYU test candidate independently of the
-      # installable ROM. This does not replace Xiaomi's system UID package.
-      - name: Publish PowerKeeper UID-policy and PerfHook audit
+      - name: Publish Xiaomi PowerKeeper identity report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HyperMOS-PowerKeeper-RYU-OFFLINE-NOT-FOR-FLASH
-          path: build/reports/powerkeeper-a16/
+          name: HyperMOS-PowerKeeper-Xiaomi-Stock-Identity
+          path: build/reports/powerkeeper-a16/stock-identity.json
           if-no-files-found: warn
           retention-days: 7
 
