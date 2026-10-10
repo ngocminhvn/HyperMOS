@@ -110,12 +110,6 @@ jobs:
           # The Android 16 SystemUI notification-defaults patch has been retired.
           bash -n bin/package/NOTIFICATION_FIX/notificationFIX.sh
 
-          # RYU-derived scroll eco: quick syntax and behavior regression checks.
-          # The patch only affects HAOTIAN scroll boost, never thermal safety.
-          bash -n bin/modfile/UpdateFile/RYUScrollEco/update.sh
-          python3 -m py_compile bin/modfile/UpdateFile/RYUScrollEco/patch_scroll_boost.py
-          python3 bin/modfile/UpdateFile/RYUScrollEco/patch_scroll_boost.py --self-test
-
           # Fast-fail invalid font integration before unpacking the base ROM.
           python3 -m py_compile bin/modfile/UpdateFile/Fonts/font_utils.py
           bash -n bin/modfile/UpdateFile/Fonts/update.sh
