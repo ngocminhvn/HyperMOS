@@ -1,0 +1,167 @@
+name: REA PowerKeeper RYU vs HyperMOS Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - .github/workflows/rea-powerkeeper-audit.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    env:
+      REA_JADX_MCP_JAR: /tmp/rea/jadx-headless-mcp-0.7.1-all.jar
+    steps:
+      - name: Checkout test branch (analysis only)
+        uses: actions/checkout@v4
+      - name: Checkout current HyperMOS main read-only
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: mos-main
+      - name: Set up Node for REA
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Set up JDK for JADX
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install extraction dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache /usr/local/share/powershell || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq erofs-utils e2fsprogs unzip
+          curl -fsSL --retry 4 -o /tmp/payload-dumper.tar.gz \
+            https://github.com/xishang0128/payload-dumper-go/releases/download/v0.1.6/payload-dumper-linux-amd64-v3.tar.gz
+          mkdir -p /tmp/dumper
+          tar -xf /tmp/payload-dumper.tar.gz -C /tmp/dumper
+          chmod +x /tmp/dumper/payload-dumper-linux-amd64-v3
+      - name: Download original RYUOS PowerKeeper artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-PowerKeeper
+          run-id: 37916279893
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: /tmp/ryu
+      - name: Verify original RYUOS artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/ryu/RYUOS_HAOTIAN_PowerKeeper.apk
+          echo '7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  /tmp/ryu/RYUOS_HAOTIAN_PowerKeeper.apk' | sha256sum -c -
+          unzip -tq /tmp/ryu/RYUOS_HAOTIAN_PowerKeeper.apk
+      - name: Extract official Xiaomi HAOTIAN Android 16 stock PowerKeeper
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
+          mkdir -p /tmp/stock-img /tmp/stock-fs /tmp/stock
+          /tmp/dumper/payload-dumper-linux-amd64-v3 extract "$url" -p system_ext -o /tmp/stock-img
+          img=/tmp/stock-img/system_ext.img
+          test -s "$img"
+          if file "$img" | grep -qi erofs; then
+            fsck.erofs --extract=/tmp/stock-fs "$img"
+            stock=$(find /tmp/stock-fs -type f -name PowerKeeper.apk -print -quit)
+            test -s "$stock"
+            cp "$stock" /tmp/stock/PowerKeeper.apk
+          else
+            found=0
+            for p in /priv-app/PowerKeeper /system_ext/priv-app/PowerKeeper /app/PowerKeeper /system_ext/app/PowerKeeper; do
+              rm -f /tmp/stock/PowerKeeper.apk
+              debugfs -R "dump $p/PowerKeeper.apk /tmp/stock/PowerKeeper.apk" "$img" 2>/dev/null || true
+              if test -s /tmp/stock/PowerKeeper.apk; then found=1; break; fi
+            done
+            test "$found" -eq 1
+          fi
+          unzip -tq /tmp/stock/PowerKeeper.apk
+      - name: Reproduce HyperMOS main PowerKeeper bytecode patches in isolated checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest=mos-main/build/baserom/images/system_ext/priv-app/PowerKeeper/PowerKeeper.apk
+          mkdir -p "$(dirname "$dest")" /tmp/mos reports
+          cp /tmp/stock/PowerKeeper.apk "$dest"
+          (cd mos-main && bash bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh)
+          test -s "$dest"
+          cp "$dest" /tmp/mos/PowerKeeper.apk
+          unzip -tq /tmp/mos/PowerKeeper.apk
+          echo 'NOTE: MOS APK here is reconstructed with the current main PowerKeeper.sh from stock; it is not a byte-identical copy of ROM build #101.' > reports/PROVENANCE.txt
+          git -C mos-main rev-parse HEAD >> reports/PROVENANCE.txt
+          sha256sum /tmp/ryu/RYUOS_HAOTIAN_PowerKeeper.apk /tmp/stock/PowerKeeper.apk /tmp/mos/PowerKeeper.apk > reports/SHA256SUMS.txt
+      - name: Install REA Android provider and check prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rea
+          curl -fsSL --retry 4 -o "$REA_JADX_MCP_JAR" \
+            https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar
+          test -s "$REA_JADX_MCP_JAR"
+          java -version
+          node --version
+          npx -y rea-agents@latest --help > reports/REA_CLI_HELP.txt
+      - name: REA decompile RYU and reconstructed MOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/rea
+          for tag in ryu mos; do
+            if test "$tag" = ryu; then apk=/tmp/ryu/RYUOS_HAOTIAN_PowerKeeper.apk; else apk=/tmp/mos/PowerKeeper.apk; fi
+            echo "Inspecting $tag"
+            npx -y rea-agents@latest inspect-android-package "$apk" --format json --full-output > "reports/rea/$tag-package.json"
+            for item in \
+              'com.miui.powerkeeper.controller.KillProcessController:setUidState' \
+              'com.miui.powerkeeper.controller.KillProcessController:shouldKillByCheckerPolicy' \
+              'com.miui.powerkeeper.utils.GmsObserver:isGmsControlEnabled' \
+              'com.miui.powerkeeper.utils.GmsObserver:updateGoogleSync' \
+              'com.miui.powerkeeper.PowerKeeperApplication:onCreate' \
+              'com.projectryu.perf.PerfHook:init' \
+              'com.projectryu.perf.PerfHook:updateConfig'; do
+              klass=$(echo "$item" | cut -d: -f1)
+              method=$(echo "$item" | cut -d: -f2)
+              ident=$(echo "$item" | tr '.:' '__')
+              if ! npx -y rea-agents@latest inspect-android-method "$apk" "$klass" "$method" --format json --full-output \
+                > "reports/rea/$tag-$ident.json" 2> "reports/rea/$tag-$ident.stderr"; then
+                echo "REA could not inspect $tag $item; see stderr and JSON" >> reports/PROVENANCE.txt
+              fi
+            done
+            for needle in AppRuleChecker PowerKeeperInterface PerfHook ActiveStateController; do
+              npx -y rea-agents@latest search-android-classes "$apk" "$needle" --format json --full-output \
+                > "reports/rea/$tag-search-$needle.json" || true
+            done
+          done
+      - name: Generate evidence inventory
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('reports/rea')
+          files = sorted(root.glob('*.json')) if root.exists() else []
+          lines = ['# REA PowerKeeper audit evidence', '',
+                   'Targets: real RYUOS PowerKeeper and reconstructed current HyperMOS main PowerKeeper.',
+                   'This CI job is static only; passing it does not establish runtime, SELinux, or signature compatibility.', '',
+                   '## Evidence files', '']
+          lines.extend('- ' + p.name + ' (' + str(p.stat().st_size) + ' bytes)' for p in files)
+          Path('reports').mkdir(exist_ok=True)
+          Path('reports/REA_README.md').write_text('\n'.join(lines) + '\n')
+          PY
+      - name: Upload evidence only (no APK)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-ryu-vs-hypermos-powerkeeper
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
