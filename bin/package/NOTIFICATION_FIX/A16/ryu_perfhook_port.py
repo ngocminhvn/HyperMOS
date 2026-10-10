@@ -8,7 +8,6 @@ Original RYU bytecode stays in temporary GitHub Actions runner, not the repo.
 import argparse
 import json
 import re
-import shutil
 from pathlib import Path
 
 CLASS = re.compile(r'(?m)^\.class\b[^\n]*?\s(L[^;\s]+;)\s*$')
@@ -18,6 +17,23 @@ PERF = 'Lcom/projectryu/perf/PerfHook'
 CALL = ('Lcom/projectryu/perf/PerfHook;->getInstance'
         '(Landroid/content/Context;)Lcom/projectryu/perf/PerfHook;')
 APP = 'Lcom/miui/powerkeeper/PowerKeeperApplication;'
+
+# RYU framework's getSystemString(ContentResolver, String) ultimately
+# delegates to Settings.System.getString. The foreign framework class is
+# NOT present in Xiaomi stock; port only this exact verified entrypoint.
+RYU_SETTING = ('Lcom/projectryu/ProjectRYUFramework;->getSystemString'
+               '(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;')
+ANDROID_SETTING = ('Landroid/provider/Settings$System;->getString'
+                   '(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;')
+FOREIGN_CLASS = 'Lcom/projectryu/ProjectRYUFramework;'
+
+
+def compatible_smali(body):
+    if FOREIGN_CLASS not in body:
+        return body
+    if body.count(RYU_SETTING) != 1 or FOREIGN_CLASS in body.replace(RYU_SETTING, ''):
+        raise ValueError('Unexpected external RYU framework dependency in PerfHook')
+    return body.replace(RYU_SETTING, ANDROID_SETTING)
 
 
 def index(root):
@@ -53,7 +69,7 @@ def dependency_closure(source, stock):
     queue = initial.copy()
     while queue:
         parent = queue.pop()
-        for ref in PRIVATE.findall(source[parent][1]):
+        for ref in PRIVATE.findall(compatible_smali(source[parent][1])):
             if ref in selected:
                 continue
             if ref.startswith('Lcom/projectryu/') and ref not in stock:
@@ -152,7 +168,7 @@ def main():
             input_file = src[cls][0]
             target = new_dex / (cls[1:-1] + '.smali')
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(input_file, target)
+            target.write_text(compatible_smali(src[cls][1]), encoding='utf-8')
         app_path.write_text(app_body, encoding='utf-8')
         installed = index(args.stock)
         if any(c not in installed for c in classes):
