@@ -49,9 +49,17 @@ class HookTests(unittest.TestCase):
         self.assertEqual(new_text.count(CALL), 1)
         self.assertEqual(new_text.count('PerfHook;->init()V'), 1)
         self.assertIn('hypermosInitRyuPerfHook', new_text)
-        self.assertEqual(dex.name, 'smali_classes2')
+        self.assertEqual(dex.name, 'smali')
         self.assertTrue(call.startswith('invoke-static {p0}'))
         self.assertNotIn(CALL, app_file.read_text())
+
+    def test_all_ryu_setting_calls_are_adapted(self):
+        actual = ('invoke-static {v4, v5}, ' + RYU_SETTING + '\n' +
+                  'invoke-static {v5, v6}, ' + RYU_SETTING + '\n' +
+                  'invoke-static {v6, v7}, ' + RYU_SETTING + '\n')
+        adapted = compatible_smali(actual)
+        self.assertEqual(adapted.count(ANDROID_SETTING), 3)
+        self.assertNotIn(RYU_SETTING, adapted)
 
     def test_missing_dependency_refused(self):
         self.extra.unlink()
