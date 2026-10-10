@@ -118,6 +118,15 @@ if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$ryu_apk" -o "$tmp/source-ryu" >/d
   error "RYU PERFHOOK: original RYU APK decompile failed"
   exit 1
 fi
+# Port the two missing RYU ABI declarations before compiling any DEX.
+# The controller call path is already verified; do not replace other classes.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_uid_policy_a16.py" \
+  --ryu "$tmp/source-ryu" --stock "$tmp/out" \
+  --report "$tmp/uid-policy-port.json" || {
+  error "RYU UID POLICY: interface/AppRuleChecker synchronization failed"
+  exit 1
+}
+
 python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py" \
   --ryu "$tmp/source-ryu" --stock "$tmp/out" \
   --report "$tmp/perfhook-port.json" || {
