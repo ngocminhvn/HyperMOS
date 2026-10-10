@@ -36,7 +36,7 @@ jobs:
           script = Path('bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh').read_text()
           verifier = Path('bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh').read_text()
           xiaomi_cert = 'c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025'
-          assert 'HYPERMOS_POWERKEEPER_MODE:-stock' in script
+          assert 'HYPERMOS_POWERKEEPER_MODE:-offline' in script
           assert 'stock_check=$(java -jar "$signjar" verify' in script
           assert 'cp -f "$signed" "$apk"' not in script
           assert 'PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk' in script
