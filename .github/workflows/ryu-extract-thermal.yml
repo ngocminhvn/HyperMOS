@@ -1,6 +1,7 @@
 name: Extract RYUOS HAOTIAN Thermal Configs
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches:
