@@ -33,6 +33,18 @@ jobs:
           sparse-checkout: bin/modfile/OS3/kashi
           persist-credentials: true
 
+      - name: Ensure Android APK validator is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v aapt >/dev/null 2>&1; then exit 0; fi
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [[ -d "$sdk/build-tools" ]] && find "$sdk/build-tools" -name aapt -type f -print -quit | grep -q .; then
+            exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aapt
+
       - name: Check official Mods Center releases and validate ZIPs
         id: update
         shell: bash
@@ -47,6 +59,7 @@ jobs:
           import os
           import re
           import shutil
+          import subprocess
           import tempfile
           import urllib.request
           import zipfile
@@ -54,14 +67,14 @@ jobs:
           from urllib.parse import urlsplit
 
           ROOT = Path('bin/modfile/OS3/kashi')
-          LIMIT = 90 * 1024 * 1024  # GitHub rejects individual files >=100 MiB
+          LIMIT = 99 * 1024 * 1024  # Keep each blob below GitHub's 100 MiB limit
           CHECK_ONLY = os.environ.get('CHECK_ONLY', 'false').lower() == 'true'
           MODS = [
-              ('App Vault', 'HyperOS-App-Vault', 'HyperOS_AppVault', 'PersonalAssistant'),
-              ('Control Center', 'ColorOS_Control_Center', 'ColorOS_plugin_mod_', 'MIUISystemUIPlugin'),
-              ('Launcher', 'HyperOS-Launcher', 'HyperOS_Launcher', 'MiuiHome'),
-              ('Security Center', 'HyperOS-Security-Center', 'HyperOS_Security', 'SecurityCenter'),
-              ('Theme Manager', 'HyperOS-Theme-Manager', 'HyperOS_ThemeManager', 'ThemeManager'),
+              ('App Vault', 'HyperOS-App-Vault', 'HyperOS_AppVault', 'com.miui.personalassistant'),
+              ('Control Center', 'ColorOS_Control_Center', 'ColorOS_plugin_mod_', 'miui.systemui.plugin'),
+              ('Launcher', 'HyperOS-Launcher', 'HyperOS_Launcher', 'com.miui.home'),
+              ('Security Center', 'HyperOS-Security-Center', 'HyperOS_Security', 'com.miui.securitycenter'),
+              ('Theme Manager', 'HyperOS-Theme-Manager', 'HyperOS_ThemeManager', 'com.android.thememanager'),
           ]
 
           def request_json(url):
@@ -91,7 +104,21 @@ jobs:
               match = re.match(r'(?i)v(\d+(?:\.\d+)*)', suffix)
               return tuple(map(int, match.group(1).split('.'))) if match else None
 
-          def validate(path, expected_apk):
+          def find_aapt():
+              binary = shutil.which('aapt')
+              if binary:
+                  return binary
+              sdk = Path(os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
+                         or '/usr/local/lib/android/sdk')
+              builds = sorted(sdk.glob('build-tools/*/aapt'), reverse=True)
+              for candidate in builds:
+                  if candidate.is_file():
+                      return str(candidate)
+              raise RuntimeError('aapt missing; cannot verify Android package identity')
+
+          AAPT = find_aapt()
+
+          def validate(path, expected_package):
               try:
                   with zipfile.ZipFile(path) as archive:
                       entries = archive.infolist()
@@ -99,6 +126,7 @@ jobs:
                           raise ValueError('Empty or unreasonable ZIP file count')
                       total_uncompressed = 0
                       names = []
+                      apks = []
                       for entry in entries:
                           name = entry.filename
                           parts = PurePosixPath(name).parts
@@ -113,9 +141,31 @@ jobs:
                               raise ValueError('Unreasonably large uncompressed ZIP')
                           if not entry.is_dir():
                               names.append(PurePosixPath(name).name.lower())
-                      if not any(expected_apk.lower() in n and n.endswith('.apk') for n in names):
-                          raise ValueError(f'Expected {expected_apk} APK not found')
-                      if expected_apk == 'MiuiHome':
+                              if name.lower().endswith('.apk'):
+                                  apks.append(entry)
+                      if not apks:
+                          raise ValueError('ZIP contains no Android APK files')
+                      # Android APK names can change between Kashi releases. Verify the
+                      # actual manifest package, as the ROM build itself does.
+                      matched = []
+                      inventory = []
+                      with tempfile.TemporaryDirectory(prefix='kashi-apk-') as directory:
+                          for index, entry in enumerate(apks):
+                              apk_path = Path(directory) / f'{index}.apk'
+                              with archive.open(entry) as src, apk_path.open('wb') as dst:
+                                  shutil.copyfileobj(src, dst)
+                              proc = subprocess.run([AAPT, 'dump', 'badging', str(apk_path)],
+                                                    capture_output=True, text=True, errors='replace',
+                                                    timeout=60, check=False)
+                              match = re.search(r"^package: name='([^']+)'", proc.stdout, re.MULTILINE)
+                              package = match.group(1) if proc.returncode == 0 and match else '<invalid>'
+                              inventory.append(f'{entry.filename} -> {package}')
+                              if package == expected_package:
+                                  matched.append(entry.filename)
+                      if len(matched) != 1:
+                          raise ValueError(f'Expected one APK with package {expected_package}, '
+                                           f'found {len(matched)}. ZIP inventory: {inventory}')
+                      if expected_package == 'com.miui.home':
                           for required in ('launcherresoverlay', 'privapp_whitelist_com.miui.home.xml'):
                               if not any(required in n for n in names):
                                   raise ValueError('Launcher missing ' + required)
@@ -132,7 +182,7 @@ jobs:
           replacements = []
           with tempfile.TemporaryDirectory(prefix='kashi-update-') as work:
               temp = Path(work)
-              for label, repo, prefix, expected_apk in MODS:
+              for label, repo, prefix, expected_package in MODS:
                   old = [p for p in ROOT.iterdir() if p.is_file()
                          and p.name.lower().startswith(prefix.lower()) and p.suffix.lower() == '.zip']
                   if len(old) != 1:
@@ -154,24 +204,37 @@ jobs:
                   size = asset.get('size', 0)
                   if not isinstance(size, int) or not 0 < size <= LIMIT:
                       raise RuntimeError(f'{label}: asset size missing or too large: {size}')
+                  current_sha = hashlib.sha256(old[0].read_bytes()).hexdigest()
+                  official_digest = asset.get('digest')
+                  if filename == old[0].name and official_digest == 'sha256:' + current_sha:
+                      rows.append((label, old[0].name, filename, 'Unchanged'))
+                      print(f'{label}: Unchanged ({current_sha})')
+                      continue
                   out = temp / filename
                   download(asset['browser_download_url'], out, size)
-                  validate(out, expected_apk)
+                  validate(out, expected_package)
                   incoming_sha = hashlib.sha256(out.read_bytes()).hexdigest()
-                  current_sha = hashlib.sha256(old[0].read_bytes()).hexdigest()
+                  if official_digest and official_digest != 'sha256:' + incoming_sha:
+                      raise RuntimeError(f'{label}: SHA-256 mismatch against official release digest')
                   if out.name == old[0].name and incoming_sha == current_sha:
                       status = 'Unchanged'
                   else:
                       status = 'Update available' if CHECK_ONLY else 'Updated'
-                      replacements.append((old[0], out))
+                      replacements.append((prefix, old[0], out))
                   rows.append((label, old[0].name, filename, status))
                   print(f'{label}: {status}: {old[0].name} -> {filename} [{incoming_sha}]')
 
               if replacements and not CHECK_ONLY:
-                  for old, new in replacements:
-                      if old.name != new.name:
-                          old.unlink()
+                  # All new ZIPs were downloaded and validated before removing any old ZIP.
+                  for prefix, old, new in replacements:
+                      print(f'Remove old: {old.name}')
+                      old.unlink()
                       shutil.copyfile(new, ROOT / new.name)
+                      print(f'Install new: {new.name}')
+                      installed = [file for file in ROOT.glob('*.zip')
+                                   if file.name.lower().startswith(prefix.lower())]
+                      if len(installed) != 1:
+                          raise RuntimeError(f'Expected exactly one ZIP for {prefix}, got {len(installed)}')
                   readme = ROOT / 'README.md'
                   pinned = '\n'.join('- ' + p.name for p in sorted(ROOT.glob('*.zip')))
                   readme.write_text(
