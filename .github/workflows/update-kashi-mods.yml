@@ -1,0 +1,211 @@
+name: Update Kashi Mod Center ZIPs
+
+on:
+  workflow_dispatch:
+    inputs:
+      check_only:
+        description: 'Validate updates without changing main'
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: '23 19 * * 0' # Monday 02:23 in Vietnam (UTC+7)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kashi-mod-center-main
+  cancel-in-progress: false
+
+jobs:
+  update-kashi:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout main (Kashi assets only)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: bin/modfile/OS3/kashi
+          persist-credentials: true
+
+      - name: Check official Mods Center releases and validate ZIPs
+        id: update
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_ONLY: ${{ inputs.check_only || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import tempfile
+          import urllib.request
+          import zipfile
+          from pathlib import Path, PurePosixPath
+          from urllib.parse import urlsplit
+
+          ROOT = Path('bin/modfile/OS3/kashi')
+          LIMIT = 90 * 1024 * 1024  # GitHub rejects individual files >=100 MiB
+          CHECK_ONLY = os.environ.get('CHECK_ONLY', 'false').lower() == 'true'
+          MODS = [
+              ('App Vault', 'HyperOS-App-Vault', 'HyperOS_AppVault', 'PersonalAssistant'),
+              ('Control Center', 'ColorOS_Control_Center', 'ColorOS_plugin_mod_', 'MIUISystemUIPlugin'),
+              ('Launcher', 'HyperOS-Launcher', 'HyperOS_Launcher', 'MiuiHome'),
+              ('Security Center', 'HyperOS-Security-Center', 'HyperOS_Security', 'SecurityCenter'),
+              ('Theme Manager', 'HyperOS-Theme-Manager', 'HyperOS_ThemeManager', 'ThemeManager'),
+          ]
+
+          def request_json(url):
+              headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'HyperMOS-Kashi-Updater'}
+              if os.environ.get('GH_TOKEN'):
+                  headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+                  return json.load(response)
+
+          def download(url, destination, expected_size):
+              # Release files are public. Do NOT forward the GitHub token to redirects.
+              if urlsplit(url).scheme != 'https' or urlsplit(url).netloc != 'github.com':
+                  raise RuntimeError('Unexpected download host: ' + url)
+              with urllib.request.urlopen(urllib.request.Request(url, headers={
+                  'User-Agent': 'HyperMOS-Kashi-Updater'}), timeout=90) as response, destination.open('wb') as out:
+                  total = 0
+                  while chunk := response.read(1024 * 1024):
+                      total += len(chunk)
+                      if total > LIMIT:
+                          raise RuntimeError('Release ZIP exceeds safety limit')
+                      out.write(chunk)
+              if total != expected_size:
+                  raise RuntimeError(f'Incomplete download: {total} != {expected_size} bytes')
+
+          def version(name, prefix):
+              suffix = name[len(prefix):]
+              match = re.match(r'(?i)v(\d+(?:\.\d+)*)', suffix)
+              return tuple(map(int, match.group(1).split('.'))) if match else None
+
+          def validate(path, expected_apk):
+              try:
+                  with zipfile.ZipFile(path) as archive:
+                      entries = archive.infolist()
+                      if not entries or len(entries) > 5000:
+                          raise ValueError('Empty or unreasonable ZIP file count')
+                      total_uncompressed = 0
+                      names = []
+                      for entry in entries:
+                          name = entry.filename
+                          parts = PurePosixPath(name).parts
+                          if not parts or name.startswith('/') or '\\' in name or '..' in parts:
+                              raise ValueError('Unsafe ZIP member path: ' + name)
+                          if (entry.external_attr >> 16) & 0o170000 == 0o120000:
+                              raise ValueError('Symbolic links not supported: ' + name)
+                          if entry.flag_bits & 1:
+                              raise ValueError('Encrypted ZIP member: ' + name)
+                          total_uncompressed += entry.file_size
+                          if total_uncompressed > 900 * 1024 * 1024:
+                              raise ValueError('Unreasonably large uncompressed ZIP')
+                          if not entry.is_dir():
+                              names.append(PurePosixPath(name).name.lower())
+                      if not any(expected_apk.lower() in n and n.endswith('.apk') for n in names):
+                          raise ValueError(f'Expected {expected_apk} APK not found')
+                      if expected_apk == 'MiuiHome':
+                          for required in ('launcherresoverlay', 'privapp_whitelist_com.miui.home.xml'):
+                              if not any(required in n for n in names):
+                                  raise ValueError('Launcher missing ' + required)
+                      bad = archive.testzip()
+                      if bad:
+                          raise ValueError('Corrupt ZIP member: ' + bad)
+              except (zipfile.BadZipFile, OSError) as error:
+                  raise RuntimeError(f'Invalid ZIP: {path.name}: {error}') from error
+
+          if not ROOT.is_dir():
+              raise RuntimeError('Kashi folder is missing; refusing to create an unexpected new tree')
+
+          rows = []
+          replacements = []
+          with tempfile.TemporaryDirectory(prefix='kashi-update-') as work:
+              temp = Path(work)
+              for label, repo, prefix, expected_apk in MODS:
+                  old = [p for p in ROOT.iterdir() if p.is_file()
+                         and p.name.lower().startswith(prefix.lower()) and p.suffix.lower() == '.zip']
+                  if len(old) != 1:
+                      raise RuntimeError(f'{label}: expected exactly one old ZIP, found {len(old)}')
+                  release = request_json(f'https://api.github.com/repos/Mods-Center/{repo}/releases/latest')
+                  assets = [a for a in release.get('assets', [])
+                            if a['name'].lower().startswith(prefix.lower())
+                            and a['name'].lower().endswith('.zip')]
+                  if len(assets) != 1:
+                      raise RuntimeError(f'{label}: expected one official release ZIP, got {len(assets)}')
+                  asset = assets[0]
+                  filename = asset['name']
+                  if Path(filename).name != filename or '/' in filename or '\\' in filename:
+                      raise RuntimeError('Unsafe asset name: ' + filename)
+                  new_v, old_v = version(filename, prefix), version(old[0].name, prefix)
+                  if new_v is not None and old_v is not None and new_v < old_v:
+                      rows.append((label, old[0].name, filename, 'Skipped (older upstream version)'))
+                      continue
+                  size = asset.get('size', 0)
+                  if not isinstance(size, int) or not 0 < size <= LIMIT:
+                      raise RuntimeError(f'{label}: asset size missing or too large: {size}')
+                  out = temp / filename
+                  download(asset['browser_download_url'], out, size)
+                  validate(out, expected_apk)
+                  incoming_sha = hashlib.sha256(out.read_bytes()).hexdigest()
+                  current_sha = hashlib.sha256(old[0].read_bytes()).hexdigest()
+                  if out.name == old[0].name and incoming_sha == current_sha:
+                      status = 'Unchanged'
+                  else:
+                      status = 'Update available' if CHECK_ONLY else 'Updated'
+                      replacements.append((old[0], out))
+                  rows.append((label, old[0].name, filename, status))
+                  print(f'{label}: {status}: {old[0].name} -> {filename} [{incoming_sha}]')
+
+              if replacements and not CHECK_ONLY:
+                  for old, new in replacements:
+                      if old.name != new.name:
+                          old.unlink()
+                      shutil.copyfile(new, ROOT / new.name)
+                  readme = ROOT / 'README.md'
+                  pinned = '\n'.join('- ' + p.name for p in sorted(ROOT.glob('*.zip')))
+                  readme.write_text(
+                      'This directory is populated by the "Update Kashi Mod Center ZIPs" workflow.\n\n'
+                      'Pinned files:\n' + pinned + '\n\n'
+                      'Normal ROM builds only read these local files and never download replacements automatically.\n',
+                      encoding='utf-8')
+
+          print('| Module | Previous ZIP | Latest ZIP | Result |')
+          print('|---|---|---|---|')
+          for row in rows:
+              print('| ' + ' | '.join(row) + ' |')
+          if os.environ.get('GITHUB_STEP_SUMMARY'):
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+                  summary.write('## Kashi / Mods Center ZIP update\n\n')
+                  summary.write('| Module | Previous ZIP | Latest ZIP | Result |\n|---|---|---|---|\n')
+                  for row in rows:
+                      summary.write('| ' + ' | '.join(row) + ' |\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('changed=' + str(bool(replacements) and not CHECK_ONLY).lower() + '\n')
+          PY
+
+      - name: Commit only changed Kashi ZIPs to main
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A -- bin/modfile/OS3/kashi/
+          if git diff --cached --quiet; then
+            echo 'No file content changed.'
+            exit 0
+          fi
+          git diff --cached --stat
+          git commit -m 'chore(kashi): update official Mods Center ZIP snapshots'
+          git push origin HEAD:main
