@@ -26,7 +26,9 @@ class HookTests(unittest.TestCase):
         (self.ryu / 'smali/com/miui/powerkeeper/PowerKeeperApplication.smali').write_text(
             app.replace('    return-void\n',
                         '    invoke-static {p0}, ' + CALL + '\n'
-                        '    move-result-object v0\n'\n                        '    invoke-virtual {v0}, Lcom/projectryu/perf/PerfHook;->init()V\n'\n                        '    return-void\n'))
+                        '    move-result-object v0\n'
+                        '    invoke-virtual {v0}, Lcom/projectryu/perf/PerfHook;->init()V\n'
+                        '    return-void\n'))
         for n in range(20):
             name = 'Lcom/projectryu/perf/PerfHook' + ('$' + str(n) if n else '') + ';'
             dest = self.ryu / 'smali' / (name[1:-1] + '.smali')
@@ -62,7 +64,7 @@ class HookTests(unittest.TestCase):
     def test_missing_oncreate_activation_refused(self):
         f = self.ryu / 'smali/com/miui/powerkeeper/PowerKeeperApplication.smali'
         f.write_text(f.read_text().replace('    invoke-static {p0}, ' + CALL + '\n', ''))
-        with self.assertRaisesRegex(ValueError, 'activation differs'):
+        with self.assertRaisesRegex(ValueError, 'original startup differs'):
             prepare(self.ryu, self.stock)
 
 if __name__ == '__main__':
