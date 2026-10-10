@@ -44,12 +44,13 @@ def port(ryu: Path, stock: Path, name: str, expected_class: str) -> bool:
     for label, value in (("RYU", original), ("target", current)):
         if not re.search(r"(?m)^\.class[^\n]*\s" + re.escape(descriptor) + r"\s*$", value):
             raise ValueError(f"{label} {name}: unexpected class descriptor")
-    added_method = method(original, METHOD)
+    required_signature = "d()Landroid/os/Bundle;" if name == HELPER else METHOD
+    added_method = method(original, required_signature)
     if not added_method:
-        raise ValueError(f"RYU {name} is missing {METHOD}")
+        raise ValueError(f"RYU {name} is missing {required_signature}")
     if "Lcom/projectryu/" in added_method:
         raise ValueError("RYU UID policy method requires external ProjectRYU dependency")
-    existing = method(current, METHOD)
+    existing = method(current, required_signature)
     if existing:
         if re.sub(r"\s+", "", existing) != re.sub(r"\s+", "", added_method):
             raise ValueError(f"{name}: target has a different method; refusing overwrite")
@@ -102,7 +103,7 @@ def run(ryu: Path, stock: Path, report: Path) -> None:
         (IMPLEMENTATION, "AppRuleChecker"),
     ):
         changes[file] = "added" if port(ryu, stock, file, cls) else "already_present"
-    # Strictly limit the delta to the two missing definitions.
+    # Strictly limit the delta to the three missing method definitions.
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps({"method": METHOD, "changes": changes,
                                   "controller": "unchanged"}, indent=2) + "\n",
