@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: haotian-thermal-stock-ryu-compare
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   STOCK_VERSION: OS3.0.308.0.WOBCNXM
@@ -80,30 +80,82 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             --no-install-recommends erofs-utils e2fsprogs \
-            android-sdk-libsparse-utils file curl
+            android-sdk-libsparse-utils file curl aria2
           df -h /tmp
 
-      - name: Automatically download verified Xiaomi stock Fastboot ROM
+      - name: Probe alternate Xiaomi mirrors and download the fastest working stock ROM
         shell: bash
         run: |
           set -euo pipefail
+          # Same Fastboot filename on different Xiaomi/CDN hosts; MD5 must match MiFirm.
+          mirrors=(
+            "https://bn.d.miui.com"
+            "https://cdnorg.d.miui.com"
+            "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com"
+            "https://cdn-ota.azureedge.net"
+          )
+          candidates=()
+          for mirror in "${mirrors[@]}"; do
+            url="$mirror/$STOCK_VERSION/$STOCK_FILENAME"
+            echo "::group::Probe $mirror"
+            rm -f /tmp/stock-probe
+            if curl --fail --location --silent --show-error \
+              --range 0-1048575 --connect-timeout 12 --max-time 25 \
+              --max-filesize 2097152 \
+              --output /tmp/stock-probe "$url"; then
+              bytes="$(stat -c %s /tmp/stock-probe)"
+              if (( bytes >= 262144 && bytes <= 2097152 )); then
+                # A short range download is enough to rank viable hosts.
+                speed="$(curl --fail --location --silent --show-error \
+                  --range 0-262143 --connect-timeout 10 --max-time 15 \
+                  --max-filesize 524288 --output /dev/null \
+                  --write-out '%{speed_download}' "$url" || true)"
+                speed="${speed%.*}"
+                [[ "$speed" =~ ^[0-9]+$ ]] || speed=0
+                echo "Probe: $bytes bytes received; sample speed: $speed B/s"
+                candidates+=("$speed|$url")
+              else
+                echo "::warning::Unexpected probe size $bytes; skipping ranking for $mirror"
+              fi
+            else
+              echo "::warning::Range probe unavailable on $mirror; try as fallback"
+            fi
+            echo "::endgroup::"
+          done
+          rm -f /tmp/stock-probe
+
+          # Try measured faster hosts first; keep all other alternate hosts as fallbacks.
+          urls=()
+          if (( ${#candidates[@]} > 0 )); then
+            mapfile -t ranked < <(printf '%s\n' "${candidates[@]}" | sort -t '|' -k1,1nr)
+            for ranked_entry in "${ranked[@]}"; do
+              urls+=("${ranked_entry#*|}")
+            done
+          fi
+          for mirror in "${mirrors[@]}"; do
+            url="$mirror/$STOCK_VERSION/$STOCK_FILENAME"
+            if [[ " ${urls[*]} " != *" $url "* ]]; then urls+=("$url"); fi
+          done
+
           success=0
-          for host in bigota.d.miui.com hugeota.d.miui.com; do
-            url="https://$host/$STOCK_VERSION/$STOCK_FILENAME"
-            echo "::notice::Trying stock ROM: $url"
-            rm -f /tmp/stock-fastboot.tgz
-            if curl --fail --location --retry 3 --retry-all-errors \
-              --retry-delay 12 --connect-timeout 40 \
-              --speed-time 180 --speed-limit 2048 \
-              --output /tmp/stock-fastboot.tgz "$url" \
+          for url in "${urls[@]}"; do
+            echo "::notice::Downloading via alternate mirror: $url"
+            rm -f /tmp/stock-fastboot.tgz /tmp/stock-fastboot.tgz.aria2
+            if aria2c --no-conf=true --allow-overwrite=true \
+              --dir=/tmp --out=stock-fastboot.tgz \
+              --split=8 --max-connection-per-server=8 --min-split-size=64M \
+              --connect-timeout=20 --timeout=40 \
+              --max-tries=2 --retry-wait=8 \
+              --lowest-speed-limit=128K \
+              --summary-interval=60 "$url" \
               && echo "$STOCK_MD5  /tmp/stock-fastboot.tgz" | md5sum -c -; then
               success=1
               break
             fi
-            echo "::warning::Download or MD5 verification failed at $host; trying another official mirror."
+            echo "::warning::Mirror too slow, unavailable, or MD5 mismatch: $url"
           done
           if [[ "$success" -ne 1 ]]; then
-            echo "::error::Neither official Xiaomi mirror delivered the expected stock ROM MD5."
+            echo "::error::All alternate Xiaomi mirrors failed. No unverified ROM will be used."
             exit 1
           fi
           df -h /tmp
