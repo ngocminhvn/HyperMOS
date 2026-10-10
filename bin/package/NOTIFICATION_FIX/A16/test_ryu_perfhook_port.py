@@ -25,7 +25,8 @@ class HookTests(unittest.TestCase):
         (self.stock / 'smali/com/miui/powerkeeper/PowerKeeperApplication.smali').write_text(app)
         (self.ryu / 'smali/com/miui/powerkeeper/PowerKeeperApplication.smali').write_text(
             app.replace('    return-void\n',
-                        '    invoke-static {p0}, ' + CALL + '\n'\n                        '    move-result-object v0\n'\n                        '    invoke-virtual {v0}, Lcom/projectryu/perf/PerfHook;->init()V\n'\n                        '    return-void\n'))
+                        '    invoke-static {p0}, ' + CALL + '\n'
+                        '    move-result-object v0\n'\n                        '    invoke-virtual {v0}, Lcom/projectryu/perf/PerfHook;->init()V\n'\n                        '    return-void\n'))
         for n in range(20):
             name = 'Lcom/projectryu/perf/PerfHook' + ('$' + str(n) if n else '') + ';'
             dest = self.ryu / 'smali' / (name[1:-1] + '.smali')
@@ -39,7 +40,9 @@ class HookTests(unittest.TestCase):
     def test_dependency_closure_and_single_call(self):
         _, classes, app_file, new_text, dex, call = prepare(self.ryu, self.stock)
         self.assertEqual(len(classes), 21)
-        self.assertEqual(new_text.count(CALL), 1)\n        self.assertEqual(new_text.count('PerfHook;->init()V'), 1)\n        self.assertIn('hypermosInitRyuPerfHook', new_text)
+        self.assertEqual(new_text.count(CALL), 1)
+        self.assertEqual(new_text.count('PerfHook;->init()V'), 1)
+        self.assertIn('hypermosInitRyuPerfHook', new_text)
         self.assertEqual(dex.name, 'smali_classes2')
         self.assertTrue(call.startswith('invoke-static {p0}'))
         self.assertNotIn(CALL, app_file.read_text())
