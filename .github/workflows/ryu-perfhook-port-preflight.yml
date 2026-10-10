@@ -98,16 +98,22 @@ jobs:
           files = list(target.rglob('PowerKeeperApplication.smali'))
           assert len(files) == 1, files
           src = files[0].read_text(encoding='utf-8')
-          # Original RYU has one PerfHook.getInstance(Context) call.
-          expr = (r'(?m)^ *invoke-static *\{[vp]\d+\}, *'
-                  r'Lcom/projectryu/perf/PerfHook;->getInstance'
-                  r'\(Landroid/content/Context;\)Lcom/projectryu/perf/PerfHook;[ \t]*\n'
-                  r' *move-result-object +[vp]\d+[ \t]*\n'
-                  r' *invoke-virtual *\{[vp]\d+\}, *'
-                  r'Lcom/projectryu/perf/PerfHook;->init\(\)V[ \t]*\n')
-          edited, count = re.subn(expr, '', src)
-          assert count == 1, f'RYU two-stage PerfHook activation not as expected: {count}'
-          files[0].write_text(edited, encoding='utf-8')
+          # Remove exactly the original two PerfHook invokes and matching
+          # move-result-object. Tolerate baksmali .line/.local annotations.
+          lines = src.splitlines(keepends=True)
+          get = [i for i, line in enumerate(lines) if re.search(
+              r'^\s*invoke-static(?:/range)?\s+\{[^}]*\},\s*'
+              r'Lcom/projectryu/perf/PerfHook;->getInstance\(', line)]
+          init = [i for i, line in enumerate(lines) if re.search(
+              r'^\s*invoke-virtual(?:/range)?\s+\{[^}]*\},\s*'
+              r'Lcom/projectryu/perf/PerfHook;->init\(\)V', line)]
+          assert len(get) == len(init) == 1 and get[0] < init[0], (get, init)
+          moves = [j for j in range(get[0] + 1, init[0])
+                   if re.match(r'^\s*move-result-object\s+[vp]\d+', lines[j])]
+          assert len(moves) == 1, moves
+          for idx in sorted([get[0], moves[0], init[0]], reverse=True):
+              lines.pop(idx)
+          files[0].write_text(''.join(lines), encoding='utf-8')
           PY
           python3 bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py \
             --ryu /tmp/ryu-perfhook-smali \
