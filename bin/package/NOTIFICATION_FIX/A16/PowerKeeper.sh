@@ -131,6 +131,15 @@ if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null; t
   exit 1
 fi
 [[ -s "$tmp/final/PowerKeeper.apk" ]] || { error "RYU_TEST: empty PowerKeeper output"; exit 1; }
+# APKEditor raw-mode ignores newly changed smali/com code. Compile every
+# decoded DEX explicitly and replace the preserved original DEX binary.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py" \
+  --decoded "$tmp/out" \
+  --apk "$tmp/final/PowerKeeper.apk" \
+  --smali-jar "$work_dir/bin/apktool/smaliv2.jar" --api 36 || {
+  error "RYU PERFHOOK: patched PowerKeeper DEX compilation/repacking failed"
+  exit 1
+}
 unzip -tq "$tmp/final/PowerKeeper.apk" >/dev/null
 # APKEditor may silently ignore newly created dex directories. Assert the
 # class definitions are genuinely present in the final binary, not only smali.
