@@ -99,6 +99,13 @@ jobs:
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py
+          # PowerKeeper is signed during the ROM build, using the SAME fixed
+          # testkey as InstallerX. Missing signer/key is a pre-download error.
+          test -s bin/apktool/apksigner.jar
+          test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8
+          test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
+          grep -Fq 'cp -f "$signed" "$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          grep -Fq 'signature_output=' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
           (cd bin/package/NOTIFICATION_FIX/A16 && python3 -m unittest -q test_ryu_perfhook_port.py)
           python3 bin/package/COREPATCH/test_ryu_policy_a16.py
