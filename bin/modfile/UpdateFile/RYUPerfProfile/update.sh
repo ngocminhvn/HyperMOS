@@ -22,7 +22,7 @@ fi
 
 artifact="${RYU_REF_DIR:-}"
 [[ -n "$artifact" && -s "$artifact/manifest.json" ]] || {
-  error "RYU FULL PERF: missing original thermal artifact (run ryu-extract-thermal workflow)"
+  error "RYU FULL PERF: missing validated repository thermal ZIP reference"
   exit 1
 }
 python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py" \
