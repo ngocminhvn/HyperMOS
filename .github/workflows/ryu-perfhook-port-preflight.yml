@@ -11,6 +11,7 @@ on:
       - 'bin/package/NOTIFICATION_FIX/A16/test_ryu_perfhook_port.py'
       - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
       - 'bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py'
 permissions:
   contents: write
   actions: read
@@ -54,6 +55,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
           (cd bin/package/NOTIFICATION_FIX/A16 && python3 -m unittest -v test_ryu_perfhook_port.py)
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
       - name: Get previously extracted genuine RYUOS PowerKeeper
@@ -158,6 +160,10 @@ jobs:
           print('[RYU TEST DIAG] Direct smali class defs:', len(classes),
                 'RYU defs:', len([c for c in classes if c.startswith('Lcom/projectryu/')]))
           PYDIAG
+          python3 bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
+            --decoded /tmp/ryu-perfhook-synthetic \
+            --apk /tmp/ryu-perfhook-verify.apk \
+            --smali-jar bin/apktool/smaliv2.jar --api 36
           python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
             --apk /tmp/ryu-perfhook-verify.apk \
             --report reports/ryu-perfhook-synthetic-install.json
