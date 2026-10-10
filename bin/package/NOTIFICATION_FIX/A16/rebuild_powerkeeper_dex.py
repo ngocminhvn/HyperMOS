@@ -17,7 +17,7 @@ from pathlib import Path
 def dex_name(directory: str) -> str:
     if directory == "smali":
         return "classes.dex"
-    match = re.fullmatch(r"smali_classes([2-9]\d*)", directory)
+    match = re.fullmatch(r"smali_classes((?:[2-9]|[1-9]\d+))", directory)
     if not match:
         raise ValueError("Unexpected smali directory: " + directory)
     return "classes" + match.group(1) + ".dex"
@@ -26,7 +26,7 @@ def dex_name(directory: str) -> str:
 def rebuild(decoded: Path, apk: Path, smali_jar: Path, api: int) -> None:
     folders = sorted((p for p in decoded.iterdir()
                       if p.is_dir() and
-                      (p.name == "smali" or re.fullmatch(r"smali_classes[2-9]\d*", p.name))),
+                      (p.name == "smali" or re.fullmatch(r"smali_classes(?:[2-9]|[1-9]\d+)", p.name))),
                      key=lambda p: (p.name != "smali", p.name))
     if not folders:
         raise ValueError("No decoded smali directories to compile")
@@ -49,7 +49,7 @@ def rebuild(decoded: Path, apk: Path, smali_jar: Path, api: int) -> None:
         temporary_apk = temp / "PowerKeeper.dex-verified.apk"
         with zipfile.ZipFile(apk, "r") as source:
             original_dex = set(n for n in source.namelist()
-                               if re.fullmatch(r"classes(?:[2-9]\d*)?\.dex", n))
+                               if re.fullmatch(r"classes(?:(?:[2-9]|[1-9]\d+))?\.dex", n))
             if set(replacements) != original_dex:
                 raise RuntimeError(
                     f"DEX directories do not match APK entries: "
