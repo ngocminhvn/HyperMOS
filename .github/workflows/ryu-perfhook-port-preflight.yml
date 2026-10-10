@@ -99,11 +99,14 @@ jobs:
           assert len(files) == 1, files
           src = files[0].read_text(encoding='utf-8')
           # Original RYU has one PerfHook.getInstance(Context) call.
-          expr = (r'(?m)^ *invoke-static *\{p0\}, *'
+          expr = (r'(?m)^ *invoke-static *\{[vp]\d+\}, *'
                   r'Lcom/projectryu/perf/PerfHook;->getInstance'
-                  r'\(Landroid/content/Context;\)Lcom/projectryu/perf/PerfHook;[ \t]*\n')
+                  r'\(Landroid/content/Context;\)Lcom/projectryu/perf/PerfHook;[ \t]*\n'
+                  r' *move-result-object +[vp]\d+[ \t]*\n'
+                  r' *invoke-virtual *\{[vp]\d+\}, *'
+                  r'Lcom/projectryu/perf/PerfHook;->init\(\)V[ \t]*\n')
           edited, count = re.subn(expr, '', src)
-          assert count == 1, f'RYU initialization not as expected: {count}'
+          assert count == 1, f'RYU two-stage PerfHook activation not as expected: {count}'
           files[0].write_text(edited, encoding='utf-8')
           PY
           python3 bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py \
