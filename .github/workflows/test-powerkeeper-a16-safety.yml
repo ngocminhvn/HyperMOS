@@ -38,6 +38,7 @@ jobs:
             bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py \
             bin/package/COREPATCH/ryu_policy_a16.py
           python3 bin/package/COREPATCH/test_ryu_policy_a16.py
+          (cd bin/modfile/UpdateFile/RYUPerfProfile && python3 test_verify_ryu_perf_final.py -v)
       - name: Reject runtime hooks and testkey PowerKeeper replacement
         shell: bash
         run: |
