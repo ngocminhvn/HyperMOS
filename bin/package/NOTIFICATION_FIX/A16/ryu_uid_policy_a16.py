@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Port the two missing RYU UID-policy declarations into Xiaomi PowerKeeper.
+"""Port the missing RYU UID-policy declarations and Bundle helper into Xiaomi PowerKeeper.
 
 The RYU KillProcessController call path is already present in HyperMOS test
 builds. The original APK is supplied by the builder, SHA-256 pinned there.
@@ -14,6 +14,7 @@ METHOD = "getUidPolicy(I)Landroid/os/Bundle;"
 INTERFACE = "PowerKeeperInterface$l.smali"
 IMPLEMENTATION = "AppRuleChecker.smali"
 CONTROLLER = "KillProcessController.smali"
+HELPER = "AppRuleChecker$j.smali"
 
 
 def one(root: Path, name: str) -> Path:
@@ -63,9 +64,25 @@ def port(ryu: Path, stock: Path, name: str, expected_class: str) -> bool:
             raise ValueError("RYU AppRuleChecker.getUidPolicy lost Bundle getter dependency")
         if "q(I)Lcom/miui/powerkeeper/AppRuleChecker$j;" not in current:
             raise ValueError("Stock AppRuleChecker has no q(I) helper")
-        checker = one(stock, "AppRuleChecker$j.smali").read_text(encoding="utf-8")
-        if "d()Landroid/os/Bundle;" not in checker:
-            raise ValueError("Stock AppRuleChecker$j has no Bundle getter")
+        # The getter is not present in Xiaomi/HyperMOS #101. Port it below.
+        checker = one(stock, HELPER).read_text(encoding="utf-8")
+        if "Lcom/miui/powerkeeper/AppRuleChecker$i;" not in checker:
+            raise ValueError("Stock AppRuleChecker$j has incompatible policy state")
+    elif name == HELPER:
+        required_fields = [
+            "e:Lcom/miui/powerkeeper/AppRuleChecker$i;",
+            "f:Lcom/miui/powerkeeper/AppRuleChecker$i;",
+        ]
+        for field in required_fields:
+            if field not in current:
+                raise ValueError(f"Stock AppRuleChecker$j missing expected field {field}")
+        state = one(stock, "AppRuleChecker$i.smali").read_text(encoding="utf-8")
+        for field in ["a:I", "b:J"]:
+            if field not in state:
+                raise ValueError(f"Stock AppRuleChecker$i missing {field}")
+        if not all(x in added_method for x in
+                   ['"POLICY"', '"DELAY_MINUTE"', '"HOT_POLICY"', '"HOT_DELAY_MINUTE"']):
+            raise ValueError("RYU Bundle helper missing expected UID policy keys")
     target.write_text(current.rstrip() + "\n\n" + added_method.rstrip() + "\n", encoding="utf-8")
     return True
 
@@ -81,6 +98,7 @@ def run(ryu: Path, stock: Path, report: Path) -> None:
     changes = {}
     for file, cls in (
         (INTERFACE, "PowerKeeperInterface$l"),
+        (HELPER, "AppRuleChecker$j"),
         (IMPLEMENTATION, "AppRuleChecker"),
     ):
         changes[file] = "added" if port(ryu, stock, file, cls) else "already_present"
@@ -89,7 +107,7 @@ def run(ryu: Path, stock: Path, report: Path) -> None:
     report.write_text(json.dumps({"method": METHOD, "changes": changes,
                                   "controller": "unchanged"}, indent=2) + "\n",
                       encoding="utf-8")
-    print("[RYU UID POLICY] PASS: interface + implementation synchronized; controller unchanged")
+    print("[RYU UID POLICY] PASS: interface + Bundle helper + implementation synchronized; controller unchanged")
 
 
 if __name__ == "__main__":
