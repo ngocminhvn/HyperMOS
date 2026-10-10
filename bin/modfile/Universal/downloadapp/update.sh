@@ -111,6 +111,17 @@ mods "Installing downloadapp APKs"
 
 for apk in "${apks[@]}"; do
   file="$(basename "$apk")"
+
+  # Root managers must never be preinstalled by downloadapp, even when
+  # building stock. KernelSU Next's matching APK is provided separately in
+  # Download after first unlock in root builds.
+  case "$file" in
+    SukiSU*.apk|KernelSU*.apk|KSU*.apk)
+      mods "downloadapp: skip competing/preinstalled root manager: $file"
+      continue
+      ;;
+  esac
+
   name="${file%.apk}"
   safe_name="$(printf '%s' "$name" | tr -cs 'A-Za-z0-9._-' '_')"
 
