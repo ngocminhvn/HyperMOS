@@ -18,6 +18,14 @@ on:
         required: false
         default: false
         type: boolean
+      root_mode:
+        description: 'KernelSU Next root mode (latest stable; auto-detect KMI)'
+        required: true
+        type: choice
+        default: 'root'
+        options:
+          - root
+          - stock
       upload_method:
         description: 'Upload ROM to'
         required: true
@@ -218,6 +226,20 @@ jobs:
           grep -Fq 'install -m 0755 "$src_bridge" "$bridge_dst"' bin/modfile/UpdateFile/TNM/update.sh
           grep -Fq 'exec "$BACKEND" "$@"' bin/modfile/UpdateFile/TNM/tnm-bridge
           echo "[OK] - Font catalog, shared emoji and TNM bridge preflight passed"
+          # KernelSU Next RYU-test integration: verify scripts and auto-KMI logic
+          # before downloading a large stock ROM.
+          bash -n bin/root/patch_init_boot.sh
+          sh -n bin/root/stage_root_manager.sh
+          bash -n bin/modfile/Universal/downloadapp/update.sh
+          python3 -m py_compile bin/root/detect_kernel_kmi.py
+          python3 bin/root/detect_kernel_kmi.py --self-test
+          grep -Fq 'KernelSU-Next/KernelSU-Next' bin/root/patch_init_boot.sh
+          grep -Fq 'skip competing/preinstalled root manager' bin/modfile/Universal/downloadapp/update.sh
+          grep -Fq 'KernelSU-Next_v' bin/root/stage_root_manager.sh
+          test -s bin/root/stage_root_manager.rc
+          echo "[ROOT] KernelSU Next patch and manager staging preflight passed"
+
+
 
           sudo chmod -R a+rwX .
           chmod +x bin/magiskboot 2>/dev/null || true
@@ -236,6 +258,7 @@ jobs:
       - name: Build ROM
         env:
           INPUT_URL: ${{ inputs.input_url }}
+          ROOT_MODE: ${{ inputs.root_mode }}
         shell: bash
         run: |
           set -euo pipefail
@@ -264,6 +287,31 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Ensure root manager is not preinstalled
+        if: ${{ inputs.root_mode == 'root' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="build/baserom/images/product/data-app"
+          if [ -d "$target" ] && find "$target" -type f \
+              \( -iname 'SukiSU*.apk' -o -iname 'KernelSU*.apk' -o -iname 'KSU*.apk' \) \
+              -print -quit | grep -q .; then
+            echo "::error::Root manager unexpectedly preinstalled in product/data-app"
+            exit 1
+          fi
+          echo "[ROOT] Root manager is not preinstalled"
+
+      - name: Patch KernelSU Next into init_boot
+        if: ${{ inputs.root_mode == 'root' }}
+        shell: bash
+        env:
+          ROOT_MODE: ${{ inputs.root_mode }}
+        run: |
+          set -euo pipefail
+          # build.sh extracts read-only partition trees with sudo.
+          sudo -E env PATH="$PATH" ROOT_MODE="$ROOT_MODE" \
+            bash bin/root/patch_init_boot.sh 2>&1 | tee -a build_action.log
+
       - name: Pack ROM
         shell: bash
         run: |
@@ -277,6 +325,7 @@ jobs:
         shell: bash
         env:
           UPLOAD_METHOD: ${{ inputs.upload_method }}
+          ROOT_MODE: ${{ inputs.root_mode }}
           DEBUG_BUILD: ${{ inputs.debug }}
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
