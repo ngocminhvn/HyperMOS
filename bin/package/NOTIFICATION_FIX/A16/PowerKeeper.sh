@@ -18,7 +18,7 @@ apk=$(find "$MAIN_FOLDER" -type f -name PowerKeeper.apk -print -quit)
 # The package joins android.uid.system. A testkey-signed APK was accepted
 # into #101 but could not receive a valid SELinux application context.
 # Default to the untouched Xiaomi-signed APK; keep modified builds offline.
-mode="${HYPERMOS_POWERKEEPER_MODE:-stock}"
+mode="${HYPERMOS_POWERKEEPER_MODE:-offline}"
 case "$mode" in stock|offline) ;; *) error "POWERKEEPER: unsupported mode $mode (stock/offline only)"; exit 1 ;; esac
 if [[ "$mode" == "stock" ]]; then
   signjar="$work_dir/bin/apktool/apksigner.jar"
