@@ -31,9 +31,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      STOCK: ${{ runner.temp }}/pk-stock/PowerKeeper.apk
-      RYU: ${{ runner.temp }}/pk-ryu/RYUOS_HAOTIAN_PowerKeeper.apk
-      WORK: ${{ runner.temp }}/pk-work
       SOURCE_APK_URL: ${{ inputs.source_apk_url }}
       SOURCE_SHA256: ${{ inputs.source_sha256 }}
     steps:
@@ -50,12 +47,24 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      - name: Initialize paths using runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "STOCK=$RUNNER_TEMP/pk-stock/PowerKeeper.apk" >> "$GITHUB_ENV"
+          echo "RYU=$RUNNER_TEMP/pk-ryu/RYUOS_HAOTIAN_PowerKeeper.apk" >> "$GITHUB_ENV"
+          echo "WORK=$RUNNER_TEMP/pk-work" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/pk-work" "$RUNNER_TEMP/pk-stock" reports
+
       - name: Install tools and preflight check
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = 'test-ryu-powerkeeper-sign-verify'
           mkdir -p "$WORK" "$RUNNER_TEMP/pk-stock" reports
+          test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8
+          test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
+          test -s bin/apktool/apksigner.jar
           sdkmanager --install 'build-tools;35.0.0'
           echo "SIGNER=$ANDROID_HOME/build-tools/35.0.0/apksigner" >> "$GITHUB_ENV"
           echo "ZIPALIGN=$ANDROID_HOME/build-tools/35.0.0/zipalign" >> "$GITHUB_ENV"
@@ -184,38 +193,34 @@ jobs:
             echo 'Expected: modified APK has an invalid or absent original signature.' >> reports/unsigned-signature.txt
           fi
 
-      - name: Zipalign and sign test-only with short-lived ephemeral key
+      - name: Zipalign and sign with stable ROM testkey (same procedure as InstallerX)
         shell: bash
         run: |
           set -euo pipefail
           "$ZIPALIGN" -p -f 4 "$WORK/unsigned.apk" "$WORK/aligned.apk"
           "$ZIPALIGN" -c -p 4 "$WORK/aligned.apk"
-          pass="$(openssl rand -hex 20)"
-          keytool -genkeypair -storetype PKCS12 \
-            -keystore "$WORK/test-only.p12" -alias powerkeepertrial \
-            -storepass "$pass" -keypass "$pass" \
-            -keyalg RSA -keysize 3072 -validity 2 \
-            -dname 'CN=HyperMOS Isolated Test Only, OU=QA, O=HyperMOS' -noprompt >/dev/null
-          "$SIGNER" sign --ks "$WORK/test-only.p12" --ks-key-alias powerkeepertrial \
-            --ks-pass "pass:$pass" --key-pass "pass:$pass" \
-            --v1-signing-enabled true --v2-signing-enabled true \
-            --v3-signing-enabled true \
-            --out "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" "$WORK/aligned.apk"
-          unset pass
-          test -s "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk"
+          key=bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8
+          cert=bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
+          java -jar bin/apktool/apksigner.jar sign \
+            --key "$key" --cert "$cert" \
+            --out "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk" \
+            "$WORK/aligned.apk"
+          test -s "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk"
           "$SIGNER" verify --verbose --print-certs --min-sdk-version 36 \
-            "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" \
+            "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk" \
             > reports/test-signature.txt
-          "$ZIPALIGN" -c -p 4 "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk"
-          unzip -tq "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk"
+          "$ZIPALIGN" -c -p 4 "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk"
+          unzip -tq "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk"
           python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
-            --apk "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" \
+            --apk "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk" \
             --report reports/perfhook-port.json
-          "$AAPT" dump badging "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" \
+          "$AAPT" dump badging "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk" \
             > reports/test-signed-badging.txt
           grep -q "package: name='com.miui.powerkeeper'" reports/test-signed-badging.txt
+          "$AAPT" dump xmltree "$STOCK" AndroidManifest.xml \
+            | grep -i -E 'sharedUserId|sharedUserMaxSdkVersion' > reports/manifest-shared-user.txt || true
           sha256sum "$WORK/unsigned.apk" \
-            "$WORK/PowerKeeper-test-SIGNED-NOT-FOR-INSTALL.apk" > reports/output-sha256.txt
+            "$WORK/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk" > reports/output-sha256.txt
 
       - name: Produce explicit offline QA conclusions
         if: success()
@@ -235,17 +240,26 @@ jobs:
           report=(
               "RESULT: OFFLINE PATCH + APK SIGNATURE VERIFICATION PASS\n"
               "Original Xiaomi package certificate SHA256: "+a.group(1)+"\n"
-              "Ephemeral test package certificate SHA256: "+b.group(1)+"\n"
+              "Stable testkey package certificate SHA256: "+b.group(1)+"\n"
               "CERTIFICATE MATCH: NO (expected)\n"
               "DEVICE RUNTIME / PACKAGE MANAGER / PRIVILEGED PERMISSIONS: NOT TESTED\n"
               "DO NOT INSTALL, FLASH OR REPLACE THE STOCK POWERKEEPER WITH THIS TEST-SIGNED APK.\n"
               "Signing with an independent key does NOT preserve Xiaomi signature or shared-UID trust.\n"
-              "The APK is deliberately NOT uploaded as an artifact; reports only.\n"
+              "Signed output is for offline inspection only; this Action does not install it.\n"
           )
           Path('reports/RESULT.txt').write_text(report)
           print(report)
           PY
           cat reports/RESULT.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload isolated signed APK for offline inspection
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYU-PowerKeeper-testkey-INSPECT-ONLY
+          path: ${{ runner.temp }}/pk-work/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk
+          retention-days: 3
+          if-no-files-found: error
 
       - name: Upload report only (never APK or private signing key)
         if: always()
