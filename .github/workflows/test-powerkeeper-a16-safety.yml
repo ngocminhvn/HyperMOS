@@ -27,6 +27,9 @@ jobs:
             bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py \
             bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py \
             bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
+      - name: RYU UID-policy ABI regression tests
+        run: |
+          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_uid_policy_a16.py -v
       - name: Prevent unsafe staging of testkey system-UID APK
         shell: bash
         run: |
