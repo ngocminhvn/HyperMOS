@@ -28,5 +28,8 @@ artifact="${RYU_REF_DIR:-}"
 python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py" \
   --artifact "$artifact" \
   --rom "$work_dir/build/baserom/images"
+python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py" \
+  --artifact "$artifact" \
+  --rom "$work_dir/build/baserom/images"
 
-mods "RYU FULL PERF: original powerhint/perf configurations staged (safety profiles unchanged)"
+mods "RYU FULL PERF: original powerhint/perf plus verified ODM app thermal profiles staged (charging and no-limit untouched)"
