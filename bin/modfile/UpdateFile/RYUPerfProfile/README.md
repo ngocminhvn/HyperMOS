@@ -11,7 +11,7 @@
 
 ## What is deliberately NOT identical to RYU
 
-The private com.projectryu.perf.PerfHook implementation (20 classes) is not yet ported. It references RYU-specific framework classes missing from Xiaomi stock, and copying the full PowerKeeper APK without those dependencies can break boot or power management. Runtime CPU/GPU per-app behavior therefore cannot yet be claimed identical to RYU. ROM base labels also differ (308 Xiaomi vs 309 RYU).
+Original RYU com.projectryu.perf.PerfHook classes are now staged through the experimental PowerKeeper injector and getInstance(Context)+init() startup hook. This is still UNVERIFIED until real-stock APKEditor assembly, ROM boot and on-device runtime diagnostics pass. This path can fail on dependencies incompatible with the Xiaomi stock PowerKeeper APK. ROM base labels also differ (308 Xiaomi vs 309 RYU).
 
 Stock Xiaomi thermal engine, charging safety, temperature cutoffs, encrypted thermal configurations, display safety limits, and firmware remain intact.
 
@@ -26,4 +26,4 @@ Stock Xiaomi thermal engine, charging safety, temperature cutoffs, encrypted the
 
 Compare main vs test on identical display brightness, refresh behavior, Wi-Fi/cellular condition and TikTok version. Check scrolling smoothness, video heat, screen-off notifications (Zalo/Messenger/Gmail), idle drain and PowerKeeper stability. A successful GitHub build is not proof of improved battery life or safety.
 
-Related actions: ryu-perfhook-port-preflight.yml for metadata-only PerfHook analysis and ryu-vs-stock-thermal.yml for file-by-file comparison. Neither action makes PerfHook live in HyperMOS.
+Related actions: ryu-perfhook-port-preflight.yml tests the experimental PerfHook dependency closure and multidex packaging; ryu-powerkeeper-parity.yml applies it to actual Xiaomi APK for static validation; ryu-vs-stock-thermal.yml compares file-by-file thermal hashes. None of these static tests independently confirms runtime correctness. See docs/RYU-BACKGROUND-THERMAL-DELTA.md for precise policy differences.
