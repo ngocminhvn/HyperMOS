@@ -1193,13 +1193,15 @@ patch_miui_services() {
   if [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
+    # Match authentic RYU FCM/FGS gates before generic CN replaces
+    # IS_INTERNATIONAL_BUILD references with IS_MIUI.
+    if [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ]; then
+      python3 "$SCRIPT_DIR/ryu_policy_a16.py" "$decompile_dir" || return 1
+    fi
     if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
       apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
     fi
     apply_miui_services_gboard "$decompile_dir"
-    if [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ]; then
-      python3 "$SCRIPT_DIR/ryu_policy_a16.py" "$decompile_dir" || return 1
-    fi
     if [ "$FEATURE_RYU_LOW_POWER_DOZE" -eq 1 ]; then
       python3 "$SCRIPT_DIR/ryu_doze_a16.py" "$decompile_dir" || return 1
     fi
@@ -1296,10 +1298,18 @@ init_env
 ensure_tools || exit 1
 
 # Patch requested JARs
-patch_framework
-patch_services
-patch_miui_services
-patch_miui_framework
+patch_framework || exit 1
+patch_services || exit 1
+patch_miui_services || exit 1
+patch_miui_framework || exit 1
+
+# Never package a ROM if a required patched JAR was not generated.
+for jar in framework_patched.jar services_patched.jar miui-services_patched.jar miui-framework_patched.jar; do
+  if [ ! -s "$jar" ]; then
+    err "COREPATCH A16: missing patched artifact $jar"
+    exit 1
+  fi
+done
 
 # Add patched JARs
 mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
