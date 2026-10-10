@@ -9,6 +9,7 @@ IFACE = ("Lcom/miui/powerkeeper/PowerKeeperInterface$l;",
          "getUidPolicy", "(I)Landroid/os/Bundle;")
 IMPL = ("Lcom/miui/powerkeeper/AppRuleChecker;",
         "getUidPolicy", "(I)Landroid/os/Bundle;")
+HELPER = ("Lcom/miui/powerkeeper/AppRuleChecker$j;", "d", "()Landroid/os/Bundle;")
 CALLER = ("Lcom/miui/powerkeeper/controller/KillProcessController;",
           "shouldKillByCheckerPolicy", "(I)Z")
 
@@ -101,12 +102,12 @@ def main(apk: Path):
             if duplicate:
                 raise ValueError("Duplicate defined method: " + repr(duplicate))
             found.update(decoded)
-    for key, expected_code in [(IFACE, False), (IMPL, True), (CALLER, True)]:
+    for key, expected_code in [(IFACE, False), (IMPL, True), (HELPER, True), (CALLER, True)]:
         if key not in found:
             raise ValueError("Missing defined method " + repr(key))
         if bool(found[key]) != expected_code:
             raise ValueError("Incorrect method code/abstract status: " + repr(key))
-    print("[RYU UID POLICY] PASS: interface abstract, AppRuleChecker concrete, controller linked")
+    print("[RYU UID POLICY] PASS: interface abstract, AppRuleChecker and Bundle helper concrete, controller linked")
     print("[RYU UID POLICY] Compiled APK:", apk)
 
 
