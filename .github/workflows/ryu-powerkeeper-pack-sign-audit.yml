@@ -1,0 +1,82 @@
+name: RYU PowerKeeper Packed Signature Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - '.github/workflows/ryu-powerkeeper-pack-sign-audit.yml'
+      - 'bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh'
+      - 'packROM.sh'
+      - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-packed-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install EROFS tooling and verify integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq erofs-utils unzip
+          bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
+          bash -n packROM.sh
+          grep -Fq 'verify_packed_powerkeeper.sh' packROM.sh
+          grep -Fq 'cp -f "$signed" "$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          test -s bin/apktool/apksigner.jar
+          test -s bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
+          command -v dump.erofs
+          command -v mkfs.erofs
+      - name: Reuse actually signed PowerKeeper from prior PASS
+        uses: actions/download-artifact@v4
+        with:
+          name: RYU-PowerKeeper-testkey-INSPECT-ONLY
+          run-id: 38043476807
+          repository: ngocminhvn/HyperMOS
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/signed-source
+      - name: Build tiny system_ext image and verify packed signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports build/baserom/images/system_ext/app/PowerKeeper
+          src="$RUNNER_TEMP/signed-source/PowerKeeper-testkey-SIGNED-INSPECT-ONLY.apk"
+          dest="build/baserom/images/system_ext/app/PowerKeeper/PowerKeeper.apk"
+          test -s "$src"
+          cp "$src" "$dest"
+          mkfs.erofs --mount-point system_ext \
+            build/baserom/images/system_ext.img build/baserom/images/system_ext
+          bash bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh \
+            "$PWD" EROFS | tee reports/packed-signature-pass.txt
+          # An image that no longer matches the staged signed file MUST be rejected.
+          printf 'altered-after-pack' >> "$dest"
+          if bash bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh \
+            "$PWD" EROFS >reports/tamper-check.txt 2>&1; then
+            echo 'ERROR: packed image auditor accepted a staged-file mismatch' >&2
+            exit 1
+          fi
+          grep -q 'differs from the signed staging APK' reports/tamper-check.txt
+          cp "$src" "$dest"
+          echo 'PASS: post-pack signature check and mismatch-detection both work' \
+            | tee reports/result.txt
+          cat reports/result.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload audit logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryu-powerkeeper-packed-signature-audit
+          path: reports/
+          retention-days: 7
+          if-no-files-found: warn
