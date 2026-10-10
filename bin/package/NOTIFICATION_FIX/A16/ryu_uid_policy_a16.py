@@ -25,8 +25,8 @@ def one(root: Path, name: str) -> Path:
 
 def method(text: str, signature: str) -> str | None:
     pattern = re.compile(
-        r"(?ms)^\\.method[^\\n]*\\s" + re.escape(signature)
-        + r"\\s*$.*?^\\.end method\\s*$"
+        r"(?ms)^\.method[^\n]*\s" + re.escape(signature)
+        + r"\s*$.*?^\.end method\s*$"
     )
     matches = list(pattern.finditer(text))
     if len(matches) > 1:
@@ -41,7 +41,7 @@ def port(ryu: Path, stock: Path, name: str, expected_class: str) -> bool:
     current = target.read_text(encoding="utf-8")
     descriptor = "Lcom/miui/powerkeeper/" + expected_class + ";"
     for label, value in (("RYU", original), ("target", current)):
-        if not re.search(r"(?m)^\\.class[^\\n]*\\s" + re.escape(descriptor) + r"\\s*$", value):
+        if not re.search(r"(?m)^\.class[^\n]*\s" + re.escape(descriptor) + r"\s*$", value):
             raise ValueError(f"{label} {name}: unexpected class descriptor")
     added_method = method(original, METHOD)
     if not added_method:
@@ -50,7 +50,7 @@ def port(ryu: Path, stock: Path, name: str, expected_class: str) -> bool:
         raise ValueError("RYU UID policy method requires external ProjectRYU dependency")
     existing = method(current, METHOD)
     if existing:
-        if re.sub(r"\\s+", "", existing) != re.sub(r"\\s+", "", added_method):
+        if re.sub(r"\s+", "", existing) != re.sub(r"\s+", "", added_method):
             raise ValueError(f"{name}: target has a different method; refusing overwrite")
         return False
     if name == INTERFACE:
