@@ -10,6 +10,7 @@ on:
       - 'bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py'
       - 'bin/package/NOTIFICATION_FIX/A16/test_ryu_perfhook_port.py'
       - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
+      - 'bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py'
 permissions:
   contents: write
   actions: read
@@ -52,6 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py
           (cd bin/package/NOTIFICATION_FIX/A16 && python3 -m unittest -v test_ryu_perfhook_port.py)
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
       - name: Get previously extracted genuine RYUOS PowerKeeper
@@ -129,8 +131,10 @@ jobs:
             -i /tmp/ryu-perfhook-synthetic -o /tmp/ryu-perfhook-verify.apk
           test -s /tmp/ryu-perfhook-verify.apk
           unzip -tq /tmp/ryu-perfhook-verify.apk
-          unzip -Z1 /tmp/ryu-perfhook-verify.apk | grep -Eq '^classes[2-9][0-9]*\.dex$'
-          echo '[PASS] Original RYU PerfHook injected, bytecode reassembled, valid multidex APK'
+          python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
+            --apk /tmp/ryu-perfhook-verify.apk \
+            --report reports/ryu-perfhook-synthetic-install.json
+          echo '[PASS] Original RYU PerfHook injected and compiled DEX definitions verified'
 
       - name: Publish test report (no APK or proprietary smali)
         if: always()
