@@ -144,13 +144,17 @@ def prepare(source_root, stock_root):
     )
     new_app = (app_src[:stock_oncreate.start()] + new_method +
                app_src[stock_oncreate.end():]).rstrip() + '\n' + extra_method
-    dex_nums = [1 if f.name == 'smali' else int(f.name.removeprefix('smali_classes'))
-                for f in stock_root.iterdir() if f.is_dir() and
+    # APKEditor raw mode compiles only the original DEX directories listed
+    # in archive-info.json. A newly created smali_classes2 is silently
+    # ignored, producing an APK that lacks imported classes. Add RYU's
+    # 20-class PerfHook family into an existing decoded DEX directory.
+    dex_dirs = [f for f in stock_root.iterdir() if f.is_dir() and
                 (f.name == 'smali' or re.fullmatch(r'smali_classes\d+', f.name))]
-    if not dex_nums:
+    if not dex_dirs:
         raise ValueError('Missing stock smali directories')
-    extra_dex = stock_root / ('smali_classes' + str(max(dex_nums) + 1))
-    return source, selected, app_path, new_app, extra_dex, ' -> '.join(calls)
+    destination_smali = next((d for d in dex_dirs if d.name == 'smali'),
+                             sorted(dex_dirs, key=lambda d: d.name)[0])
+    return source, selected, app_path, new_app, destination_smali, ' -> '.join(calls)
 
 
 
@@ -163,14 +167,16 @@ def main():
     args = p.parse_args()
     src, classes, app_path, app_body, new_dex, original_call = prepare(args.ryu, args.stock)
     report = dict(class_count=len(classes), classes=classes,
-                  source_activation=original_call, new_dex=new_dex.name,
+                  source_activation=original_call, target_dex_directory=new_dex.name,
                   runtime='original RYU PerfHook, from user-provided source APK',
                   thermal_profiles_unchanged=True)
     if not args.dry_run:
-        if new_dex.exists():
-            raise ValueError('New dex destination unexpectedly exists')
+        # Validate EVERY destination before modifying any decoded stock file.
         for cls in classes:
-            input_file = src[cls][0]
+            target = new_dex / (cls[1:-1] + '.smali')
+            if target.exists():
+                raise ValueError('Unexpected existing class destination: ' + cls)
+        for cls in classes:
             target = new_dex / (cls[1:-1] + '.smali')
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(compatible_smali(src[cls][1]), encoding='utf-8')
@@ -184,7 +190,7 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     print(f'[RYU PERFHOOK] {len(classes)} original classes; init site: {original_call}')
-    print('[RYU PERFHOOK] '+('STATIC CHECK PASS' if args.dry_run else 'INJECTED; APK assembly is next'))
+    print('[RYU PERFHOOK] '+('STATIC CHECK PASS' if args.dry_run else 'INJECTED INTO EXISTING DEX; APK assembly is next'))
 
 
 if __name__ == '__main__':
