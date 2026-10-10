@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# RYU-compatible baseline for A16 PowerKeeper.
-# Preserve all stock APK classes and implement only two verified RYU GMS
-# gates in the existing GmsObserver. RYU-only PerfHook classes/resources are
-# deliberately excluded; this stays restricted to the HAOTIAN test branch.
+# RYU-compatible HAOTIAN A16 test PowerKeeper:
+# keep stock classes, patch verified GMS gates and conditional UID policy,
+# and import pinned original PerfHook classes with dependency checks.
+# This is a TEST branch build, not an assertion of on-device parity.
 set -euo pipefail
 
 work_dir=$(pwd)
@@ -19,7 +19,7 @@ rm -rf "$tmp"
 mkdir -p "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 
-# Decode only to verify compatibility; the artifact itself is NOT rebuilt.
+# Decode the base APK to validate compatibility before selective edits and rebuild.
 if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null; then
   error "RYU_TEST: Could not decode base PowerKeeper.apk"
   exit 1
