@@ -1,0 +1,30 @@
+name: Start RYU Test ROM Build
+on:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - '.github/workflows/launch-ryu-build-once.yml'
+permissions:
+  contents: read
+  actions: write
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify test branch only
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = "test-ryu-performance-haotian"
+      - name: Request complete HyperMOS test build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/${{ github.repository }}/actions/workflows/build.yml/dispatches" \
+            -f ref=test-ryu-performance-haotian \
+            -f 'inputs[input_url]=https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' \
+            -f 'inputs[upload_method]=pixeldrain' \
+            -f 'inputs[debug]=false'
+          echo "Dispatched build.yml for test-ryu-performance-haotian only."
