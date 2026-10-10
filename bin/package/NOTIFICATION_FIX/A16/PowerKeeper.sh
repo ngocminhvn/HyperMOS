@@ -26,12 +26,12 @@ if [[ "$mode" == "stock" ]]; then
   stock_check=$(java -jar "$signjar" verify --verbose --print-certs --min-sdk-version 36 "$apk") || {
     error "POWERKEEPER: original APK does not have a valid Android signature"; exit 1;
   }
-  stock_cert=$(printf '%s\\n' "$stock_check" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+  stock_cert=$(printf '%s\n' "$stock_check" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
   xiaomi_cert="c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025"
   [[ "$stock_cert" == "$xiaomi_cert" ]] || {
     error "POWERKEEPER: ROM input is not signed by expected Xiaomi MIUI certificate ($stock_cert)"; exit 1;
   }
-  printf '%s\\n' "$stock_check" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' || {
+  printf '%s\n' "$stock_check" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' || {
     error "POWERKEEPER: expected stock APK v3 signature verification missing"; exit 1;
   }
   mods "PowerKeeper A16: preserve verified Xiaomi-signed stock APK (SELinux UID 1000 recovery)"
