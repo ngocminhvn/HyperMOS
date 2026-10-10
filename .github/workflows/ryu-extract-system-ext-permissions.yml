@@ -1,0 +1,155 @@
+name: Extract RYUOS HAOTIAN system_ext permissions XML
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - .github/workflows/ryu-extract-system-ext-permissions.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ryu-haotian-system-ext-permissions
+  cancel-in-progress: false
+
+env:
+  RYU_URL: https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip
+  RYU_SHA256: 42dc542c9024c478e6b45af8e6fef6ba133176fe8201a14cf59496954516ba28
+
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout on test branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare space and extraction tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends erofs-utils e2fsprogs android-sdk-libsparse-utils file unzip curl
+          python3 -m py_compile bin/lpunpack.py bin/audit/ryu_super_partitions.py
+          df -h /tmp
+
+      - name: Download and validate original RYU CN ROM
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 --speed-time 180 --speed-limit 1024 --output /tmp/ryu-rom.zip "$RYU_URL"
+          echo "$RYU_SHA256  /tmp/ryu-rom.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('/tmp/ryu-rom.zip') as arc:
+              entries = [x for x in arc.infolist() if x.filename.endswith('/super.img')]
+              assert len(entries) == 1, f'Expected super.img, found {len(entries)}'
+              assert entries[0].file_size > 1024**3
+              print(f'Source: {entries[0].filename}, super bytes: {entries[0].file_size}')
+          PY
+          df -h /tmp
+
+      - name: Extract only super.img and enumerate partitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import shutil
+          import zipfile
+          with zipfile.ZipFile('/tmp/ryu-rom.zip') as arc:
+              entry = next(x for x in arc.namelist() if x.endswith('/super.img'))
+              with arc.open(entry) as src, open('/tmp/ryu-super.img', 'wb') as dst:
+                  shutil.copyfileobj(src, dst, length=16*1024*1024)
+          PY
+          rm -f /tmp/ryu-rom.zip
+          if python3 - <<'PY'
+          import struct
+          with open('/tmp/ryu-super.img','rb') as f:
+              magic=struct.unpack('<I', f.read(4))[0]
+          raise SystemExit(0 if magic==0xED26FF3A else 1)
+          PY
+          then
+            simg2img /tmp/ryu-super.img /tmp/ryu-super.raw.img
+            mv -f /tmp/ryu-super.raw.img /tmp/ryu-super.img
+          fi
+          mkdir -p /tmp/ryu-audit
+          python3 bin/audit/ryu_super_partitions.py --super /tmp/ryu-super.img --json /tmp/ryu-audit/partition-info.json --names /tmp/ryu-audit/partitions.txt
+          echo 'Partition names:'
+          cat /tmp/ryu-audit/partitions.txt
+          if grep -Fxq system_ext_a /tmp/ryu-audit/partitions.txt; then
+            echo 'system_ext_a' > /tmp/ryu-audit/selected.txt
+          elif grep -Fxq system_ext /tmp/ryu-audit/partitions.txt; then
+            echo 'system_ext' > /tmp/ryu-audit/selected.txt
+          else
+            echo '::error::system_ext logical partition missing in RYU super'
+            exit 1
+          fi
+          df -h /tmp
+
+      - name: Read-only extraction of system_ext permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          choice="$(cat /tmp/ryu-audit/selected.txt)"
+          mkdir -p /tmp/ryu-part /tmp/ryu-fs /tmp/ryu-permissions/system_ext/etc/permissions
+          python3 bin/lpunpack.py -p "$choice" /tmp/ryu-super.img /tmp/ryu-part
+          img="/tmp/ryu-part/$choice.img"
+          test -s "$img"
+          file "$img"
+          if file -b "$img" | grep -Eiq 'erofs'; then
+            fsck.erofs --extract=/tmp/ryu-fs "$img"
+          elif file -b "$img" | grep -Eiq 'ext[234] filesystem'; then
+            mkdir -p /tmp/ryu-fs/etc
+            debugfs -R "rdump /etc/permissions /tmp/ryu-fs/etc" "$img" > /tmp/ryu-audit/debugfs.log 2>&1 || true
+            if ! test -d /tmp/ryu-fs/etc/permissions; then
+              mkdir -p /tmp/ryu-fs/system_ext/etc
+              debugfs -R "rdump /system_ext/etc/permissions /tmp/ryu-fs/system_ext/etc" "$img" >> /tmp/ryu-audit/debugfs.log 2>&1 || true
+            fi
+          else
+            echo '::error::Unsupported system_ext filesystem'
+            exit 1
+          fi
+          found=''
+          for candidate in /tmp/ryu-fs/etc/permissions /tmp/ryu-fs/system_ext/etc/permissions; do
+            if test -d "$candidate"; then found="$candidate"; break; fi
+          done
+          if test -z "$found"; then
+            echo '::error::Could not locate system_ext/etc/permissions inside RYU image'
+            find /tmp/ryu-fs -maxdepth 4 -type d | head -90
+            exit 1
+          fi
+          python3 - "$found" <<'PY'
+          import hashlib, json, shutil, sys
+          from pathlib import Path
+          src = Path(sys.argv[1])
+          root = Path('/tmp/ryu-permissions')
+          dest = root/'system_ext/etc/permissions'
+          manifest = []
+          for file in sorted(src.glob('*.xml')):
+              if not file.is_file(): continue
+              target=dest/file.name
+              shutil.copyfile(file, target)
+              raw=target.read_bytes()
+              manifest.append({'path':str(target.relative_to(root)), 'bytes':len(raw), 'sha256':hashlib.sha256(raw).hexdigest()})
+          if not manifest: raise SystemExit('No XML files at system_ext/etc/permissions')
+          (root/'manifest.json').write_text(json.dumps(manifest,indent=2,ensure_ascii=False)+'\n')
+          (root/'SHA256SUMS.txt').write_text(''.join(f"{x['sha256']}  {x['path']}\n" for x in manifest))
+          (root/'README.txt').write_text('Unmodified system_ext/etc/permissions/*.xml from RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip (CN)\nROM SHA256: 42dc542c9024c478e6b45af8e6fef6ba133176fe8201a14cf59496954516ba28\nThis artifact is for read-only audit, not for blind flashing or replacement.\n')
+          print(f'[OK] Extracted {len(manifest)} XML files from {src}')
+          print('\n'.join(x['path'] for x in manifest))
+          PY
+          df -h /tmp
+
+      - name: Upload original permissions XML as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-system_ext-etc-permissions
+          path: /tmp/ryu-permissions/
+          retention-days: 14
+          if-no-files-found: error
