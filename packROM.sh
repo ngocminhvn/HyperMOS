@@ -136,6 +136,20 @@ if [ "$pack_failed" -ne 0 ]; then
     exit 1
 fi
 
+# #99 contained an unsigned PowerKeeper which Android never registered.
+# Verify the ACTUAL PowerKeeper bytes and APK V2/V3 signature inside the
+# packed system_ext.img before creating super.img or uploading a ROM.
+# Isolated RYU test branch only: this verification must fail closed.
+if [[ "$androidVER" == "16" ]]; then
+    repack "RYU PowerKeeper: verify signed APK inside packed system_ext.img"
+    if ! bash "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh" \
+        "$work_dir" "$PACK_TYPE"; then
+        error "RYU PowerKeeper packed-image signature audit FAILED; stop ROM build"
+        exit 1
+    fi
+    repack "RYU PowerKeeper: packed-image signature audit PASS"
+fi
+
 if grep -q "ro.build.ab_update=true" build/baserom/images/vendor/build.prop;  then
     is_ab_device=true
 else
