@@ -1,0 +1,270 @@
+name: ZK HAOTIAN Drive - PowerKeeper Notification Audit
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - '.github/workflows/audit-zk-haotian-drive.yml'
+permissions:
+  contents: read
+concurrency:
+  group: zk-haotian-drive-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      DRIVE_FILE_ID: '15tzXbZvcSwP23bnbeGlMjT9Eh4KOD275'
+      DRIVE_FILE_BYTES: '16515592696'
+      STOCK_OTA: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
+    steps:
+      - uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 1024
+          temp-reserve-mb: 1024
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: mos-main
+          lfs: false
+      - name: Prepare read-only audit tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/zk-drive /tmp/zk-selected /tmp/stock-selected /tmp/zk-decompiled /tmp/stock-decompiled
+          echo '# ZK Drive audit execution status' > reports/zk-drive/STATUS.md
+          python3 -m py_compile bin/audit/zk_rom_notification_analysis.py
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends erofs-utils e2fsprogs android-sdk-libsparse-utils unzip python3-venv file
+          python3 -m venv /tmp/zk-venv
+          /tmp/zk-venv/bin/pip -q install gdown==5.2.0
+          curl -fsSL --retry 4 -o /tmp/payload-dumper.tar.gz https://github.com/xishang0128/payload-dumper-go/releases/download/v0.1.6/payload-dumper-linux-amd64-v3.tar.gz
+          mkdir -p /tmp/payload-tool
+          tar -xf /tmp/payload-dumper.tar.gz -C /tmp/payload-tool
+          chmod +x /tmp/payload-tool/payload-dumper-linux-amd64-v3
+          test -s bin/apktool/apke.jar && test -s bin/apktool/baksmaliv2.jar
+          df -h /tmp
+      - name: Download shared Google Drive ROM (16.5 billion bytes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          free=$(df -B1 /tmp | awk 'NR==2 {print $4}')
+          if (( free < DRIVE_FILE_BYTES + 2147483648 )); then
+            echo "::error::Runner free space insufficient for 15.4 GiB Drive file"
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            /tmp/zk-venv/bin/gdown "https://drive.google.com/uc?id=$DRIVE_FILE_ID" \
+              -O /tmp/zk-haotian.zip --continue --fuzzy && break
+            echo "Drive attempt $attempt failed"
+            sleep 20
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import json, os
+          src = Path('/tmp/zk-haotian.zip')
+          if not src.exists() or src.stat().st_size != int(os.environ['DRIVE_FILE_BYTES']):
+              raise SystemExit('Incomplete or wrong Drive file; check public sharing and quotas.')
+          with ZipFile(src) as zipfile:
+              items = [{'path': x.filename, 'size': x.file_size,
+                        'compressed': x.compress_size} for x in zipfile.infolist()]
+          Path('reports/zk-drive/zip-manifest.json').write_text(json.dumps(items, indent=2))
+          assert any(x['path'].endswith(('super.img', 'payload.bin')) for x in items), 'Neither super.img nor payload.bin in ZIP'
+          print('Valid ROM ZIP, archive entries:', len(items))
+          PY
+          sha256sum /tmp/zk-haotian.zip > reports/zk-drive/source-sha256.txt
+          echo '- Google Drive ROM fully downloaded and ZIP directory verified' >> reports/zk-drive/STATUS.md
+          df -h /tmp
+      - name: Unpack ROM partitions and capture binaries and policy configs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+          with ZipFile('/tmp/zk-haotian.zip') as z:
+              candidates = [x for x in z.infolist() if x.filename.endswith('super.img')]
+              if len(candidates) > 1:
+                  raise SystemExit('Ambiguous multiple super.img files')
+              if candidates:
+                  item = candidates[0]
+                  if shutil.disk_usage('/tmp').free < item.file_size + 2147483648:
+                      raise SystemExit('No space to stage super.img; larger runner needed')
+                  with z.open(item) as src, open('/tmp/zk-super.img','wb') as dst:
+                      shutil.copyfileobj(src,dst,length=16*1024*1024)
+                  print('Super image:',item.filename,item.file_size)
+          PY
+          if [[ -s /tmp/zk-super.img ]]; then
+            rm -f /tmp/zk-haotian.zip
+            if [[ "$(od -An -tx4 -N4 /tmp/zk-super.img | tr -d ' \n')" == 'ed26ff3a' ]]; then
+              simg2img /tmp/zk-super.img /tmp/zk-super.raw
+              mv /tmp/zk-super.raw /tmp/zk-super.img
+            fi
+            python3 bin/audit/ryu_super_partitions.py --super /tmp/zk-super.img \
+              --json reports/zk-drive/partitions.json --names reports/zk-drive/partition-names.txt
+          fi
+          for base in system_ext product system mi_ext vendor odm; do
+            echo "::group::ZK $base"
+            rm -rf /tmp/zk-part /tmp/zk-fs
+            mkdir -p /tmp/zk-part /tmp/zk-fs
+            if [[ -s /tmp/zk-super.img ]]; then
+              part="$base"
+              if grep -Fxq "$base"_a reports/zk-drive/partition-names.txt; then
+                part="$base"_a
+              elif ! grep -Fxq "$base" reports/zk-drive/partition-names.txt; then
+                echo "ZK partition $base absent"
+                echo "::endgroup::"
+                continue
+              fi
+              python3 bin/lpunpack.py -p "$part" /tmp/zk-super.img /tmp/zk-part
+            else
+              /tmp/payload-tool/payload-dumper-linux-amd64-v3 extract /tmp/zk-haotian.zip \
+                -p "$base" -o /tmp/zk-part || {
+                echo "::warning::Unable to decode payload partition $base"
+                echo "::endgroup::"
+                continue
+              }
+            fi
+            img=$(find /tmp/zk-part -maxdepth 1 -name '*.img' -type f -print -quit)
+            [[ -s "$img" ]] || { echo "::endgroup::"; continue; }
+            if file -b "$img" | grep -qi erofs; then
+              fsck.erofs --extract=/tmp/zk-fs "$img"
+            elif file -b "$img" | grep -Eqi 'ext[234] filesystem'; then
+              for sub in /priv-app /app /framework /etc; do
+                debugfs -R "rdump $sub /tmp/zk-fs" "$img" >/dev/null 2>&1 || true
+              done
+            else
+              echo "::warning::Unsupported FS in ZK $base"
+              echo "::endgroup::"
+              continue
+            fi
+            PART="$base" python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, os, re, shutil
+          important = {'PowerKeeper.apk','MiuiSystemUI.apk','SecurityCenter.apk',
+                       'miui-services.jar','services.jar','framework.jar','miui-framework.jar'}
+          for path in Path('/tmp/zk-fs').rglob('*'):
+              if not path.is_file():
+                  continue
+              if path.name in important:
+                  dest = Path('/tmp/zk-selected') / path.name
+                  if not dest.exists():
+                      shutil.copy2(path,dest)
+                      print('ZK:', os.environ['PART'],path,path.stat().st_size)
+              elif re.search(r'thermal|powerhint|millet|gms|greeze|doze|perf|boost',path.name,re.I) and path.suffix.lower() in ('.xml','.conf','.json','.rc') and path.stat().st_size < 2000000:
+                  with Path('reports/zk-drive/config-manifest.txt').open('a') as f:
+                      f.write(os.environ['PART']+':'+str(path.relative_to('/tmp/zk-fs'))+'\t'+hashlib.sha256(path.read_bytes()).hexdigest()+'\n')
+          PY
+            echo "::endgroup::"
+          done
+          rm -rf /tmp/zk-fs /tmp/zk-part /tmp/zk-super.img /tmp/zk-haotian.zip
+          test -s /tmp/zk-selected/PowerKeeper.apk
+          (cd /tmp/zk-selected && sha256sum * ) > reports/zk-drive/zk-binary-sha256.txt
+          echo '- ZK APK/JAR extracted; thermal and power-policy file hashes recorded' >> reports/zk-drive/STATUS.md
+          df -h /tmp
+      - name: Extract Xiaomi stock 3.0.308 PowerKeeper and framework
+        shell: bash
+        run: |
+          set -euo pipefail
+          for part in system_ext system; do
+            rm -rf /tmp/stock-part /tmp/stock-fs
+            mkdir -p /tmp/stock-part /tmp/stock-fs
+            /tmp/payload-tool/payload-dumper-linux-amd64-v3 \
+              extract "$STOCK_OTA" -p "$part" -o /tmp/stock-part || {
+              echo "::warning::Could not fetch Xiaomi $part baseline"
+              continue
+            }
+            img=$(find /tmp/stock-part -maxdepth 1 -type f -name '*.img' -print -quit)
+            [[ -s "$img" ]] || continue
+            if file -b "$img" | grep -qi erofs; then
+              fsck.erofs --extract=/tmp/stock-fs "$img"
+            else
+              for sub in /priv-app /app /framework; do
+                debugfs -R "rdump $sub /tmp/stock-fs" "$img" >/dev/null 2>&1 || true
+              done
+            fi
+            python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          important = {'PowerKeeper.apk','MiuiSystemUI.apk','SecurityCenter.apk',
+                       'miui-services.jar','services.jar','framework.jar','miui-framework.jar'}
+          for file in Path('/tmp/stock-fs').rglob('*'):
+              if file.is_file() and file.name in important:
+                  target = Path('/tmp/stock-selected')/file.name
+                  if not target.exists():
+                      shutil.copy2(file,target)
+                      print('Xiaomi:', file, file.stat().st_size)
+          PY
+          done
+          rm -rf /tmp/stock-part /tmp/stock-fs
+          if [[ -s /tmp/stock-selected/PowerKeeper.apk ]]; then
+            (cd /tmp/stock-selected && sha256sum * ) > reports/zk-drive/stock-binary-sha256.txt
+          else
+            echo "::warning::No Xiaomi PowerKeeper baseline; report marks missing comparison"
+          fi
+      - name: Decode notification, PowerKeeper and performance methods
+        shell: bash
+        run: |
+          set -euo pipefail
+          unpack_dex() {
+            local src="$1" dst="$2"
+            local temp
+            temp=$(mktemp -d)
+            mkdir -p "$dst"
+            (cd "$temp" && unzip -j -oq "$src" 'classes*.dex') || true
+            for dex in "$temp"/classes*.dex; do
+              [[ -s "$dex" ]] || continue
+              local base smali
+              base=$(basename "$dex" .dex)
+              smali=smali
+              [[ "$base" != classes ]] && smali="smali_$base"
+              java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex" -o "$dst/$smali"
+            done
+            rm -rf "$temp"
+          }
+          for side in zk stock; do
+            src="/tmp/$side-selected"
+            out="/tmp/$side-decompiled"
+            for apk in PowerKeeper MiuiSystemUI SecurityCenter; do
+              [[ -s "$src/$apk.apk" ]] || continue
+              java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+                -i "$src/$apk.apk" -o "$out/$apk" || {
+                echo "::warning::APKEditor error on $side/$apk; dex fallback"
+                rm -rf "$out/$apk"
+                unpack_dex "$src/$apk.apk" "$out/$apk"
+              }
+            done
+            for jar in miui-services services framework miui-framework; do
+              [[ -s "$src/$jar.jar" ]] || continue
+              unpack_dex "$src/$jar.jar" "$out/$jar"
+            done
+          done
+          echo '- ZK and stock binaries decompiled for method-level audit' >> reports/zk-drive/STATUS.md
+      - name: Generate ZK vs Xiaomi and MOS main comparison report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/zk_rom_notification_analysis.py \
+            --zk /tmp/zk-decompiled --stock /tmp/stock-decompiled \
+            --mos-main mos-main --output reports/zk-drive
+          cat reports/zk-drive/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+          echo '- Audited method differences and MOS main source patch inventory' >> reports/zk-drive/STATUS.md
+      - name: Publish report, manifests and focused diffs (no ROM binaries)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ZK-HAOTIAN-Drive-PowerKeeper-Notification-Audit
+          path: reports/zk-drive/
+          retention-days: 14
+          if-no-files-found: warn
