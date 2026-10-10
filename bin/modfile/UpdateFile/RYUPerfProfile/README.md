@@ -1,29 +1,65 @@
-# HAOTIAN RYU combined performance experiment
+# RYUOS HAOTIAN performance and application thermal experiment
 
-**Only on branch:** test-ryu-performance-haotian. Never merge to main without on-device tests.
+**Test branch only:** `test-ryu-performance-haotian`.
+Base: Xiaomi 15 Pro / HAOTIAN / HyperOS 3.0.308 / Android 16.
+Reference: RYUOS HAOTIAN 3.0.309, extracted into the checked-in
+`RYUOS-HAOTIAN-Thermal-Configs (1).zip` (181,360 bytes).
 
-## Included in one ROM build
+## What is ported
 
-- Existing RYU-inspired notification, Doze and PowerKeeper conditional policy changes on the experimental branch.
-- Ten original RYUOS HAOTIAN OS3.0.309 vendor/odm performance XMLs: both powerhint.xml files and the complete supported Qualcomm perf XML group. No approximate Eco values; each source is pinned to a SHA256 from the user-provided RYU thermal artifact.
-- The import runs inside the usual HyperMOS build after Xiaomi ROM extraction and before packaging.
-- No new daemon, no boot-chain edits and no unbounded CPU/GPU boosting.
+- **10 original RYU vendor/odm powerhint/perf XMLs** via `port_ryu_perf.py`,
+  protected by manifest SHA256 + exact reference hashes.
+- **19 original RYU ODM thermal app profiles** via
+  `port_ryu_thermal_profiles.py`: 4k, arvr, camera, cclassvideo, cgame,
+  class0, hp-mgame, hp-normal, huanji, mgame, navigation, normal,
+  odm-map, per-class0, per-normal, per-video, phone, video, videochat.
+- Original RYU `PerfHook` class family in PowerKeeper, behind guarded patch,
+  compiled into the actual APK DEX and tested with genuine Xiaomi target.
+- RYU-inspired GMS, FCM, FGS, Doze and conditional UID-kill policies already
+  present on the isolated ROM test branch.
 
-## What is deliberately NOT identical to RYU
+## Deliberately preserved for safety
 
-Original RYU com.projectryu.perf.PerfHook classes are now staged through the experimental PowerKeeper injector and getInstance(Context)+init() startup hook. This is still UNVERIFIED until real-stock APKEditor assembly, ROM boot and on-device runtime diagnostics pass. This path can fail on dependencies incompatible with the Xiaomi stock PowerKeeper APK. ROM base labels also differ (308 Xiaomi vs 309 RYU).
+**Not copied:** `thermal-nolimits.conf`, `thermal-tgame.conf` (both original
+RYU files are 16 bytes, potentially bypass-like), `thermal-charge.conf`,
+`thermal-chg-only.conf`, low-level vendor thermald, thermal daemon policy,
+hardware protection, charging controls, kernel, boot chain and firmware.
+Do not disable thermal service. "Full thermal" as *all files* has not been
+performed because it could suppress hardware protection.
 
-Stock Xiaomi thermal engine, charging safety, temperature cutoffs, encrypted thermal configurations, display safety limits, and firmware remain intact.
+The original RYU binary thermal profiles are opaque, so matching sizes and
+SHA256 prove origin and structural compatibility, **not** equivalent safety
+thresholds or reliable device runtime. The ROM importer requires matching
+stock paths and nontrivial 16-byte block encoding. It refuses a missing
+required Normal/Video/Performance-Normal profile and records before/after
+hashes in `ryu-test-thermal-profiles.json`.
 
-## Build workflow
+## No redundant RYU downloads
 
-1. A complete, non-expired RYUOS-HAOTIAN-Thermal-Configs artifact is required. Branch workflow ryu-extract-thermal.yml can regenerate one; it starts on test-branch creation/update of the extraction workflow.
-2. Go to Actions > HyperMOS ROM Build > Run workflow, select test-ryu-performance-haotian and provide the HAOTIAN Android 16 base download URL.
-3. The build verifies all ten XML source hashes and XML root types. Missing or incompatible data fails the build rather than silently substituting stock values.
-4. Inspect the build log lines starting with [RYU PERF] to see every file replaced and the original SHA256.
+The ROM build unpacks the already committed 181 KB ZIP, verifies its exact Git
+blob and the per-file SHA256, then stages eligible profiles. It does **not**
+download the large SourceForge RYU ROM or extract `super.img` on every build.
+The dedicated RYU extractor is now manual-only.
 
-## Device validation
+## Native per-app TNM
 
-Compare main vs test on identical display brightness, refresh behavior, Wi-Fi/cellular condition and TikTok version. Check scrolling smoothness, video heat, screen-off notifications (Zalo/Messenger/Gmail), idle drain and PowerKeeper stability. A successful GitHub build is not proof of improved battery life or safety.
+The separate TNM test branch `ngocminhvn/app@test-ryu-per-app-thermal`
+configures RYU's three `Settings.System` keys using explicit root permission:
+`projectryu_thermal_per_app`, `projectryu_thermal_sconfig`,
+`projectryu_thermal_profiles`. The native PowerKeeper PerfHook watches
+foreground apps; TNM no longer needs its own AccessibilityService to switch
+thermal settings. Supported app override values: stock Normal (0) and
+Performance Normal (50, only if available). Do not use No Limits or confusing
+RYU internal mode numbers as Xiaomi kernel sconfig values.
 
-Related actions: ryu-perfhook-port-preflight.yml tests the experimental PerfHook dependency closure and multidex packaging; ryu-powerkeeper-parity.yml applies it to actual Xiaomi APK for static validation; ryu-vs-stock-thermal.yml compares file-by-file thermal hashes. None of these static tests independently confirms runtime correctness. See docs/RYU-BACKGROUND-THERMAL-DELTA.md for precise policy differences.
+The main ROM build still bundles the **stable** TNM from its signed Pages
+release, not the experimental TNM APK. Test them separately until an
+update-compatible signed TNM build has been validated.
+
+## Verification
+
+`HAOTIAN RYU Thermal Safety Preflight #78` validates the genuine uploaded
+archive and a complete safe-profile staging fixture. It is not a hardware
+stress/charging safety test. Test ROM boot, thermal protection, app switching,
+battery temperature, idle drain, notifications, and recovery before merging.
+Nothing here alters the production `main` branch.
