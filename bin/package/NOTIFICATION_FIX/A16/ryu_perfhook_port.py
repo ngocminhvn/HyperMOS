@@ -74,33 +74,61 @@ def prepare(source_root, stock_root):
     selected = dependency_closure(source, stock)
     _, _, source_oncreate = app_method(source)
     ryu_method = source_oncreate.group()
-    calls = re.findall(r'invoke-\w+(?:/range)?\s+\{[^}]*\},\s*Lcom/projectryu/perf/PerfHook;->[^\n]+',
-                       ryu_method)
-    if len(calls) != 1 or not re.search(
-        r'invoke-static\s+\{p0\},\s*' + re.escape(CALL), calls[0]):
-        raise ValueError('RYU original Application.onCreate activation differs: ' + repr(calls))
+    # Actual RYUOS HAOTIAN dex: getInstance(Context) followed by init()V.
+    # Do not mistake retrieving the singleton for starting its worker.
+    calls = re.findall(
+        r'invoke-\w+(?:/range)?\s+\{[^}]*\},\s*'
+        r'Lcom/projectryu/perf/PerfHook;->[^\n]+', ryu_method)
+    if (len(calls) != 2 or 'getInstance' not in calls[0]
+            or '->init()V' not in calls[1]):
+        raise ValueError('RYU original startup differs: ' + repr(calls))
+    if not re.search(r'invoke-static\s+\{[vp]\d+\},\s*' +
+                     re.escape(CALL), calls[0]):
+        raise ValueError('RYU getInstance(Context) call missing')
+    if not re.search(r'invoke-virtual\s+\{[vp]\d+\},\s*'
+                     r'Lcom/projectryu/perf/PerfHook;->init\(\)V', calls[1]):
+        raise ValueError('RYU instance init() call missing')
+    if 'Lcom/projectryu/perf/PerfHook;->init()V' not in source[PERF + ';'][1]:
+        # The method definition has no owner descriptor; the check below
+        # verifies the actual declared method instead.
+        if not re.search(r'(?m)^\.method\b[^\n]*\binit\(\)V\s*$',
+                         source[PERF + ';'][1]):
+            raise ValueError('RYU PerfHook.init()V implementation missing')
     app_path, app_src, stock_oncreate = app_method(stock)
     block = stock_oncreate.group()
-    if CALL in block:
-        raise ValueError('PerfHook already initialized in stock')
+    helper = 'hypermosInitRyuPerfHook'
+    if CALL in block or helper in app_src:
+        raise ValueError('PerfHook already integrated into stock Application')
     supercall = re.search(
         r'(?m)^([ \t]*invoke-super(?:/range)?\s+\{p0\},\s*L[^;]+;->onCreate\(\)V)[ \t]*$',
         block)
     if not supercall or len(re.findall(
         r'(?m)^\s*invoke-super[^\n]*->onCreate\(\)V', block)) != 1:
         raise ValueError('Unexpected super.onCreate layout')
-    # No register edits: Android/Dalvik permits unused non-void invoke result.
-    addition = ('\n    # RYU PerfHook: one-time start after Application.onCreate\n'
-                '    invoke-static {p0}, ' + CALL + '\n')
-    new_method = block[:supercall.end()] + addition + block[supercall.end():]
-    new_app = app_src[:stock_oncreate.start()] + new_method + app_src[stock_oncreate.end():]
+    invoke_helper = (
+        '\n    # RYU PerfHook singleton plus init, called only once\n'
+        '    invoke-direct {p0}, ' + APP + '->' + helper + '()V\n'
+    )
+    new_method = block[:supercall.end()] + invoke_helper + block[supercall.end():]
+    extra_method = (
+        '\n.method private ' + helper + '()V\n'
+        '    .locals 1\n\n'
+        '    invoke-static {p0}, ' + CALL + '\n'
+        '    move-result-object v0\n'
+        '    invoke-virtual {v0}, Lcom/projectryu/perf/PerfHook;->init()V\n'
+        '    return-void\n'
+        '.end method\n'
+    )
+    new_app = (app_src[:stock_oncreate.start()] + new_method +
+               app_src[stock_oncreate.end():]).rstrip() + '\n' + extra_method
     dex_nums = [1 if f.name == 'smali' else int(f.name.removeprefix('smali_classes'))
                 for f in stock_root.iterdir() if f.is_dir() and
                 (f.name == 'smali' or re.fullmatch(r'smali_classes\d+', f.name))]
     if not dex_nums:
         raise ValueError('Missing stock smali directories')
     extra_dex = stock_root / ('smali_classes' + str(max(dex_nums) + 1))
-    return source, selected, app_path, new_app, extra_dex, calls[0].strip()
+    return source, selected, app_path, new_app, extra_dex, ' -> '.join(calls)
+
 
 
 def main():
@@ -127,8 +155,9 @@ def main():
         installed = index(args.stock)
         if any(c not in installed for c in classes):
             raise ValueError('Post-installation class verification failed')
-        if app_method(installed)[2].group().count(CALL) != 1:
-            raise ValueError('Post-installation init invocation missing/duplicated')
+        app_text = installed[APP][1]
+        if app_text.count(CALL) != 1 or app_text.count('PerfHook;->init()V') != 1:
+            raise ValueError('Post-installation getInstance/init invocation missing/duplicated')
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     print(f'[RYU PERFHOOK] {len(classes)} original classes; init site: {original_call}')
