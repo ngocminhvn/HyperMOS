@@ -1,11 +1,14 @@
 name: RYU CPU Thermal + Xiaomi PowerKeeper Safety
 on:
   push:
-    branches: [test-powerkeeper-ryu-uid-identity]
+    branches: [test-ryu-performance-haotian]
     paths:
       - 'bin/package/NOTIFICATION_FIX/A16/**'
       - 'bin/modfile/UpdateFile/RYUPerfProfile/**'
       - 'bin/modfile/UpdateFile/TNM/**'
+      - 'bin/root/**'
+      - 'bin/modfile/Universal/downloadapp/update.sh'
+      - 'uploadROM.sh'
       - 'bin/package/COREPATCH/**'
       - '.github/workflows/build.yml'
       - 'build.sh'
@@ -30,6 +33,11 @@ jobs:
           bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           bash -n bin/package/COREPATCH/update.sh
+          bash -n bin/root/patch_init_boot.sh
+          sh -n bin/root/stage_root_manager.sh
+          bash -n uploadROM.sh
+          python3 -m py_compile bin/root/detect_kernel_kmi.py
+          python3 bin/root/detect_kernel_kmi.py --self-test
           bash -n build.sh
           bash -n packROM.sh
           python3 -m py_compile \
@@ -61,5 +69,14 @@ jobs:
           assert 'port_ryu_perf.py' in perf and 'port_ryu_thermal_profiles.py' in perf
           assert 'exec "$BACKEND" "$@"' in tnm
           assert 'setenforce 0' not in pk and 'setenforce 0' not in packed
-          print('PASS: Xiaomi PowerKeeper unchanged, RYU CPU/thermal verified, TNM on demand')
+          assert "default: 'root'" in workflow
+          assert 'Patch KernelSU Next into init_boot' in workflow
+          assert 'RootBackup/init_boot.stock.img' in Path('uploadROM.sh').read_text()
+          root_script = Path('bin/root/patch_init_boot.sh').read_text()
+          assert 'KernelSU-Next/KernelSU-Next' in root_script
+          assert 'boot-patch --boot' in root_script
+          assert 'kernelsu.ko' in root_script
+          preload = Path('bin/modfile/Universal/downloadapp/update.sh').read_text()
+          assert 'skip competing/preinstalled root manager' in preload
+          print('PASS: Xiaomi PowerKeeper, RYU CPU/thermal, TNM, KernelSU Next root and backup')
           PY
