@@ -1,266 +1,62 @@
 #!/usr/bin/env bash
-# RYU-compatible HAOTIAN A16 test PowerKeeper:
-# keep stock classes, patch verified GMS gates and conditional UID policy,
-# and import pinned original PerfHook classes with dependency checks.
-# This is a TEST branch build, not an assertion of on-device parity.
+# HAOTIAN Android 16: retain original Xiaomi-signed PowerKeeper unchanged.
+# RYU notification policy lives in the independently patched framework.
+# RYU CPU/powerhint/thermal configuration is installed by RYUPerfProfile.
+# No bytecode rewrite, testkey, root hook, polling worker or resident daemon.
 set -euo pipefail
 
-work_dir=$(pwd)
+work_dir="$(pwd)"
 source "$work_dir/functions.sh"
-MAIN_FOLDER="$work_dir/build/baserom/images"
-APKEDITOR="java -jar $work_dir/bin/apktool/apke.jar"
-tmp="$work_dir/apk_temp/notification-ryu-policy-audit"
+images="$work_dir/build/baserom/images"
+signer="$work_dir/bin/apktool/apksigner.jar"
+expected_cert="c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025"
 
-patch "PowerKeeper A16 -> RYU selective GMS gate + stock policy validation"
-apk=$(find "$MAIN_FOLDER" -type f -name PowerKeeper.apk -print -quit)
-[[ -n "$apk" && -s "$apk" ]] || { error "RYU_TEST: PowerKeeper.apk missing"; exit 1; }
-
-# The package joins android.uid.system. A testkey-signed APK was accepted
-# into #101 but could not receive a valid SELinux application context.
-# Default to the untouched Xiaomi-signed APK; keep modified builds offline.
-mode="${HYPERMOS_POWERKEEPER_MODE:-offline}"
-case "$mode" in stock|offline) ;; *) error "POWERKEEPER: unsupported mode $mode (stock/offline only)"; exit 1 ;; esac
-if [[ "$mode" == "stock" ]]; then
-  signjar="$work_dir/bin/apktool/apksigner.jar"
-  [[ -s "$signjar" ]] || { error "POWERKEEPER: missing apksigner verifier"; exit 1; }
-  stock_check=$(java -jar "$signjar" verify --verbose --print-certs --min-sdk-version 36 "$apk") || {
-    error "POWERKEEPER: original APK does not have a valid Android signature"; exit 1;
-  }
-  stock_cert=$(printf '%s\n' "$stock_check" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
-  xiaomi_cert="c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025"
-  [[ "$stock_cert" == "$xiaomi_cert" ]] || {
-    error "POWERKEEPER: ROM input is not signed by expected Xiaomi MIUI certificate ($stock_cert)"; exit 1;
-  }
-  printf '%s\n' "$stock_check" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' || {
-    error "POWERKEEPER: expected stock APK v3 signature verification missing"; exit 1;
-  }
-  mods "PowerKeeper A16: preserve verified Xiaomi-signed stock APK (SELinux UID 1000 recovery)"
-  mods "PowerKeeper RYU bytecode only available for isolated offline audit; NOT installed on ROM"
-  patch "PowerKeeper A16: Xiaomi stock retained"
-  exit 0
-fi
-
-rm -rf "$tmp"
-mkdir -p "$tmp"
-trap 'rm -rf "$tmp"' EXIT
-
-# Decode the base APK to validate compatibility before selective edits and rebuild.
-if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null; then
-  error "RYU_TEST: Could not decode base PowerKeeper.apk"
+mapfile -d '' apks < <(find "$images" -type f -name PowerKeeper.apk -print0)
+(( ${#apks[@]} == 1 )) || {
+  error "PowerKeeper: expected exactly one original APK, found ${#apks[@]}"
   exit 1
-fi
-
-RYU_AUDIT_DIR="$tmp/out" python3 <<'PY'
-import os
-import re
-import sys
-from pathlib import Path
-
-root = Path(os.environ["RYU_AUDIT_DIR"])
-def find_one(name):
-    found = list(root.rglob(name))
-    if len(found) != 1:
-        raise RuntimeError(f"{name}: expected one class; found {len(found)}")
-    return found[0].read_text(encoding="utf-8")
-
-def method_body(src, name, proto):
-    pattern = rf"(?ms)^\.method\b[^\n]*\b{re.escape(name)}{re.escape(proto)}\s*$.*?^\.end method\s*$"
-    found = re.findall(pattern, src)
-    if len(found) != 1:
-        raise RuntimeError(f"{name}{proto}: expected exactly one method; got {len(found)}")
-    return found[0]
-
-try:
-    kill = find_one("KillProcessController.smali")
-    state = method_body(kill, "setUidState", "(IZ)V")
-    # Xiaomi stock has the rule-checker field but does NOT yet invoke
-    # ProcessManager.kill in setUidState(). RYU adds a conditional call.
-    if "mKillProcessAppRuleChecker:Lcom/miui/powerkeeper/PowerKeeperInterface$l;" not in kill:
-        raise RuntimeError("Xiaomi UID checker field missing")
-    for required in ("ProcessManager;->isLockedApplication", "checkAppOnWindowsStatus",
-                     "PowerKeeperManager;->getCurrentIME"):
-        if required not in state:
-            raise RuntimeError("Unexpected Xiaomi setUidState layout: " + required)
-
-    observer = find_one("GmsObserver.smali")
-    gms = method_body(observer, "isGmsControlEnabled", "()Z")
-    # RYU keeps a real control method, not HyperMOS's forced-constant stub.
-    instructions = [
-        line.strip() for line in gms.splitlines()
-        if line.strip() and not line.lstrip().startswith((".", "#", ":"))
-    ]
-    if len(instructions) < 6:
-        raise RuntimeError("GmsObserver control unexpectedly collapsed to a short stub")
-
-    app = find_one("PowerKeeperApplication.smali")
-    method_body(app, "onCreate", "()V")
-    if "hypermosEnforceGmsMillet" in app:
-        raise RuntimeError("boot-time MILLET forcing is already baked into base APK")
-
-    private_classes = list(root.rglob("PerfHook.smali"))
-    if any("projectryu" in p.as_posix().lower() for p in private_classes):
-        raise RuntimeError("Unexpected ProjectRYU proprietary PerfHook already in base")
-except RuntimeError as exc:
-    print(f"[RYU_TEST] FAIL: {exc}", file=sys.stderr)
-    sys.exit(1)
-print("[RYU_TEST] PASS: stock checker field and guarded setUidState path present")
-print("[RYU_TEST] PASS: stock GmsObserver control retained")
-print("[RYU_TEST] PASS: no HyperMOS forced MILLET helper")
-print("[RYU_TEST] PowerKeeper base validated; only RYU GMS + UID checker methods will be patched")
-PY
-
-# RYU PowerKeeper differences verified against the actual RYU HAOTIAN APK:
-# GmsObserver.<init> and updateGoogleSync use IS_RYU_BUILD instead of the
-# Xiaomi international-build flag. Reproduce its enabled outcome ONLY
-# inside those two methods. Do not alter isGmsControlEnabled() or kill paths.
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_gms_observer_a16.py" "$tmp/out" || {
-  error "RYU_TEST: GmsObserver gate parity failed"
+}
+apk="${apks[0]}"
+[[ -s "$apk" && -s "$signer" ]] || {
+  error "PowerKeeper: missing stock APK or apksigner"
   exit 1
 }
 
-# Port the RYUOS conditional UID-kill policy without replacing the APK.
-# The checker field already exists in Xiaomi's PowerKeeper; only these two
-# methods differ in RYU. Fail fast on any unknown base-bytecode layout.
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py" "$tmp/out" || {
-  error "RYU_TEST: KillProcessController parity failed"
+# Android 16 must verify the actual APK bytes; certificate copying alone
+# cannot restore a Xiaomi signature after an APK is modified.
+signature_output="$(java -jar "$signer" verify --verbose --print-certs \
+  --min-sdk-version 36 "$apk")" || {
+  error "PowerKeeper: Xiaomi stock APK signature verification failed"
   exit 1
-}
-
-# Install original RYU HAOTIAN PerfHook and its dependency closure from the
-# validated user-supplied RYU APK. Do not distribute its smali in git/artifacts.
-# One-time activation matches RYU PowerKeeperApplication.onCreate.
-ryu_apk="${RYU_POWERKEEPER_APK:-}"
-[[ -n "$ryu_apk" && -s "$ryu_apk" ]] || {
-  error "RYU PERFHOOK: verified original RYU PowerKeeper APK is required"
-  exit 1
-}
-ryu_sha="7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108"
-echo "$ryu_sha  $ryu_apk" | sha256sum -c - || {
-  error "RYU PERFHOOK: original APK SHA256 does not match verified reference"
-  exit 1
-}
-if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$ryu_apk" -o "$tmp/source-ryu" >/dev/null; then
-  error "RYU PERFHOOK: original RYU APK decompile failed"
-  exit 1
-fi
-# Port the two missing RYU ABI declarations before compiling any DEX.
-# The controller call path is already verified; do not replace other classes.
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_uid_policy_a16.py" \
-  --ryu "$tmp/source-ryu" --stock "$tmp/out" \
-  --report "$tmp/uid-policy-port.json" || {
-  error "RYU UID POLICY: interface/AppRuleChecker synchronization failed"
-  exit 1
-}
-
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_perfhook_port.py" \
-  --ryu "$tmp/source-ryu" --stock "$tmp/out" \
-  --report "$tmp/perfhook-port.json" || {
-  error "RYU PERFHOOK: class dependency or startup hook incompatible"
-  exit 1
-}
-
-mkdir -p "$tmp/final"
-if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null; then
-  error "RYU_TEST: selective PowerKeeper APK recompile failed"
-  exit 1
-fi
-[[ -s "$tmp/final/PowerKeeper.apk" ]] || { error "RYU_TEST: empty PowerKeeper output"; exit 1; }
-# APKEditor raw-mode ignores newly changed smali/com code. Compile every
-# decoded DEX explicitly and replace the preserved original DEX binary.
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py" \
-  --decoded "$tmp/out" \
-  --apk "$tmp/final/PowerKeeper.apk" \
-  --smali-jar "$work_dir/bin/apktool/smaliv2.jar" --api 36 || {
-  error "RYU PERFHOOK: patched PowerKeeper DEX compilation/repacking failed"
-  exit 1
-}
-unzip -tq "$tmp/final/PowerKeeper.apk" >/dev/null
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
-  --apk "$tmp/final/PowerKeeper.apk" || {
-  error "RYU UID POLICY: compiled DEX missing interface or implementation"
-  exit 1
-}
-# APKEditor may silently ignore newly created dex directories. Assert the
-# class definitions are genuinely present in the final binary, not only smali.
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
-  --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/perfhook-port.json" || {
-  error "RYU PERFHOOK: compiled APK is missing required original classes"
-  exit 1
-}
-
-# Sign the FINAL compiled APK, not APKEditor's stale DEX output. On #99 the
-# unsigned PowerKeeper was present in system_ext but absent from PackageManager.
-# Use the same fixed testkey as HyperMOS InstallerX on this TEST branch only.
-sign_jar="$work_dir/bin/apktool/apksigner.jar"
-sign_key="$work_dir/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
-sign_cert="$work_dir/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem"
-for required in "$sign_jar" "$sign_key" "$sign_cert"; do
-  [[ -s "$required" ]] || { error "RYU POWERKEEPER SIGN: missing $required"; exit 1; }
-done
-command -v zipalign >/dev/null || { error "RYU POWERKEEPER SIGN: zipalign missing"; exit 1; }
-command -v aapt >/dev/null || { error "RYU POWERKEEPER SIGN: aapt missing"; exit 1; }
-
-original_identity=$(aapt dump badging "$apk" |
-  sed -n "s/^package: name='\\([^']*\\)' versionCode='\\([^']*\\)' versionName='\\([^']*\\)'.*/\\1|\\2|\\3/p" | head -n 1)
-[[ "$original_identity" == "com.miui.powerkeeper|"* ]] || {
-  error "RYU POWERKEEPER SIGN: unexpected original APK identity: $original_identity"; exit 1;
-}
-
-unsigned="$tmp/final/PowerKeeper.apk"
-aligned="$tmp/final/PowerKeeper.aligned.apk"
-signed="$tmp/final/PowerKeeper.signed.apk"
-zipalign -p -f 4 "$unsigned" "$aligned" || {
-  error "RYU POWERKEEPER SIGN: zipalign failed"; exit 1;
-}
-zipalign -c -p 4 "$aligned" || {
-  error "RYU POWERKEEPER SIGN: aligned APK verification failed"; exit 1;
-}
-java -jar "$sign_jar" sign --key "$sign_key" --cert "$sign_cert" \
-  --out "$signed" "$aligned" || {
-  error "RYU POWERKEEPER SIGN: signing failed"; exit 1;
-}
-[[ -s "$signed" ]] || { error "RYU POWERKEEPER SIGN: signed APK empty"; exit 1; }
-zipalign -c -p 4 "$signed" || {
-  error "RYU POWERKEEPER SIGN: signed APK alignment failed"; exit 1;
-}
-unzip -tq "$signed" || { error "RYU POWERKEEPER SIGN: signed APK corrupted"; exit 1; }
-signature_output=$(java -jar "$sign_jar" verify --verbose --print-certs \
-  --min-sdk-version 36 "$signed") || {
-  error "RYU POWERKEEPER SIGN: APK signature verification failed"; exit 1;
 }
 printf '%s\n' "$signature_output" |
   grep -Eq '^Verified using v[23] scheme \(APK Signature Scheme v[23]\): true' || {
-  error "RYU POWERKEEPER SIGN: expected V2/V3 signature verification missing"; exit 1;
-}
-expected_cert=$(openssl x509 -in "$sign_cert" -outform DER | sha256sum | awk '{print tolower($1)}')
-actual_cert=$(printf '%s\n' "$signature_output" |
-  sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
-[[ -n "$expected_cert" && "$expected_cert" == "$actual_cert" ]] || {
-  error "RYU POWERKEEPER SIGN: output signer differs from fixed InstallerX testkey"; exit 1;
-}
-signed_identity=$(aapt dump badging "$signed" |
-  sed -n "s/^package: name='\\([^']*\\)' versionCode='\\([^']*\\)' versionName='\\([^']*\\)'.*/\\1|\\2|\\3/p" | head -n 1)
-[[ "$signed_identity" == "$original_identity" ]] || {
-  error "RYU POWERKEEPER SIGN: package/version changed: $original_identity -> $signed_identity"; exit 1;
-}
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
-  --apk "$signed" --report "$tmp/perfhook-port.json" || {
-  error "RYU POWERKEEPER SIGN: signed APK lost PerfHook DEX"; exit 1;
-}
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
-  --apk "$signed" || {
-  error "RYU UID POLICY: signature stage lost UID policy method definitions"
+  error "PowerKeeper: no valid APK signature scheme v2/v3"
   exit 1
 }
-# Offline-only APK for ABI/DEX testing. This is signed by the repository's
-# testkey, NOT the Xiaomi platform key. Never stage it into system_ext.
-report_dir="$work_dir/build/reports/powerkeeper-a16"
-mkdir -p "$report_dir"
-cp -f "$signed" "$report_dir/PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk"
-cp -f "$tmp/uid-policy-port.json" "$report_dir/uid-policy-port.json"
-cp -f "$tmp/perfhook-port.json" "$report_dir/perfhook-port.json"
-cp -f "$work_dir/bin/package/NOTIFICATION_FIX/A16/powerkeeper_runtime_check.sh" "$report_dir/powerkeeper_runtime_check.sh"
-sha256sum "$apk" "$report_dir/PowerKeeper-RYU-OFFLINE-DO-NOT-FLASH.apk" > "$report_dir/SHA256SUMS.txt"
-mods "RYU PowerKeeper: compiled UID policy and PerfHook; offline artifact only ($actual_cert)"
-mods "Xiaomi-signed PowerKeeper in ROM remains unmodified"
-patch "PowerKeeper A16: offline-only verification completed; stock system app retained"
+actual_cert="$(printf '%s\n' "$signature_output" |
+  sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+  head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+[[ -n "$actual_cert" && "$actual_cert" == "$expected_cert" ]] || {
+  error "PowerKeeper: unexpected signer ($actual_cert), refusing to package system UID app"
+  exit 1
+}
+package="$(aapt dump badging "$apk" |
+  sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)" || {
+  error "PowerKeeper: aapt failed to read original APK"
+  exit 1
+}
+[[ "$package" == "com.miui.powerkeeper" ]] || {
+  error "PowerKeeper: unexpected package $package"
+  exit 1
+}
+
+report="$work_dir/build/reports/powerkeeper-a16"
+mkdir -p "$report"
+hash="$(sha256sum "$apk" | awk '{print $1}')"
+printf '{"mode":"xiaomi-stock-unchanged","package":"%s","sha256":"%s","certificate_sha256":"%s","ryu_apk_bytecode":"not_applied"}\n' \
+  "$package" "$hash" "$actual_cert" > "$report/stock-identity.json"
+
+mods "PowerKeeper A16: Xiaomi stock verified (V2/V3, cert=$actual_cert)"
+mods "RYU notification fix stays in framework; RYU perf/CPU/thermal stays in RYUPerfProfile"
+patch "PowerKeeper A16 stock retained: no APK rewriting or runtime hooking"
