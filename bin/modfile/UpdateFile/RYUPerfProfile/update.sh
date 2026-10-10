@@ -15,10 +15,14 @@ if [[ "$device" != "haotian" || "$android" != "16" ]]; then
 fi
 
 # Experimental import must never end up on HyperMOS main accidentally.
-if [[ "${GITHUB_REF_NAME:-test-ryu-performance-haotian}" != "test-ryu-performance-haotian" ]]; then
-  error "RYU FULL PERF is only permitted on test-ryu-performance-haotian"
-  exit 1
-fi
+case "${GITHUB_REF_NAME:-}" in
+  test-ryu-performance-haotian|test-powerkeeper-ryu-uid-identity)
+    ;;
+  *)
+    error "RYU FULL PERF: allowed only on dedicated RYU test branches, actual=${GITHUB_REF_NAME:-unknown}"
+    exit 1
+    ;;
+esac
 
 artifact="${RYU_REF_DIR:-}"
 [[ -n "$artifact" && -s "$artifact/manifest.json" ]] || {
