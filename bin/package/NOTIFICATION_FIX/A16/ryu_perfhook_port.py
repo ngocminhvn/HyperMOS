@@ -31,7 +31,11 @@ FOREIGN_CLASS = 'Lcom/projectryu/ProjectRYUFramework;'
 def compatible_smali(body):
     if FOREIGN_CLASS not in body:
         return body
-    if body.count(RYU_SETTING) != 1 or FOREIGN_CLASS in body.replace(RYU_SETTING, ''):
+    # Original HAOTIAN RYU PerfHook calls getSystemString three times in
+    # updateConfig(); adapt every call, not just the first invocation.
+    call_count = body.count(RYU_SETTING)
+    remaining = body.replace(RYU_SETTING, '')
+    if call_count == 0 or FOREIGN_CLASS in remaining:
         extra = [line.strip() for line in body.splitlines() if FOREIGN_CLASS in line]
         raise ValueError('Unexpected external RYU framework dependency in PerfHook: ' + repr(extra[:12]))
     return body.replace(RYU_SETTING, ANDROID_SETTING)
