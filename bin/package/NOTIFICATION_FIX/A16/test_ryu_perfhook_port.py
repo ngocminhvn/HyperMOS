@@ -17,6 +17,12 @@ class HookTests(unittest.TestCase):
             (d / 'smali/com/miui/powerkeeper').mkdir(parents=True, exist_ok=True)
         app = ('.class public Lcom/miui/powerkeeper/PowerKeeperApplication;\n'
                '.super Landroid/app/Application;\n'
+               '.field private static c:Landroid/content/Context;\n'
+               '.method protected attachBaseContext(Landroid/content/Context;)V\n'
+               '    .locals 0\n'
+               '    sput-object p0, Lcom/miui/powerkeeper/PowerKeeperApplication;->c:Landroid/content/Context;\n'
+               '    return-void\n'
+               '.end method\n'
                '.method public onCreate()V\n'
                '    .locals 0\n'
                '    invoke-super {p0}, Landroid/app/Application;->onCreate()V\n'
@@ -60,6 +66,22 @@ class HookTests(unittest.TestCase):
         adapted = compatible_smali(actual)
         self.assertEqual(adapted.count(ANDROID_SETTING), 3)
         self.assertNotIn(RYU_SETTING, adapted)
+
+    def test_stock_can_overwrite_this_with_boolean_before_return(self):
+        app = self.stock / 'smali/com/miui/powerkeeper/PowerKeeperApplication.smali'
+        app.write_text(app.read_text().replace('    invoke-super {p0}, Landroid/app/Application;->onCreate()V\n',
+            '    invoke-super {p0}, Landroid/app/Application;->onCreate()V\n'
+            '    const/4 p0, 0x1\n'))
+        text = prepare(self.ryu, self.stock)[3]
+        self.assertIn('invoke-static {}, Lcom/miui/powerkeeper/PowerKeeperApplication;->hypermosInitRyuPerfHook()V', text)
+        self.assertNotIn('invoke-direct {p0}', text)
+        self.assertIn('sget-object v0, Lcom/miui/powerkeeper/PowerKeeperApplication;->c:Landroid/content/Context;', text)
+
+    def test_missing_saved_context_refused(self):
+        app = self.stock / 'smali/com/miui/powerkeeper/PowerKeeperApplication.smali'
+        app.write_text(app.read_text().replace('sput-object p0,', 'sput-object v0,'))
+        with self.assertRaisesRegex(ValueError, 'initialization missing'):
+            prepare(self.ryu, self.stock)
 
     def test_missing_dependency_refused(self):
         self.extra.unlink()

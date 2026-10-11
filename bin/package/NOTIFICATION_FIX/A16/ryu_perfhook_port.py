@@ -130,13 +130,22 @@ def prepare(source_root, stock_root):
         raise ValueError('Unexpected stock PowerKeeperApplication onCreate layout')
     helper_call = (
         '    # RYU PerfHook: start after the other PowerKeeper components\n'
-        '    invoke-direct {p0}, ' + APP + '->' + helper + '()V\n'
+        '    invoke-static {}, ' + APP + '->' + helper + '()V\n'
     )
+    # Stock reuses p0 for a boolean at the tail of onCreate. Obtain the
+    # Context saved by attachBaseContext instead of treating p0 as this.
+    contexts = re.findall(r'(?m)^\.field\b[^\n]*\bstatic\b[^\n]*\s(\w+):Landroid/content/Context;\s*$', app_src)
+    if len(contexts) != 1:
+        raise ValueError('Expected one saved static Application Context')
+    context = APP + '->' + contexts[0] + ':Landroid/content/Context;'
+    if not re.search(r'sput-object\s+p0,\s*' + re.escape(context), app_src):
+        raise ValueError('Saved Application Context initialization missing')
     new_method = block[:returns[0].start()] + helper_call + block[returns[0].start():]
     extra_method = (
-        '\n.method private ' + helper + '()V\n'
+        '\n.method private static ' + helper + '()V\n'
         '    .locals 1\n\n'
-        '    invoke-static {p0}, ' + CALL + '\n'
+        '    sget-object v0, ' + context + '\n'
+        '    invoke-static {v0}, ' + CALL + '\n'
         '    move-result-object v0\n'
         '    invoke-virtual {v0}, Lcom/projectryu/perf/PerfHook;->init()V\n'
         '    return-void\n'
