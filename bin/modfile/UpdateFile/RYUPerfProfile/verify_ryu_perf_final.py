@@ -99,7 +99,7 @@ def verify(images: Path, report_path: Path):
 
     report = {
         "mode": "RYU exact CPU/perf/powerhint + application-facing thermal profiles",
-        "powerkeeper": "Xiaomi stock, no DEX patch",
+        "powerkeeper": "Xiaomi-stock-derived PowerKeeper; GMS, UID policy and RYU PerfHook patched in DEX at build time",
         "perf_xml_verified": sorted(perf.EXPECTED),
         "ryu_thermal_profiles_verified": sorted(names),
         "stock_safety_profiles_unchanged": sorted(before),
