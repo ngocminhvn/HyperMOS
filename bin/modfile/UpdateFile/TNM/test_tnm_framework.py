@@ -76,7 +76,10 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
         return subprocess.run(["sh",str(runner),*args],text=True,capture_output=True,env=env)
     subprocess.run(["sh","-n",str(runner)],check=True)
     assert run("protocol").stdout.strip()=="1"
-    assert "tnm_framework=1" in run("status").stdout
+    status=run("status").stdout
+    assert "tnm_framework=1" in status
+    assert "thermal_effect=not_applied" in status
+    assert "thermal_reason=powerkeeper_not_running" in status
     assert run("thermal.global","normal").returncode==0
     assert run("thermal.global","hp-mgame").returncode==0
     assert run("thermal.profiles").returncode==0

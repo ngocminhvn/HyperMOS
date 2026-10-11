@@ -46,9 +46,27 @@ status() {
     echo backend=existing_powerkeeper_perfhook
     echo daemon=none
     if ryu; then echo thermal_control=available; else echo thermal_control=unsupported; fi
-    echo "thermal_per_app=$(sys projectryu_thermal_per_app)"
-    echo "thermal_sconfig=$(sys projectryu_thermal_sconfig)"
-    echo "thermal_profiles=$(sys projectryu_thermal_profiles)"
+    mode=$(sys projectryu_thermal_per_app)
+    config=$(sys projectryu_thermal_sconfig)
+    profiles=$(sys projectryu_thermal_profiles)
+    echo "thermal_per_app=$mode"
+    echo "thermal_sconfig=$config"
+    echo "thermal_profiles=$profiles"
+    if ! /system/bin/pidof com.miui.powerkeeper >/dev/null 2>&1; then
+        echo thermal_effect=not_applied
+        echo thermal_reason=powerkeeper_not_running
+    elif [ "$mode" = 1 ]; then
+        case "$profiles" in
+            ''|null) echo thermal_effect=not_applied; echo thermal_reason=per_app_profiles_missing ;;
+            *) echo thermal_effect=not_verified; echo thermal_reason=per_app_needs_runtime_readback ;;
+        esac
+    else
+        case "$config" in
+            0) echo thermal_effect=idle; echo thermal_reason=global_sconfig_zero ;;
+            ''|null|*[!0-9]*) echo thermal_effect=not_applied; echo thermal_reason=global_sconfig_invalid ;;
+            *) echo thermal_effect=not_verified; echo thermal_reason=vendor_limits_may_override ;;
+        esac
+    fi
     for n in 0 6; do
         file="/sys/devices/system/cpu/cpufreq/policy$n/scaling_max_freq"
         if [ -r "$file" ]; then value=$(cat "$file"); else value=unavailable; fi
