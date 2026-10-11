@@ -1,0 +1,105 @@
+name: Split RYUOS REA artifact into focused APK and JAR sets
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - .github/workflows/ryu-split-rea-artifact.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  split:
+    if: github.ref == 'refs/heads/test-ryu-performance-haotian'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Download completed verified source artifact (no ROM redownload)
+        uses: actions/download-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-Control-APKs-for-REA
+          run-id: 38107873827
+          github-token: ${{ github.token }}
+          path: /tmp/ryu-original
+
+      - name: Verify originals and split usable files, exclude multilingual overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,shutil
+          source=Path('/tmp/ryu-original')
+          output=Path('/tmp/ryu-rea')
+          manifest=json.loads((source/'manifest.json').read_text())
+          groups={'core-apks': [], 'framework-jars': [], 'ui-resources': []}
+          for ent in manifest['files']:
+              rel=Path(ent['artifact_path'])
+              inp=source/rel
+              if not inp.is_file(): raise RuntimeError(f'Missing {rel}')
+              h=hashlib.sha256(inp.read_bytes()).hexdigest()
+              if h!=ent['sha256']: raise RuntimeError(f'Hash mismatch {rel}')
+              lower=inp.name.lower()
+              if 'overlay' in rel.parts or lower.startswith('ryu.multilang.'):
+                  continue
+              if lower.endswith('.jar'):
+                  group='framework-jars'
+              elif lower in ('framework-res.apk','miuisystemui.apk'):
+                  group='ui-resources'
+              else:
+                  group='core-apks'
+              dest=output/group/rel
+              dest.parent.mkdir(parents=True,exist_ok=True)
+              shutil.copyfile(inp,dest)
+              groups[group].append((rel,ent['size_bytes']))
+          for group, items in groups.items():
+              total=sum(sz for _,sz in items)
+              if not items: raise RuntimeError(f'Empty group {group}')
+              if total>430*1024*1024: raise RuntimeError(f'{group} exceeds safe 430 MiB threshold')
+              print(f'[REA SPLIT] {group}: {len(items)} files, {total} bytes')
+              print('\n'.join(f'  {p} ({sz} bytes)' for p,sz in items))
+          reports=output/'inventory'
+          reports.mkdir(parents=True,exist_ok=True)
+          for name in ('manifest.json','SHA256SUMS.txt','app-inventory.tsv','README.md','partition-info.json','partitions.txt'):
+              if (source/name).is_file(): shutil.copyfile(source/name,reports/name)
+          print('[REA SPLIT] Original manifest preserved; overlays excluded only from analysis payload')
+          PY
+
+      - name: Upload PowerKeeper and control APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-REA-Control-APKs
+          path: /tmp/ryu-rea/core-apks/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload framework and service JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-REA-Framework-JARs
+          path: /tmp/ryu-rea/framework-jars/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload UI resources
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-REA-UI-Resources
+          path: /tmp/ryu-rea/ui-resources/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload complete APK inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-REA-File-Inventory
+          path: /tmp/ryu-rea/inventory/
+          retention-days: 7
+          if-no-files-found: error
