@@ -47,6 +47,9 @@ def defined_classes(blob: bytes) -> set[str]:
 
 def verify(apk: Path, report: Path) -> None:
     expected = set(json.loads(report.read_text(encoding="utf-8"))["classes"])
+    if len(expected) != 20 or any(
+            not name.startswith("Lcom/android/tnm/perf/") for name in expected):
+        raise ValueError("Expected exactly 20 TNM-namespaced PerfHook classes")
     if len(expected) < 17:
         raise ValueError("Incomplete expected PerfHook class list")
     with zipfile.ZipFile(apk) as archive:
@@ -56,14 +59,19 @@ def verify(apk: Path, report: Path) -> None:
             raise ValueError("No compiled DEX found in APK")
         actual = set()
         for name in files:
-            actual.update(defined_classes(archive.read(name)))
+            data = archive.read(name)
+            if (b"com/projectryu/perf/" in data
+                    or b"com.projectryu.perf" in data):
+                raise ValueError(
+                    "Unrenamed original RYU PerfHook class/reference in compiled " + name)
+            actual.update(defined_classes(data))
     missing = sorted(expected - actual)
     if missing:
         raise ValueError("APK silently omitted original RYU PerfHook classes: " + repr(missing))
     if "Lcom/miui/powerkeeper/PowerKeeperApplication;" not in actual:
         raise ValueError("Rebuilt APK missing PowerKeeperApplication")
     print("[RYU PERFHOOK] PASS: all", len(expected),
-          "original RYU classes defined in compiled APK DEX (" + ", ".join(files) + ")")
+          "original RYU implementation classes renamed to TNM and defined in compiled APK DEX (" + ", ".join(files) + ")")
 
 
 def main():
