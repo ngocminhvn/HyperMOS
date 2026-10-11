@@ -45,6 +45,10 @@ TNM_METHODS = {
 }
 RYU_GET = RYU_OWNER + "->getSystemString" + TNM_METHODS["getSystemString"][0]
 TNM_GET = TNM_API + "->getSystemString" + TNM_METHODS["getSystemString"][0]
+OLD_PERF_PREFIX = "Lcom/projectryu/perf/"
+TNM_PERF_PREFIX = "Lcom/android/tnm/perf/"
+OLD_PERF_PATH = "com/projectryu/perf/"
+TNM_PERF_PATH = "com/android/tnm/perf/"
 
 
 def tnm_framework_smali():
@@ -171,6 +175,16 @@ def adapt(body: str):
         return match[1] + insn + " " + reg + ", 0x1"
 
     body = BUILD_GATE.sub(gate, body)
+    # Remap original RYU PerfHook implementation to TNM's namespace.
+    # Update ALL DEX references, including self/cross-class descriptors
+    # and dotted class names sometimes used by Class.forName/reflection.
+    # Do not touch projectryu_thermal_* Settings keys: those are the
+    # live config protocol consumed by the transplanted PerfHook observer.
+    body = body.replace(OLD_PERF_PREFIX, TNM_PERF_PREFIX)
+    body = body.replace(OLD_PERF_PATH, TNM_PERF_PATH)
+    body = body.replace("com.projectryu.perf.", "com.android.tnm.perf.")
+    if "com.projectryu.perf" in body or OLD_PERF_PATH in body:
+        raise ValueError("Unconverted original PerfHook namespace in DEX smali")
     if ("Lcom/projectryu/ProjectRYUFramework;" in body
             or "Lcom/projectryu/Build;" in body):
         raise ValueError("Unsupported RYU framework reference after compatibility adaptation")
@@ -229,6 +243,12 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
             if reference not in donor:
                 raise ValueError(descriptor + " depends on missing foreign class " + reference)
 
+    renamed_perf = sorted(
+        TNM_PERF_PREFIX + name[len(OLD_PERF_PREFIX):] for name in perf_classes)
+    # Avoid accidental collisions before overwriting Xiaomi bytecode.
+    if set(renamed_perf) & (set(donor) - set(perf_classes)):
+        raise ValueError("TNM PerfHook namespace collides with donor class")
+
     # Preserve the stock APK's manifest, resources and all non-DEX payload.
     # Only the decoded executable classes are replaced by the COMPLETE donor.
     for name in stock_dirs:
@@ -237,18 +257,37 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
     for descriptor, body in adapted.items():
         relative = donor[descriptor].relative_to(donor_root)
         target = stock_root / relative
+        if descriptor.startswith(OLD_PERF_PREFIX):
+            # Relocate the source file together with its class descriptor.
+            # No obsolete com/projectryu/perf/*.smali survives the build.
+            if OLD_PERF_PATH not in relative.as_posix():
+                raise ValueError("Unexpected RYU PerfHook file location")
+            new_relative = Path(relative.as_posix().replace(
+                OLD_PERF_PATH, TNM_PERF_PATH, 1))
+            new_target = stock_root / new_relative
+            if new_target.exists():
+                raise ValueError("Duplicate TNM PerfHook destination " + str(new_target))
+            new_target.parent.mkdir(parents=True, exist_ok=True)
+            target.unlink()
+            target = new_target
         target.write_text(body, encoding="utf-8")
     embedded_api = install_tnm_framework(stock_root, donor)
     actual_classes = set(classes(stock_root))
-    if actual_classes != set(donor) | {TNM_API}:
-        raise ValueError("Full donor + TNMFramework class-set mismatch")
+    expected_classes = (set(donor) - set(perf_classes)) | set(renamed_perf) | {TNM_API}
+    if actual_classes != expected_classes:
+        raise ValueError("Full donor + renamed TNM PerfHook/framework class-set mismatch")
+    if any(name.startswith(OLD_PERF_PREFIX) for name in actual_classes):
+        raise ValueError("Legacy RYU PerfHook class definition survived")
 
     report = {
         "mode": "full original RYUOS PowerKeeper DEX port into Xiaomi APK",
         "original_xiaomi_classes": len(original),
         "original_ryu_classes": len(donor),
         "original_ryu_perf_classes": perf_classes,
-        "classes": perf_classes,  # verify_perfhook_apk.py input contract
+        "classes": renamed_perf,  # compiled DEX verifier contract
+        "tnm_perf_classes": renamed_perf,
+        "renamed_ryu_perf_classes": len(renamed_perf),
+        "legacy_ryu_perf_classes_remaining": 0,
         "ryu_only_classes": sorted(set(donor) - set(original)),
         "xiaomi_only_classes_removed": sorted(set(original) - set(donor)),
         "adapted_ryu_framework_setting_reads": setting_reads,
@@ -269,7 +308,7 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
                            encoding="utf-8")
     print(f"[RYU FULL APK] {len(donor)} donor classes ({len(perf_classes)} PerfHook), "
           f"{setting_reads} Settings compatibility calls, {build_gates} build gates")
-    print("[RYU FULL APK] All donor DEX methods staged; TNMFramework API embedded; Xiaomi manifest/resources retained")
+    print("[RYU FULL APK] All donor DEX methods staged; TNMFramework API embedded; 20 PerfHook classes renamed to TNM; Xiaomi manifest/resources retained")
     return report
 
 
