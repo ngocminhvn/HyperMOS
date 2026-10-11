@@ -55,9 +55,14 @@ per-app profiles and confirms the saved per-app map after applying it.
 
 The shell `TNMFramework` remains an on-demand root adapter; the embedded
 `TNMFramework` Java class is a **real direct-call compatibility API inside
-PowerKeeper**, not a system-wide Binder service or extra framework JAR. The
-remaining `com.projectryu.perf.*` class names are original imported RYU
-implementation details, not a dependency on a ProjectRYUFramework jar.
+PowerKeeper**, not a system-wide Binder service or extra framework JAR.
+The **20 original RYU PerfHook implementation classes are relocated at build
+time to `com.android.tnm.perf.*`**, with DEX descriptor and Java reflection
+class-name references rewritten throughout the donor bytecode. The compiled
+APK verifier rejects remaining `com.projectryu.perf.*` names/references.
+The `projectryu_thermal_*` Settings keys are intentionally unchanged for
+compatibility with the original observer/settings protocol; those names are
+not Java classes or evidence of a ProjectRYUFramework JAR dependency.
 No-limit/charging profiles and thermal safety changes remain outside the port.
 A complete ROM build and on-device test are still required to establish boot
 and functional parity with RYU.
