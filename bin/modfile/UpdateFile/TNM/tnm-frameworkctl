@@ -1,0 +1,143 @@
+#!/system/bin/sh
+# TNMFramework v1: on-demand adapter to existing PowerKeeper/PerfHook and Android services.
+# Root-only; never starts a daemon or disables hardware thermal protection.
+set -eu
+umask 077
+[ "$(id -u)" = 0 ] || { echo 'Root required' >&2; exit 10; }
+RYU=/system_ext/bin/ryu-thermalctl
+S=/system/bin/settings
+STATE=/data/adb/tnm/state
+BACKUP="$STATE/refresh.original"
+sys() { "$S" --user 0 get system "$1" 2>/dev/null || echo null; }
+global() { "$S" --user 0 get global "$1" 2>/dev/null || echo null; }
+empty() { [ "$#" -eq 0 ] || exit 2; }
+ryu() { [ -x "$RYU" ]; }
+fps_supported() {
+    printf '%s:%s\n' "$(sys peak_refresh_rate)" "$(sys min_refresh_rate)" |
+      /system/bin/grep -Eq '^[0-9]+([.][0-9]+)?:[0-9]+([.][0-9]+)?$'
+}
+power() {
+    echo "battery_saver=$(global low_power)"
+    if /system/bin/pidof com.miui.powerkeeper >/dev/null 2>&1; then
+        echo powerkeeper=running
+    else
+        echo powerkeeper=not_running
+    fi
+}
+notify() {
+    if /system/bin/cmd deviceidle whitelist 2>/dev/null | /system/bin/grep -Fq com.google.android.gms; then
+        echo gms_deviceidle_whitelist=yes
+    else
+        echo gms_deviceidle_whitelist=no_or_unavailable
+    fi
+    echo "gms_standby_bucket=$(/system/bin/am get-standby-bucket com.google.android.gms 2>/dev/null || echo unavailable)"
+    echo notification_policy=ROM_managed
+}
+display() {
+    echo "peak_refresh_rate=$(sys peak_refresh_rate)"
+    echo "min_refresh_rate=$(sys min_refresh_rate)"
+    if fps_supported; then echo display_control=available; else echo display_control=unsupported; fi
+    echo effective_fps=not_verified
+}
+status() {
+    echo tnm_framework=1
+    echo protocol=1
+    echo backend=existing_powerkeeper_perfhook
+    echo daemon=none
+    if ryu; then echo thermal_control=available; else echo thermal_control=unsupported; fi
+    echo "thermal_per_app=$(sys projectryu_thermal_per_app)"
+    echo "thermal_sconfig=$(sys projectryu_thermal_sconfig)"
+    echo "thermal_profiles=$(sys projectryu_thermal_profiles)"
+    for n in 0 6; do
+        file="/sys/devices/system/cpu/cpufreq/policy$n/scaling_max_freq"
+        if [ -r "$file" ]; then value=$(cat "$file"); else value=unavailable; fi
+        echo "cpu$n"_"max=$value"
+    done
+    if [ -r /sys/class/kgsl/kgsl-3d0/devfreq/max_freq ]; then
+        echo "gpu_max=$(cat /sys/class/kgsl/kgsl-3d0/devfreq/max_freq)"
+    else echo gpu_max=unavailable; fi
+    power
+    notify
+    display
+}
+change_display() {
+    [ "$#" -eq 1 ] || exit 2
+    case "$1" in auto|60|120) ;; *) exit 2 ;; esac
+    fps_supported || { echo 'Display settings unsupported' >&2; exit 3; }
+    oldpeak=$(sys peak_refresh_rate)
+    oldmin=$(sys min_refresh_rate)
+    if [ "$1" = auto ]; then
+        [ -r "$BACKUP" ] && [ ! -L "$BACKUP" ] || { echo 'No saved original display preset' >&2; exit 3; }
+        read -r peak min < "$BACKUP"
+        printf '%s:%s\n' "$peak" "$min" | /system/bin/grep -Eq '^[0-9]+([.][0-9]+)?:[0-9]+([.][0-9]+)?$' || exit 3
+    else
+        [ ! -L "$STATE" ] && [ ! -L "$BACKUP" ] || exit 3
+        mkdir -p "$STATE"
+        chmod 0700 "$STATE"
+        if [ ! -e "$BACKUP" ]; then
+            printf '%s %s\n' "$oldpeak" "$oldmin" > "$BACKUP"
+            chmod 0600 "$BACKUP"
+        fi
+        peak="$1"
+        min=60
+    fi
+    if ! "$S" --user 0 put system peak_refresh_rate "$peak" ||
+       ! "$S" --user 0 put system min_refresh_rate "$min" ||
+       [ "$(sys peak_refresh_rate)" != "$peak" ] ||
+       [ "$(sys min_refresh_rate)" != "$min" ]; then
+        "$S" --user 0 put system peak_refresh_rate "$oldpeak" || true
+        "$S" --user 0 put system min_refresh_rate "$oldmin" || true
+        echo 'Refresh request failed; rolled back' >&2
+        exit 4
+    fi
+    [ "$1" != auto ] || rm -f "$BACKUP"
+    echo "requested_refresh_mode=$1"
+    echo effective_fps=not_verified
+}
+cmd=status
+if [ "$#" -gt 0 ]; then cmd="$1"; shift; fi
+case "$cmd" in
+    protocol) empty "$@"; echo 1 ;;
+    capabilities)
+        empty "$@"
+        echo status.read; echo power.status; echo power.saver
+        echo notifications.status; echo display.status
+        if ryu; then echo thermal.status; echo thermal.global; echo thermal.perapp; echo game.profile; fi
+        if fps_supported; then echo display.mode; fi
+        ;;
+    status) empty "$@"; status ;;
+    power.status) empty "$@"; power ;;
+    notifications.status) empty "$@"; notify ;;
+    display.status) empty "$@"; display ;;
+    display.mode) change_display "$@" ;;
+    power.saver)
+        [ "$#" -eq 1 ] || exit 2
+        case "$1" in on) desired=1 ;; off) desired=0 ;; *) exit 2 ;; esac
+        /system/bin/cmd power set-mode "$desired" || exit 4
+        [ "$(global low_power)" = "$desired" ] || { echo 'Battery saver not confirmed' >&2; exit 4; }
+        echo "battery_saver=$desired"
+        ;;
+    thermal.status)
+        empty "$@"
+        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
+        exec "$RYU" status
+        ;;
+    thermal.global|game.profile)
+        [ "$#" -eq 1 ] || exit 2
+        case "$1" in normal|performance|hp|game) ;; *) exit 2 ;; esac
+        if [ "$cmd" = game.profile ]; then case "$1" in game|normal) ;; *) exit 2 ;; esac; fi
+        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
+        "$RYU" global "$1"
+        echo "requested_profile=$1"
+        ;;
+    thermal.perapp)
+        [ "$#" -gt 0 ] && [ "$#" -le 32 ] || exit 2
+        for e in "$@"; do
+            printf '%s\n' "$e" | /system/bin/grep -Eq '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+:(normal|performance|hp|game)$' || exit 2
+        done
+        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
+        "$RYU" perapp "$@"
+        echo requested_profile=perapp
+        ;;
+    *) echo 'TNMFramework capability unavailable' >&2; exit 3 ;;
+esac

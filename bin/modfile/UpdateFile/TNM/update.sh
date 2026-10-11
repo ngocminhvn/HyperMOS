@@ -71,6 +71,17 @@ mods "TNM Bridge -> ${runtime_ctl%/*}/tnm-bridge (on demand)"
 
 
 
+# TNMFramework is installed only on the experimental RYU branch.
+if [[ "$GITHUB_REF_NAME" == "test-ryu-performance-haotian" ]]; then
+  framework_src="$work_dir/bin/modfile/UpdateFile/TNM/tnm-frameworkctl"
+  [[ -s "$framework_src" ]] || { error "TNMFramework file missing"; exit 1; }
+  sh -n "$framework_src" || { error "TNMFramework shell syntax invalid"; exit 1; }
+  [[ -d "$images/system_ext" ]] || { error "TNMFramework requires system_ext"; exit 1; }
+  install -Dm755 "$framework_src" "$images/system_ext/bin/tnm-frameworkctl"
+  grep -qF 'TNMFramework v1' "$images/system_ext/bin/tnm-frameworkctl" || exit 1
+  mods "TNMFramework installed: /system_ext/bin/tnm-frameworkctl"
+fi
+
 # ---------------------------------------------------------------------------
 # TNM privileged system app
 # ---------------------------------------------------------------------------
