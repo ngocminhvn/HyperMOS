@@ -9,6 +9,9 @@ on:
       - 'bin/modfile/UpdateFile/TNM/**'
       - 'bin/modfile/UpdateFile/RYUPerfProfile/**'
       - 'bin/package/NOTIFICATION_FIX/A16/test_ryu_thermalctl.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
+      - 'bin/package/NOTIFICATION_FIX/A16/ryu_full_powerkeeper_a16.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/test_ryu_full_powerkeeper_a16.py'
       - 'bin/package/COREPATCH/**'
       - '.github/workflows/tnm-framework-check.yml'
       - '.github/workflows/build.yml'
@@ -32,6 +35,12 @@ jobs:
           python3 bin/modfile/UpdateFile/TNM/test_tnm_framework.py
           python3 bin/modfile/UpdateFile/TNM/test_tnm_branch.py
           python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p test_ryu_thermalctl.py
+      - name: Validate full RYU PowerKeeper DEX port
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p test_ryu_full_powerkeeper_a16.py -v
       - name: Validate audited RYU gates and retained CorePatch stack
         shell: bash
         run: |
