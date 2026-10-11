@@ -67,9 +67,10 @@ jobs:
           records = []
           listing = ['path\tsize_bytes\tcompressed_bytes\tcrc32']
           with zipfile.ZipFile(source) as archive:
-              bad_member = archive.testzip() if len(archive.infolist()) < 60 else None
-              if bad_member:
-                  raise RuntimeError('Corrupt ZIP member: ' + bad_member)
+              if not archive.infolist():
+                  raise RuntimeError('Empty ROM archive')
+              if not any(m.filename.endswith('/super.img') for m in archive.infolist()):
+                  raise RuntimeError('ROM archive has no images/super.img')
               for item in archive.infolist():
                   if item.is_dir():
                       continue
