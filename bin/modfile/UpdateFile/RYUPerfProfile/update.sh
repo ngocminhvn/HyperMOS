@@ -42,10 +42,12 @@ mods "RYU FULL PERF: original powerhint/perf plus verified ODM app thermal profi
 # system_app lacks SELinux file write. Retain all thermal services/limits.
 vendor_policy="$work_dir/build/baserom/images/vendor/etc/selinux/vendor_sepolicy.cil"
 [[ -s "$vendor_policy" ]] || { error "RYU PERF: vendor CIL missing"; exit 1; }
-rule='(allow system_app vendor_sysfs_kgsl (file (write)))'
-if ! grep -Fqx "$rule" "$vendor_policy"; then
-  printf '\n%s\n' "$rule" >> "$vendor_policy"
-fi
+for rule in '(allow system_app vendor_sysfs_kgsl (file (write)))' \
+            '(allow init vendor_sysfs_kgsl (file (setattr)))'; do
+  if ! grep -Fqx "$rule" "$vendor_policy"; then
+    printf '\n%s\n' "$rule" >> "$vendor_policy"
+  fi
+done
 install -Dm644 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-perfhook-access.rc" \
   "$work_dir/build/baserom/images/system_ext/etc/init/ryu-perfhook-access.rc"
 install -Dm755 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-thermalctl" \

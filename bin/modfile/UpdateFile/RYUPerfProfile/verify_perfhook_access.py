@@ -10,6 +10,8 @@ def verify(images, compiler='secilc'):
     rule = '(allow system_app vendor_sysfs_kgsl (file (write)))'
     if rule not in (vendor / 'vendor_sepolicy.cil').read_text():
         raise ValueError('PerfHook KGSL write rule missing')
+    if '(allow init vendor_sysfs_kgsl (file (setattr)))' not in (vendor / 'vendor_sepolicy.cil').read_text():
+        raise ValueError('Init KGSL ownership/mode permission missing')
     rc = images / 'system_ext/etc/init/ryu-perfhook-access.rc'
     content = rc.read_text()
     for node in ['min_freq', 'max_freq']:
