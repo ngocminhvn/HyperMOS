@@ -16,7 +16,7 @@ fi
 
 # Experimental import must never end up on HyperMOS main accidentally.
 case "${GITHUB_REF_NAME:-}" in
-  test-ryu-performance-haotian|test-powerkeeper-ryu-uid-identity)
+  test-ryu-performance-haotian)
     ;;
   *)
     error "RYU FULL PERF: allowed only on dedicated RYU test branches, actual=${GITHUB_REF_NAME:-unknown}"
@@ -37,3 +37,24 @@ python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profil
   --rom "$work_dir/build/baserom/images"
 
 mods "RYU FULL PERF: original powerhint/perf plus verified ODM app thermal profiles staged (charging and no-limit untouched)"
+
+# Live #115 evidence: KGSL frequency nodes are root:root 0644 and
+# system_app lacks SELinux file write. Retain all thermal services/limits.
+vendor_policy="$work_dir/build/baserom/images/vendor/etc/selinux/vendor_sepolicy.cil"
+[[ -s "$vendor_policy" ]] || { error "RYU PERF: vendor CIL missing"; exit 1; }
+rule='(allow system_app vendor_sysfs_kgsl (file (write)))'
+if ! grep -Fqx "$rule" "$vendor_policy"; then
+  printf '\n%s\n' "$rule" >> "$vendor_policy"
+fi
+install -Dm644 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-perfhook-access.rc" \
+  "$work_dir/build/baserom/images/system_ext/etc/init/ryu-perfhook-access.rc"
+install -Dm755 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-thermalctl" \
+  "$work_dir/build/baserom/images/system_ext/bin/ryu-thermalctl"
+# Force init to compile modified split CIL instead of an old binary policy.
+for part in vendor odm; do
+  policy_dir="$work_dir/build/baserom/images/$part/etc/selinux"
+  if [[ -d "$policy_dir" ]]; then
+    find "$policy_dir" -maxdepth 1 -type f -name 'precompiled_sepolicy*' -delete
+  fi
+done
+mods "RYU PERF: KGSL min/max system-group access staged; thermal limits retained"

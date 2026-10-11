@@ -144,11 +144,17 @@ bash $work_dir/bin/package/patchpackage.sh || exit 1
 # Fail if any later HyperMOS mod overrode RYU CPU/boost, powerhint or thermal.
 # Checks all ten pinned performance files and the ODM profiles. Never edits
 # governor/cpufreq/thermald or creates a resident service.
-if [[ "${GITHUB_REF_NAME:-}" == "test-powerkeeper-ryu-uid-identity" ]]; then
+if [[ "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" ]]; then
     python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py" \
       --images "$work_dir/build/baserom/images" \
       --report "$work_dir/build/reports/performance/ryu-cpu-thermal-final.json" || {
         error "RYU CPU/thermal config audit failed; refuse to package inconsistent ROM"
+        exit 1
+      }
+    python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/verify_perfhook_access.py" \
+      --images "$work_dir/build/baserom/images" \
+      --report "$work_dir/build/reports/performance/ryu-perfhook-access.json" || {
+        error "RYU PerfHook access policy failed to compile; refuse to package ROM"
         exit 1
       }
 fi

@@ -1,0 +1,13 @@
+# HAOTIAN KGSL: keep root ownership, permit the existing system group.
+# SELinux remains enforcing; DAC write is limited to these two nodes.
+on boot
+    chown root system /sys/class/kgsl/kgsl-3d0/devfreq/min_freq
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/devfreq/min_freq
+    chown root system /sys/class/kgsl/kgsl-3d0/devfreq/max_freq
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/devfreq/max_freq
+
+on property:sys.boot_completed=1
+    chown root system /sys/class/kgsl/kgsl-3d0/devfreq/min_freq
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/devfreq/min_freq
+    chown root system /sys/class/kgsl/kgsl-3d0/devfreq/max_freq
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/devfreq/max_freq

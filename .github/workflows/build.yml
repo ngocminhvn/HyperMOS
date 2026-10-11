@@ -300,6 +300,7 @@ jobs:
           name: HyperMOS-RYU-CPU-Thermal-Audit
           path: |
             build/reports/performance/ryu-cpu-thermal-final.json
+            build/reports/performance/ryu-perfhook-access.json
             build/baserom/ryu-test-perf-manifest.json
             build/baserom/ryu-test-thermal-profiles.json
           if-no-files-found: warn

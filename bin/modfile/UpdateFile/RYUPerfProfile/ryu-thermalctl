@@ -1,0 +1,49 @@
+#!/system/bin/sh
+# On-demand configuration of PerfHook's Settings.System observer.
+set -eu
+settings_bin=${RYU_SETTINGS_BIN:-/system/bin/settings}
+user=${RYU_SETTINGS_USER:-0}
+get() { "$settings_bin" --user "$user" get system "$1"; }
+put() { "$settings_bin" --user "$user" put system "$1" "$2"; }
+profile() {
+    case "$1" in
+        normal) id=0; file=normal ;;
+        performance) id=50; file=per-normal ;;
+        hp) id=500; file=hp-normal ;;
+        game) id=700; file=cgame ;;
+        *) echo "Unknown profile: $1" >&2; exit 2 ;;
+    esac
+    test -s "${RYU_PROFILE_ROOT:-/odm/etc}/thermal-$file.conf" || {
+        echo "Profile file missing: thermal-$file.conf" >&2; exit 2;
+    }
+}
+case "${1:-status}" in
+    status)
+        for key in projectryu_thermal_per_app projectryu_thermal_sconfig projectryu_thermal_profiles; do
+            printf '%s=%s\n' "$key" "$(get "$key")"
+        done
+        ;;
+    global)
+        test "$#" -eq 2 || { echo 'Usage: ryu-thermalctl global normal|performance|hp|game' >&2; exit 2; }
+        profile "$2"
+        put projectryu_thermal_sconfig "$id"
+        put projectryu_thermal_per_app 0
+        ;;
+    perapp)
+        shift
+        test "$#" -gt 0 || { echo 'Usage: ryu-thermalctl perapp package:profile ...' >&2; exit 2; }
+        profiles=''
+        for entry in "$@"; do
+            pkg=${entry%:*}; selected=${entry##*:}
+            case "$pkg" in ''|*[!a-zA-Z0-9_.]*) echo 'Invalid package' >&2; exit 2 ;; esac
+            test "$pkg" != "$entry" || { echo 'Profile delimiter missing' >&2; exit 2; }
+            profile "$selected"
+            profiles="${profiles}${profiles:+,}${pkg}:${id}"
+        done
+        # Validate the complete batch before changing any setting.
+        put projectryu_thermal_profiles "$profiles"
+        put projectryu_thermal_sconfig 0
+        put projectryu_thermal_per_app 1
+        ;;
+    *) echo 'Usage: ryu-thermalctl status|global PROFILE|perapp PACKAGE:PROFILE ...' >&2; exit 2 ;;
+esac

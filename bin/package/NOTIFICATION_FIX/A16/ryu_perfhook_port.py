@@ -28,7 +28,37 @@ ANDROID_SETTING = ('Landroid/provider/Settings$System;->getString'
 FOREIGN_CLASS = 'Lcom/projectryu/ProjectRYUFramework;'
 
 
+def restore_min_first(body):
+    # Restore lower bounds before raising max: a thermal clamp on max must
+    # not short-circuit removal of a previously pinned performance minimum.
+    for method, fields in [
+        ('restoreCpuFrequencyRange', [('scalingMax', 'scalingMin'), ('cachedInfoMax', 'cachedInfoMin')]),
+        ('restoreGpuDefault', [('maxFreq', 'minFreq'), ('availableMax', 'availableMin')]),
+    ]:
+        pattern = re.compile(r'(?ms)^\.method\b[^\n]*\b' + method + r'\([^\n]*$.*?^\.end method\s*$')
+        matches = list(pattern.finditer(body))
+        if not matches:
+            continue
+        if len(matches) != 1:
+            raise ValueError('Duplicate frequency restore method: ' + method)
+        block = matches[0].group()
+        maximum_node, minimum_node = fields[0]
+        if '->' + maximum_node + ':' not in block or '->' + minimum_node + ':' not in block:
+            raise ValueError('Unexpected frequency restore layout: ' + method)
+        if block.find('->' + minimum_node + ':') < block.find('->' + maximum_node + ':'):
+            continue
+        for maximum, minimum in fields:
+            if '->' + maximum + ':' not in block or '->' + minimum + ':' not in block:
+                raise ValueError('Unexpected frequency restore layout: ' + method)
+            block = block.replace('->' + maximum + ':', '->__restore_swap:')
+            block = block.replace('->' + minimum + ':', '->' + maximum + ':')
+            block = block.replace('->__restore_swap:', '->' + minimum + ':')
+        body = body[:matches[0].start()] + block + body[matches[0].end():]
+    return body
+
+
 def compatible_smali(body):
+    body = restore_min_first(body)
     if FOREIGN_CLASS not in body:
         return body
     # Original HAOTIAN RYU PerfHook calls getSystemString three times in
@@ -143,11 +173,31 @@ def prepare(source_root, stock_root):
     new_method = block[:returns[0].start()] + helper_call + block[returns[0].start():]
     extra_method = (
         '\n.method private static ' + helper + '()V\n'
-        '    .locals 1\n\n'
+        '    .locals 3\n\n'
+        '    sget-object v0, ' + context + '\n'
+        '    invoke-virtual {v0}, Landroid/content/Context;->getContentResolver()Landroid/content/ContentResolver;\n'
+        '    move-result-object v0\n'
+        '    const-string v1, "projectryu_thermal_per_app"\n'
+        '    const-string v2, "0"\n'
+        '    invoke-static {v0, v1, v2}, ' + APP + '->hypermosSeedRyuSetting(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)V\n'
+        '    const-string v1, "projectryu_thermal_sconfig"\n'
+        '    invoke-static {v0, v1, v2}, ' + APP + '->hypermosSeedRyuSetting(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)V\n'
+        '    const-string v1, "projectryu_thermal_profiles"\n'
+        '    const-string v2, ""\n'
+        '    invoke-static {v0, v1, v2}, ' + APP + '->hypermosSeedRyuSetting(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)V\n'
         '    sget-object v0, ' + context + '\n'
         '    invoke-static {v0}, ' + CALL + '\n'
         '    move-result-object v0\n'
         '    invoke-virtual {v0}, Lcom/projectryu/perf/PerfHook;->init()V\n'
+        '    return-void\n'
+        '.end method\n'
+        '\n.method private static hypermosSeedRyuSetting(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)V\n'
+        '    .locals 1\n'
+        '    invoke-static {p0, p1}, Landroid/provider/Settings$System;->getString(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;\n'
+        '    move-result-object v0\n'
+        '    if-nez v0, :configured\n'
+        '    invoke-static {p0, p1, p2}, Landroid/provider/Settings$System;->putString(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z\n'
+        '    :configured\n'
         '    return-void\n'
         '.end method\n'
     )
@@ -179,6 +229,7 @@ def main():
                   source_activation=original_call, target_dex_directory=new_dex.name,
                   runtime='original RYU PerfHook, from user-provided source APK',
                   thermal_profiles_unchanged=True)
+    report['compatibility_changes'] = ['Settings.System reader', 'frequency restore lowers minimum before maximum']
     if not args.dry_run:
         # Validate EVERY destination before modifying any decoded stock file.
         for cls in classes:
