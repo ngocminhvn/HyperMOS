@@ -6,6 +6,7 @@ on:
     paths:
       - 'bin/package/NOTIFICATION_FIX/A16/ryu_full_powerkeeper_a16.py'
       - 'bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py'
       - 'bin/package/NOTIFICATION_FIX/A16/test_ryu_full_powerkeeper_a16.py'
       - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
       - '.github/workflows/ryu-full-powerkeeper-preflight.yml'
