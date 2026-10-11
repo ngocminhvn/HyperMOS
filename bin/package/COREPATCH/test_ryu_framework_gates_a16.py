@@ -80,6 +80,41 @@ class Gates(unittest.TestCase):
             with self.assertRaises(ValueError):
                 m.apply(root, 'miui-services', entries=[entry()])
 
+    def test_identical_mirrored_dex_copies_are_patched_and_verified(self):
+        # apk_ops.sh sometimes creates real copies, not symlinks.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            primary = root / 'smali/test/Gate.smali'
+            mirror = root / 'classes/test/Gate.smali'
+            for file in (primary, mirror):
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text(source())
+            m.apply(root, 'miui-services', entries=[entry()])
+            self.assertEqual(primary.read_text(), mirror.read_text())
+            self.assertIn(m.MARKER, primary.read_text())
+            m.apply(root, 'miui-services', verify=True, entries=[entry()])
+
+    def test_mirrored_dex_divergence_fails_without_writes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            primary = root / 'smali/test/Gate.smali'
+            mirror = root / 'classes/test/Gate.smali'
+            for file in (primary, mirror):
+                file.parent.mkdir(parents=True, exist_ok=True)
+            primary.write_text(source())
+            mirror.write_text(source().replace('untouched()Z', 'different()Z'))
+            with self.assertRaisesRegex(ValueError, 'divergent DEX alias copies'):
+                m.apply(root, 'miui-services', entries=[entry()])
+            self.assertEqual(primary.read_text(), source())
+            self.assertIn('different()Z', mirror.read_text())
+            # Two genuinely different DEX slots are never treated as aliases.
+            mirror.unlink()
+            other = root / 'smali_classes2/test/Gate.smali'
+            other.parent.mkdir(parents=True)
+            other.write_text(source())
+            with self.assertRaisesRegex(ValueError, 'duplicate class across DEX slots'):
+                m.apply(root, 'miui-services', entries=[entry()])
+
     def test_content_whitelist_requires_entry_guard(self):
         signature = 'updateContentCatcherWhitelist()V'
         src = source(signature=signature).replace(
