@@ -37,8 +37,10 @@ class FullRyuPort(unittest.TestCase):
         self.assertEqual((reads, gates), (1, 1))
         with self.assertRaisesRegex(ValueError, "Unsupported RYU framework reference"):
             full.adapt("invoke-static {}, Lcom/projectryu/ProjectRYUFramework;->unknown()V")
-        with self.assertRaisesRegex(ValueError, "parameter register"):
-            full.adapt("    sget-boolean p0, Lcom/projectryu/Build;->IS_RYU_BUILD:Z")
+        parameter, _, count = full.adapt(
+            "    sget-boolean p0, Lcom/projectryu/Build;->IS_RYU_BUILD:Z")
+        self.assertIn("const/16 p0, 0x1", parameter)
+        self.assertEqual(count, 1)
 
     def test_full_class_set_transfer_and_manifest_guard(self):
         with tempfile.TemporaryDirectory() as temp:
