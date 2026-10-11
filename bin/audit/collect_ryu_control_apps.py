@@ -57,7 +57,11 @@ def analyze(root, output, partition):
         filename = src.name.lower()
         size = src.stat().st_size
         is_apk = suffix == '.apk'
-        matching = (filename in TARGET_EXACT or any(k in filename for k in TARGET_WORDS)) if is_apk else filename in JARS
+        # Language/resource overlays are not executable control apps. Original
+        # version matched every RYU.Multilang.* overlay and exhausted MAX_COUNT.
+        is_overlay = 'overlay' in rel.parts or filename.startswith('ryu.multilang.')
+        matching = ((filename in TARGET_EXACT or any(k in filename for k in TARGET_WORDS))
+                    and not is_overlay) if is_apk else filename in JARS
         reason = 'selected' if matching else 'inventory_only'
         if matching and (size > MAX_FILE or copied + size > MAX_TOTAL or count >= MAX_COUNT):
             reason = 'skipped_safety_limit'
