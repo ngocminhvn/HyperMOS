@@ -13,7 +13,7 @@ from pathlib import Path
 from ryu_full_powerkeeper_a16 import TNM_API, TNM_METHODS, RYU_OWNER
 from verify_ryu_uid_policy_apk import entries
 
-DEX = re.compile(r"classes(?:[2-9]\\d*)?\\.dex")
+DEX = re.compile(r"classes(?:[2-9]\d*)?\.dex")
 
 
 def verify(apk: Path, report: Path):
