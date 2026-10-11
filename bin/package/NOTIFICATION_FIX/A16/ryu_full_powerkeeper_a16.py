@@ -140,7 +140,14 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
     adapted = {}
     setting_reads = build_gates = 0
     for descriptor, source in donor.items():
-        body, reads, gates = adapt(source.read_text(encoding="utf-8"))
+        raw = source.read_text(encoding="utf-8")
+        try:
+            body, reads, gates = adapt(raw)
+        except ValueError as exc:
+            suspect = [line.strip()[:220] for line in raw.splitlines()
+                       if ("Lcom/projectryu/ProjectRYUFramework;" in line
+                           or "Lcom/projectryu/Build;" in line)]
+            raise ValueError(f"{descriptor}: {exc}; references={suspect[:8]}") from exc
         adapted[descriptor] = body
         setting_reads += reads
         build_gates += gates
