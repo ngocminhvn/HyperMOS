@@ -3,7 +3,7 @@
 
 The pinned donor APK supplies every class/method (not a selective PerfHook
 subset). Keep original Xiaomi AndroidManifest/resources and asset payloads.
-Only adapt the known RYU Settings wrappers/build gates absent on
+Route the known RYU Settings wrappers to embedded TNMFramework; adapt build gates absent on
 the target ROM. No loader, daemon, runtime hook or extra framework jar.
 """
 import argparse
@@ -20,24 +20,74 @@ CLASS = re.compile(r"(?m)^\.class\b[^\n]*\s(L[^;\s]+;)\s*$")
 BUILD_GATE = re.compile(
     r"(?m)^([ \t]*)sget-boolean ([vp]\d+), "
     r"Lcom/projectryu/Build;->IS_RYU_BUILD:Z[ \t]*$")
-RYU_GET = (
-    "Lcom/projectryu/ProjectRYUFramework;->getSystemString"
-    "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;")
-ANDROID_GET = (
-    "Landroid/provider/Settings$System;->getString"
-    "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;")
-RYU_COMPAT = {
-    # Original ProjectRYUFramework is absent from Xiaomi base. Its original
-    # SettingsHelper methods use matching platform Settings.System signatures.
-    # Keep calls inside PowerKeeper; do not add any runtime framework/hook.
-    "getSystemInt": "getInt",
-    "getSystemIntForUser": "getIntForUser",
-    "getSystemLong": "getLong",
-    "getSystemString": "getString",
-    "putSystemInt": "putInt",
-    "putSystemLong": "putLong",
-    "putSystemString": "putString",
+# TNMFramework is a real Java/Dalvik API embedded into the PowerKeeper DEX,
+# not merely the name of an external shell script or a ProjectRYU JAR alias.
+# Its static methods implement the same Settings.System contract that the
+# TNM root-on-demand adapter writes. No additional service/daemon is spawned.
+TNM_API = "Lcom/android/tnm/TNMFramework;"
+RYU_OWNER = "Lcom/projectryu/ProjectRYUFramework;"
+SETTINGS_OWNER = "Landroid/provider/Settings$System;"
+TNM_METHODS = {
+    "getSystemInt": (
+        "(Landroid/content/ContentResolver;Ljava/lang/String;I)I", "getInt", 3, "I"),
+    "getSystemIntForUser": (
+        "(Landroid/content/ContentResolver;Ljava/lang/String;II)I", "getIntForUser", 4, "I"),
+    "getSystemLong": (
+        "(Landroid/content/ContentResolver;Ljava/lang/String;J)J", "getLong", 4, "J"),
+    "getSystemString": (
+        "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;", "getString", 2, "L"),
+    "putSystemInt": (
+        "(Landroid/content/ContentResolver;Ljava/lang/String;I)Z", "putInt", 3, "Z"),
+    "putSystemLong": (
+        "(Landroid/content/ContentResolver;Ljava/lang/String;J)Z", "putLong", 4, "Z"),
+    "putSystemString": (
+        "(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z", "putString", 3, "Z"),
 }
+RYU_GET = RYU_OWNER + "->getSystemString" + TNM_METHODS["getSystemString"][0]
+TNM_GET = TNM_API + "->getSystemString" + TNM_METHODS["getSystemString"][0]
+
+
+def tnm_framework_smali():
+    lines = [
+        ".class public final " + TNM_API,
+        ".super Ljava/lang/Object;",
+        "",
+        ".method private constructor <init>()V",
+        "    .locals 0",
+        "    invoke-direct {p0}, Ljava/lang/Object;-><init>()V",
+        "    return-void",
+        ".end method",
+        "",
+    ]
+    for name, (proto, method, slots, result) in TNM_METHODS.items():
+        operand = ", ".join("p" + str(i) for i in range(slots))
+        lines.extend([
+            ".method public static " + name + proto,
+            "    .locals " + ("2" if result == "J" else "1"),
+            "    invoke-static {" + operand + "}, " + SETTINGS_OWNER + "->" + method + proto,
+            "    move-result" + ("-wide" if result == "J" else "-object" if result == "L" else "") + " v0",
+            "    return" + ("-wide" if result == "J" else "-object" if result == "L" else "") + " v0",
+            ".end method",
+            "",
+        ])
+    return "\n".join(lines)
+
+
+def install_tnm_framework(stock_root, donor):
+    if TNM_API in donor:
+        raise ValueError("Donor already defines TNMFramework; refusing overwrite")
+    dirs = dex_dirs(stock_root)
+    output_dir = dirs.get("smali") or next(iter(dirs.values()), None)
+    if output_dir is None:
+        raise ValueError("No decoded DEX directory for TNMFramework")
+    target = output_dir / "com/android/tnm/TNMFramework.smali"
+    if target.exists():
+        raise ValueError("Duplicate embedded TNMFramework class")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(tnm_framework_smali(), encoding="utf-8")
+    return str(target.relative_to(stock_root))
+
+
 FOREIGN_CLASS = re.compile(r"Lcom/projectryu/[^;\s]+;")
 
 
@@ -96,14 +146,13 @@ def classes(root: Path):
 def adapt(body: str):
     """Minimal, build-time RYU framework compatibility, without new hooks."""
     reads = 0
-    # Transplant the entire donor, including its SettingsHelper class. Exact
-    # method signatures are preserved while only the provider class/method
-    # owner changes to Android's platform Settings.System implementation.
-    for ryu_name, platform_name in RYU_COMPAT.items():
-        reference = "Lcom/projectryu/ProjectRYUFramework;->" + ryu_name + "("
+    # Every original RYU call now targets a REAL concrete TNMFramework method
+    # defined within PowerKeeper. The TNM controller and this API share the
+    # original Settings keys, but no foreign framework JAR is loaded.
+    for name, (proto, _, _, _) in TNM_METHODS.items():
+        reference = RYU_OWNER + "->" + name + proto
         reads += body.count(reference)
-        body = body.replace(
-            reference, "Landroid/provider/Settings$System;->" + platform_name + "(")
+        body = body.replace(reference, TNM_API + "->" + name + proto)
     gates = 0
 
     def gate(match):
@@ -189,8 +238,10 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
         relative = donor[descriptor].relative_to(donor_root)
         target = stock_root / relative
         target.write_text(body, encoding="utf-8")
-    if set(classes(stock_root)) != set(donor):
-        raise ValueError("Full donor class transfer produced a class-set mismatch")
+    embedded_api = install_tnm_framework(stock_root, donor)
+    actual_classes = set(classes(stock_root))
+    if actual_classes != set(donor) | {TNM_API}:
+        raise ValueError("Full donor + TNMFramework class-set mismatch")
 
     report = {
         "mode": "full original RYUOS PowerKeeper DEX port into Xiaomi APK",
@@ -201,6 +252,12 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
         "ryu_only_classes": sorted(set(donor) - set(original)),
         "xiaomi_only_classes_removed": sorted(set(original) - set(donor)),
         "adapted_ryu_framework_setting_reads": setting_reads,
+        "tnm_framework_api": TNM_API,
+        "tnm_framework_method_signatures": [
+            name + details[0] for name, details in TNM_METHODS.items()],
+        "tnm_framework_embedded_path": embedded_api,
+        "tnm_framework_call_sites": setting_reads,
+        "projectryu_framework_jars_required": False,
         "adapted_ryu_build_gates": build_gates,
         "no_runtime_hook_or_daemon": True,
         "apk_contract": contract,
@@ -212,7 +269,7 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
                            encoding="utf-8")
     print(f"[RYU FULL APK] {len(donor)} donor classes ({len(perf_classes)} PerfHook), "
           f"{setting_reads} Settings compatibility calls, {build_gates} build gates")
-    print("[RYU FULL APK] All donor DEX methods staged; Xiaomi manifest/resources retained")
+    print("[RYU FULL APK] All donor DEX methods staged; TNMFramework API embedded; Xiaomi manifest/resources retained")
     return report
 
 
