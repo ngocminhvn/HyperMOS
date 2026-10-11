@@ -109,13 +109,16 @@ def adapt(body: str):
     def gate(match):
         nonlocal gates
         reg = match[2]
-        if not reg.startswith("v"):
-            raise ValueError("Unexpected parameter register for RYU build gate: " + reg)
+        if not reg.startswith(("v", "p")):
+            raise ValueError("Unexpected register for RYU build gate: " + reg)
         number = int(reg[1:])
         if number > 255:
             raise ValueError("RYU build gate register out of range")
         gates += 1
-        insn = "const/4" if number < 16 else "const/16"
+        # A p-register aliases a physical register after the local registers.
+        # const/4 has only a 4-bit register operand; const/16 supports 8 bits.
+        # The original donor method is subsequently assembled and validated.
+        insn = "const/4" if reg.startswith("v") and number < 16 else "const/16"
         return match[1] + insn + " " + reg + ", 0x1"
 
     body = BUILD_GATE.sub(gate, body)
