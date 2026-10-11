@@ -1,0 +1,131 @@
+name: Extract RYUOS Control APKs for REA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - .github/workflows/ryu-extract-control-apps.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ryu-control-apks-readonly
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    if: github.ref == 'refs/heads/test-ryu-performance-haotian'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 170
+    env:
+      RYU_ROM_URL: https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip
+      RYU_SHA256: 42dc542c9024c478e6b45af8e6fef6ba133176fe8201a14cf59496954516ba28
+    steps:
+      - name: Checkout RYU audit tools only
+        uses: actions/checkout@v4
+
+      - name: Preflight audit scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/audit/collect_ryu_control_apps.py bin/audit/ryu_super_partitions.py bin/lpunpack.py
+          df -h /tmp
+
+      - name: Free disk and install read-only extraction dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends erofs-utils e2fsprogs android-sdk-libsparse-utils unzip file curl
+          df -h /tmp
+
+      - name: Download pinned RYUOS HAOTIAN 3.0.309
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-time 180 --speed-limit 1024 --output /tmp/ryu-rom.zip "$RYU_ROM_URL"
+          echo "$RYU_SHA256  /tmp/ryu-rom.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('/tmp/ryu-rom.zip') as archive:
+              matches = [x for x in archive.infolist() if x.filename.endswith('/super.img')]
+              assert len(matches) == 1 and matches[0].file_size > 1024**3, 'Expected exactly one full super.img'
+              print('Verified:', matches[0].filename, matches[0].file_size)
+          PY
+
+      - name: Unpack only super image
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import shutil, zipfile
+          with zipfile.ZipFile('/tmp/ryu-rom.zip') as archive:
+              name = next(x.filename for x in archive.infolist() if x.filename.endswith('/super.img'))
+              with archive.open(name) as src, open('/tmp/ryu-super.img', 'wb') as dst:
+                  shutil.copyfileobj(src, dst, length=16*1024*1024)
+          PY
+          rm -f /tmp/ryu-rom.zip
+          if python3 - <<'PY'
+          from pathlib import Path
+          raise SystemExit(0 if Path('/tmp/ryu-super.img').open('rb').read(4) == b'\x3a\xff\x26\xed' else 1)
+          PY
+          then
+            simg2img /tmp/ryu-super.img /tmp/ryu-super.raw.img
+            mv -f /tmp/ryu-super.raw.img /tmp/ryu-super.img
+          fi
+          mkdir -p /tmp/ryu-control
+          python3 bin/audit/ryu_super_partitions.py --super /tmp/ryu-super.img --json /tmp/ryu-control/partition-info.json --names /tmp/ryu-control/partitions.txt
+          df -h /tmp
+
+      - name: Collect selected APK/JAR, inventory all apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          for part in system system_ext product mi_ext vendor odm; do
+            choice=''
+            if grep -Fxq "$part"_a /tmp/ryu-control/partitions.txt; then choice="$part"_a;
+            elif grep -Fxq "$part" /tmp/ryu-control/partitions.txt; then choice="$part"; fi
+            if [ -z "$choice" ]; then echo "No $part logical partition"; continue; fi
+            echo "::group::Extract $choice"
+            rm -rf /tmp/ryu-parts /tmp/ryu-part-fs
+            mkdir -p /tmp/ryu-parts /tmp/ryu-part-fs
+            python3 bin/lpunpack.py -p "$choice" /tmp/ryu-super.img /tmp/ryu-parts
+            img="/tmp/ryu-parts/$choice.img"
+            test -s "$img"
+            if file -b "$img" | grep -qi 'erofs'; then
+              fsck.erofs --extract=/tmp/ryu-part-fs "$img"
+            elif file -b "$img" | grep -Eqi 'ext[234] filesystem'; then
+              for folder in app priv-app framework system/app system/priv-app system/framework; do
+                debugfs -R "rdump /$folder /tmp/ryu-part-fs" "$img" >/dev/null 2>&1 || true
+              done
+            else
+              echo "::error::Unsupported filesystem in $choice"
+              exit 1
+            fi
+            python3 bin/audit/collect_ryu_control_apps.py --root /tmp/ryu-part-fs --partition "$part" --output /tmp/ryu-control
+            rm -rf /tmp/ryu-parts /tmp/ryu-part-fs
+            df -h /tmp
+            echo '::endgroup::'
+          done
+          python3 bin/audit/collect_ryu_control_apps.py --output /tmp/ryu-control --finalize
+          {
+            echo '### Extracted RYUOS APK / JAR files'
+            echo ''
+            echo 'ROM: RYUOS HAOTIAN 3.0.309; read-only; SHA256-verified'
+            echo ''
+            echo 'See artifact: RYUOS-HAOTIAN-Control-APKs-for-REA'
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f /tmp/ryu-super.img
+
+      - name: Publish original APK/JAR for offline REA analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-HAOTIAN-Control-APKs-for-REA
+          path: /tmp/ryu-control/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
