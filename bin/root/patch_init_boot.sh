@@ -72,7 +72,7 @@ release_asset() {
 # Only KernelSU Next is supported on main. No other root forks are downloaded.
 release_asset '^ksud-x86_64-unknown-linux-musl$' "$ksud"
 release_asset "^aarch64_${kmi}_kernelsu\\.ko$" "$ko"
-release_asset '^KernelSU_Next_v[0-9.]+_[0-9]+-release\.apk$' "$manager"
+release_asset "^KernelSU_Next_v[0-9]+[.][0-9]+[.][0-9]+_[0-9]+-release[.]apk\$" "$manager"
 manager_filename="KernelSU-Next_${tag}.apk"
 test -s "$ko" && test -s "$manager" && test -s "$ksud" || die "Missing official root files"
 unzip -tq "$manager" || die "Upstream manager APK is corrupt"
