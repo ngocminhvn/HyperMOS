@@ -1,5 +1,5 @@
 name: Extract RYUOS Control APKs for REA
-# v2: exclude language overlays and prioritize SecurityCenter/MiuiHome.
+# v3: sample fastest available SourceForge mirror, create exactly two ChatGPT-ready artifact ZIPs.
 
 on:
   workflow_dispatch:
@@ -32,7 +32,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile bin/audit/collect_ryu_control_apps.py bin/audit/ryu_super_partitions.py bin/lpunpack.py
+          python3 -m py_compile bin/audit/collect_ryu_control_apps.py bin/audit/ryu_super_partitions.py bin/lpunpack.py bin/audit/ryu_fast_mirror.py bin/audit/pack_ryu_chatgpt.py
+          python3 bin/audit/pack_ryu_chatgpt.py --self-test
           df -h /tmp
 
       - name: Free disk and install read-only extraction dependencies
@@ -44,12 +45,48 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends erofs-utils e2fsprogs android-sdk-libsparse-utils unzip file curl
           df -h /tmp
 
-      - name: Download pinned RYUOS HAOTIAN 3.0.309
+      - name: Benchmark current SourceForge mirrors with 1 MiB HTTP range probes
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-time 180 --speed-limit 1024 --output /tmp/ryu-rom.zip "$RYU_ROM_URL"
-          echo "$RYU_SHA256  /tmp/ryu-rom.zip" | sha256sum -c -
+          mkdir -p /tmp/ryu-control
+          python3 bin/audit/ryu_fast_mirror.py \
+            --url "$RYU_ROM_URL" \
+            --urls /tmp/ryu-mirror-candidates.txt \
+            --report /tmp/ryu-control/mirror-benchmark.json
+          cat /tmp/ryu-mirror-candidates.txt | sed -E 's/[?].*/?[mirror-selection]/' | nl -ba
+
+      - name: Download pinned RYUOS from fastest validated mirror, fallback on error or wrong SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          attempt=0
+          while IFS= read -r candidate; do
+            test -n "$candidate" || continue
+            attempt=$(( attempt + 1 ))
+            echo "::group::ROM mirror candidate $attempt"
+            rm -f /tmp/ryu-rom.zip
+            if curl --fail --location --retry 1 --retry-all-errors \
+              --connect-timeout 25 --max-time 1500 \
+              --speed-time 50 --speed-limit 65536 \
+              --output /tmp/ryu-rom.zip "$candidate"; then
+              if echo "$RYU_SHA256  /tmp/ryu-rom.zip" | sha256sum -c -; then
+                success=1
+                echo "Verified ROM SHA-256 using mirror candidate $attempt"
+                echo "::endgroup::"
+                break
+              fi
+              echo "::warning::Mirror candidate $attempt had wrong SHA-256; discarding"
+            else
+              echo "::warning::Mirror candidate $attempt failed or was too slow; trying next"
+            fi
+            echo "::endgroup::"
+          done < /tmp/ryu-mirror-candidates.txt
+          if [ "$success" -ne 1 ]; then
+            echo "::error::No mirror downloaded the pinned SHA-256 ROM successfully"
+            exit 1
+          fi
           python3 - <<'PY'
           import zipfile
           with zipfile.ZipFile('/tmp/ryu-rom.zip') as archive:
@@ -118,15 +155,33 @@ jobs:
             echo ''
             echo 'ROM: RYUOS HAOTIAN 3.0.309; read-only; SHA256-verified'
             echo ''
-            echo 'See artifact: RYUOS-HAOTIAN-Control-APKs-for-REA'
+            echo 'Upload both artifact ZIPs: RYUOS-REA-ChatGPT-Part-1 and RYUOS-REA-ChatGPT-Part-2'
           } >> "$GITHUB_STEP_SUMMARY"
           rm -f /tmp/ryu-super.img
 
-      - name: Publish original APK/JAR for offline REA analysis
+      - name: Stage and verify exactly 2 ChatGPT-sized ZIP payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/pack_ryu_chatgpt.py \
+            --source /tmp/ryu-control --out /tmp/ryu-chatgpt
+          test -f /tmp/ryu-chatgpt/part-1/part-selection.json
+          test -f /tmp/ryu-chatgpt/part-2/part-selection.json
+
+      - name: Upload first ChatGPT-ready ZIP (under 512 MB)
         uses: actions/upload-artifact@v4
         with:
-          name: RYUOS-HAOTIAN-Control-APKs-for-REA
-          path: /tmp/ryu-control/
+          name: RYUOS-REA-ChatGPT-Part-1
+          path: /tmp/ryu-chatgpt/part-1/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload second ChatGPT-ready ZIP (under 512 MB)
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYUOS-REA-ChatGPT-Part-2
+          path: /tmp/ryu-chatgpt/part-2/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
