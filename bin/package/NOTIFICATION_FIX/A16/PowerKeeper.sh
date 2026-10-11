@@ -75,6 +75,8 @@ if [[ "${TNM_RYU_POWERKEEPER_MODE:-full-donor-dex}" == "full-donor-dex" ]]; then
     --apk "$tmp/final/PowerKeeper.apk"
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
     --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/ryu-full-port.json"
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py" \
+    --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/ryu-full-port.json"
   command -v zipalign >/dev/null || { error "RYU FULL: zipalign missing"; exit 1; }
   identity="$work_dir/bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py"
   python3 "$identity" --base "$apk" --patched "$tmp/final/PowerKeeper.apk" \
@@ -89,6 +91,8 @@ if [[ "${TNM_RYU_POWERKEEPER_MODE:-full-donor-dex}" == "full-donor-dex" ]]; then
     --apk "$tmp/final/PowerKeeper.aligned.apk"
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
     --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/ryu-full-port.json"
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py" \
+    --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/ryu-full-port.json"
   report_dir="$work_dir/build/reports/powerkeeper-a16"
   mkdir -p "$report_dir"
   cp "$tmp/ryu-full-port.json" "$report_dir/ryu-full-port.json"
@@ -97,7 +101,7 @@ if [[ "${TNM_RYU_POWERKEEPER_MODE:-full-donor-dex}" == "full-donor-dex" ]]; then
   apk_dir=$(dirname "$apk")
   cp -f "$tmp/final/PowerKeeper.aligned.apk" "$apk"
   rm -rf "$apk_dir/oat"
-  mods "PowerKeeper: ALL RYUOS donor DEX methods + Xiaomi original APK resources; no runtime hook"
+  mods "PowerKeeper: ALL RYU DEX methods + embedded TNMFramework API; Xiaomi resources; no runtime hook"
   patch "PowerKeeper A16 full RYU DEX compiled and staged (device runtime not tested)"
   exit 0
 fi
