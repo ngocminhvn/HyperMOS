@@ -134,7 +134,7 @@ def finish(out: Path, source: str):
                 )
                 if proc.returncode == 0:
                     perms = sorted(set(re.findall(
-                        r"uses-permission(?:-sdk-[0-9]+)?:\\s+name='([^']+)'",
+                        r"uses-permission(?:-sdk-[0-9]+)?:[ ]+name='([^']+)'",
                         proc.stdout,
                     )))
             except (FileNotFoundError, subprocess.TimeoutExpired):
