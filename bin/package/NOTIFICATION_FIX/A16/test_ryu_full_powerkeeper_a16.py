@@ -66,7 +66,7 @@ class FullRyuPort(unittest.TestCase):
                 body = ""
                 if cls == "Lcom/projectryu/perf/PerfHook;":
                     body = (".method public updateConfig()V\n"
-                            + "    invoke-static {v0, v1}, " + full.RYU_GET + "\n" * 3
+                            + ("    invoke-static {v0, v1}, " + full.RYU_GET + "\n") * 3
                             + "    sget-boolean v0, Lcom/projectryu/Build;->IS_RYU_BUILD:Z\n"
                             + ".end method\n")
                 mock_smali(donor, cls, body)
