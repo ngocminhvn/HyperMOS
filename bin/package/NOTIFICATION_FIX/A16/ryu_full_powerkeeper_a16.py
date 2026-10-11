@@ -168,6 +168,7 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
         "original_xiaomi_classes": len(original),
         "original_ryu_classes": len(donor),
         "original_ryu_perf_classes": perf_classes,
+        "classes": perf_classes,  # verify_perfhook_apk.py input contract
         "ryu_only_classes": sorted(set(donor) - set(original)),
         "xiaomi_only_classes_removed": sorted(set(original) - set(donor)),
         "adapted_ryu_framework_setting_reads": setting_reads,
