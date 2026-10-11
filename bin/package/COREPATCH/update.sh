@@ -12,6 +12,10 @@ elif [[ $AndroidVER == "14" ]];then
 elif [[ $AndroidVER == "15" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a15.sh
 elif [[ $AndroidVER == "16" ]];then
+    ryu_framework_options=()
+    if [[ "${GITHUB_REF_NAME:-$(git branch --show-current)}" == "test-tnm-ryu-haotian" ]]; then
+        ryu_framework_options+=(--ryu-framework-gates)
+    fi
     # HyperMOS A16 test stack on the #48/#49 base:
     # - disable signature verification
     # - disable secure flag
@@ -22,6 +26,7 @@ elif [[ $AndroidVER == "16" ]];then
         --cn-notification-fix \
         --ryu-notification-policy \
         --ryu-low-power-doze \
+        "${ryu_framework_options[@]}" \
         --disable-secure-flag || exit 1
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh

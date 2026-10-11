@@ -20,6 +20,7 @@ FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_RYU_NOTIFICATION_POLICY=0
 FEATURE_RYU_LOW_POWER_DOZE=0
+FEATURE_RYU_FRAMEWORK_GATES=0
 FEATURE_DISABLE_SECURE_FLAG=0
 
 parse_feature_flags() {
@@ -37,6 +38,9 @@ parse_feature_flags() {
       --ryu-low-power-doze)
         FEATURE_RYU_LOW_POWER_DOZE=1
         ;;
+      --ryu-framework-gates)
+        FEATURE_RYU_FRAMEWORK_GATES=1
+        ;;
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
         ;;
@@ -53,12 +57,14 @@ parse_feature_flags() {
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
   [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ] && log "  [PATCH] RYU FCM + first-boot + foreground-service handling"
   [ "$FEATURE_RYU_LOW_POWER_DOZE" -eq 1 ] && log "  [PATCH] RYU HAOTIAN mIsLowPowerDozeDevice=false"
+  [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ] && log "  [PATCH] TNM audited RYU framework build gates"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
      [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 0 ] &&
      [ "$FEATURE_RYU_LOW_POWER_DOZE" -eq 0 ] &&
+     [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
@@ -1183,7 +1189,11 @@ patch_miui_services() {
 
   # Existing HyperMOS patches
   apply_miui_services_floating "$decompile_dir"
-  apply_miui_services_contentextension "$decompile_dir"
+  # RYU skips the Taplus whitelist update; the old HyperMOS patch forces
+  # the opposite build gate. Keep it only when the audited policy is off.
+  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 0 ]; then
+    apply_miui_services_contentextension "$decompile_dir"
+  fi
 
   # Feature-specific patches
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
@@ -1198,6 +1208,9 @@ patch_miui_services() {
     if [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ]; then
       python3 "$SCRIPT_DIR/ryu_policy_a16.py" "$decompile_dir" || return 1
     fi
+    if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
+      python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-services || return 1
+    fi
     if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
       apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
     fi
@@ -1209,6 +1222,10 @@ patch_miui_services() {
 
   if [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ]; then
     apply_miui_services_disable_secure_flag "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-services --verify || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
@@ -1273,9 +1290,17 @@ patch_miui_framework() {
   # Existing HyperMOS Gboard patch
   apply_miui_framework_gboard "$decompile_dir"
 
+  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-framework || return 1
+  fi
+
   # CN notification related xBuild substitutions are only enabled by the feature flag.
   if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
     apply_miui_framework_cn_notification_fix "$decompile_dir"
+  fi
+
+  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-framework --verify || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)

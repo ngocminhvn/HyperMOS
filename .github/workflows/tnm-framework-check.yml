@@ -7,6 +7,7 @@ on:
       - test-tnm-ryu-haotian
     paths:
       - 'bin/modfile/UpdateFile/TNM/**'
+      - 'bin/package/COREPATCH/**'
       - '.github/workflows/tnm-framework-check.yml'
   workflow_dispatch:
 
@@ -27,3 +28,12 @@ jobs:
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           python3 bin/modfile/UpdateFile/TNM/test_tnm_framework.py
           python3 bin/modfile/UpdateFile/TNM/test_tnm_branch.py
+      - name: Validate audited RYU gates and retained CorePatch stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/package/COREPATCH/jar_patcher_a16.sh
+          bash -n bin/package/COREPATCH/update.sh
+          python3 bin/package/COREPATCH/test_ryu_framework_gates_a16.py
+          python3 bin/package/COREPATCH/test_ryu_policy_a16.py
+          python3 bin/package/COREPATCH/test_ryu_doze_a16.py

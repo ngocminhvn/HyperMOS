@@ -44,7 +44,63 @@ per-app profiles and confirms the saved per-app map after applying it.
 
 `TNMFramework` is an on-demand adapter, not a replacement Binder service.
 The source branch has not ported every RYU framework method or the original
-RYU app UI. No claim of visual or device runtime identity is made. Full-screen
-intent/force-stop bypasses, no-limit/charging profiles and hardware protection
-changes remain outside the inherited port. A complete ROM build and device
-test are still required before treating this as equivalent to RYU.
+RYU app UI. No claim of visual or device runtime identity is made. No-limit/
+charging profiles and hardware protection changes remain outside the port.
+A complete ROM build and device test are still required before treating this
+as equivalent to RYU.
+
+## Local RYU framework audit (2026-10-11)
+
+Reference: `D:/RYUOS`, HAOTIAN OS3.0.309.0.WOBCNXM CN261005.
+User-supplied base: `D:/rom_goc` (three JARs; no version metadata supplied).
+SHA-256:
+
+- `framework.jar`: `36426149118b109a33f4a8b143bb5390dbe50ca0e21d00fd16f357710b368f0f`
+- `services.jar`: `00b899d027d940cdf7c130bab8e3a08cf7cf4fefef464eb476572392551ec799`
+- `miui-services.jar`: `00561c82eccd541a1935a4ed608283afdba712234aa5f884f4ba276c17104144`
+
+JAR hashes and 44 method signatures / 47 build-gate sites are pinned in
+`bin/package/COREPATCH/ryu_framework_gates_a16.json`. The actual donor's
+`com.projectryu.Build.IS_RYU_BUILD` is initialized to true.
+
+On the TNM branch, `--ryu-framework-gates` replaces only those audited gates
+with a true constant. This covers the existing full-screen intent AppOp
+branch, force-stop policy branch, application start/compatibility checks,
+clipboard, JobService, input permission policy, location regional gates,
+dark-mode list, fonts, Nearby and shortcut/AppOps policies. Original method
+bodies, Android permission checks and package resource IDs are preserved.
+Many of these outcomes were already enabled by the generic CN patch's
+`IS_MIUI`/`xBuild` substitutions. They are now explicit and checked per method;
+they should not be counted as 47 newly introduced behaviors versus #118.
+
+The confirmed opposite outcome is `ProcessPolicy.updateContentCatcherWhitelist`:
+the previous ContentExtension patch forces false and updates the Taplus
+whitelist, while the donor takes the true/international early exit. TNM now
+matches that donor branch, retaining the stock logging and code below it.
+FCM/FGS, first-boot broadcast and low-power Doze keep their specialized patches.
+
+The build rejects missing/duplicate classes, changed method signatures,
+register layouts or gate neighbors before writing any target in that JAR.
+Both MIUI JARs are checked after all CorePatch edits. The test suite exercises
+idempotence, branch/register drift, partial-write rejection and parameter
+register encoding. Local verification assembles the actual reference class
+subsets to DEX and decodes them again; this is not a device runtime test.
+The 37 miui-services methods / 39 gates are tested against the actual
+`D:/rom_goc/miui-services.jar`. The base has no `miui-framework.jar`: its
+seven methods / eight gates are tested using donor class layouts with stock
+build-gate reads substituted as fixtures, so compatibility with the base
+miui-framework is not yet confirmed. The build performs that validation
+against the actual input and aborts on layout drift.
+The complete miui-services patch function was also run on every class it
+targets from that base, with signature bypass, CN/FCM/FGS policy, low-power
+Doze, the new gates and FLAG_SECURE bypass enabled together; both resulting
+DEX class subsets assembled successfully. This checks patch interaction,
+not Android boot or hardware behavior.
+
+TNM remains the ROM app. Kaorios Toolbox and its framework/keystore hooks,
+CorePatch/signature bypass, FLAG_SECURE bypass and AVB disabling remain enabled
+in their existing order. RYU's private, obfuscated keybox/PIF/app-hiding/native
+hook stack is not copied on top of Kaorios. Resource-table IDs, the additional
+malware method in the newer donor, and MTK-specific fling changes are not
+transplanted from the different donor version. This audit does not imply full
+RYU framework equivalence.
