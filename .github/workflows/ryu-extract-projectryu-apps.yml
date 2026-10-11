@@ -65,6 +65,7 @@ jobs:
           files = [x["path"] for x in json.loads((root / "manifest.json").read_text())["files"]]
           assert any(x.endswith("ProjectRYU/base.apk") for x in files), files
           assert any(x.endswith("permissions/custom.xml") for x in files), files
+          assert (root / "app-permissions.json").is_file()
           assert not any("Unrelated" in x or "other.xml" in x for x in files), files
           print("[PASS] ProjectRYU app and related grants only")
           PY
@@ -236,7 +237,7 @@ jobs:
           set -euo pipefail
           cd /tmp/ryu-apps/output
           zip -q -r -1 /tmp/ryu-apps/results/RYUOS-ProjectRYU-Apps.zip \
-            files manifest.json SHA256SUMS.txt README.txt \
+            files manifest.json app-permissions.json SHA256SUMS.txt README.txt \
             mirror-report.json partition-info.json
           cd /tmp/ryu-apps/results
           if (( $(stat -c '%s' RYUOS-ProjectRYU-Apps.zip) > 419430400 )); then
