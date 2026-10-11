@@ -3,7 +3,7 @@
 
 The pinned donor APK supplies every class/method (not a selective PerfHook
 subset). Keep original Xiaomi AndroidManifest/resources and asset payloads.
-Only adapt the two audited RYU-framework dependencies that are absent on
+Only adapt the known RYU Settings wrappers/build gates absent on
 the target ROM. No loader, daemon, runtime hook or extra framework jar.
 """
 import argparse
@@ -26,6 +26,18 @@ RYU_GET = (
 ANDROID_GET = (
     "Landroid/provider/Settings$System;->getString"
     "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;")
+RYU_COMPAT = {
+    # Original ProjectRYUFramework is absent from Xiaomi base. Its original
+    # SettingsHelper methods use matching platform Settings.System signatures.
+    # Keep calls inside PowerKeeper; do not add any runtime framework/hook.
+    "getSystemInt": "getInt",
+    "getSystemIntForUser": "getIntForUser",
+    "getSystemLong": "getLong",
+    "getSystemString": "getString",
+    "putSystemInt": "putInt",
+    "putSystemLong": "putLong",
+    "putSystemString": "putString",
+}
 FOREIGN_CLASS = re.compile(r"Lcom/projectryu/[^;\s]+;")
 
 
@@ -83,8 +95,15 @@ def classes(root: Path):
 
 def adapt(body: str):
     """Minimal, build-time RYU framework compatibility, without new hooks."""
-    reads = body.count(RYU_GET)
-    body = body.replace(RYU_GET, ANDROID_GET)
+    reads = 0
+    # Transplant the entire donor, including its SettingsHelper class. Exact
+    # method signatures are preserved while only the provider class/method
+    # owner changes to Android's platform Settings.System implementation.
+    for ryu_name, platform_name in RYU_COMPAT.items():
+        reference = "Lcom/projectryu/ProjectRYUFramework;->" + ryu_name + "("
+        reads += body.count(reference)
+        body = body.replace(
+            reference, "Landroid/provider/Settings$System;->" + platform_name + "(")
     gates = 0
 
     def gate(match):
