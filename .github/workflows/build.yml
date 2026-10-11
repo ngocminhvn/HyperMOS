@@ -9,10 +9,12 @@ on:
         default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
       tnm_test_apk_url:
         description: 'TNM test branch: HTTPS URL of signed APK from app@test-tnm-ryu-haotian'
+        default: 'https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-ryu-9fbacea/TNM-9fbacea.apk'
         required: false
         type: string
       tnm_test_apk_sha256:
         description: 'TNM test branch: lowercase SHA-256 of that APK'
+        default: '717e9abb50bf0bb406a3c9fdf278f914302ed3684482a97c90ae1c4f40f44c0d'
         required: false
         type: string
       builder_name:
