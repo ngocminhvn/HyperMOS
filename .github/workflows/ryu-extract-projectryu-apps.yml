@@ -2,6 +2,11 @@ name: Extract RYUOS ProjectRYU Apps + Permissions
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - '.github/workflows/ryu-extract-projectryu-apps.yml'
 
 permissions:
   contents: read
@@ -76,6 +81,48 @@ jobs:
             --report /tmp/ryu-apps/output/mirror-report.json
           ls -lh /tmp/ryu-apps/ryu-rom.zip
           df -h /tmp
+
+      - name: Collect any extra ProjectRYU files packaged outside super.img
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          import shutil
+          import zipfile
+          from pathlib import Path, PurePosixPath
+          output = Path("/tmp/ryu-apps/outer-zip")
+          output.mkdir(parents=True, exist_ok=True)
+          count = 0
+          with zipfile.ZipFile("/tmp/ryu-apps/ryu-rom.zip") as archive:
+              for item in archive.infolist():
+                  p = PurePosixPath(item.filename)
+                  if (item.is_dir() or p.is_absolute() or
+                      any(part in ("", ".", "..") for part in p.parts)):
+                      continue
+                  lower = p.as_posix().lower()
+                  app = lower.endswith(".apk") and "ryu" in lower and item.file_size < 350 * 1024 * 1024
+                  config = (
+                      lower.endswith((".xml", ".rc", ".prop", ".json"))
+                      and item.file_size < 8 * 1024 * 1024
+                      and ("ryu" in lower or any(x in lower for x in (
+                          "/etc/permissions/", "/etc/sysconfig/",
+                          "/etc/default-permissions/"
+                      )))
+                  )
+                  if not (app or config):
+                      continue
+                  dest = output.joinpath(*p.parts)
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  with archive.open(item) as src, dest.open("wb") as dst:
+                      shutil.copyfileobj(src, dst, 1024 * 1024)
+                  count += 1
+          print(f"[RYU-APP] Directly packaged ZIP members selected: {count}")
+          PY
+          python3 bin/audit/extract_ryu_apps.py --scan \
+            --root /tmp/ryu-apps/outer-zip --partition romzip \
+            --output /tmp/ryu-apps/output
+          rm -rf /tmp/ryu-apps/outer-zip
 
       - name: Stream only super.img out of ROM ZIP
         shell: bash
