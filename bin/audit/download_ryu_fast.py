@@ -32,7 +32,10 @@ def probe(host, relative):
             "-o", str(target), "-w", "%{http_code}", url,
         ]
         start = time.monotonic()
-        result = subprocess.run(command, text=True, capture_output=True, timeout=23)
+        try:
+            result = subprocess.run(command, text=True, capture_output=True, timeout=23)
+        except subprocess.TimeoutExpired:
+            return None
         elapsed = max(time.monotonic() - start, 0.01)
         if (result.returncode == 0 and result.stdout.strip() == "206"
                 and target.is_file() and target.stat().st_size >= 4096):
@@ -92,9 +95,13 @@ def main():
             "--continue=false", "-x", "4", "-s", "4", "-k", "16M",
             "--dir", str(args.output.parent), "--out", args.output.name, url,
         ]
-        proc = subprocess.run(command, timeout=60 * 65, check=False)
-        valid = proc.returncode == 0 and valid_rom_zip(args.output)
-        report["attempted"].append({"url": url, "exit_code": proc.returncode,
+        try:
+            proc = subprocess.run(command, timeout=60 * 22, check=False)
+            exit_code = proc.returncode
+        except subprocess.TimeoutExpired:
+            exit_code = 124
+        valid = exit_code == 0 and valid_rom_zip(args.output)
+        report["attempted"].append({"url": url, "exit_code": exit_code,
                                     "zip_ok": valid})
         if valid:
             report["selected"] = url
