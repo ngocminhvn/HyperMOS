@@ -67,6 +67,13 @@ class Gates(unittest.TestCase):
             with self.assertRaises(ValueError):
                 m.apply(root, 'miui-services', entries=[entry(), entry('test/Missing')])
             self.assertEqual(p.read_text(), source())
+            # apk_ops.sh exposes classes -> smali solely as a compatibility alias.
+            # The patcher must see one physical class, not two path strings.
+            compat = root / 'classes'
+            compat.symlink_to('smali', target_is_directory=True)
+            m.apply(root, 'miui-services', entries=[entry()])
+            self.assertIn(m.MARKER, p.read_text())
+            compat.unlink()
             other = root / 'smali_classes2/test/Gate.smali'
             other.parent.mkdir(parents=True)
             other.write_text(source())
