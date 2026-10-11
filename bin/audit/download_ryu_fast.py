@@ -38,7 +38,7 @@ def probe(host, relative):
                 and target.is_file() and target.stat().st_size >= 4096):
             with target.open("rb") as file:
                 magic = file.read(4)
-            if magic == b"PK\\x03\\x04":
+            if magic == bytes((0x50, 0x4B, 0x03, 0x04)):
                 return {"mirror": host, "url": url, "bytes_per_sec": round(
                     target.stat().st_size / elapsed), "seconds": round(elapsed, 2)}
     return None
