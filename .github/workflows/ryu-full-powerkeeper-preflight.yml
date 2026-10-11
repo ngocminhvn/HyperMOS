@@ -1,0 +1,63 @@
+name: RYU Full PowerKeeper DEX Preflight
+
+on:
+  push:
+    branches: [test-tnm-ryu-haotian]
+    paths:
+      - 'bin/package/NOTIFICATION_FIX/A16/ryu_full_powerkeeper_a16.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
+      - '.github/workflows/ryu-full-powerkeeper-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-dex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download and verify original RYU HAOTIAN PowerKeeper
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ryu-full-pk
+          curl -fL --retry 4 --retry-all-errors --connect-timeout 15 --max-time 180 \
+            'https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-ryu-9fbacea/RYUOS_HAOTIAN_PowerKeeper.apk' \
+            -o /tmp/ryu-full-pk/RYUOS_HAOTIAN_PowerKeeper.apk
+          echo '7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  /tmp/ryu-full-pk/RYUOS_HAOTIAN_PowerKeeper.apk' | sha256sum -c -
+      - name: Decode original RYU DEX and compile full port
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=/tmp/ryu-full-pk/RYUOS_HAOTIAN_PowerKeeper.apk
+          java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug -i "$apk" -o /tmp/ryu-full-pk/donor
+          cp -a /tmp/ryu-full-pk/donor /tmp/ryu-full-pk/target
+          python3 bin/package/NOTIFICATION_FIX/A16/ryu_full_powerkeeper_a16.py \
+            --stock-root /tmp/ryu-full-pk/target \
+            --donor-root /tmp/ryu-full-pk/donor \
+            --stock-apk "$apk" --donor-apk "$apk" \
+            --report /tmp/ryu-full-pk/full-port.json
+          java -jar bin/apktool/apke.jar b -f -i /tmp/ryu-full-pk/target -o /tmp/ryu-full-pk/PowerKeeper.apk
+          python3 bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
+            --decoded /tmp/ryu-full-pk/target \
+            --apk /tmp/ryu-full-pk/PowerKeeper.apk \
+            --smali-jar bin/apktool/smaliv2.jar --api 36
+          python3 bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py \
+            --apk /tmp/ryu-full-pk/PowerKeeper.apk
+          python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
+            --apk /tmp/ryu-full-pk/PowerKeeper.apk \
+            --report /tmp/ryu-full-pk/full-port.json
+      - name: Upload full DEX compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYU-Full-PowerKeeper-Report
+          path: /tmp/ryu-full-pk/full-port.json
+          if-no-files-found: ignore
+          retention-days: 7
