@@ -16,7 +16,7 @@ fi
 
 # Experimental import must never end up on HyperMOS main accidentally.
 case "${GITHUB_REF_NAME:-}" in
-  test-ryu-performance-haotian)
+  test-ryu-performance-haotian|test-tnm-ryu-haotian)
     ;;
   *)
     error "RYU FULL PERF: allowed only on dedicated RYU test branches, actual=${GITHUB_REF_NAME:-unknown}"
@@ -52,6 +52,9 @@ install -Dm644 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-perfhook-acc
   "$work_dir/build/baserom/images/system_ext/etc/init/ryu-perfhook-access.rc"
 install -Dm755 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-thermalctl" \
   "$work_dir/build/baserom/images/system_ext/bin/ryu-thermalctl"
+# TNM entrypoint shares the original PerfHook settings contract.
+install -Dm755 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-thermalctl" \
+  "$work_dir/build/baserom/images/system_ext/bin/tnm-thermalctl"
 # Force init to compile modified split CIL instead of an old binary policy.
 for part in vendor odm; do
   policy_dir="$work_dir/build/baserom/images/$part/etc/selinux"

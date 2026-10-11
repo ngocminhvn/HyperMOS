@@ -4,7 +4,8 @@
 set -eu
 umask 077
 [ "$(id -u)" = 0 ] || { echo 'Root required' >&2; exit 10; }
-RYU=/system_ext/bin/ryu-thermalctl
+RYU=/system_ext/bin/tnm-thermalctl
+[ -x "$RYU" ] || RYU=/system_ext/bin/ryu-thermalctl
 S=/system/bin/settings
 STATE=/data/adb/tnm/state
 BACKUP="$STATE/refresh.original"

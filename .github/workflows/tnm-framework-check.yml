@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - test-ryu-performance-haotian
+      - test-tnm-ryu-haotian
     paths:
       - 'bin/modfile/UpdateFile/TNM/**'
       - '.github/workflows/tnm-framework-check.yml'
@@ -25,3 +26,4 @@ jobs:
           sh -n bin/modfile/UpdateFile/TNM/tnm-frameworkctl
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           python3 bin/modfile/UpdateFile/TNM/test_tnm_framework.py
+          python3 bin/modfile/UpdateFile/TNM/test_tnm_branch.py
