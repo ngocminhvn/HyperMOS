@@ -23,7 +23,7 @@ with TemporaryDirectory() as temp:
     mock.mkdir()
     for key,value in {
       "system-peak_refresh_rate":"120.0",
-      "system-min_refresh_rate":"60.0",
+      "system-min_refresh_rate":"1.0",
       "system-projectryu_thermal_per_app":"0",
       "system-projectryu_thermal_sconfig":"0",
       "system-projectryu_thermal_profiles":"",
@@ -67,6 +67,7 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     code=code.replace('/system/bin/grep',shutil.which('grep'))
     code=code.replace('/system/bin/pidof',shutil.which('false'))
     code=code.replace('/system/bin/am',shutil.which('echo'))
+    code=code.replace('/system/bin/awk',shutil.which('awk'))
     code=code.replace('/data/adb/tnm/state',str(p/'state'))
     runner=p/"tnm-frameworkctl"
     runner.write_text(code)
@@ -83,10 +84,13 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     assert run("power.saver","on").returncode==0
     assert (mock/"global-low_power").read_text()=="1"
     assert run("power.saver","off").returncode==0
+    assert run("display.mode","120").returncode==0
+    assert (mock/"system-min_refresh_rate").read_text()=="1.0"
     assert run("display.mode","60").returncode==0
     assert (mock/"system-peak_refresh_rate").read_text()=="60"
     assert run("display.mode","auto").returncode==0
     assert (mock/"system-peak_refresh_rate").read_text()=="120.0"
+    assert (mock/"system-min_refresh_rate").read_text()=="1.0"
     assert run("display.mode","999").returncode!=0
     assert run("unsupported.action").returncode!=0
 print("TNMFramework mock ROM safety/protocol tests: PASS")
