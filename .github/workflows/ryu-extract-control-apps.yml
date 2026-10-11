@@ -1,4 +1,5 @@
 name: Extract RYUOS Control APKs for REA
+# v2: exclude language overlays and prioritize SecurityCenter/MiuiHome.
 
 on:
   workflow_dispatch:
