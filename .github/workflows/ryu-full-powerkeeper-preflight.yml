@@ -5,6 +5,8 @@ on:
     branches: [test-tnm-ryu-haotian]
     paths:
       - 'bin/package/NOTIFICATION_FIX/A16/ryu_full_powerkeeper_a16.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/test_ryu_full_powerkeeper_a16.py'
       - 'bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh'
       - '.github/workflows/ryu-full-powerkeeper-preflight.yml'
   workflow_dispatch:
@@ -51,6 +53,9 @@ jobs:
           python3 bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py \
             --apk /tmp/ryu-full-pk/PowerKeeper.apk
           python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
+            --apk /tmp/ryu-full-pk/PowerKeeper.apk \
+            --report /tmp/ryu-full-pk/full-port.json
+          python3 bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py \
             --apk /tmp/ryu-full-pk/PowerKeeper.apk \
             --report /tmp/ryu-full-pk/full-port.json
       - name: Upload full DEX compatibility report
