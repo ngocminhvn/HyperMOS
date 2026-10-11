@@ -108,11 +108,13 @@ def apply(root, jar, verify=False, entries=None):
     if not entries:
         raise ValueError(f'No manifest entries for {jar}')
     pending = {}
-    # Locate exact class paths rather than matching duplicate simple names.
+    # Locate exact class paths and collapse compatibility symlink aliases
+    # (classes -> smali, classesN -> smali_classesN) to their real files.
+    # Distinct physical class definitions still fail closed.
     dex_dirs = [root] + [p for p in root.iterdir() if p.is_dir()]
     for entry in entries:
         paths = [d / (entry['class'] + '.smali') for d in dex_dirs]
-        paths = [p for p in paths if p.is_file()]
+        paths = sorted({p.resolve() for p in paths if p.is_file()})
         if len(paths) != 1:
             raise ValueError(f"{entry['class']}: expected one class, found {len(paths)}")
         path = paths[0]
