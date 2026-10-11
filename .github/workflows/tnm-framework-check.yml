@@ -1,0 +1,27 @@
+name: TNMFramework ROM Contract
+
+on:
+  push:
+    branches:
+      - test-ryu-performance-haotian
+    paths:
+      - 'bin/modfile/UpdateFile/TNM/**'
+      - '.github/workflows/tnm-framework-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate root-only on-demand interface and safe controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n bin/modfile/UpdateFile/TNM/tnm-frameworkctl
+          bash -n bin/modfile/UpdateFile/TNM/update.sh
+          python3 bin/modfile/UpdateFile/TNM/test_tnm_framework.py
