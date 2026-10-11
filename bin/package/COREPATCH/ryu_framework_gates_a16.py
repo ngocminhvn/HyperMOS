@@ -108,20 +108,30 @@ def apply(root, jar, verify=False, entries=None):
     if not entries:
         raise ValueError(f'No manifest entries for {jar}')
     pending = {}
-    # Locate exact class paths and collapse compatibility symlink aliases
-    # (classes -> smali, classesN -> smali_classesN) to their real files.
-    # Distinct physical class definitions still fail closed.
+    # apk_ops.sh may expose both copies (classes + smali, classesN +
+    # smali_classesN) instead of symlinks. They are mirrors of ONE DEX slot,
+    # not duplicate definitions. Patch both copies atomically when identical;
+    # reject divergent mirrors or duplicate classes across different DEXes.
     dex_dirs = [root] + [p for p in root.iterdir() if p.is_dir()]
     for entry in entries:
         paths = [d / (entry['class'] + '.smali') for d in dex_dirs]
         paths = sorted({p.resolve() for p in paths if p.is_file()})
-        if len(paths) != 1:
-            raise ValueError(f"{entry['class']}: expected one class, found {len(paths)}")
-        path = paths[0]
-        text = pending.get(path)
-        if text is None:
-            text = path.read_text(encoding='utf-8')
-        pending[path] = transform(text, entry, verify=verify)
+        if not paths:
+            raise ValueError(f"{entry['class']}: expected one class, found 0")
+        slots = set()
+        for path in paths:
+            rel = path.relative_to(root.resolve())
+            top = rel.parts[0] if len(rel.parts) > 1 else ''
+            alias = re.fullmatch(r'(?:smali(?:_classes)?|classes)([2-9]\d*)?', top)
+            slots.add(('dex', alias[1] or '1') if alias else ('other', top))
+        if len(slots) != 1:
+            raise ValueError(f"{entry['class']}: duplicate class across DEX slots: {sorted(slots)}")
+        bodies = {path: pending.get(path, path.read_text(encoding='utf-8'))
+                  for path in paths}
+        if len(set(bodies.values())) != 1:
+            raise ValueError(f"{entry['class']}: divergent DEX alias copies")
+        for path, text in bodies.items():
+            pending[path] = transform(text, entry, verify=verify)
     if not verify:
         for path, text in pending.items():
             path.write_text(text, encoding='utf-8')
