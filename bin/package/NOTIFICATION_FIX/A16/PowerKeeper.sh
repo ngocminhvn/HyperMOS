@@ -39,6 +39,73 @@ if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$apk" -o "$tmp/out" >/dev/null; th
   exit 1
 fi
 
+# TNM RYU FULL mode: replace the APK's entire executable class/method set
+# with original, pinned RYUOS PowerKeeper DEX at build time, rather than a
+# selective PerfHook/GMS/UID patch. Keep the stock manifest and resources.
+# RYU's two absent framework entrypoints are adapted while still in smali.
+if [[ "${TNM_RYU_POWERKEEPER_MODE:-full-donor-dex}" == "full-donor-dex" ]]; then
+  donor_sha="7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108"
+  echo "$donor_sha  $ryu_apk" | sha256sum -c - || {
+    error "RYU FULL: donor APK hash mismatch"
+    exit 1
+  }
+  if ! $APKEDITOR d -t raw -f -no-dex-debug -i "$ryu_apk" -o "$tmp/source-ryu" >/dev/null; then
+    error "RYU FULL: could not decode original RYU PowerKeeper"
+    exit 1
+  fi
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/ryu_full_powerkeeper_a16.py" \
+    --stock-root "$tmp/out" --donor-root "$tmp/source-ryu" \
+    --stock-apk "$apk" --donor-apk "$ryu_apk" \
+    --report "$tmp/ryu-full-port.json" || {
+    error "RYU FULL: original DEX transfer failed"
+    exit 1
+  }
+  mkdir -p "$tmp/final"
+  if ! $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null; then
+    error "RYU FULL: Xiaomi APK resources repack failed"
+    exit 1
+  fi
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py" \
+    --decoded "$tmp/out" --apk "$tmp/final/PowerKeeper.apk" \
+    --smali-jar "$work_dir/bin/apktool/smaliv2.jar" --api 36 || {
+    error "RYU FULL: all donor DEX could not be assembled"
+    exit 1
+  }
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
+    --apk "$tmp/final/PowerKeeper.apk"
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
+    --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/ryu-full-port.json"
+  command -v zipalign >/dev/null || { error "RYU FULL: zipalign missing"; exit 1; }
+  identity="$work_dir/bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py"
+  python3 "$identity" --base "$apk" --patched "$tmp/final/PowerKeeper.apk" \
+    --reference "$ryu_apk" --apksigner "$work_dir/bin/apktool/apksigner.jar" \
+    --apk "$tmp/final/PowerKeeper.preserved.apk" \
+    --report "$tmp/certificate-identity.json"
+  zipalign -p -f 4 "$tmp/final/PowerKeeper.preserved.apk" "$tmp/final/PowerKeeper.aligned.apk"
+  zipalign -c -p 4 "$tmp/final/PowerKeeper.aligned.apk"
+  python3 "$identity" --apk "$tmp/final/PowerKeeper.aligned.apk" \
+    --reference "$ryu_apk" --report "$tmp/final-identity.json"
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
+    --apk "$tmp/final/PowerKeeper.aligned.apk"
+  python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
+    --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/ryu-full-port.json"
+  report_dir="$work_dir/build/reports/powerkeeper-a16"
+  mkdir -p "$report_dir"
+  cp "$tmp/ryu-full-port.json" "$report_dir/ryu-full-port.json"
+  cp "$tmp/certificate-identity.json" "$report_dir/certificate-identity.json"
+  cp "$tmp/final-identity.json" "$report_dir/final-identity.json"
+  apk_dir=$(dirname "$apk")
+  cp -f "$tmp/final/PowerKeeper.aligned.apk" "$apk"
+  rm -rf "$apk_dir/oat"
+  mods "PowerKeeper: ALL RYUOS donor DEX methods + Xiaomi original APK resources; no runtime hook"
+  patch "PowerKeeper A16 full RYU DEX compiled and staged (device runtime not tested)"
+  exit 0
+fi
+[[ "${TNM_RYU_POWERKEEPER_MODE:-}" == "selective" ]] || {
+  error "Unknown TNM_RYU_POWERKEEPER_MODE (use full-donor-dex or selective)"
+  exit 1
+}
+
 RYU_AUDIT_DIR="$tmp/out" python3 <<'PY'
 import os
 import re
