@@ -109,3 +109,10 @@ RYU framework equivalence.
 ### Extended RYU thermal selection
 
 18 selectors use the IDs from donor HAOTIAN thermal-odm-map.conf. `thermal.profiles` returns only installed, nonempty configurations; TNM uses this list for global and per-app menus and rechecks before applying. The original PerfHook foreground/screen-off behavior is retained. Charging, No Limits and TGame are not added to the manual selector. Original RYU framework API/native, game props, PIF/keybox UI and malware/AppOps donor changes are outside this change. Device runtime validation is still required.
+
+
+### Full audit follow-up
+
+ROM-side thermal changes are serialized across separate clients. A complete batch is validated before taking the lock; previous Settings are captured, writes are read back, and failures restore the previous map, global selection and activation mode. Missing Settings are restored by deletion rather than writing the literal `null`. Protected profiles stay excluded. The TNM test APK contract now requires profile discovery support. The PowerKeeper donor is downloaded from a stable release URL with the same pinned SHA-256, instead of a CI artifact scheduled to expire on 2026-10-16. The signed TNM APK remains commit 9fbacea; no app code change is needed for these controller fixes.
+
+Locks use the kernel boot ID and are removed on normal exits and catchable signals. A writer killed with SIGKILL cannot run rollback; its lock is retained for that boot to prevent concurrent clients from incorrectly reaping a newly acquired lock. A reboot creates a fresh lock namespace.

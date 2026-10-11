@@ -186,13 +186,13 @@ jobs:
           echo "RYU_REF_DIR=$ref" >> "$GITHUB_ENV"
 
       - name: Fetch pinned RYU PowerKeeper metadata and PerfHook reference
-        uses: actions/download-artifact@v4
-        with:
-          name: RYUOS-HAOTIAN-PowerKeeper
-          run-id: 37916279893
-          repository: ngocminhvn/HyperMOS
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/ryu-powerkeeper
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ryu-powerkeeper"
+          curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 180 \
+            --output "$RUNNER_TEMP/ryu-powerkeeper/RYUOS_HAOTIAN_PowerKeeper.apk" \
+            'https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-ryu-9fbacea/RYUOS_HAOTIAN_PowerKeeper.apk'
 
       - name: Validate PowerKeeper reference
         shell: bash
