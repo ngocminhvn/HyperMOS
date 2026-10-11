@@ -15,7 +15,7 @@ from pathlib import Path
 TAG = re.compile(r"project[._-]?ryu|ryuos|ryu", re.I)
 PACKAGE_RE = re.compile(r"^package:\s+name='([^']+)'", re.M)
 XML_FOLDERS = ("permissions", "sysconfig", "default-permissions", "init", "selinux")
-CONFIG_EXTS = {".xml", ".rc", ".prop", ".conf", ".json", ".txt", ".sh", ".ini"}
+CONFIG_EXTS = {".xml", ".rc", ".prop", ".conf", ".json", ".txt", ".sh", ".ini", ".cil", ".te", ".contexts"}
 MAX_CONFIG = 8 * 1024 * 1024
 
 
@@ -23,7 +23,9 @@ def is_candidate_config(rel: Path) -> bool:
     parts = [p.lower() for p in rel.parts]
     if not any(p in XML_FOLDERS for p in parts):
         return False
-    return rel.suffix.lower() in CONFIG_EXTS
+    return rel.suffix.lower() in CONFIG_EXTS or (
+        "selinux" in parts and "contexts" in rel.name.lower()
+    )
 
 
 def apk_package(path: Path) -> str:
