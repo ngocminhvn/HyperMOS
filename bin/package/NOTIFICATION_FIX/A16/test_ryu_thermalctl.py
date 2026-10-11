@@ -38,3 +38,32 @@ class ThermalControlTests(unittest.TestCase):
         result = self.call('global', 'game')
         self.assertEqual(result.returncode, 2)
         self.assertNotIn('put system', result.stdout)
+
+    def test_extended_profiles_and_discovery(self):
+        mapping = {'normal': (0, 'normal'), 'performance': (50, 'per-normal'), 'hp': (500, 'hp-normal'), 'game': (700, 'cgame'), 'huanji': (1, 'huanji'), 'phone': (5, 'phone'), 'class0': (7, 'class0'), 'arvr': (9, 'arvr'), 'navigation': (10, 'navigation'), 'video': (11, 'video'), 'videochat': (14, 'videochat'), 'camera': (15, 'camera'), '4k': (16, '4k'), 'mgame': (19, 'mgame'), 'per-class0': (57, 'per-class0'), 'per-video': (61, 'per-video'), 'hp-mgame': (501, 'hp-mgame'), 'cclassvideo': (701, 'cclassvideo')}
+        for name, (identifier, filename) in mapping.items():
+            Path(self.temp.name, 'thermal-' + filename + '.conf').write_text('fixture')
+        listing = self.call('profiles')
+        self.assertEqual(listing.returncode, 0, listing.stderr)
+        self.assertNotIn('put system', listing.stdout)
+        self.assertEqual(set(listing.stdout.splitlines()), {
+            f'{key}:{identifier}:{filename}' for key, (identifier, filename) in mapping.items()
+        })
+        for name, (identifier, filename) in mapping.items():
+            result = self.call('global', name)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f'put system projectryu_thermal_sconfig {identifier}', result.stdout)
+        batch = self.call('perapp', 'com.camera:camera', 'com.game:hp-mgame', 'com.nav:navigation')
+        self.assertEqual(batch.returncode, 0, batch.stderr)
+        self.assertIn('com.camera:15,com.game:501,com.nav:10', batch.stdout)
+        Path(self.temp.name, 'thermal-hp-mgame.conf').unlink()
+        self.assertNotIn('hp-mgame:', self.call('profiles').stdout)
+        failed = self.call('perapp', 'com.camera:camera', 'com.game:hp-mgame')
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertNotIn('put system', failed.stdout)
+
+    def test_protected_modes_are_not_manual_profiles(self):
+        for name in ('nolimits', 'charge', 'chg-only', 'tgame'):
+            result = self.call('global', name)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('put system', result.stdout)

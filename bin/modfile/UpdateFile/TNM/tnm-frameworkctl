@@ -108,7 +108,7 @@ case "$cmd" in
         empty "$@"
         echo status.read; echo power.status; echo power.saver
         echo notifications.status; echo display.status
-        if ryu; then echo thermal.status; echo thermal.global; echo thermal.perapp; echo game.profile; fi
+        if ryu; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; fi
         if fps_supported; then echo display.mode; fi
         ;;
     status) empty "$@"; status ;;
@@ -123,6 +123,11 @@ case "$cmd" in
         [ "$(global low_power)" = "$desired" ] || { echo 'Battery saver not confirmed' >&2; exit 4; }
         echo "battery_saver=$desired"
         ;;
+    thermal.profiles)
+        empty "$@"
+        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
+        exec "$RYU" profiles
+        ;;
     thermal.status)
         empty "$@"
         ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
@@ -130,7 +135,7 @@ case "$cmd" in
         ;;
     thermal.global|game.profile)
         [ "$#" -eq 1 ] || exit 2
-        case "$1" in normal|performance|hp|game) ;; *) exit 2 ;; esac
+        case "$1" in normal|performance|hp|game|huanji|phone|class0|arvr|navigation|video|videochat|camera|4k|mgame|per-class0|per-video|hp-mgame|cclassvideo) ;; *) exit 2 ;; esac
         if [ "$cmd" = game.profile ]; then case "$1" in game|normal) ;; *) exit 2 ;; esac; fi
         ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
         "$RYU" global "$1"
@@ -139,7 +144,7 @@ case "$cmd" in
     thermal.perapp)
         [ "$#" -gt 0 ] && [ "$#" -le 32 ] || exit 2
         for e in "$@"; do
-            printf '%s\n' "$e" | /system/bin/grep -Eq '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+:(normal|performance|hp|game)$' || exit 2
+            printf '%s\n' "$e" | /system/bin/grep -Eq '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+:(normal|performance|hp|game|huanji|phone|class0|arvr|navigation|video|videochat|camera|4k|mgame|per-class0|per-video|hp-mgame|cclassvideo)$' || exit 2
         done
         ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
         "$RYU" perapp "$@"

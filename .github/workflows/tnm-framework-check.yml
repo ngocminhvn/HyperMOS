@@ -7,6 +7,8 @@ on:
       - test-tnm-ryu-haotian
     paths:
       - 'bin/modfile/UpdateFile/TNM/**'
+      - 'bin/modfile/UpdateFile/RYUPerfProfile/**'
+      - 'bin/package/NOTIFICATION_FIX/A16/test_ryu_thermalctl.py'
       - 'bin/package/COREPATCH/**'
       - '.github/workflows/tnm-framework-check.yml'
   workflow_dispatch:
@@ -28,6 +30,7 @@ jobs:
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           python3 bin/modfile/UpdateFile/TNM/test_tnm_framework.py
           python3 bin/modfile/UpdateFile/TNM/test_tnm_branch.py
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p test_ryu_thermalctl.py
       - name: Validate audited RYU gates and retained CorePatch stack
         shell: bash
         run: |

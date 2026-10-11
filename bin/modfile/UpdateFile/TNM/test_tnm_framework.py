@@ -78,6 +78,10 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     assert run("protocol").stdout.strip()=="1"
     assert "tnm_framework=1" in run("status").stdout
     assert run("thermal.global","normal").returncode==0
+    assert run("thermal.global","hp-mgame").returncode==0
+    assert run("thermal.profiles").returncode==0
+    assert "thermal.profiles" in run("capabilities").stdout
+    assert run("thermal.perapp","com.example:per-video").returncode==0
     assert run("thermal.global","nolimits").returncode!=0
     assert run("thermal.perapp","com.example.game:game").returncode==0
     assert run("thermal.perapp","com.bad;id:game").returncode!=0

@@ -104,3 +104,8 @@ hook stack is not copied on top of Kaorios. Resource-table IDs, the additional
 malware method in the newer donor, and MTK-specific fling changes are not
 transplanted from the different donor version. This audit does not imply full
 RYU framework equivalence.
+
+
+### Extended RYU thermal selection
+
+18 selectors use the IDs from donor HAOTIAN thermal-odm-map.conf. `thermal.profiles` returns only installed, nonempty configurations; TNM uses this list for global and per-app menus and rechecks before applying. The original PerfHook foreground/screen-off behavior is retained. Charging, No Limits and TGame are not added to the manual selector. Original RYU framework API/native, game props, PIF/keybox UI and malware/AppOps donor changes are outside this change. Device runtime validation is still required.
