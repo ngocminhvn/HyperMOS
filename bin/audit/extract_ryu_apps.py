@@ -120,6 +120,27 @@ def finish(out: Path, source: str):
             if relevant:
                 copy_file(src, out / "files" / rel)
                 matched_configs.append("/" + rel.as_posix())
+    # Save each APK's manifest-requested permissions separately from
+    # privileged grant XMLs; these are different sources of authority.
+    requested = []
+    for app in apps:
+        apk = out / "files" / app["partition"] / app["source_apk"].lstrip("/")
+        perms = []
+        if apk.is_file():
+            try:
+                proc = subprocess.run(
+                    ["aapt", "dump", "permissions", str(apk)],
+                    capture_output=True, text=True, timeout=25, check=False,
+                )
+                if proc.returncode == 0:
+                    perms = sorted(set(re.findall(
+                        r"uses-permission(?:-sdk-[0-9]+)?:\\s+name='([^']+)'",
+                        proc.stdout,
+                    )))
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+        requested.append({**app, "requested_permissions": perms})
+    write_json(out / "app-permissions.json", requested)
     files_root = out / "files"
     entries = []
     if files_root.is_dir():
@@ -136,7 +157,7 @@ def finish(out: Path, source: str):
                 "sha256": sha.hexdigest(),
             })
     write_json(out / "manifest.json", {
-        "source": source, "apps": apps,
+        "source": source, "apps": apps, "app_permissions_report": "app-permissions.json",
         "packages": packages, "related_config_paths": matched_configs,
         "files": entries,
     })
