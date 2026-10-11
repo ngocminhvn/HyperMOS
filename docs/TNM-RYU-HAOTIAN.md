@@ -24,30 +24,43 @@ App: `ngocminhvn/app@test-tnm-ryu-haotian`, based on
 
 ## Framework, notifications and app behavior
 
-The ROM retains the source branch's guarded framework FCM/FGS/Doze patches,
-PowerKeeper GMS build gates, conditional UID kill policy and original PerfHook
-dependency closure. It also retains the ten original performance XMLs and
-nineteen selected thermal profiles, including final retention/SELinux audits.
-These are inherited implementations, not newly proven runtime parity.
+The ROM retains the guarded framework FCM/FGS/Doze patches and ten
+original performance XMLs plus nineteen selected thermal profiles. The default
+PowerKeeper path is now `full-donor-dex`: transplant all 2,974 verified
+RYUOS executable classes (including 20 PerfHook classes and UID/GMS policy)
+into the Xiaomi APK while retaining its original Manifest/resources.
+This is verified in CI, not yet proven to boot or operate on the phone.
 
 TNM app calls `tnm-bridge` -> its signed APK backend `tnmctl` ->
 `/system_ext/bin/tnm-frameworkctl` -> `/system_ext/bin/tnm-thermalctl`.
-The legacy `ryu-thermalctl` entrypoint remains compatible. Global and per-app
-profiles use the original `projectryu_thermal_*` Settings keys because the
-native PowerKeeper observer requires those exact names. TNM is the visible
-brand; internal classes/keys are not blindly renamed.
+Those commands update the `projectryu_thermal_*` Settings keys. The
+PowerKeeper RYU observer/PerfHook reads the same keys. The original names
+must stay for binary compatibility with the transplanted RYU observers;
+TNM remains the UI/ROM brand and the control implementation.
+
+For direct Java call sites, **TNMFramework is now embedded into the
+PowerKeeper DEX** as `Lcom/android/tnm/TNMFramework;`, not as a
+ProjectRYUFramework jar alias. The port rewrites ten original calls to
+seven concrete TNMFramework static APIs:
+`getSystemInt`, `getSystemIntForUser`, `getSystemLong`,
+`getSystemString`, `putSystemInt`, `putSystemLong`,
+`putSystemString`. These delegate to their matching
+`Settings.System` implementations. A compiled DEX verifier refuses
+missing/abstract methods or leftover `ProjectRYUFramework` references.
 
 The TNM app already includes ROM diagnostics, battery saver, display presets,
 and notification tools from its base branch. This branch exposes the full
 ROM command list, replaces visible RYU labels with TNM, allows up to 32
 per-app profiles and confirms the saved per-app map after applying it.
 
-`TNMFramework` is an on-demand adapter, not a replacement Binder service.
-The source branch has not ported every RYU framework method or the original
-RYU app UI. No claim of visual or device runtime identity is made. No-limit/
-charging profiles and hardware protection changes remain outside the port.
-A complete ROM build and device test are still required before treating this
-as equivalent to RYU.
+The shell `TNMFramework` remains an on-demand root adapter; the embedded
+`TNMFramework` Java class is a **real direct-call compatibility API inside
+PowerKeeper**, not a system-wide Binder service or extra framework JAR. The
+remaining `com.projectryu.perf.*` class names are original imported RYU
+implementation details, not a dependency on a ProjectRYUFramework jar.
+No-limit/charging profiles and thermal safety changes remain outside the port.
+A complete ROM build and on-device test are still required to establish boot
+and functional parity with RYU.
 
 ## Local RYU framework audit (2026-10-11)
 
