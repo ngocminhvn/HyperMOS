@@ -89,6 +89,17 @@ class FullRyuPort(unittest.TestCase):
                             + ("    invoke-static {v0, v1}, " + full.RYU_GET + "\n") * 3
                             + "    sget-boolean v0, Lcom/projectryu/Build;->IS_RYU_BUILD:Z\n"
                             + ".end method\n")
+                if cls == "Lcom/miui/powerkeeper/AppRuleChecker;":
+                    # The original Xiaomi caller should resolve the renamed
+                    # TNM PerfHook, including reflection by dotted class name.
+                    body = (
+                        ".method public test()V\n"
+                        "    .locals 1\n"
+                        "    const-class v0, Lcom/projectryu/perf/PerfHook;\n"
+                        '    const-string v0, "com.projectryu.perf.PerfHook"\n'
+                        '    const-string v0, "projectryu_thermal_profiles"\n'
+                        "    return-void\n"
+                        ".end method\n")
                 mock_smali(donor, cls, body)
             # Stock contains older methods/classes, not the RYU-only PerfHook.
             for cls in required + extras:
@@ -99,8 +110,14 @@ class FullRyuPort(unittest.TestCase):
             self.assertEqual(len(result["classes"]), 20)
             self.assertEqual(result["adapted_ryu_framework_setting_reads"], 3)
             self.assertEqual(result["adapted_ryu_build_gates"], 1)
-            self.assertEqual(set(full.classes(stock)),
-                             set(full.classes(donor)) | {full.TNM_API})
+            expected = (
+                set(full.classes(donor)) - set(perf)
+                | set(result["tnm_perf_classes"]) | {full.TNM_API})
+            self.assertEqual(set(full.classes(stock)), expected)
+            self.assertEqual(result["renamed_ryu_perf_classes"], 20)
+            self.assertEqual(result["legacy_ryu_perf_classes_remaining"], 0)
+            self.assertTrue(all(x.startswith(full.TNM_PERF_PREFIX)
+                                for x in result["classes"]))
             self.assertEqual(result["tnm_framework_api"], full.TNM_API)
             self.assertEqual(result["tnm_framework_call_sites"], 3)
             self.assertEqual(len(result["tnm_framework_method_signatures"]), 7)
@@ -109,7 +126,17 @@ class FullRyuPort(unittest.TestCase):
                 self.assertIn(".method public static " + name + "(", bridge)
             self.assertNotIn("ProjectRYUFramework", bridge)
             self.assertNotIn("Lcom/miui/powerkeeper/StockOnly;", full.classes(stock))
-            perf_text = full.classes(stock)["Lcom/projectryu/perf/PerfHook;"].read_text()
+            perf_text = full.classes(stock)["Lcom/android/tnm/perf/PerfHook;"].read_text()
+            self.assertFalse(
+                (stock / "smali/com/projectryu/perf/PerfHook.smali").exists())
+            self.assertTrue(
+                (stock / "smali/com/android/tnm/perf/PerfHook.smali").exists())
+            checker = full.classes(stock)[
+                "Lcom/miui/powerkeeper/AppRuleChecker;"].read_text()
+            self.assertIn("Lcom/android/tnm/perf/PerfHook;", checker)
+            self.assertIn("com.android.tnm.perf.PerfHook", checker)
+            self.assertNotIn("com.projectryu.perf", checker)
+            self.assertIn("projectryu_thermal_profiles", checker)
             self.assertNotIn(full.RYU_GET, perf_text)
             self.assertIn(full.TNM_GET, perf_text)
             self.assertIn("const/4 v0, 0x1", perf_text)
