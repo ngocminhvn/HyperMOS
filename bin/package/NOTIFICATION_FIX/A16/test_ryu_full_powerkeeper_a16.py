@@ -32,7 +32,7 @@ class FullRyuPort(unittest.TestCase):
         value = full.RYU_GET + "\n" * 1 + (
             "    sget-boolean v16, Lcom/projectryu/Build;->IS_RYU_BUILD:Z\n")
         result, reads, gates = full.adapt(value)
-        self.assertIn(full.ANDROID_GET, result)
+        self.assertIn(full.TNM_GET, result)
         self.assertIn("const/16 v16, 0x1", result)
         self.assertEqual((reads, gates), (1, 1))
         with self.assertRaisesRegex(ValueError, "Unsupported RYU framework reference"):
@@ -41,6 +41,24 @@ class FullRyuPort(unittest.TestCase):
             "    sget-boolean p0, Lcom/projectryu/Build;->IS_RYU_BUILD:Z")
         self.assertIn("const/16 p0, 0x1", parameter)
         self.assertEqual(count, 1)
+
+    def test_tnm_framework_real_method_implementations(self):
+        smali = full.tnm_framework_smali()
+        self.assertIn(".class public final " + full.TNM_API, smali)
+        self.assertEqual(smali.count(".method public static "), 7)
+        self.assertEqual(smali.count("invoke-static {"), 7)
+        self.assertIn(
+            "Landroid/provider/Settings$System;->getIntForUser"
+            "(Landroid/content/ContentResolver;Ljava/lang/String;II)I", smali)
+        self.assertIn(
+            "Landroid/provider/Settings$System;->putLong"
+            "(Landroid/content/ContentResolver;Ljava/lang/String;J)Z", smali)
+        self.assertIn("move-result-wide v0", smali)
+        self.assertIn("return-wide v0", smali)
+        self.assertNotIn("ProjectRYUFramework", smali)
+        # Reject any unverified foreign framework call, never silently allow it.
+        with self.assertRaises(ValueError):
+            full.adapt("invoke-static {}, Lcom/projectryu/ProjectRYUFramework;->unknown()V")
 
     def test_full_class_set_transfer_and_manifest_guard(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -81,11 +99,19 @@ class FullRyuPort(unittest.TestCase):
             self.assertEqual(len(result["classes"]), 20)
             self.assertEqual(result["adapted_ryu_framework_setting_reads"], 3)
             self.assertEqual(result["adapted_ryu_build_gates"], 1)
-            self.assertEqual(set(full.classes(stock)), set(full.classes(donor)))
+            self.assertEqual(set(full.classes(stock)),
+                             set(full.classes(donor)) | {full.TNM_API})
+            self.assertEqual(result["tnm_framework_api"], full.TNM_API)
+            self.assertEqual(result["tnm_framework_call_sites"], 3)
+            self.assertEqual(len(result["tnm_framework_method_signatures"]), 7)
+            bridge = full.classes(stock)[full.TNM_API].read_text()
+            for name in full.TNM_METHODS:
+                self.assertIn(".method public static " + name + "(", bridge)
+            self.assertNotIn("ProjectRYUFramework", bridge)
             self.assertNotIn("Lcom/miui/powerkeeper/StockOnly;", full.classes(stock))
             perf_text = full.classes(stock)["Lcom/projectryu/perf/PerfHook;"].read_text()
             self.assertNotIn(full.RYU_GET, perf_text)
-            self.assertIn(full.ANDROID_GET, perf_text)
+            self.assertIn(full.TNM_GET, perf_text)
             self.assertIn("const/4 v0, 0x1", perf_text)
             mock_apk(donor_apk, manifest=b"different")
             with self.assertRaisesRegex(ValueError, "manifests differ"):
