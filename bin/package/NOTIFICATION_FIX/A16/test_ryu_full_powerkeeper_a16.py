@@ -60,6 +60,35 @@ class FullRyuPort(unittest.TestCase):
         with self.assertRaises(ValueError):
             full.adapt("invoke-static {}, Lcom/projectryu/ProjectRYUFramework;->unknown()V")
 
+
+    def test_safe_ceiling_helper_strictly_scoped_and_fail_closed(self):
+        fixture = (
+            ".method private writeRawAndVerify(Ljava/lang/String;Ljava/lang/String;)Z\n"
+            "    .locals 7\n"
+            '    const-string v2, "Write did not stick: "\n'
+            "    invoke-direct {p0, p1}, Lcom/android/tnm/perf/PerfHook;->readTrimmed(Ljava/lang/String;)Ljava/lang/String;\n"
+            "    if-nez v1, :cond_2\n\n"
+            "    new-instance v1, Ljava/lang/StringBuilder;\n"
+            "    return v3\n"
+            "    :cond_2\n"
+            "    return v4\n"
+            ".end method\n"
+        )
+        patched = full.patch_perfhook_write_verify(fixture)
+        self.assertEqual(patched.count("->tnmSafeMaxClamp("), 1)
+        self.assertIn('"/scaling_max_freq"', patched)
+        self.assertIn('"/devfreq/max_freq"', patched)
+        self.assertNotIn('"/scaling_min_freq"', patched)
+        self.assertNotIn('"/thermal_message/sconfig"', patched)
+        self.assertIn("Ljava/lang/NumberFormatException;", patched)
+        self.assertIn('const-string v2, "Write did not stick: "', patched)
+        self.assertIn("if-eqz v1, :tnm_exact_mismatch", patched)
+        with self.assertRaisesRegex(ValueError, "already has safe clamp"):
+            full.patch_perfhook_write_verify(patched)
+        with self.assertRaisesRegex(ValueError, "anchor changed"):
+            full.patch_perfhook_write_verify(fixture.replace(
+                "if-nez v1, :cond_2", "if-eqz v1, :cond_2"))
+
     def test_full_class_set_transfer_and_manifest_guard(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -89,6 +118,19 @@ class FullRyuPort(unittest.TestCase):
                             + ("    invoke-static {v0, v1}, " + full.RYU_GET + "\n") * 3
                             + "    sget-boolean v0, Lcom/projectryu/Build;->IS_RYU_BUILD:Z\n"
                             + ".end method\n")
+                if cls == "Lcom/projectryu/perf/PerfHook;":
+                    body += (
+                        ".method private writeRawAndVerify(Ljava/lang/String;Ljava/lang/String;)Z\n"
+                        "    .locals 7\n"
+                        '    const-string v2, "Write did not stick: "\n'
+                        "    invoke-direct {p0, p1}, Lcom/projectryu/perf/PerfHook;->readTrimmed(Ljava/lang/String;)Ljava/lang/String;\n"
+                        "    if-nez v1, :cond_2\n\n"
+                        "    new-instance v1, Ljava/lang/StringBuilder;\n"
+                        "    return v3\n"
+                        "    :cond_2\n"
+                        "    return v4\n"
+                        ".end method\n"
+                    )
                 if cls == "Lcom/miui/powerkeeper/AppRuleChecker;":
                     # The original Xiaomi caller should resolve the renamed
                     # TNM PerfHook, including reflection by dotted class name.
@@ -110,6 +152,7 @@ class FullRyuPort(unittest.TestCase):
             self.assertEqual(len(result["classes"]), 20)
             self.assertEqual(result["adapted_ryu_framework_setting_reads"], 3)
             self.assertEqual(result["adapted_ryu_build_gates"], 1)
+            self.assertTrue(result["safe_cpu_gpu_max_clamp_verification"])
             expected = (
                 set(full.classes(donor)) - set(perf)
                 | set(result["tnm_perf_classes"]) | {full.TNM_API})
@@ -140,6 +183,9 @@ class FullRyuPort(unittest.TestCase):
             self.assertNotIn(full.RYU_GET, perf_text)
             self.assertIn(full.TNM_GET, perf_text)
             self.assertIn("const/4 v0, 0x1", perf_text)
+            self.assertEqual(perf_text.count("->tnmSafeMaxClamp("), 1)
+            self.assertIn(".method private static tnmSafeMaxClamp", perf_text)
+            self.assertIn("Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp", perf_text)
             mock_apk(donor_apk, manifest=b"different")
             with self.assertRaisesRegex(ValueError, "manifests differ"):
                 full.apk_contract(base_apk, donor_apk)
