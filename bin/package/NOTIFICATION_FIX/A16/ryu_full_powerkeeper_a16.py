@@ -231,12 +231,19 @@ def patch_perfhook_write_verify(smali: str) -> str:
     old = "    if-nez v1, :cond_2\n\n    new-instance v1, Ljava/lang/StringBuilder;"
     if method.count(old) != 1:
         raise ValueError("RYU strict readback comparison anchor changed")
-    # The p0 receiver is a PerfHook instance, NOT a String. Re-read the
-    # kernel value only on mismatch and keep it in the disposable v1 register.
-    # All three helper arguments must be String references for ART verification.
+    # The original donor overwrites p0 with a String before mismatch handling.
+    # Capture the original typed receiver in a fresh local at method entry.
+    if re.search(r"\bv7\b", method):
+        raise ValueError("RYU write verifier unexpectedly uses scratch v7")
+    locals_anchor = "    .locals 7\n"
+    if method.count(locals_anchor) != 1:
+        raise ValueError("RYU write verifier local layout changed")
+    method = method.replace(
+        locals_anchor, "    .locals 8\n    move-object/from16 v7, p0\n", 1)
+    # Invoke readTrimmed using saved v7, never the repurposed p0.
     new = (
         "    if-nez v1, :cond_2\n\n"
-        "    invoke-direct {p0, p1}, "
+        "    invoke-direct {v7, p1}, "
         "Lcom/android/tnm/perf/PerfHook;->readTrimmed"
         "(Ljava/lang/String;)Ljava/lang/String;\n"
         "    move-result-object v1\n"
