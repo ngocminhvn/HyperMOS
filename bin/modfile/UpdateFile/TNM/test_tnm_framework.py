@@ -16,6 +16,9 @@ assert "RYU=/system_ext/bin/ryu-thermalctl" in src
 assert "power.saver" in src and "thermal.perapp" in src
 assert "display.mode" in src
 assert "notifications.status" in src
+assert "thermal.readback" in src
+assert "persisted_settings_do_not_prove_perfhook_effect=yes" in src
+assert "<permission name=\"android.permission.POWER_SAVER\" />" in Path("bin/modfile/UpdateFile/TNM/privapp-permissions-tnm.xml").read_text()
 
 with TemporaryDirectory() as temp:
     p=Path(temp)
@@ -68,6 +71,8 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     code=code.replace('/system/bin/pidof',shutil.which('false'))
     code=code.replace('/system/bin/am',shutil.which('echo'))
     code=code.replace('/system/bin/awk',shutil.which('awk'))
+    code=code.replace('/system/bin/sleep',shutil.which('sleep'))
+    code=code.replace('/system/bin/cat',shutil.which('cat'))
     code=code.replace('/data/adb/tnm/state',str(p/'state'))
     runner=p/"tnm-frameworkctl"
     runner.write_text(code)
@@ -101,5 +106,11 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     assert (mock/"system-peak_refresh_rate").read_text()=="120.0"
     assert (mock/"system-min_refresh_rate").read_text()=="1.0"
     assert run("display.mode","999").returncode!=0
+    diagnostic=run("thermal.readback")
+    assert diagnostic.returncode==0, diagnostic.stderr
+    assert "sample=1" in diagnostic.stdout and "sample=2" in diagnostic.stdout
+    assert "frequency_limit_owner=not_verified" in diagnostic.stdout
+    assert (mock/"system-projectryu_thermal_sconfig").read_text()=="0"
+    assert run("thermal.readback","unexpected").returncode!=0
     assert run("unsupported.action").returncode!=0
 print("TNMFramework mock ROM safety/protocol tests: PASS")

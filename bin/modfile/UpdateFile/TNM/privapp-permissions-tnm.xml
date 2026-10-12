@@ -10,6 +10,7 @@
     <privapp-permissions package="com.android.trinhngocminh">
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
         <permission name="android.permission.REBOOT" />
+        <permission name="android.permission.POWER_SAVER" />
         <permission name="android.permission.DUMP" />
         <permission name="android.permission.READ_LOGS" />
         <permission name="android.permission.PACKAGE_USAGE_STATS" />

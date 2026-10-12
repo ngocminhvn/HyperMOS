@@ -93,6 +93,43 @@ status() {
     notify
     display
 }
+
+# Observe the actual kernel limits twice without writing a frequency, profile,
+# sysfs permission, or disabling any Xiaomi thermal protections. A lower
+# scaling_max_freq does not identify which kernel/vendor component set it.
+read_node() {
+    if [ -r "$1" ]; then /system/bin/cat "$1" 2>/dev/null || echo unavailable
+    else echo unavailable
+    fi
+}
+thermal_readback() {
+    echo "thermal_per_app=$(sys projectryu_thermal_per_app)"
+    echo "thermal_sconfig=$(sys projectryu_thermal_sconfig)"
+    echo "thermal_profiles=$(sys projectryu_thermal_profiles)"
+    if /system/bin/pidof com.miui.powerkeeper >/dev/null 2>&1; then
+        echo powerkeeper=running
+    else
+        echo powerkeeper=not_running
+    fi
+    for sample in 1 2; do
+        echo "sample=$sample"
+        for policy in /sys/devices/system/cpu/cpufreq/policy*; do
+            [ -d "$policy" ] || continue
+            name="${policy##*/}"
+            echo "$name current=$(read_node "$policy/scaling_cur_freq") max=$(read_node "$policy/scaling_max_freq") hw=$(read_node "$policy/cpuinfo_max_freq")"
+        done
+        echo "gpu_max=$(read_node /sys/class/kgsl/kgsl-3d0/devfreq/max_freq)"
+        [ "$sample" = 2 ] || /system/bin/sleep 1
+    done
+    echo persisted_settings_do_not_prove_perfhook_effect=yes
+    echo frequency_limit_owner=not_verified
+    # Evidence from the RYU logger, if Android retained any recent entries.
+    if [ -x /system/bin/logcat ]; then
+        echo ===perfhook_recent_log===
+        /system/bin/logcat -d -t 120 -s ProjectRYU-Perf:V '*:S' 2>/dev/null |
+            /system/bin/tail -n 12 || true
+    fi
+}
 change_display() {
     [ "$#" -eq 1 ] || exit 2
     case "$1" in auto|60|120) ;; *) exit 2 ;; esac
@@ -140,7 +177,7 @@ case "$cmd" in
         empty "$@"
         echo status.read; echo power.status; echo power.saver
         echo notifications.status; echo display.status
-        if ryu; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; fi
+        if ryu; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; echo thermal.readback; fi
         if fps_supported; then echo display.mode; fi
         ;;
     status) empty "$@"; status ;;
@@ -160,6 +197,7 @@ case "$cmd" in
         ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
         exec "$RYU" profiles
         ;;
+    thermal.readback) empty "$@"; thermal_readback ;;
     thermal.status)
         empty "$@"
         ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
