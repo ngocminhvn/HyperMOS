@@ -76,6 +76,17 @@ class FullRyuPort(unittest.TestCase):
         )
         patched = full.patch_perfhook_write_verify(fixture)
         self.assertEqual(patched.count("->tnmSafeMaxClamp("), 1)
+        # ART must see three String registers, not an instance receiver p0.
+        self.assertNotIn("invoke-static {p1, p2, p0}", patched)
+        expected_call = (
+            "    invoke-direct {p0, p1}, Lcom/android/tnm/perf/PerfHook;"
+            "->readTrimmed(Ljava/lang/String;)Ljava/lang/String;\n"
+            "    move-result-object v1\n"
+            "    invoke-static {p1, p2, v1}, Lcom/android/tnm/perf/PerfHook;"
+            "->tnmSafeMaxClamp(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z\n"
+            "    move-result v1\n"
+        )
+        self.assertIn(expected_call, patched)
         self.assertIn('"/scaling_max_freq"', patched)
         self.assertIn('"/devfreq/max_freq"', patched)
         self.assertNotIn('"/scaling_min_freq"', patched)
@@ -184,6 +195,8 @@ class FullRyuPort(unittest.TestCase):
             self.assertIn(full.TNM_GET, perf_text)
             self.assertIn("const/4 v0, 0x1", perf_text)
             self.assertEqual(perf_text.count("->tnmSafeMaxClamp("), 1)
+            self.assertIn("invoke-static {p1, p2, v1}", perf_text)
+            self.assertNotIn("invoke-static {p1, p2, p0}", perf_text)
             self.assertIn(".method private static tnmSafeMaxClamp", perf_text)
             self.assertIn("Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp", perf_text)
             mock_apk(donor_apk, manifest=b"different")

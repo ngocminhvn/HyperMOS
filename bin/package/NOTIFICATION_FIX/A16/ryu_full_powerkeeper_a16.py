@@ -231,9 +231,16 @@ def patch_perfhook_write_verify(smali: str) -> str:
     old = "    if-nez v1, :cond_2\n\n    new-instance v1, Ljava/lang/StringBuilder;"
     if method.count(old) != 1:
         raise ValueError("RYU strict readback comparison anchor changed")
+    # The p0 receiver is a PerfHook instance, NOT a String. Re-read the
+    # kernel value only on mismatch and keep it in the disposable v1 register.
+    # All three helper arguments must be String references for ART verification.
     new = (
         "    if-nez v1, :cond_2\n\n"
-        "    invoke-static {p1, p2, p0}, "
+        "    invoke-direct {p0, p1}, "
+        "Lcom/android/tnm/perf/PerfHook;->readTrimmed"
+        "(Ljava/lang/String;)Ljava/lang/String;\n"
+        "    move-result-object v1\n"
+        "    invoke-static {p1, p2, v1}, "
         "Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp"
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z\n"
         "    move-result v1\n"
