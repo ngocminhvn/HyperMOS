@@ -1,7 +1,7 @@
 name: RYU CPU Thermal + Xiaomi PowerKeeper Safety
 on:
   push:
-    branches: [test-ryu-performance-haotian]
+    branches: [main, test-ryu-performance-haotian]
     paths:
       - 'bin/package/NOTIFICATION_FIX/A16/**'
       - 'bin/modfile/UpdateFile/RYUPerfProfile/**'

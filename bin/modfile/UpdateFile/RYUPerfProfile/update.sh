@@ -14,12 +14,12 @@ if [[ "$device" != "haotian" || "$android" != "16" ]]; then
   exit 0
 fi
 
-# Experimental import must never end up on HyperMOS main accidentally.
+# Validated RYU performance import is supported on HAOTIAN main and test branches.
 case "${GITHUB_REF_NAME:-}" in
-  test-ryu-performance-haotian|test-tnm-ryu-haotian)
+  main|test-ryu-performance-haotian|test-tnm-ryu-haotian)
     ;;
   *)
-    error "RYU FULL PERF: allowed only on dedicated RYU test branches, actual=${GITHUB_REF_NAME:-unknown}"
+    error "RYU FULL PERF: unsupported branch, actual=${GITHUB_REF_NAME:-unknown}"
     exit 1
     ;;
 esac

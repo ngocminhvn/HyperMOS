@@ -8,12 +8,12 @@ on:
         required: true
         default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
       tnm_test_apk_url:
-        description: 'TNM test branch: HTTPS URL of signed APK from app@test-tnm-ryu-haotian'
+        description: 'TNM signed APK URL compatible with app/main'
         default: 'https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-ryu-99a8659/TNM-99a8659.apk'
         required: false
         type: string
       tnm_test_apk_sha256:
-        description: 'TNM test branch: lowercase SHA-256 of that APK'
+        description: 'TNM signed APK lowercase SHA-256'
         default: '40077d4ec70207a1d0b370ea8a0eb240d39585eb10c5c97d1386f1f2f1440212'
         required: false
         type: string
@@ -59,13 +59,13 @@ jobs:
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
 
     steps:
-      - name: Validate matching TNM test APK input
-        if: github.ref_name == 'test-tnm-ryu-haotian'
+      - name: Validate matching TNM APK input
+        if: github.ref_name == 'main' || github.ref_name == 'test-tnm-ryu-haotian'
         shell: bash
         run: |
           set -euo pipefail
           [[ "$TNM_TEST_APK_URL" == https://* && "$TNM_TEST_APK_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
-            echo "::error::Provide signed TNM test APK HTTPS URL and its lowercase SHA-256"
+            echo "::error::Provide signed TNM APK HTTPS URL and its lowercase SHA-256"
             exit 1
           }
 
@@ -144,11 +144,11 @@ jobs:
           python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py
           bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
           case "$GITHUB_REF_NAME" in
-            test-ryu-performance-haotian|test-tnm-ryu-haotian) ;;
-            *) echo "::error::RYU performance test is allowed on dedicated RYU test branches only"; exit 1 ;;
+            main|test-ryu-performance-haotian|test-tnm-ryu-haotian) ;;
+            *) echo "::error::RYU performance profile requires a supported HAOTIAN branch"; exit 1 ;;
           esac
           zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
-          test -s "$zip" || { echo "::error::RYU thermal archive not found in test branch"; exit 1; }
+          test -s "$zip" || { echo "::error::RYU thermal archive missing"; exit 1; }
           expected_blob="34c23e2bc75d5e46c2e5688077d76d7e46562d64"
           actual_blob="$(git hash-object "$zip")"
           [[ "$actual_blob" == "$expected_blob" ]] || {

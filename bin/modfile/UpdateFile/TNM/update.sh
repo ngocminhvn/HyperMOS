@@ -71,8 +71,8 @@ mods "TNM Bridge -> ${runtime_ctl%/*}/tnm-bridge (on demand)"
 
 
 
-# TNMFramework is installed on the isolated RYU and TNM branches.
-if [[ "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
+# TNMFramework is installed on main and supported HAOTIAN RYU branches.
+if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
   framework_src="$work_dir/bin/modfile/UpdateFile/TNM/tnm-frameworkctl"
   [[ -s "$framework_src" ]] || { error "TNMFramework file missing"; exit 1; }
   sh -n "$framework_src" || { error "TNMFramework shell syntax invalid"; exit 1; }
@@ -108,10 +108,10 @@ tnm_update_json="$tnm_tmp/update.json"
 tnm_payload="$tnm_tmp/TNM.update"
 tnm_apk="$tnm_tmp/TNM.apk"
 
-# The TNM branch must bundle its matching experimental APK, never silently
-# substitute the stable Pages APK which may lack the framework client.
+# Main and TNM test branch bundle the matching signed TNM APK, never silently
+# substitute an unrelated Pages APK that may lack the framework client.
 tnm_test_url=""
-if [[ "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
+if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
   [[ "${TNM_TEST_APK_URL:-}" == https://* && "${TNM_TEST_APK_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || {
     error "TNM test: supply HTTPS TNM APK URL and lowercase SHA-256 from the matching app branch"
     exit 1
@@ -241,7 +241,7 @@ with open(metadata_path, encoding="utf-8") as file:
 match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version_name)
 if not match or tuple(map(int, match.groups())) < (1, 3, 33):
     sys.exit(f"TNM App: need version >= 1.3.33; APK contains {version_name!r}")
-is_test = (os.environ.get("GITHUB_REF_NAME") == "test-tnm-ryu-haotian"
+is_test = (os.environ.get("GITHUB_REF_NAME") in ("main", "test-tnm-ryu-haotian")
            and metadata.get("packageUrl") == os.environ.get("TNM_TEST_APK_URL"))
 if not is_test and metadata.get("versionName") != version_name:
     sys.exit("TNM App: update.json versionName disagrees with actual APK")
@@ -259,7 +259,7 @@ java -jar "$work_dir/bin/apktool/apksigner.jar" verify "$tnm_apk" || {
   error "TNM App: APK signature verification failed"
   exit 1
 }
-if [[ "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
+if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
   python3 - "$tnm_apk" <<'PYCONTRACT'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as apk:

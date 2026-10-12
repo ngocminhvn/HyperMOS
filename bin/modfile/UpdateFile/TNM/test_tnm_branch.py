@@ -11,7 +11,9 @@ installer = (root / 'bin/modfile/UpdateFile/TNM/update.sh').read_text()
 workflow = (root / '.github/workflows/build.yml').read_text()
 for path in ('build.sh', 'bin/modfile/UpdateFile/RYUPerfProfile/update.sh',
              'bin/modfile/UpdateFile/TNM/update.sh', '.github/workflows/build.yml'):
-    assert 'test-tnm-ryu-haotian' in (root / path).read_text(), path
+    text = (root / path).read_text()
+    assert 'test-tnm-ryu-haotian' in text, path
+    assert 'main' in text, f'production main gate missing: {path}'
 assert 'tnm-thermalctl' in (root / 'bin/modfile/UpdateFile/RYUPerfProfile/update.sh').read_text()
 assert 'TNM_TEST_APK_URL: ${{ inputs.tnm_test_apk_url }}' in workflow
 assert 'TNM_TEST_APK_SHA256: ${{ inputs.tnm_test_apk_sha256 }}' in workflow
@@ -34,4 +36,4 @@ with TemporaryDirectory() as temp:
     assert run({'packageUrl': 'https://other.example/TNM.apk', 'sha256': 'a' * 64}, test_url).returncode != 0
     assert run({'packageUrl': test_url, 'sha256': 'a' * 64}).returncode != 0
     assert run({'packageUrl': base + '/TNM.apk.xz', 'packageSha256': 'b' * 64, 'compression': 'xz'}).returncode == 0
-print('TNM branch / matching APK selection checks PASS')
+print('TNM main + branch / matching APK selection checks PASS')

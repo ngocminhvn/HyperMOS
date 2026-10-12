@@ -2,6 +2,7 @@ name: HAOTIAN RYU Thermal Safety Preflight
 on:
   push:
     branches:
+      - main
       - test-ryu-performance-haotian
   workflow_dispatch:
 permissions:
