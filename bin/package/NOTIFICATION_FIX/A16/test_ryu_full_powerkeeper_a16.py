@@ -3,10 +3,12 @@
 import importlib.util
 import tempfile
 import unittest
+import sys
 import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 spec = importlib.util.spec_from_file_location("full_ryu", HERE / "ryu_full_powerkeeper_a16.py")
 full = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(full)
@@ -76,10 +78,12 @@ class FullRyuPort(unittest.TestCase):
         )
         patched = full.patch_perfhook_write_verify(fixture)
         self.assertEqual(patched.count("->tnmSafeMaxClamp("), 1)
-        # ART must see three String registers, not an instance receiver p0.
+        # The saved receiver remains typed even when donor repurposes p0.
+        self.assertIn(".locals 8", patched)
+        self.assertIn("move-object/from16 v7, p0", patched)
         self.assertNotIn("invoke-static {p1, p2, p0}", patched)
         expected_call = (
-            "    invoke-direct {p0, p1}, Lcom/android/tnm/perf/PerfHook;"
+            "    invoke-direct {v7, p1}, Lcom/android/tnm/perf/PerfHook;"
             "->readTrimmed(Ljava/lang/String;)Ljava/lang/String;\n"
             "    move-result-object v1\n"
             "    invoke-static {p1, p2, v1}, Lcom/android/tnm/perf/PerfHook;"
@@ -87,6 +91,17 @@ class FullRyuPort(unittest.TestCase):
             "    move-result v1\n"
         )
         self.assertIn(expected_call, patched)
+        self.assertLess(patched.index("move-object/from16 v7, p0"),
+                        patched.index("invoke-direct {v7, p1}"))
+        self.assertNotIn("invoke-direct {p0, p1}, Lcom/android/tnm/perf/PerfHook;", patched)
+        overwritten = fixture.replace(
+            "    if-nez v1, :cond_2",
+            "    move-object p0, p1\n    if-nez v1, :cond_2")
+        self.assertIn("invoke-direct {v7, p1}",
+                      full.patch_perfhook_write_verify(overwritten))
+        with self.assertRaisesRegex(ValueError, "scratch v7"):
+            full.patch_perfhook_write_verify(
+                fixture.replace("    .locals 7", "    .locals 7\n    const/4 v7, 0x0"))
         self.assertIn('"/scaling_max_freq"', patched)
         self.assertIn('"/devfreq/max_freq"', patched)
         self.assertNotIn('"/scaling_min_freq"', patched)
@@ -99,6 +114,35 @@ class FullRyuPort(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "anchor changed"):
             full.patch_perfhook_write_verify(fixture.replace(
                 "if-nez v1, :cond_2", "if-eqz v1, :cond_2"))
+
+
+    def test_compiled_dex_rejects_wrong_receiver(self):
+        from verify_perfhook_apk import verify_compiled_perfhook_smali
+        compiled = (
+            ".class public Lcom/android/tnm/perf/PerfHook;\n"
+            ".method private writeRawAndVerify(Ljava/lang/String;Ljava/lang/String;)Z\n"
+            "    .locals 8\n"
+            "    move-object/from16 v7, p0\n"
+            "    move-object p0, p1\n"
+            "    invoke-direct {v7, p1}, Lcom/android/tnm/perf/PerfHook;->readTrimmed"
+            "(Ljava/lang/String;)Ljava/lang/String;\n"
+            "    move-result-object v1\n"
+            "    invoke-static {p1, p2, v1}, Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp"
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z\n"
+            "    move-result v1\n"
+            "    return v1\n"
+            ".end method\n"
+        )
+        verify_compiled_perfhook_smali(compiled)
+        for bad in (
+            compiled.replace("invoke-direct {v7, p1}", "invoke-direct {p0, p1}"),
+            compiled.replace("    move-object/from16 v7, p0\n", ""),
+            compiled.replace("    .locals 8", "    .locals 7"),
+            compiled.replace("    move-object p0, p1\n", "    const/4 v7, 0x0\n"),
+            compiled.replace("    move-result-object v1\n", "    move-result-object v2\n"),
+        ):
+            with self.assertRaises(ValueError):
+                verify_compiled_perfhook_smali(bad)
 
     def test_full_class_set_transfer_and_manifest_guard(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -196,6 +240,8 @@ class FullRyuPort(unittest.TestCase):
             self.assertIn("const/4 v0, 0x1", perf_text)
             self.assertEqual(perf_text.count("->tnmSafeMaxClamp("), 1)
             self.assertIn("invoke-static {p1, p2, v1}", perf_text)
+            self.assertIn("move-object/from16 v7, p0", perf_text)
+            self.assertIn("invoke-direct {v7, p1}", perf_text)
             self.assertNotIn("invoke-static {p1, p2, p0}", perf_text)
             self.assertIn(".method private static tnmSafeMaxClamp", perf_text)
             self.assertIn("Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp", perf_text)
