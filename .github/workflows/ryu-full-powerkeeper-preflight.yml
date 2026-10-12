@@ -55,7 +55,8 @@ jobs:
             --apk /tmp/ryu-full-pk/PowerKeeper.apk
           python3 bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py \
             --apk /tmp/ryu-full-pk/PowerKeeper.apk \
-            --report /tmp/ryu-full-pk/full-port.json
+            --report /tmp/ryu-full-pk/full-port.json \
+            --baksmali bin/apktool/baksmali.jar
           python3 bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py \
             --apk /tmp/ryu-full-pk/PowerKeeper.apk \
             --report /tmp/ryu-full-pk/full-port.json
