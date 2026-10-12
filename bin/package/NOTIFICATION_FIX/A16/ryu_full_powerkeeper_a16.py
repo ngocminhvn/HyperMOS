@@ -147,6 +147,107 @@ def classes(root: Path):
     return result
 
 
+
+# The original RYU writeRawAndVerify uses strict string equality on sysfs.
+# If kernel/thermal keeps a lower, positive MAX CPU/GPU cap, it is safer and
+# shouldn't become a write-loop/false failure. Only after successful write;
+# preserve errors, sconfig writes, and scaling_min_freq strict verification.
+SAFE_MAX_HELPER = r"""
+.method private static tnmSafeMaxClamp(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z
+    .locals 7
+
+    const/4 v0, 0x0
+    if-eqz p0, :tnm_false
+    if-eqz p1, :tnm_false
+    if-eqz p2, :tnm_false
+
+    const-string v1, "/sys/devices/system/cpu/cpufreq/policy"
+    invoke-virtual {p0, v1}, Ljava/lang/String;->startsWith(Ljava/lang/String;)Z
+    move-result v1
+    if-eqz v1, :tnm_gpu_path
+    const-string v1, "/scaling_max_freq"
+    invoke-virtual {p0, v1}, Ljava/lang/String;->endsWith(Ljava/lang/String;)Z
+    move-result v1
+    if-nez v1, :tnm_compare
+
+    :tnm_gpu_path
+    const-string v1, "/sys/class/kgsl/"
+    invoke-virtual {p0, v1}, Ljava/lang/String;->startsWith(Ljava/lang/String;)Z
+    move-result v1
+    if-eqz v1, :tnm_false
+    const-string v1, "/devfreq/max_freq"
+    invoke-virtual {p0, v1}, Ljava/lang/String;->endsWith(Ljava/lang/String;)Z
+    move-result v1
+    if-eqz v1, :tnm_false
+
+    :tnm_compare
+    :try_start_tnm
+    invoke-static {p1}, Ljava/lang/Long;->parseLong(Ljava/lang/String;)J
+    move-result-wide v1
+    invoke-static {p2}, Ljava/lang/Long;->parseLong(Ljava/lang/String;)J
+    move-result-wide v3
+    const-wide/16 v5, 0x0
+    cmp-long v0, v3, v5
+    if-lez v0, :tnm_false
+    cmp-long v0, v3, v1
+    if-gez v0, :tnm_false
+    :try_end_tnm
+    .catch Ljava/lang/NumberFormatException; {:try_start_tnm .. :try_end_tnm} :tnm_parse_error
+
+    const/4 v0, 0x1
+    return v0
+
+    :tnm_parse_error
+    move-exception v1
+
+    :tnm_false
+    const/4 v0, 0x0
+    return v0
+.end method
+"""
+
+
+def patch_perfhook_write_verify(smali: str) -> str:
+    """Safely allow lower CPU/GPU maximum caps, not failed writes."""
+    if "tnmSafeMaxClamp(" in smali:
+        raise ValueError("RYU PerfHook already has safe clamp patch")
+    pattern = re.compile(
+        r"(?ms)^\.method private writeRawAndVerify"
+        r"\(Ljava/lang/String;Ljava/lang/String;\)Z\s*$.*?^\.end method$")
+    matches = list(pattern.finditer(smali))
+    if len(matches) != 1:
+        raise ValueError("Expected exactly one RYU writeRawAndVerify method")
+    found = matches[0]
+    method = found.group()
+    for required in (
+        "    .locals 7",
+        '    const-string v2, "Write did not stick: "',
+        "->readTrimmed(Ljava/lang/String;)Ljava/lang/String;",
+        "    return v3",
+        "    return v4",
+    ):
+        if required not in method:
+            raise ValueError("Unknown RYU write verifier layout: " + required)
+    old = "    if-nez v1, :cond_2\n\n    new-instance v1, Ljava/lang/StringBuilder;"
+    if method.count(old) != 1:
+        raise ValueError("RYU strict readback comparison anchor changed")
+    new = (
+        "    if-nez v1, :cond_2\n\n"
+        "    invoke-static {p1, p2, p0}, "
+        "Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp"
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z\n"
+        "    move-result v1\n"
+        "    if-eqz v1, :tnm_exact_mismatch\n"
+        "    return v4\n\n"
+        "    :tnm_exact_mismatch\n"
+        "    new-instance v1, Ljava/lang/StringBuilder;"
+    )
+    method = method.replace(old, new)
+    if method.count("->tnmSafeMaxClamp(") != 1:
+        raise ValueError("Expected exactly one safe clamp caller")
+    return smali[:found.start()] + method + smali[found.end():] + "\n" + SAFE_MAX_HELPER
+
+
 def adapt(body: str):
     """Minimal, build-time RYU framework compatibility, without new hooks."""
     reads = 0
@@ -224,6 +325,7 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
     # Validate everything before replacing the decoded Xiaomi bytecode.
     adapted = {}
     setting_reads = build_gates = 0
+    safe_max_patch_count = 0
     for descriptor, source in donor.items():
         raw = source.read_text(encoding="utf-8")
         try:
@@ -233,9 +335,14 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
                        if ("Lcom/projectryu/ProjectRYUFramework;" in line
                            or "Lcom/projectryu/Build;" in line)]
             raise ValueError(f"{descriptor}: {exc}; references={suspect[:8]}") from exc
+        if descriptor == "Lcom/projectryu/perf/PerfHook;":
+            body = patch_perfhook_write_verify(body)
+            safe_max_patch_count += 1
         adapted[descriptor] = body
         setting_reads += reads
         build_gates += gates
+    if safe_max_patch_count != 1:
+        raise ValueError("Missing RYU safe max-frequency verification patch")
     if setting_reads < 3:
         raise ValueError("Original RYU PerfHook getSystemString callers missing")
     for descriptor, body in adapted.items():
@@ -298,6 +405,7 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
         "tnm_framework_call_sites": setting_reads,
         "projectryu_framework_jars_required": False,
         "adapted_ryu_build_gates": build_gates,
+        "safe_cpu_gpu_max_clamp_verification": True,
         "no_runtime_hook_or_daemon": True,
         "apk_contract": contract,
         "non_dex_payload": "original Xiaomi APK; donor executable classes",
