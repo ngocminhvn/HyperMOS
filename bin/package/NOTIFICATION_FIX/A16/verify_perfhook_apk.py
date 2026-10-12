@@ -46,7 +46,11 @@ def defined_classes(blob: bytes) -> set[str]:
 
 
 def verify(apk: Path, report: Path) -> None:
-    expected = set(json.loads(report.read_text(encoding="utf-8"))["classes"])
+    manifest = json.loads(report.read_text(encoding="utf-8"))
+    expected = set(manifest["classes"])
+    safe_readback = manifest.get("safe_cpu_gpu_max_clamp_verification") is True
+    if manifest.get("mode", "").startswith("full original RYUOS") and not safe_readback:
+        raise ValueError("Full RYU port must verify safe max-frequency guard")
     if len(expected) != 20 or any(
             not name.startswith("Lcom/android/tnm/perf/") for name in expected):
         raise ValueError("Expected exactly 20 TNM-namespaced PerfHook classes")
@@ -58,6 +62,7 @@ def verify(apk: Path, report: Path) -> None:
         if not files:
             raise ValueError("No compiled DEX found in APK")
         actual = set()
+        compiled_methods = {}
         for name in files:
             data = archive.read(name)
             if (b"com/projectryu/perf/" in data
@@ -65,6 +70,24 @@ def verify(apk: Path, report: Path) -> None:
                 raise ValueError(
                     "Unrenamed original RYU PerfHook class/reference in compiled " + name)
             actual.update(defined_classes(data))
+            if safe_readback:
+                from verify_ryu_uid_policy_apk import entries
+                methods = entries(data)
+                duplicate = set(compiled_methods) & set(methods)
+                if duplicate:
+                    raise ValueError("Duplicate PerfHook DEX method definition")
+                compiled_methods.update(methods)
+    if safe_readback:
+        owner = "Lcom/android/tnm/perf/PerfHook;"
+        for method in (
+            (owner, "tnmSafeMaxClamp",
+             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z"),
+            (owner, "writeRawAndVerify", "(Ljava/lang/String;Ljava/lang/String;)Z"),
+        ):
+            if not compiled_methods.get(method):
+                raise ValueError("Missing concrete safe MAX verification method: "
+                                 + repr(method))
+        print("[RYU PERFHOOK] PASS: safe CPU/GPU MAX clamp guard compiled")
     missing = sorted(expected - actual)
     if missing:
         raise ValueError("APK silently omitted original RYU PerfHook classes: " + repr(missing))

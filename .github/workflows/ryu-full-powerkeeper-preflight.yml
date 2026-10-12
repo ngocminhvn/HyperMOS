@@ -40,29 +40,6 @@ jobs:
           set -euo pipefail
           apk=/tmp/ryu-full-pk/RYUOS_HAOTIAN_PowerKeeper.apk
           java -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug -i "$apk" -o /tmp/ryu-full-pk/donor
-          python3 - <<'PYINSPECT'
-          from pathlib import Path
-          import re
-          root=Path('/tmp/ryu-full-pk/donor')
-          matches=0
-          for file in sorted(root.rglob('*.smali')):
-              if '/perf/' not in file.as_posix().lower():
-                  continue
-              lines=file.read_text().splitlines()
-              for i,line in enumerate(lines):
-                  if not any(term in line.lower() for term in ('write did not stick','failed writing')):
-                      continue
-                  methods=[j for j in range(i,-1,-1) if lines[j].lstrip().startswith('.method ')]
-                  start=methods[0] if methods else max(0,i-18)
-                  end=next((j+1 for j in range(i,len(lines)) if lines[j].lstrip().startswith('.end method')),min(i+35,len(lines)))
-                  print('[RYU PERFHOOK WRITE DIAGNOSTIC]',file.relative_to(root),'method_start',start+1,'match',i+1,'method_lines',end-start)
-                  for j in range(start,min(end,start+230)):
-                      print(f'{j+1:04d}: {lines[j]}')
-                  matches+=1
-                  if matches>=5:break
-              if matches>=5:break
-          print('[RYU PERFHOOK WRITE DIAGNOSTIC] match_count=',matches)
-          PYINSPECT
           cp -a /tmp/ryu-full-pk/donor /tmp/ryu-full-pk/target
           python3 bin/package/NOTIFICATION_FIX/A16/ryu_full_powerkeeper_a16.py \
             --stock-root /tmp/ryu-full-pk/target \
