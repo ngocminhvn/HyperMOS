@@ -71,7 +71,21 @@ status() {
         file="/sys/devices/system/cpu/cpufreq/policy$n/scaling_max_freq"
         if [ -r "$file" ]; then value=$(cat "$file"); else value=unavailable; fi
         echo "cpu$n"_"max=$value"
+        hardware="/sys/devices/system/cpu/cpufreq/policy$n/cpuinfo_max_freq"
+        if [ -r "$hardware" ]; then ceiling=$(cat "$hardware"); else ceiling=unavailable; fi
+        echo "cpu$n"_"hw_max=$ceiling"
+        case "$value:$ceiling" in
+            *[!0-9:]*|:*|*:) echo "cpu$n"_"below_hw_max=unknown" ;;
+            *)
+                if [ "$value" -lt "$ceiling" ]; then
+                    echo "cpu$n"_"below_hw_max=yes"
+                else
+                    echo "cpu$n"_"below_hw_max=no"
+                fi
+                ;;
+        esac
     done
+    echo frequency_limit_owner=unknown_kernel_or_vendor_may_override
     if [ -r /sys/class/kgsl/kgsl-3d0/devfreq/max_freq ]; then
         echo "gpu_max=$(cat /sys/class/kgsl/kgsl-3d0/devfreq/max_freq)"
     else echo gpu_max=unavailable; fi

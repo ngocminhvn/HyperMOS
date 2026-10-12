@@ -80,6 +80,8 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     assert "tnm_framework=1" in status
     assert "thermal_effect=not_applied" in status
     assert "thermal_reason=powerkeeper_not_running" in status
+    assert "frequency_limit_owner=unknown_kernel_or_vendor_may_override" in status
+    assert "cpu0_below_hw_max=unknown" in status
     assert run("thermal.global","normal").returncode==0
     assert run("thermal.global","hp-mgame").returncode==0
     assert run("thermal.profiles").returncode==0
