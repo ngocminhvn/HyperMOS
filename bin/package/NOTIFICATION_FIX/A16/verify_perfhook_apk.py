@@ -4,6 +4,8 @@ import argparse
 import json
 import re
 import struct
+import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -45,7 +47,61 @@ def defined_classes(blob: bytes) -> set[str]:
     return result
 
 
-def verify(apk: Path, report: Path) -> None:
+
+def verify_compiled_perfhook_smali(smali: str) -> None:
+    """Reject the concrete ART receiver-type VerifyError from ROM #126."""
+    match = re.search(
+        r"(?ms)^\.method[^\n]*\bwriteRawAndVerify"
+        r"\(Ljava/lang/String;Ljava/lang/String;\)Z[^\n]*$.*?^\.end method$",
+        smali)
+    if match is None:
+        raise ValueError("Compiled writeRawAndVerify method missing")
+    body = match.group()
+    if not re.search(r"(?m)^\s+\.locals 8\s*$", body):
+        raise ValueError("Compiled PerfHook needs local v7")
+    instructions = [line.strip() for line in body.splitlines()
+                    if re.match(r"^\s+[a-z][a-z0-9/-]*\s", line)]
+    if not instructions or instructions[0] not in (
+            "move-object/from16 v7, p0", "move-object v7, p0"):
+        raise ValueError("Compiled PerfHook does not save this at entry")
+    read = ("invoke-direct {v7, p1}, "
+            "Lcom/android/tnm/perf/PerfHook;->readTrimmed"
+            "(Ljava/lang/String;)Ljava/lang/String;")
+    clamp = ("invoke-static {p1, p2, v1}, "
+             "Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp"
+             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z")
+    if read not in instructions or clamp not in instructions:
+        raise ValueError("Compiled readTrimmed/clamp has wrong registers")
+    pos = instructions.index(read)
+    if instructions[pos + 1:pos + 3] != ["move-result-object v1", clamp]:
+        raise ValueError("Compiled readback result type/order changed")
+    if sum(bool(re.search(r"\bv7\b", line)) for line in instructions) != 2:
+        raise ValueError("Compiled PerfHook saved receiver was overwritten")
+    print("[RYU PERFHOOK] PASS: compiled DEX uses saved typed receiver v7")
+
+
+def verify_compiled_receiver(dex_blob: bytes, baksmali: Path) -> None:
+    if not baksmali or not baksmali.is_file():
+        raise ValueError("Compiled DEX verification requires --baksmali")
+    with tempfile.TemporaryDirectory(prefix="tnm-perfhook-dex-") as td:
+        root = Path(td)
+        dex = root / "classes.dex"
+        out = root / "decoded"
+        dex.write_bytes(dex_blob)
+        cmd = ["java", "-jar", str(baksmali.resolve()), "d",
+               "--use-locals", "-o", str(out), str(dex)]
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=120, check=False)
+        if result.returncode:
+            raise ValueError("Compiled DEX disassembly failed: " +
+                             (result.stderr or result.stdout)[-1500:])
+        smali = out / "com/android/tnm/perf/PerfHook.smali"
+        if not smali.is_file():
+            raise ValueError("Compiled PerfHook missing from disassembled DEX")
+        verify_compiled_perfhook_smali(smali.read_text(encoding="utf-8"))
+
+
+def verify(apk: Path, report: Path, baksmali: Path = None) -> None:
     manifest = json.loads(report.read_text(encoding="utf-8"))
     expected = set(manifest["classes"])
     safe_readback = manifest.get("safe_cpu_gpu_max_clamp_verification") is True
@@ -63,13 +119,19 @@ def verify(apk: Path, report: Path) -> None:
             raise ValueError("No compiled DEX found in APK")
         actual = set()
         compiled_methods = {}
+        receiver_dex = None
         for name in files:
             data = archive.read(name)
             if (b"com/projectryu/perf/" in data
                     or b"com.projectryu.perf" in data):
                 raise ValueError(
                     "Unrenamed original RYU PerfHook class/reference in compiled " + name)
-            actual.update(defined_classes(data))
+            defined = defined_classes(data)
+            actual.update(defined)
+            if "Lcom/android/tnm/perf/PerfHook;" in defined:
+                if receiver_dex is not None:
+                    raise ValueError("Duplicate PerfHook class across DEX")
+                receiver_dex = data
             if safe_readback:
                 from verify_ryu_uid_policy_apk import entries
                 methods = entries(data)
@@ -87,6 +149,9 @@ def verify(apk: Path, report: Path) -> None:
             if not compiled_methods.get(method):
                 raise ValueError("Missing concrete safe MAX verification method: "
                                  + repr(method))
+        if receiver_dex is None:
+            raise ValueError("Compiled PerfHook class missing")
+        verify_compiled_receiver(receiver_dex, baksmali)
         print("[RYU PERFHOOK] PASS: safe CPU/GPU MAX clamp guard compiled")
     missing = sorted(expected - actual)
     if missing:
@@ -101,8 +166,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--apk", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--baksmali", type=Path,
+                        help="Required for full-donor DEX receiver verification")
     args = parser.parse_args()
-    verify(args.apk, args.report)
+    verify(args.apk, args.report, args.baksmali)
 
 
 if __name__ == "__main__":
