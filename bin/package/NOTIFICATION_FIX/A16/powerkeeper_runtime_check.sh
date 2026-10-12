@@ -26,6 +26,13 @@ logcat -d -b main -b system -b crash -v brief 2>/dev/null |
   grep -i -E 'selinux_android_setcontext.*powerkeeper|No match for app with uid 1000|Could not find provider: com.miui.powerkeeper.configure|FATAL EXCEPTION.*powerkeeper|Process com.miui.powerkeeper.*failed to attach' |
   tail -n 24
 printf '%s\n' "=== FINAL PROCESS ==="
+# Wait briefly to reject a transient restart loop, and check ART verifier logs.
+sleep 3
+if logcat -d -b main -b system -b crash 2>/dev/null | \
+    grep -Fq 'Verifier rejected class com.android.tnm.perf.PerfHook'; then
+  printf '%s\n' "FAIL: ART rejected PerfHook bytecode"
+  exit 1
+fi
 pid="$(pidof "$PKG" 2>/dev/null || true)"
 if [ -n "$pid" ]; then
   printf '%s\n' "PASS: PowerKeeper process exists. Inspect context and provider results above."
