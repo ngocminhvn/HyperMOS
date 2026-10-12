@@ -74,7 +74,8 @@ if [[ "${TNM_RYU_POWERKEEPER_MODE:-full-donor-dex}" == "full-donor-dex" ]]; then
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
     --apk "$tmp/final/PowerKeeper.apk"
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
-    --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/ryu-full-port.json"
+    --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/ryu-full-port.json" \
+    --baksmali "$work_dir/bin/apktool/baksmali.jar"
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py" \
     --apk "$tmp/final/PowerKeeper.apk" --report "$tmp/ryu-full-port.json"
   command -v zipalign >/dev/null || { error "RYU FULL: zipalign missing"; exit 1; }
@@ -90,7 +91,8 @@ if [[ "${TNM_RYU_POWERKEEPER_MODE:-full-donor-dex}" == "full-donor-dex" ]]; then
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_ryu_uid_policy_apk.py" \
     --apk "$tmp/final/PowerKeeper.aligned.apk"
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_perfhook_apk.py" \
-    --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/ryu-full-port.json"
+    --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/ryu-full-port.json" \
+    --baksmali "$work_dir/bin/apktool/baksmali.jar"
   python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/verify_tnm_framework_apk.py" \
     --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/ryu-full-port.json"
   report_dir="$work_dir/build/reports/powerkeeper-a16"
