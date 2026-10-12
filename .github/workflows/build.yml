@@ -311,28 +311,6 @@ jobs:
           sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
             "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
 
-      - name: Publish patched PowerKeeper identity and DEX reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: HyperMOS-PowerKeeper-Xiaomi-Certificate-Identity
-          path: build/reports/powerkeeper-a16/
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Publish RYU CPU/thermal retention audit
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: HyperMOS-RYU-CPU-Thermal-Audit
-          path: |
-            build/reports/performance/ryu-cpu-thermal-final.json
-            build/reports/performance/ryu-perfhook-access.json
-            build/baserom/ryu-test-perf-manifest.json
-            build/baserom/ryu-test-thermal-profiles.json
-          if-no-files-found: warn
-          retention-days: 7
-
       - name: Ensure root manager is not preinstalled
         if: ${{ inputs.root_mode == 'root' }}
         shell: bash
