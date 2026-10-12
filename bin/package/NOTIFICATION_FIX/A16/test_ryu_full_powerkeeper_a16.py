@@ -93,7 +93,9 @@ class FullRyuPort(unittest.TestCase):
         self.assertIn(expected_call, patched)
         self.assertLess(patched.index("move-object/from16 v7, p0"),
                         patched.index("invoke-direct {v7, p1}"))
-        self.assertNotIn("invoke-direct {p0, p1}, Lcom/android/tnm/perf/PerfHook;", patched)
+        # The donor has one VALID early readTrimmed(p0, p1); only the new
+        # mismatch read must use v7 after p0 is repurposed.
+        self.assertEqual(patched.count("invoke-direct {p0, p1}, Lcom/android/tnm/perf/PerfHook;"), 1)
         overwritten = fixture.replace(
             "    if-nez v1, :cond_2",
             "    move-object p0, p1\n    if-nez v1, :cond_2")
