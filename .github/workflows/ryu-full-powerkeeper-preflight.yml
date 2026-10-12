@@ -25,6 +25,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Test PerfHook receiver register regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p 'test_ryu_full_powerkeeper_a16.py' -v
       - name: Download and verify original RYU HAOTIAN PowerKeeper
         shell: bash
         run: |
