@@ -130,6 +130,70 @@ thermal_readback() {
             /system/bin/tail -n 12 || true
     fi
 }
+
+# Read-only investigation of "Write did not stick"; never force frequencies,
+# alter permissions, or disable Xiaomi/Qualcomm thermal safeguards.
+inspect_sysfs_node() {
+    node="$1"
+    if [ -e "$node" ]; then
+        /system/bin/ls -ldZ "$node" 2>/dev/null || echo "node_metadata_unavailable=$node"
+        echo "node_value $node=$(read_node "$node")"
+    else
+        echo "node_missing=$node"
+    fi
+}
+perfhook_diagnose() {
+    empty "$@"
+    echo diagnostics=read_only
+    echo "selinux_enforcing=$(read_node /sys/fs/selinux/enforce)"
+    pids=$(/system/bin/pidof com.miui.powerkeeper 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        pid=$(printf '%s\n' "$pids" | /system/bin/cut -d ' ' -f 1)
+        echo "powerkeeper_pid=$pid"
+        echo "powerkeeper_context=$(read_node "/proc/$pid/attr/current")"
+        if [ -r "/proc/$pid/status" ]; then
+            /system/bin/grep -E '^(Uid|Gid|Groups):' "/proc/$pid/status" || true
+        fi
+    else
+        echo powerkeeper_pid=not_running
+    fi
+    echo "projectryu_thermal_per_app=$(sys projectryu_thermal_per_app)"
+    echo "projectryu_thermal_sconfig=$(sys projectryu_thermal_sconfig)"
+    echo "projectryu_thermal_profiles=$(sys projectryu_thermal_profiles)"
+    echo "--- thermal message (RYU PerfHook sconfig target) ---"
+    inspect_sysfs_node /sys/class/thermal/thermal_message/sconfig
+    echo "--- GPU bounds (KGSL) ---"
+    for node in /sys/class/kgsl/kgsl-3d0/devfreq/min_freq /sys/class/kgsl/kgsl-3d0/devfreq/max_freq /sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies; do
+        inspect_sysfs_node "$node"
+    done
+    echo "--- CPU policy bounds ---"
+    for policy in /sys/devices/system/cpu/cpufreq/policy*; do
+        [ -d "$policy" ] || continue
+        for leaf in scaling_min_freq scaling_max_freq cpuinfo_min_freq cpuinfo_max_freq scaling_available_frequencies; do
+            inspect_sysfs_node "$policy/$leaf"
+        done
+        min=$(read_node "$policy/scaling_min_freq")
+        max=$(read_node "$policy/scaling_max_freq")
+        case "$min:$max" in
+            *[!0-9:]*|:*|*:) ;;
+            *) if [ "$min" -gt "$max" ]; then
+                echo "invalid_cpu_range=$policy min=$min max=$max"
+               fi ;;
+        esac
+    done
+    if [ -x /system/bin/logcat ]; then
+        echo "--- RYU PerfHook recent log ---"
+        /system/bin/logcat -d -t 1500 -s 'ProjectRYU-Perf:V' '*:S' 2>/dev/null |
+            /system/bin/tail -n 60 || true
+        echo "--- filtered SELinux denials (if retained) ---"
+        /system/bin/logcat -d -b kernel -t 2000 2>/dev/null |
+            /system/bin/grep -iE 'avc: denied.*(powerkeeper|sysfs|thermal|kgsl|cpufreq)' |
+            /system/bin/tail -n 25 || true
+    fi
+    echo readback_cannot_identify_vendor_writer=yes
+    echo remediation=classify_dac_selinux_invalid_range_or_vendor_override_before_changes
+}
+
 change_display() {
     [ "$#" -eq 1 ] || exit 2
     case "$1" in auto|60|120) ;; *) exit 2 ;; esac
@@ -177,7 +241,7 @@ case "$cmd" in
         empty "$@"
         echo status.read; echo power.status; echo power.saver
         echo notifications.status; echo display.status
-        if ryu; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; echo thermal.readback; fi
+        if ryu; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; echo thermal.readback echo perfhook.diagnose; fi
         if fps_supported; then echo display.mode; fi
         ;;
     status) empty "$@"; status ;;
@@ -198,6 +262,7 @@ case "$cmd" in
         exec "$RYU" profiles
         ;;
     thermal.readback) empty "$@"; thermal_readback ;;
+    perfhook.diagnose) perfhook_diagnose "$@" ;;
     thermal.status)
         empty "$@"
         ryu || { echo 'PerfHook unavailable' >&2; exit 3; }

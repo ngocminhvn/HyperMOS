@@ -17,6 +17,8 @@ assert "power.saver" in src and "thermal.perapp" in src
 assert "display.mode" in src
 assert "notifications.status" in src
 assert "thermal.readback" in src
+assert "perfhook.diagnose" in src
+assert "remediation=classify_dac_selinux_invalid_range_or_vendor_override_before_changes" in src
 assert "persisted_settings_do_not_prove_perfhook_effect=yes" in src
 assert "<permission name=\"android.permission.POWER_SAVER\" />" in Path("bin/modfile/UpdateFile/TNM/privapp-permissions-tnm.xml").read_text()
 
@@ -73,6 +75,9 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     code=code.replace('/system/bin/awk',shutil.which('awk'))
     code=code.replace('/system/bin/sleep',shutil.which('sleep'))
     code=code.replace('/system/bin/cat',shutil.which('cat'))
+    code=code.replace('/system/bin/ls',shutil.which('ls'))
+    code=code.replace('/system/bin/cut',shutil.which('cut'))
+    code=code.replace('/system/bin/tail',shutil.which('tail'))
     code=code.replace('/data/adb/tnm/state',str(p/'state'))
     runner=p/"tnm-frameworkctl"
     runner.write_text(code)
@@ -112,5 +117,12 @@ printf '%s\n' "$*" >> "$MOCK/ryu_calls"
     assert "frequency_limit_owner=not_verified" in diagnostic.stdout
     assert (mock/"system-projectryu_thermal_sconfig").read_text()=="0"
     assert run("thermal.readback","unexpected").returncode!=0
+    diagnosis=run("perfhook.diagnose")
+    assert diagnosis.returncode==0, diagnosis.stderr
+    assert "diagnostics=read_only" in diagnosis.stdout
+    assert "powerkeeper_pid=not_running" in diagnosis.stdout
+    assert "remediation=classify_dac_selinux_invalid_range_or_vendor_override_before_changes" in diagnosis.stdout
+    assert (mock/"system-projectryu_thermal_sconfig").read_text()=="0"
+    assert run("perfhook.diagnose","unexpected").returncode!=0
     assert run("unsupported.action").returncode!=0
 print("TNMFramework mock ROM safety/protocol tests: PASS")
