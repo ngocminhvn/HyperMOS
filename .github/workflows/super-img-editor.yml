@@ -23,14 +23,6 @@ on:
         options:
           - drive
           - pixeldrain
-      builder_id:
-        description: 'Telegram chat ID (optional)'
-        required: false
-        type: string
-      source_sha256:
-        description: 'Expected ROM download SHA-256 (optional)'
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -43,6 +35,4 @@ jobs:
       input_url: ${{ inputs.input_url }}
       root_mode: ${{ inputs.root_mode }}
       upload_method: ${{ inputs.upload_method }}
-      builder_id: ${{ inputs.builder_id }}
-      source_sha256: ${{ inputs.source_sha256 }}
     secrets: inherit
