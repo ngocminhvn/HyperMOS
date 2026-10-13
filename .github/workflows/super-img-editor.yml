@@ -1,0 +1,48 @@
+name: Super IMG Editor
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_url:
+        description: 'Link ROM mod (ZIP co super.img)'
+        required: true
+        type: string
+      root_mode:
+        description: 'KernelSU Next root or preserve original root/stock'
+        required: true
+        type: choice
+        default: root
+        options:
+          - root
+          - stock
+      upload_method:
+        description: 'Upload with Rclone or Pixeldrain'
+        required: true
+        type: choice
+        default: drive
+        options:
+          - drive
+          - pixeldrain
+      builder_id:
+        description: 'Telegram chat ID (optional)'
+        required: false
+        type: string
+      source_sha256:
+        description: 'Expected ROM download SHA-256 (optional)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  run-super-img-editor:
+    # Only a small UI launcher is on main. All ROM editing code stays on super-img-editor.
+    uses: ngocminhvn/HyperMOS/.github/workflows/super-editor.yml@super-img-editor
+    with:
+      input_url: ${{ inputs.input_url }}
+      root_mode: ${{ inputs.root_mode }}
+      upload_method: ${{ inputs.upload_method }}
+      builder_id: ${{ inputs.builder_id }}
+      source_sha256: ${{ inputs.source_sha256 }}
+    secrets: inherit
