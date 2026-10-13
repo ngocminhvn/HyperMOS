@@ -1,6 +1,5 @@
-# HyperMOS Lock: property sync after Android has completed boot.
-# Runs asynchronously so a failed property write cannot block init.
-on property:sys.boot_completed=1
-    exec_background - root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.flash.locked 1
-    exec_background - root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.vbmeta.device_state locked
-    exec_background - root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.verifiedbootstate green
+# HyperMOS Lock: synchronous property writes during post-fs-data.
+on post-fs-data
+    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.flash.locked 1
+    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.vbmeta.device_state locked
+    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.verifiedbootstate green

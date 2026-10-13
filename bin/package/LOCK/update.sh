@@ -18,5 +18,5 @@ rc="$work_dir/bin/package/LOCK/system/etc/init/hypermos-lock.rc"
 install -D -m 0755 "$binary" "$system_ext/xbin/hypermos-resetprop"
 install -D -m 0644 "$rc" "$system/etc/init/hypermos-lock.rc"
 
-mods "LOCK: bundled standalone resetprop and post-boot property sync"
+mods "LOCK: bundled standalone resetprop and synchronous post-fs-data property sync"
 info "LOCK: Kaorios hooks and AVB images left unchanged"
