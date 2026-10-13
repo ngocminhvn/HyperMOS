@@ -73,7 +73,7 @@ python3 "$base_dir/verify_tnm_framework_apk.py" \
 
 report_dir="$work_dir/build/reports/powerkeeper-a16"
 mkdir -p "$report_dir"
-cp "$tmp/port-report.json" "$report_dir/ryu-full-port.json"
+cp "$tmp/port-report.json" "$report_dir/powerkeeper-port.json"
 cp "$tmp/certificate-identity.json" "$report_dir/certificate-identity.json"
 cp "$tmp/final-identity.json" "$report_dir/final-identity.json"
 cp "$tmp/final/PowerKeeper.aligned.apk" "$apk"
