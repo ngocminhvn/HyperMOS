@@ -23,10 +23,9 @@ def digest(path):
 
 def source_url():
     incoming = os.environ.get("INPUT_URL", "").strip()
-    if incoming:
-        return incoming
-    cfg = json.loads(Path("config.json").read_text())
-    return cfg.get("source_rom_url", "") or cfg.get("source_super_url", "")
+    if not incoming:
+        raise RuntimeError("Missing input_url from GitHub Actions Run workflow form")
+    return incoming
 
 def download():
     url = source_url()

@@ -31,11 +31,6 @@ on:
         description: 'Input ROM SHA256 (optional, recommended)'
         required: false
         type: string
-  push:
-    branches:
-      - super-img-editor
-    paths:
-      - config.json
 
 permissions:
   contents: read
@@ -47,15 +42,39 @@ concurrency:
 jobs:
   preflight:
     runs-on: ubuntu-24.04
-    outputs:
-      ready: ${{ steps.source.outputs.ready }}
-      upload_method: ${{ steps.source.outputs.upload_method }}
-      root_mode: ${{ steps.source.outputs.root_mode }}
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: false
-      - name: Compile-check editor scripts
+
+      - name: Validate manual inputs
+        env:
+          INPUT_URL: ${{ inputs.input_url }}
+          ROOT_MODE: ${{ inputs.root_mode }}
+          UPLOAD_METHOD: ${{ inputs.upload_method }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from urllib.parse import urlsplit
+          source = os.environ.get("INPUT_URL", "").strip()
+          parsed = urlsplit(source)
+          if parsed.scheme not in ("https", "http") or not parsed.hostname:
+              raise SystemExit("input_url must be an absolute HTTP(S) link to a ROM ZIP or super.img")
+          if parsed.username or parsed.password:
+              raise SystemExit("Do not put credentials inside the input_url")
+          if os.environ.get("ROOT_MODE") not in ("root", "stock"):
+              raise SystemExit("root_mode must be root or stock")
+          if os.environ.get("UPLOAD_METHOD") not in ("drive", "pixeldrain"):
+              raise SystemExit("upload_method must be drive or pixeldrain")
+          check = os.environ.get("SOURCE_SHA256", "").strip()
+          if check and not re.fullmatch(r"[0-9a-fA-F]{64}", check):
+              raise SystemExit("source_sha256 must be 64 hex digits")
+          print("Manual build inputs accepted; link content will be checked during download.")
+          PY
+
+      - name: Compile-check editor and root scripts
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/*.py Root/detect_kernel_kmi.py
@@ -63,42 +82,15 @@ jobs:
           bash -n Root/patch_init_boot.sh
           sh -n Root/stage_root_manager.sh
 
-      - name: Check whether a source URL has been supplied
-        id: source
-        env:
-          INPUT_URL: ${{ inputs.input_url }}
-          INPUT_UPLOAD_METHOD: ${{ inputs.upload_method }}
-          INPUT_ROOT_MODE: ${{ inputs.root_mode }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          c=json.loads(Path("config.json").read_text())
-          url=(os.environ.get("INPUT_URL") or c.get("source_rom_url") or c.get("source_super_url") or "").strip()
-          ready="true" if url.startswith(("https://","http://")) else "false"
-          method=(os.environ.get("INPUT_UPLOAD_METHOD") or c.get("upload_method") or "drive").strip().lower()
-          if method not in ("drive","pixeldrain"):
-              raise SystemExit("upload_method must be drive or pixeldrain")
-          root_mode=(os.environ.get("INPUT_ROOT_MODE") or c.get("root_mode") or "root").strip().lower()
-          if root_mode not in ("root","stock"):
-              raise SystemExit("root_mode must be root or stock")
-          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
-              f.write("ready="+ready+chr(10))
-              f.write("upload_method="+method+chr(10))
-              f.write("root_mode="+root_mode+chr(10))
-          print("ROM input provided:",ready)
-          PY
-
   edit-rom:
     needs: preflight
-    if: needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
       INPUT_URL: ${{ inputs.input_url }}
       SOURCE_SHA256: ${{ inputs.source_sha256 }}
-      UPLOAD_METHOD: ${{ needs.preflight.outputs.upload_method }}
-      ROOT_MODE: ${{ needs.preflight.outputs.root_mode }}
+      UPLOAD_METHOD: ${{ inputs.upload_method }}
+      ROOT_MODE: ${{ inputs.root_mode }}
       GH_TOKEN: ${{ github.token }}
       BUILDER_ID: ${{ inputs.builder_id }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

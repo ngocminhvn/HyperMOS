@@ -15,8 +15,24 @@ Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate
 
 **This is not the HyperMOS stock-ROM build workflow.** A full OTA `payload.bin` without a `super.img` is rejected, not silently converted into a different ROM. ZIPs containing more than one `super.img` are also rejected.
 
-## Non-default-branch Actions limitation
-GitHub may not show the *Run workflow* UI for a workflow that only exists on a non-default branch. We do not modify `main`. You can instead set `source_rom_url` in `config.json` and push it to `super-img-editor` to start a run. Set `root_mode` to `root`/`stock` and `upload_method` to `drive`/`pixeldrain` in `config.json` for push runs; manual inputs override it. Avoid writing private URLs with access tokens into public Git history.
+## Running a manual build
+
+The only build input is the **GitHub Actions manual form**. You do **not** edit `config.json` (it has been deleted). Choose:
+
+- `input_url`: direct HTTPS/HTTP URL to a previously modded ROM ZIP containing `super.img` (or to a standalone `super.img` in stock mode).
+- `root_mode`: `root` (default) or `stock` (does not modify init_boot).
+- `upload_method`: `drive` or `pixeldrain`.
+- `builder_id`: optional Telegram recipient.
+- `source_sha256`: optional expected download hash.
+
+**GitHub default-branch requirement:** The GitHub website only displays the **Run workflow** button for workflows that exist on the repository's default branch. This project deliberately does not modify `main` without express approval. After the workflow has been registered by GitHub, it may be dispatched against `super-img-editor` using GitHub CLI:
+
+```powershell
+gh auth login
+gh workflow run super-editor.yml --ref super-img-editor -f "input_url=https://example.com/your-modded-rom.zip" -f root_mode=root -f upload_method=drive
+```
+
+To enable the **web form** while isolating all ROM code on `super-img-editor`, add a **small workflow_dispatch dispatcher** on `main` by explicit authorization; that dispatcher can call the branch workflow via `workflow_call`. Do not copy the full editor or mods to `main`.
 
 ## Mods already in the branch
 * `Mods/Boot/bootanimation.zip`
@@ -40,7 +56,7 @@ The editor uses the repository's local `Linux/` and `Tools/` binaries, plus a ve
 ```cmd
 cd /d D:\\super-img-editor
 git pull --ff-only origin super-img-editor
-git add Mods config.json
+git add Mods
 git commit -m "Update ROM assets"
 git push origin super-img-editor
 ```
