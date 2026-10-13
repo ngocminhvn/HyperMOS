@@ -7,9 +7,6 @@ on:
         description: 'Xiaomi 15 Pro HAOTIAN stock OS3.0.308.0 (Android 16)'
         required: true
         default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
-      builder_name:
-        description: 'Builder name'
-        required: false
       builder_id:
         description: 'Builder ID'
         required: false
@@ -187,7 +184,7 @@ jobs:
           chmod +x bin/Linux/x86_64/* 2>/dev/null || true
 
           python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
-            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" || echo "[WARN] - Start notification failed"
+            "${{ inputs.builder_id }}" || echo "[WARN] - Start notification failed"
 
           if [ "${{ inputs.upload_method }}" = "drive" ]; then
             echo "[INFO] - Validate Drive upload config"
@@ -205,7 +202,7 @@ jobs:
           set -euo pipefail
           echo "[PHASE] - Build ROM" | tee -a build_action.log
           sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
-            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
+            "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
 
       - name: Patch KernelSU Next into init_boot
         if: ${{ inputs.root_mode == 'root' }}
@@ -232,7 +229,7 @@ jobs:
         run: |
           set -euo pipefail
           python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
-            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" || true
+            "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log
           sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
 
@@ -246,7 +243,7 @@ jobs:
         run: |
           set -euo pipefail
           python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
-            "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" || true
+            "${{ inputs.builder_id }}" || true
 
           echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
           sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
@@ -311,16 +308,16 @@ jobs:
                 export NOTIFY_DOWNLOAD_URL="$RCLONE_DOWNLOAD_URL"
               fi
               python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
-                "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+                "${{ inputs.builder_id }}"
               ;;
             cancelled)
               export NOTIFY_ERROR_REASON="Workflow was cancelled before completion."
               python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
-                "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+                "${{ inputs.builder_id }}"
               ;;
             *)
               python notify.py fail "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
-                "${{ inputs.builder_name }}" "${{ inputs.builder_id }}"
+                "${{ inputs.builder_id }}"
               ;;
           esac
           exit 0

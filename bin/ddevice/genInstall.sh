@@ -48,7 +48,6 @@ cat <<EOF > "$OUTPUT_FILE"
     "ToolBuild": {
         "Version": "${starxVER:-1.0}",
         "BuildDate": "${build_date}",
-        "Author": "${builder_name:-Nothings}",
         "BuildType": "PureStock-Release"
     },
     "Directory": {

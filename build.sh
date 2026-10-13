@@ -1,8 +1,7 @@
 baserom="$1"
 repo_name="$2"
 prefix_id="$3"
-export builder_name="$4"
-builder_id="$5"
+builder_id="$4"
 work_dir=$(pwd)
 # Import functions
 tools_dir=${work_dir}/bin/$(uname)/$(uname -m)export PATH=$(pwd)/bin/$(uname)/$(uname -m)/:$PATH
@@ -23,11 +22,11 @@ rm -rf $work_dir/out
 rm -rf $work_dir/build
 
 phase "1/4 Download and inspect base ROM"
-python3 $work_dir/notify.py download "$repo_name" "$baserom" "$prefix_id" "$builder_name" "$builder_id"
+python3 $work_dir/notify.py download "$repo_name" "$baserom" "$prefix_id" "$builder_id"
 source "$work_dir/bin/ddevice/getROM.sh" "$baserom"
 
 phase "2/4 Extract base ROM"
-python3 $work_dir/notify.py unpack "$repo_name" "$baserom" "$prefix_id" "$builder_name" "$builder_id"
+python3 $work_dir/notify.py unpack "$repo_name" "$baserom" "$prefix_id" "$builder_id"
 if unzip -l ${baserom} | grep -q "payload.bin"; then
     baserom_type="payload"
     echo $baserom_type > $work_dir/bin/ddevice/romtype.txt
@@ -131,7 +130,7 @@ mods "Gathering device information"
 bash $work_dir/bin/ddevice/fetchINFO.sh
 
 # Gửi thông báo đang Build với đầy đủ Codename và Version
-python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_name" "$builder_id"
+python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_id"
 
 bash $work_dir/bin/ddevice/DEBLOAT/debloat.sh
 info "Done"

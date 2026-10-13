@@ -542,7 +542,7 @@ def add_link(lines, label: str, url: str, text: str):
     lines.append(f"• <b>{escape(label)}:</b> <a href=\"{escape(url)}\">{escape(text)}</a>")
 
 
-def compose_message(status, repo_name, rom_link, build_id, builder_name):
+def compose_message(status, repo_name, rom_link, build_id):
     status = normalize_status(status)
     marker, status_title, status_desc = STATUS_INFO.get(
         status,
@@ -554,7 +554,6 @@ def compose_message(status, repo_name, rom_link, build_id, builder_name):
         write_file("bin/ddevice/last_status.txt", status)
 
     action_url = build_action_url(repo_name)
-    builder_text = builder_name if builder_name else "Hệ thống"
     device_info = collect_device_info()
     run_info = collect_run_info(repo_name, build_id)
 
@@ -563,8 +562,6 @@ def compose_message(status, repo_name, rom_link, build_id, builder_name):
         f"• <b>Trạng thái:</b> <code>{escape(marker)}</code> — <b>{escape(status_title)}</b>",
         f"• <b>Mã build:</b> <code>{escape(build_id)}</code>",
     ]
-
-    add_field(lines, "Người build", builder_text)
 
     for label in ("Thiết bị", "Mã thiết bị", "ROM nền", "Android / SDK", "File output"):
         add_field(lines, label, device_info.get(label), code=True)
@@ -642,9 +639,9 @@ def delete_telegram_message(base_url: str, chat_id: str, message_id) -> bool:
     return False
 
 
-def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id=None, build_id="Không rõ", builder_name="", builder_id=""):
+def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id=None, build_id="Không rõ", builder_id=""):
     status = normalize_status(status)
-    message = compose_message(status, repo_name, rom_link, build_id, builder_name)
+    message = compose_message(status, repo_name, rom_link, build_id)
 
     base_url = f"https://api.telegram.org/bot{bot_token}"
     payload = {
@@ -744,15 +741,14 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print("Cách dùng: python notify.py <status> <repo_name> <rom_link> [prefix_id] [builder_name] [builder_id]")
+        print("Cách dùng: python notify.py <status> <repo_name> <rom_link> [prefix_id] [builder_id]")
         sys.exit(1)
 
     status_arg = sys.argv[1]
     repo_name_arg = sys.argv[2]
     rom_link_arg = sys.argv[3]
     prefix = sys.argv[4] if len(sys.argv) > 4 else "build"
-    builder_name_arg = sys.argv[5] if len(sys.argv) > 5 else ""
-    builder_id_arg = sys.argv[6] if len(sys.argv) > 6 else ""
+    builder_id_arg = sys.argv[5] if len(sys.argv) > 5 else ""
 
     bot_token_arg = os.environ.get("TELEGRAM_BOT_TOKEN")
     channel_id_arg = os.environ.get("TELEGRAM_CHANNEL_ID")
@@ -778,6 +774,5 @@ if __name__ == "__main__":
         bot_token_arg,
         msg_id_arg,
         build_id_arg,
-        builder_name_arg,
         builder_id_arg,
     )
