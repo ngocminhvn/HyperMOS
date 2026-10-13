@@ -16,7 +16,7 @@ fi
 
 # Validated RYU performance import is supported on HAOTIAN main and test branches.
 case "${GITHUB_REF_NAME:-}" in
-  main|Lock|test-ryu-performance-haotian|test-tnm-ryu-haotian)
+  main|Lock|test-ryu-performance-haotian|test-tnm-ryu-haotian|test-powerkeeper-dex-cleanup)
     ;;
   *)
     error "RYU FULL PERF: unsupported branch, actual=${GITHUB_REF_NAME:-unknown}"
