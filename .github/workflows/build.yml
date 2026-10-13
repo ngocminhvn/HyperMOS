@@ -144,7 +144,7 @@ jobs:
           python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py
           bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
           case "$GITHUB_REF_NAME" in
-            main|test-ryu-performance-haotian|test-tnm-ryu-haotian) ;;
+            main|Lock|test-ryu-performance-haotian|test-tnm-ryu-haotian) ;;
             *) echo "::error::RYU performance profile requires a supported HAOTIAN branch"; exit 1 ;;
           esac
           zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
