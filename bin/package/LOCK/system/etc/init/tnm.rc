@@ -1,0 +1,5 @@
+# TNM: synchronous boot property sync during post-fs-data.
+on post-fs-data
+    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.flash.locked 1
+    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.vbmeta.device_state locked
+    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.verifiedbootstate green

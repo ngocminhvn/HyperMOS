@@ -144,7 +144,7 @@ bash $work_dir/bin/package/patchpackage.sh || exit 1
 # Fail if any later HyperMOS mod overrode RYU CPU/boost, powerhint or thermal.
 # Checks all ten pinned performance files and the ODM profiles. Never edits
 # governor/cpufreq/thermald or creates a resident service.
-if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
+if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "Lock" || "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
     python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py" \
       --images "$work_dir/build/baserom/images" \
       --report "$work_dir/build/reports/performance/ryu-cpu-thermal-final.json" || {

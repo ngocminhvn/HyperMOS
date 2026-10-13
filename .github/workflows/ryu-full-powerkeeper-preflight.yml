@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   full-dex:
@@ -32,12 +33,32 @@ jobs:
           python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p 'test_ryu_full_powerkeeper_a16.py' -v
       - name: Download and verify original RYU HAOTIAN PowerKeeper
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/ryu-full-pk
-          curl -fL --retry 4 --retry-all-errors --connect-timeout 15 --max-time 180 \
-            'https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-ryu-9fbacea/RYUOS_HAOTIAN_PowerKeeper.apk' \
-            -o /tmp/ryu-full-pk/RYUOS_HAOTIAN_PowerKeeper.apk
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts"
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api?name=RYUOS-HAOTIAN-PowerKeeper&per_page=100" \
+            -o /tmp/ryu-full-pk/artifacts.json
+          artifact_id="$(jq -er '
+            [.artifacts[] |
+              select(.name == "RYUOS-HAOTIAN-PowerKeeper" and .expired == false)] |
+            sort_by(.created_at) | last | .id // empty
+          ' /tmp/ryu-full-pk/artifacts.json)" || {
+            echo "::error::RYU donor artifact expired; re-run extraction workflow."
+            exit 1
+          }
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api/${artifact_id}/zip" -o /tmp/ryu-full-pk/donor.zip
+          unzip -tq /tmp/ryu-full-pk/donor.zip
+          unzip -jo /tmp/ryu-full-pk/donor.zip 'RYUOS_HAOTIAN_PowerKeeper.apk' \
+            -d /tmp/ryu-full-pk
           echo '7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  /tmp/ryu-full-pk/RYUOS_HAOTIAN_PowerKeeper.apk' | sha256sum -c -
       - name: Decode original RYU DEX and compile full port
         shell: bash

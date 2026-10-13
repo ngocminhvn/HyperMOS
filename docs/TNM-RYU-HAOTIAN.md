@@ -5,22 +5,30 @@ ROM: `ngocminhvn/HyperMOS@test-tnm-ryu-haotian`, based on
 App: `ngocminhvn/app@test-tnm-ryu-haotian`, based on
 `codex/ryu-thermal-ui` at `0ff35e40e214bda7ea9a62093da555731e83ff94`.
 
-## Matching ROM and APK
+## Latest TNM APK during ROM builds
 
-1. Build the app branch using **Build TNM APK**. Download its `TNM-updater`
-   artifact. This branch builds with the existing TNM signing key and does
-   not deploy to the stable Pages update channel.
-   The experimental app does not fetch stable Pages updates; update it with
-   the matching signed APK artifact from this branch.
-2. Make the signed `TNM.apk` available at a direct HTTPS download URL. Use
-   the APK's `sha256` from the artifact's `update.json` (not `packageSha256`,
-   which hashes the compressed `.xz` file).
-3. Run **HyperMOS ROM Build** on this ROM branch with `tnm_test_apk_url`
-   and `tnm_test_apk_sha256`. Missing inputs fail before ROM download.
-   The installer verifies SHA-256, APK signature, TNM package/version,
-   embedded framework capability contract and native libraries before staging.
-4. Test notifications, foreground app switching, screen-off restoration,
-   battery drain and thermal behavior on Xiaomi 15 Pro / HAOTIAN Android 16.
+The ROM workflow downloads the latest **signed TNM app** from
+`ngocminhvn/app@main` through GitHub Pages:
+
+- Manifest: `https://ngocminhvn.github.io/app/update.json`
+- APK: `TNM.apk` or `TNM.apk.xz`, as specified by the manifest
+- Integrity: `packageSha256` from the manifest (SHA-256 checked before extraction)
+
+No `tnm_test_apk_url` or `tnm_test_apk_sha256` Action inputs are needed.
+The installer also validates APK signature, package name, minimum version,
+manifest versionCode/versionName, framework backend capability contract and
+ARM64 native libraries before staging it as a privileged app.
+
+**Important:** This selects the latest *published* `app/main` version,
+not an unbuilt or unpublished commit on an experimental app branch.
+The RYU PowerKeeper donor APK is a separate dependency, not the TNM app.
+Because the old release URL returns HTTP 404, ROM build and RYU DEX preflight
+look up the newest unexpired `RYUOS-HAOTIAN-PowerKeeper` Actions extraction
+artifact from this repository. Its original SHA-256 is still pinned to
+`7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108`.
+The current extraction artifact expires on **2026-10-19 UTC**; before then,
+renew the extraction artifact or migrate the donor to a durable authorized
+storage location. Builds fail closed if the reference expires or hash differs.
 
 ## Framework, notifications and app behavior
 
@@ -131,6 +139,6 @@ RYU framework equivalence.
 
 ### Full audit follow-up
 
-ROM-side thermal changes are serialized across separate clients. A complete batch is validated before taking the lock; previous Settings are captured, writes are read back, and failures restore the previous map, global selection and activation mode. Missing Settings are restored by deletion rather than writing the literal `null`. Protected profiles stay excluded. The TNM test APK contract now requires profile discovery support. The PowerKeeper donor is downloaded from a stable release URL with the same pinned SHA-256, instead of a CI artifact scheduled to expire on 2026-10-16. The signed TNM APK remains commit 9fbacea; no app code change is needed for these controller fixes.
+ROM-side thermal changes are serialized across separate clients. A complete batch is validated before taking the lock; previous Settings are captured, writes are read back, and failures restore the previous map, global selection and activation mode. Missing Settings are restored by deletion rather than writing the literal `null`. Protected profiles stay excluded. The TNM APK is selected automatically from the latest published app/main updater manifest, not pinned to a historical test APK. The PowerKeeper donor is separately SHA-256 pinned and must remain available to the ROM workflow.
 
 Locks use the kernel boot ID and are removed on normal exits and catchable signals. A writer killed with SIGKILL cannot run rollback; its lock is retained for that boot to prevent concurrent clients from incorrectly reaping a newly acquired lock. A reboot creates a fresh lock namespace.
