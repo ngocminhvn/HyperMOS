@@ -163,14 +163,42 @@ jobs:
           PY
           echo "RYU_REF_DIR=$ref" >> "$GITHUB_ENV"
 
-      - name: Fetch pinned RYU PowerKeeper metadata and PerfHook reference
+      # The old tnm-ryu-9fbacea Release URL was removed (HTTP 404).
+      # Recover the original donor from this repository's extraction artifacts.
+      # Artifacts expire; the next RYU extraction run can renew the source.
+      # The following SHA-256 gate always rejects a different APK.
+      - name: Fetch SHA-pinned RYU PowerKeeper from extraction artifact
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ryu-powerkeeper"
-          curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 180 \
-            --output "$RUNNER_TEMP/ryu-powerkeeper/RYUOS_HAOTIAN_PowerKeeper.apk" \
-            'https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-ryu-9fbacea/RYUOS_HAOTIAN_PowerKeeper.apk'
+          target="$RUNNER_TEMP/ryu-powerkeeper"
+          mkdir -p "$target"
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts"
+          metadata="$target/artifacts.json"
+          curl -fsSL --retry 3 --connect-timeout 20 --max-time 60 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api?name=RYUOS-HAOTIAN-PowerKeeper&per_page=100" -o "$metadata"
+          artifact_id="$(jq -er '
+            [.artifacts[] |
+              select(.name == "RYUOS-HAOTIAN-PowerKeeper" and .expired == false)] |
+            sort_by(.created_at) | last | .id // empty
+          ' "$metadata")" || {
+            echo "::error::RYU PowerKeeper extraction artifact unavailable/expired. Re-run the RYU extraction workflow to refresh it."
+            exit 1
+          }
+          echo "[RYU] Downloading validated extraction artifact ID ${artifact_id}"
+          archive="$target/ryu-powerkeeper-artifact.zip"
+          curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api/${artifact_id}/zip" -o "$archive"
+          unzip -tq "$archive"
+          unzip -jo "$archive" 'RYUOS_HAOTIAN_PowerKeeper.apk' -d "$target"
+          test -s "$target/RYUOS_HAOTIAN_PowerKeeper.apk"
+          rm -f "$archive" "$metadata"
 
       - name: Validate PowerKeeper reference
         shell: bash
