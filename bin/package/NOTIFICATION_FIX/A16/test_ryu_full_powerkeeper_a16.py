@@ -9,7 +9,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-spec = importlib.util.spec_from_file_location("full_ryu", HERE / "ryu_full_powerkeeper_a16.py")
+spec = importlib.util.spec_from_file_location("full_ryu", HERE / "powerkeeper.py")
 full = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(full)
 

@@ -78,11 +78,18 @@ fi
 # Bit-for-bit match proves the compiled APK survived partition filesystem packing.
 cmp -s "$apk" "$packed" || fail "packed PowerKeeper differs from the verified staging APK"
 unzip -tq "$packed" >/dev/null || fail "packed APK ZIP structure is corrupted"
-reference="${RYU_POWERKEEPER_APK:-}"
-[[ -s "$reference" ]] || fail "pinned RYU metadata reference missing"
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py" \
-  --apk "$packed" --reference "$reference" || fail "packed Xiaomi certificate metadata changed"
 report="$work_dir/build/reports/powerkeeper-a16/final-identity.json"
+[[ -s "$report" ]] || fail "validated stock identity report missing"
+python3 - "$packed" "$report" <<'PYMETA'
+import hashlib, json, sys, zipfile
+from pathlib import Path
+apk = Path(sys.argv[1])
+identity = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+with zipfile.ZipFile(apk) as z:
+    entries = {n: hashlib.sha256(z.read(n)).hexdigest()
+               for n in z.namelist() if n.upper().startswith("META-INF/") and not n.endswith("/")}
+assert entries == identity["metadata_sha256"], "Packed Xiaomi metadata differs"
+PYMETA
 python3 - "$report" "$packed" <<'PYVERIFY'
 import hashlib,json,sys
 from pathlib import Path

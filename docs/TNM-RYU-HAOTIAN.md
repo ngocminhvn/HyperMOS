@@ -21,14 +21,17 @@ ARM64 native libraries before staging it as a privileged app.
 
 **Important:** This selects the latest *published* `app/main` version,
 not an unbuilt or unpublished commit on an experimental app branch.
-The RYU PowerKeeper donor APK is a separate dependency, not the TNM app.
-Because the old release URL returns HTTP 404, ROM build and RYU DEX preflight
-look up the newest unexpired `RYUOS-HAOTIAN-PowerKeeper` Actions extraction
-artifact from this repository. Its original SHA-256 is still pinned to
-`7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108`.
-The current extraction artifact expires on **2026-10-19 UTC**; before then,
-renew the extraction artifact or migrate the donor to a durable authorized
-storage location. Builds fail closed if the reference expires or hash differs.
+The PowerKeeper build reads `bin/package/NOTIFICATION_FIX/A16/classes.dex`
+directly from the repository. It no longer fetches or requires the original
+donor APK or an expiring GitHub Actions artifact. At build time it constructs a
+temporary decode-only APK from the original Xiaomi stock Manifest/resources
+and the local DEX; that temporary APK is never shipped.
+
+The final PowerKeeper continues to use the original Xiaomi stock package
+resources and certificate metadata. A modified APK does **not** acquire a valid
+Xiaomi signature merely by retaining this metadata; the existing ROM verifier
+dependency remains. The new local-DEX flow has not passed a complete ROM build
+or device-runtime test yet.
 
 ## Framework, notifications and app behavior
 
@@ -37,7 +40,7 @@ original performance XMLs plus nineteen selected thermal profiles. The default
 PowerKeeper path is now `full-donor-dex`: transplant all 2,974 verified
 RYUOS executable classes (including 20 PerfHook classes and UID/GMS policy)
 into the Xiaomi APK while retaining its original Manifest/resources.
-This is verified in CI, not yet proven to boot or operate on the phone.
+The local-DEX migration requires a fresh ROM build and device-runtime test.
 
 TNM app calls `tnm-bridge` -> its signed APK backend `tnmctl` ->
 `/system_ext/bin/tnm-frameworkctl` -> `/system_ext/bin/tnm-thermalctl`.

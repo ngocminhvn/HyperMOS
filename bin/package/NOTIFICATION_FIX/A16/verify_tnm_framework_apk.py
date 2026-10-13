@@ -10,7 +10,7 @@ import re
 import zipfile
 from pathlib import Path
 
-from ryu_full_powerkeeper_a16 import TNM_API, TNM_METHODS, RYU_OWNER
+from powerkeeper import TNM_API, TNM_METHODS, RYU_OWNER
 from verify_ryu_uid_policy_apk import entries
 
 DEX = re.compile(r"classes(?:[2-9]\d*)?\.dex")

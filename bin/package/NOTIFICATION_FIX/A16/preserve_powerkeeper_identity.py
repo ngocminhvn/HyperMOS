@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Retain Xiaomi certificate identity for the existing patched v1 verifier.
 
-This does NOT create a valid Xiaomi signature. The pinned RYU reference
-provides the original v1 metadata; only compiled DEX is taken from the rebuild.
+This does NOT create a valid Xiaomi signature. The verified Xiaomi stock APK provides the original v1 metadata;
+only compiled DEX is taken from the rebuild.
 The ROM must have the already audited v1/digest bypass enabled.
 """
 import argparse
@@ -17,7 +17,6 @@ import zipfile
 from pathlib import Path
 
 XIAOMI = 'c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025'
-REFERENCE = '7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108'
 DEX = re.compile(r'classes(?:[2-9]|[1-9]\d+)?\.dex\Z')
 
 
@@ -54,8 +53,7 @@ def cert_present(blob):
 
 
 def metadata(reference):
-    if sha(reference) != REFERENCE:
-        raise ValueError('RYU reference SHA256 mismatch')
+    # The metadata source is the signature-verified Xiaomi stock APK.
     with zipfile.ZipFile(reference) as z:
         names = [n for n in z.namelist() if n.upper().startswith('META-INF/') and not n.endswith('/')]
         if len(names) != len(set(names)):
@@ -76,7 +74,7 @@ def verify(apk, reference):
             raise ValueError('Duplicate or damaged APK entries')
         actual = {n: z.read(n) for n in names if n.upper().startswith('META-INF/') and not n.endswith('/')}
         if actual != expected:
-            raise ValueError('Xiaomi v1 metadata differs from pinned reference')
+            raise ValueError('Xiaomi v1 metadata differs from verified stock')
         # The signing-block footer sits immediately before the central directory.
         with apk.open('rb') as fh:
             fh.seek(max(0, z.start_dir - 16))
@@ -86,6 +84,7 @@ def verify(apk, reference):
             raise ValueError('APK contains no DEX')
     return {'mode': 'xiaomi-certificate-preserved-patched-v1',
             'certificate_sha256': XIAOMI, 'sha256': sha(apk),
+            'metadata_sha256': {n: hashlib.sha256(data).hexdigest() for n, data in actual.items()},
             'cryptographic_signature_valid': False,
             'requires_rom_v1_digest_bypass': True, 'runtime_tested': False}
 
@@ -152,7 +151,7 @@ if __name__ == '__main__':
         if not a.apksigner:
             p.error('--check-base requires --apksigner')
         verify_base(a.apk, a.apksigner, a.java)
-        metadata(a.reference)
+        metadata(a.apk)
         result = {'mode': 'verified-xiaomi-base', 'certificate_sha256': XIAOMI, 'sha256': sha(a.apk)}
     elif a.base:
         if not a.patched or not a.apksigner:
