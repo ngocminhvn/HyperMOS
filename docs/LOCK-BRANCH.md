@@ -10,7 +10,9 @@ ro.boot.vbmeta.device_state=locked
 ro.boot.verifiedbootstate=green
 ```
 
-Kaorios remains enabled with its existing `initGenerateSoftwareKeyPair` and `CertificateChainIfNeeded` hooks. The LOCK package does not patch framework DEX, AVB metadata, `boot`, `vendor_boot`, or `init_boot`; it also does not append commands to the stock `init.rc` or add custom SELinux CIL.
+Kaorios remains enabled with its existing `initGenerateSoftwareKeyPair` and `CertificateChainIfNeeded` hooks. The LOCK package does not patch framework DEX, AVB metadata, `boot`, `vendor_boot`, or `init_boot`; it also does not append commands to the stock `init.rc`. Its SELinux change is limited to the bundled resetprop executable.
+
+Device testing on build #129 found that the init action was parsed but all three commands were denied with `execute_no_trans`: the binary had the generic `system_file` label. The package now assigns only `/system_ext/xbin/hypermos-resetprop` the dedicated `tnm_resetprop_exec` type and permits init to execute that type without a domain transition. It removes stale precompiled policy files so Android compiles the updated split CIL during boot. No permission is granted to the generic `system_file` type.
 
 The Kaorios build patch changes Keystore call sites and related framework/services code; the LOCK package installs a binary and init trigger. The bundled Kaorios DEX contains none of the three boot property names. This static check finds no direct write conflict or hook replacement, but cannot prove how Kaorios behaves on a booted device. The `Lock` branch also enables the same TNMFramework, TNM APK, and RYU performance/thermal checks used on `main`.
 
