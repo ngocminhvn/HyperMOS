@@ -56,8 +56,8 @@ seven concrete TNMFramework static APIs:
 `getSystemInt`, `getSystemIntForUser`, `getSystemLong`,
 `getSystemString`, `putSystemInt`, `putSystemLong`,
 `putSystemString`. These delegate to their matching
-`Settings.System` implementations. A compiled DEX verifier refuses
-missing/abstract methods or leftover `ProjectRYUFramework` references.
+`Settings.System` implementations. The PowerKeeper build keeps its
+compatibility rewrites but does not run separate compiled-DEX verifier scripts.
 
 The TNM app already includes ROM diagnostics, battery saver, display presets,
 and notification tools from its base branch. This branch exposes the full
@@ -69,14 +69,16 @@ The shell `TNMFramework` remains an on-demand root adapter; the embedded
 PowerKeeper**, not a system-wide Binder service or extra framework JAR.
 The **20 original RYU PerfHook implementation classes are relocated at build
 time to `com.android.tnm.perf.*`**, with DEX descriptor and Java reflection
-class-name references rewritten throughout the donor bytecode. The compiled
-APK verifier rejects remaining `com.projectryu.perf.*` names/references.
+class-name references rewritten throughout the donor bytecode. The build
+no longer runs separate APK verifier checks after compilation.
 The `projectryu_thermal_*` Settings keys are intentionally unchanged for
 compatibility with the original observer/settings protocol; those names are
 not Java classes or evidence of a ProjectRYUFramework JAR dependency.
 No-limit/charging profiles and thermal safety changes remain outside the port.
 A complete ROM build and on-device test are still required to establish boot
-and functional parity with RYU.
+and functional parity with RYU. The optional PowerKeeper verifier and packed
+image audit steps are removed by request; this does not fix Android ART
+VerifyError or prove that the APK will run on the device.
 
 ## Local RYU framework audit (2026-10-11)
 

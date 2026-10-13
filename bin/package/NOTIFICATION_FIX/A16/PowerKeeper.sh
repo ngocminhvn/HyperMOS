@@ -31,11 +31,6 @@ python3 "$base_dir/powerkeeper.py" prepare-donor \
   --stock-apk "$apk" --dex-file "$dex" --output "$tmp/local-donor.apk"
 $APKEDITOR d -t raw -f -no-dex-debug -i "$tmp/local-donor.apk" -o "$tmp/source" >/dev/null
 
-mapfile -d '' frameworks < <(find "$image_root" -type f -name framework.jar -print0)
-(( ${#frameworks[@]} == 1 )) || { error "PowerKeeper: exactly one framework.jar required"; exit 1; }
-python3 "$base_dir/verify_powerkeeper_rom_verifier.py" \
-  --framework "${frameworks[0]}" --baksmali "$work_dir/bin/apktool/baksmali.jar"
-
 python3 "$base_dir/powerkeeper.py" port \
   --stock-root "$tmp/out" --donor-root "$tmp/source" \
   --stock-apk "$apk" --donor-apk "$tmp/local-donor.apk" \
@@ -46,14 +41,6 @@ $APKEDITOR b -f -i "$tmp/out" -o "$tmp/final/PowerKeeper.apk" >/dev/null
 python3 "$base_dir/rebuild_powerkeeper_dex.py" \
   --decoded "$tmp/out" --apk "$tmp/final/PowerKeeper.apk" \
   --smali-jar "$work_dir/bin/apktool/smaliv2.jar" --api 36
-for candidate in "$tmp/final/PowerKeeper.apk"; do
-  python3 "$base_dir/verify_ryu_uid_policy_apk.py" --apk "$candidate"
-  python3 "$base_dir/verify_perfhook_apk.py" --apk "$candidate" \
-    --report "$tmp/port-report.json" --baksmali "$work_dir/bin/apktool/baksmali.jar"
-  python3 "$base_dir/verify_tnm_framework_apk.py" \
-    --apk "$candidate" --report "$tmp/port-report.json"
-done
-
 # Copy only the verified Xiaomi v1 metadata from the signed stock APK.
 # This does not create a valid signature; the ROM verifier dependency remains.
 python3 "$identity" --base "$apk" --patched "$tmp/final/PowerKeeper.apk" \
@@ -64,13 +51,6 @@ zipalign -p -f 4 "$tmp/final/PowerKeeper.preserved.apk" "$tmp/final/PowerKeeper.
 zipalign -c -p 4 "$tmp/final/PowerKeeper.aligned.apk"
 python3 "$identity" --apk "$tmp/final/PowerKeeper.aligned.apk" \
   --reference "$apk" --report "$tmp/final-identity.json"
-python3 "$base_dir/verify_ryu_uid_policy_apk.py" --apk "$tmp/final/PowerKeeper.aligned.apk"
-python3 "$base_dir/verify_perfhook_apk.py" \
-  --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/port-report.json" \
-  --baksmali "$work_dir/bin/apktool/baksmali.jar"
-python3 "$base_dir/verify_tnm_framework_apk.py" \
-  --apk "$tmp/final/PowerKeeper.aligned.apk" --report "$tmp/port-report.json"
-
 report_dir="$work_dir/build/reports/powerkeeper-a16"
 mkdir -p "$report_dir"
 cp "$tmp/port-report.json" "$report_dir/powerkeeper-port.json"
