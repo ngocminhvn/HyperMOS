@@ -108,23 +108,10 @@ tnm_update_json="$tnm_tmp/update.json"
 tnm_payload="$tnm_tmp/TNM.update"
 tnm_apk="$tnm_tmp/TNM.apk"
 
-# Main bundles the signed APK published by app/main through GitHub Pages.
-# The experimental TNM branch remains pinned to an explicitly verified APK.
-tnm_test_url=""
-if [[ "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
-  [[ "${TNM_TEST_APK_URL:-}" == https://* && "${TNM_TEST_APK_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || {
-    error "TNM test: supply HTTPS TNM APK URL and lowercase SHA-256 from the matching app branch"
-    exit 1
-  }
-  tnm_test_url="$TNM_TEST_APK_URL"
-  python3 - "$TNM_TEST_APK_URL" "$TNM_TEST_APK_SHA256" "$tnm_update_json" <<'PYMETA'
-import json, sys
-url, sha, out = sys.argv[1:]
-with open(out, 'w', encoding='utf-8') as file:
-    json.dump({'packageUrl': url, 'packageSha256': sha, 'compression': 'none'}, file)
-PYMETA
-else
-mods "TNM privileged app -> Downloading latest signed APK"
+# Every supported ROM branch bundles the latest signed TNM APK published
+# from ngocminhvn/app@main via GitHub Pages. Fetch the matching metadata
+# before downloading, and verify its published SHA-256 before staging.
+mods "TNM privileged app -> Downloading latest signed APK from ngocminhvn/app"
 
 python3 - "$tnm_release_base/update.json" "$tnm_update_json" <<'PY'
 import sys
@@ -136,13 +123,11 @@ with urllib.request.urlopen(req, timeout=60) as src, open(out, "wb") as dst:
     dst.write(src.read())
 PY
 
-fi
-
-readarray -t tnm_meta < <(python3 - "$tnm_update_json" "$tnm_release_base" "$tnm_test_url" <<'PY'
+readarray -t tnm_meta < <(python3 - "$tnm_update_json" "$tnm_release_base" <<'PY'
 import json
 import sys
 
-path, base, test_url = sys.argv[1:]
+path, base = sys.argv[1:]
 with open(path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
@@ -156,8 +141,6 @@ allowed = {
     base + "/TNM.apk": "none",
     base + "/TNM.apk.xz": "xz",
 }
-if test_url:
-    allowed = {test_url: "none"}
 if url not in allowed:
     raise SystemExit("unexpected TNM packageUrl")
 if compression != allowed[url]:
@@ -231,7 +214,6 @@ tnm_version_code="$(printf '%s\n' "$tnm_badging" | sed -n "s/^package: .*version
 }
 if ! python3 - "$tnm_update_json" "$tnm_version_name" "$tnm_version_code" <<'PY'
 import json
-import os
 import re
 import sys
 
@@ -241,11 +223,9 @@ with open(metadata_path, encoding="utf-8") as file:
 match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version_name)
 if not match or tuple(map(int, match.groups())) < (1, 3, 33):
     sys.exit(f"TNM App: need version >= 1.3.33; APK contains {version_name!r}")
-is_test = (os.environ.get("GITHUB_REF_NAME") in ("main", "Lock", "test-tnm-ryu-haotian")
-           and metadata.get("packageUrl") == os.environ.get("TNM_TEST_APK_URL"))
-if not is_test and metadata.get("versionName") != version_name:
+if metadata.get("versionName") != version_name:
     sys.exit("TNM App: update.json versionName disagrees with actual APK")
-if not is_test and str(metadata.get("versionCode")) != version_code:
+if str(metadata.get("versionCode")) != version_code:
     sys.exit("TNM App: update.json versionCode disagrees with actual APK")
 print(f"[MODS] - TNM privileged app -> verified APK {version_name} (code {version_code})")
 PY
@@ -254,7 +234,7 @@ then
   exit 1
 fi
 
-# Verify the downloaded APK's signature before staging either update channel.
+# Verify the latest published APK's signature before staging.
 java -jar "$work_dir/bin/apktool/apksigner.jar" verify "$tnm_apk" || {
   error "TNM App: APK signature verification failed"
   exit 1
