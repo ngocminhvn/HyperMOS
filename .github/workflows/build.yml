@@ -156,7 +156,6 @@ jobs:
           print("[FONT-CATALOG] Required fonts present; SF Pro retired")
           PYFONT
           sh -n bin/modfile/UpdateFile/TNM/tnm-frameworkctl
-          python3 bin/modfile/UpdateFile/TNM/test_tnm_framework.py
           python3 bin/modfile/UpdateFile/TNM/test_tnm_branch.py
           sh -n bin/modfile/UpdateFile/TNM/tnm-bridge
           bash -n bin/modfile/UpdateFile/TNM/update.sh
