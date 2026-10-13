@@ -112,9 +112,11 @@ install -m 0755 "$workdir/bin/root/stage_root_manager.sh" "$system_ext/bin/hyper
 install -m 0644 "$workdir/bin/root/stage_root_manager.rc" "$system_ext/etc/init/hypermos-root-manager.rc"
 install -m 0755 "$workdir/bin/root/sync_boot_properties.sh" "$system_ext/bin/hypermos-sync-boot-properties"
 install -m 0644 "$workdir/bin/root/sync_boot_properties.rc" "$system_ext/etc/init/hypermos-sync-boot-properties.rc"
+install -m 0755 "$workdir/bin/root/hypermos-resetprop" "$system_ext/xbin/hypermos-resetprop"
 test -s "$apk_stage/RootManager.apk" || die "Manager payload copy failed"
 test -s "$system_ext/etc/init/hypermos-root-manager.rc" || die "Missing init trigger"
 test -s "$system_ext/etc/init/hypermos-sync-boot-properties.rc" || die "Missing boot property sync trigger"
+test -x "$system_ext/xbin/hypermos-resetprop" || die "Missing standalone resetprop binary"
 [ ! -e "$system_ext/priv-app/RootManager" ] || die "Root manager must not be preinstalled"
 
 mkdir -p "$workdir/build/baserom/root-package"

@@ -1,6 +1,6 @@
 # HAOTIAN boot property synchronization
 
-Rooted builds stage `sync_boot_properties.sh` in `system_ext/bin` and its init trigger in `system_ext/etc/init`. Android init starts the script in the background only when `sys.boot_completed=1`. It uses KernelSU-Next's `resetprop -n` to set:
+Rooted builds stage `sync_boot_properties.sh`, a standalone ARM64 `hypermos-resetprop` binary in `system_ext`, and its init trigger in `system_ext/etc/init`. Android init starts the script in the background only when `sys.boot_completed=1`. The script uses the standalone binary's `-n` operation to set:
 
 ```ini
 ro.boot.flash.locked=1
@@ -8,7 +8,7 @@ ro.boot.vbmeta.device_state=locked
 ro.boot.verifiedbootstate=green
 ```
 
-The task exits if the KernelSU-Next binary is unavailable or cannot set a property. It never runs in `post-fs-data`, modifies AVB metadata, changes SELinux policy, or edits the stock `init.rc`. Stock builds do not stage the task. Kaorios hooks are unchanged.
+The task exits if the standalone binary cannot set a property. KernelSU-Next is not required for this path. It never runs in `post-fs-data`, modifies AVB metadata, changes SELinux policy, or edits the stock `init.rc`. Stock builds do not stage the task. Kaorios hooks are unchanged.
 
 This is an Android property override. It does not change the bootloader's real lock state, the kernel bootconfig/cmdline, AVB verification, or the hardware root of trust. A matching Duck Detector screen is not evidence that the device is securely locked.
 

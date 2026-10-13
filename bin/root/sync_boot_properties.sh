@@ -3,7 +3,7 @@
 # Runs after boot completion and must never hold up boot if resetprop fails.
 
 tag=HyperMOSBootState
-resetprop=/data/adb/ksu/bin/resetprop
+resetprop=/system_ext/xbin/hypermos-resetprop
 ksud=/data/adb/ksu/bin/ksud
 legacy_ksud=/data/adb/ksud
 
