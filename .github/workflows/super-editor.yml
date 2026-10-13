@@ -41,6 +41,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       ready: ${{ steps.source.outputs.ready }}
+      upload_method: ${{ steps.source.outputs.upload_method }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +53,7 @@ jobs:
         id: source
         env:
           INPUT_URL: ${{ inputs.input_url }}
+          INPUT_UPLOAD_METHOD: ${{ inputs.upload_method }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -59,8 +61,12 @@ jobs:
           c=json.loads(Path("config.json").read_text())
           url=(os.environ.get("INPUT_URL") or c.get("source_rom_url") or c.get("source_super_url") or "").strip()
           ready="true" if url.startswith(("https://","http://")) else "false"
+          method=(os.environ.get("INPUT_UPLOAD_METHOD") or c.get("upload_method") or "drive").strip().lower()
+          if method not in ("drive","pixeldrain"):
+              raise SystemExit("upload_method must be drive or pixeldrain")
           with open(os.environ["GITHUB_OUTPUT"],"a") as f:
               f.write("ready="+ready+chr(10))
+              f.write("upload_method="+method+chr(10))
           print("ROM input provided:",ready)
           PY
 
@@ -72,7 +78,7 @@ jobs:
     env:
       INPUT_URL: ${{ inputs.input_url }}
       SOURCE_SHA256: ${{ inputs.source_sha256 }}
-      UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
+      UPLOAD_METHOD: ${{ needs.preflight.outputs.upload_method }}
       BUILDER_ID: ${{ inputs.builder_id }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}

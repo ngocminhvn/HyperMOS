@@ -19,5 +19,6 @@
     ],
     "build_prop": "audit_only"
   },
-  "preserve_unrelated_mods": true
+  "preserve_unrelated_mods": true,
+  "upload_method": "drive"
 }

@@ -15,7 +15,7 @@ Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate
 **This is not the HyperMOS stock-ROM build workflow.** A full OTA `payload.bin` without a `super.img` is rejected, not silently converted into a different ROM. ZIPs containing more than one `super.img` are also rejected.
 
 ## Non-default-branch Actions limitation
-GitHub may not show the *Run workflow* UI for a workflow that only exists on a non-default branch. We do not modify `main`. You can instead set `source_rom_url` in `config.json` and push it to `super-img-editor` to start a run. It uses `drive` unless manually dispatched with another upload method. Avoid writing private URLs with access tokens into public Git history.
+GitHub may not show the *Run workflow* UI for a workflow that only exists on a non-default branch. We do not modify `main`. You can instead set `source_rom_url` in `config.json` and push it to `super-img-editor` to start a run. Set `upload_method` to `drive` or `pixeldrain` in `config.json` for push runs; manual inputs override it. Avoid writing private URLs with access tokens into public Git history.
 
 ## Mods already in the branch
 * `Mods/Boot/bootanimation.zip`
