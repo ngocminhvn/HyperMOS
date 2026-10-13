@@ -108,10 +108,10 @@ tnm_update_json="$tnm_tmp/update.json"
 tnm_payload="$tnm_tmp/TNM.update"
 tnm_apk="$tnm_tmp/TNM.apk"
 
-# Main and TNM test branch bundle the matching signed TNM APK, never silently
-# substitute an unrelated Pages APK that may lack the framework client.
+# Main bundles the signed APK published by app/main through GitHub Pages.
+# The experimental TNM branch remains pinned to an explicitly verified APK.
 tnm_test_url=""
-if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
+if [[ "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
   [[ "${TNM_TEST_APK_URL:-}" == https://* && "${TNM_TEST_APK_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || {
     error "TNM test: supply HTTPS TNM APK URL and lowercase SHA-256 from the matching app branch"
     exit 1
