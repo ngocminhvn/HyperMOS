@@ -212,6 +212,7 @@ jobs:
         shell: bash
         env:
           ROOT_MODE: ${{ inputs.root_mode }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Prevent an unintended preinstalled root-manager APK.
@@ -223,7 +224,7 @@ jobs:
             exit 1
           fi
           # build.sh extracts read-only partition trees with sudo.
-          sudo -E env PATH="$PATH" ROOT_MODE="$ROOT_MODE" \
+          sudo -E env PATH="$PATH" ROOT_MODE="$ROOT_MODE" GH_TOKEN="$GH_TOKEN" \
             bash bin/root/patch_init_boot.sh 2>&1 | tee -a build_action.log
 
       - name: Pack ROM

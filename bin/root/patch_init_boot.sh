@@ -51,7 +51,56 @@ manager="$scratch/RootManager.apk"
 # Resolve the latest stable release at build time; validate all upstream SHA256 digests.
 release_repo="KernelSU-Next/KernelSU-Next"
 release_json="$scratch/release.json"
-fetch "https://api.github.com/repos/$release_repo/releases/latest" "$release_json"
+# Authenticate the release metadata request with the automatic Actions token.
+# Shared GitHub-hosted runner IPs may hit unauthenticated API limits (HTTP 403).
+# The token is used ONLY with the fixed api.github.com endpoint, not asset URLs.
+fetch_release_metadata() {
+  local url="https://api.github.com/repos/$release_repo/releases/latest"
+  local -a auth_headers=()
+  if [[ -n "${GH_TOKEN:-}" ]]; then
+    auth_headers=(-H "Authorization: Bearer ${GH_TOKEN}")
+  fi
+  echo "[ROOT] Fetching KernelSU Next latest release metadata"
+  if curl --fail --silent --show-error --retry 2 --retry-delay 2 \
+      --connect-timeout 15 --max-time 60 \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "${auth_headers[@]}" "$url" --output "$release_json" &&
+      jq -e '(.tag_name | type == "string") and (.assets | type == "array")' \
+        "$release_json" >/dev/null; then
+    echo "[ROOT] Release metadata resolved from GitHub API"
+    return 0
+  fi
+
+  # Only HAOTIAN's confirmed KMI has a verified offline release manifest.
+  # Fail closed for other KMIs rather than downloading an unverified module.
+  [[ "$kmi" == "android15-6.6" ]] ||
+    die "KernelSU Next release API failed; no pinned fallback for $kmi"
+  echo "::warning::KernelSU Next release API unavailable; using verified v3.4.1 fallback"
+  cat > "$release_json" <<'PINNED_RELEASE'
+{
+  "tag_name": "v3.4.1",
+  "assets": [
+    {
+      "name": "ksud-x86_64-unknown-linux-musl",
+      "browser_download_url": "https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.1/ksud-x86_64-unknown-linux-musl",
+      "digest": "sha256:c6d2e550cea5ea20293fc55e74454ef098f9194678ca6680db39db22fa2e540f"
+    },
+    {
+      "name": "aarch64_android15-6.6_kernelsu.ko",
+      "browser_download_url": "https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.1/aarch64_android15-6.6_kernelsu.ko",
+      "digest": "sha256:a8c36b6dfa0e1e079e425ea5e5dbb9616b167b19dbf4936349a794f0a85e9084"
+    },
+    {
+      "name": "KernelSU_Next_v3.4.1_33333-release.apk",
+      "browser_download_url": "https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.1/KernelSU_Next_v3.4.1_33333-release.apk",
+      "digest": "sha256:eff4b9df6dc438a3fee3b298e4fb87843e7c95f16b6daabdd3161d51968ba2ff"
+    }
+  ]
+}
+PINNED_RELEASE
+}
+fetch_release_metadata
 tag="$(jq -er '.tag_name' "$release_json")" || die "Failed to resolve latest release"
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Unexpected release tag: $tag"
 echo "[ROOT] Latest stable: $release_repo@$tag"
