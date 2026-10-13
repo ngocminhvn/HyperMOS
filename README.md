@@ -32,7 +32,7 @@ gh auth login
 gh workflow run super-editor.yml --ref super-img-editor -f "input_url=https://example.com/your-modded-rom.zip" -f root_mode=root -f upload_method=drive
 ```
 
-To enable the **web form** while isolating all ROM code on `super-img-editor`, add a **small workflow_dispatch dispatcher** on `main` by explicit authorization; that dispatcher can call the branch workflow via `workflow_call`. Do not copy the full editor or mods to `main`.
+To enable the **web form** while isolating all ROM code on `super-img-editor`, a **small workflow_dispatch dispatcher** must be added to `main` with explicit authorization. This branch already exposes `workflow_call`, ready for that dispatcher to call `ngocminhvn/HyperMOS/.github/workflows/super-editor.yml@super-img-editor` with `secrets: inherit`. Do not copy the full editor or mods to `main`.
 
 ## Mods already in the branch
 * `Mods/Boot/bootanimation.zip`

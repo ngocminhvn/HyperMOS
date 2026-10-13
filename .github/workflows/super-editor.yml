@@ -32,6 +32,29 @@ on:
         required: false
         type: string
 
+  workflow_call:
+    inputs:
+      input_url:
+        description: 'Direct URL to already-modded ROM ZIP or super.img'
+        required: true
+        type: string
+      root_mode:
+        description: 'KernelSU Next root or preserve original'
+        required: false
+        default: root
+        type: string
+      upload_method:
+        description: 'drive or pixeldrain'
+        required: false
+        default: drive
+        type: string
+      builder_id:
+        required: false
+        type: string
+      source_sha256:
+        required: false
+        type: string
+
 permissions:
   contents: read
 
