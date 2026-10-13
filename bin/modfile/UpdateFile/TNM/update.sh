@@ -72,7 +72,7 @@ mods "TNM Bridge -> ${runtime_ctl%/*}/tnm-bridge (on demand)"
 
 
 # TNMFramework is installed on main, Lock, and supported HAOTIAN RYU branches.
-if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "Lock" || "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
+if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "Lock" || "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" || "${GITHUB_REF_NAME:-}" == "test-powerkeeper-dex-cleanup" ]]; then
   framework_src="$work_dir/bin/modfile/UpdateFile/TNM/tnm-frameworkctl"
   [[ -s "$framework_src" ]] || { error "TNMFramework file missing"; exit 1; }
   sh -n "$framework_src" || { error "TNMFramework shell syntax invalid"; exit 1; }
@@ -239,7 +239,7 @@ java -jar "$work_dir/bin/apktool/apksigner.jar" verify "$tnm_apk" || {
   error "TNM App: APK signature verification failed"
   exit 1
 }
-if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "Lock" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
+if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "Lock" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" || "${GITHUB_REF_NAME:-}" == "test-powerkeeper-dex-cleanup" ]]; then
   python3 - "$tnm_apk" <<'PYCONTRACT'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as apk:
