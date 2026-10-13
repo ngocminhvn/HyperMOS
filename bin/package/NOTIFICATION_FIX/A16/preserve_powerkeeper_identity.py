@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Retain Xiaomi certificate identity for the existing patched v1 verifier.
 
-This does NOT create a valid Xiaomi signature. The pinned RYU reference
-provides the original v1 metadata; only compiled DEX is taken from the rebuild.
+This does NOT create a valid Xiaomi signature. The verified Xiaomi stock APK provides the original v1 metadata;
+only compiled DEX is taken from the rebuild.
 The ROM must have the already audited v1/digest bypass enabled.
 """
 import argparse
@@ -17,7 +17,6 @@ import zipfile
 from pathlib import Path
 
 XIAOMI = 'c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025'
-REFERENCE = '7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108'
 DEX = re.compile(r'classes(?:[2-9]|[1-9]\d+)?\.dex\Z')
 
 
