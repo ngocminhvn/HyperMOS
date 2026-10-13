@@ -27,15 +27,84 @@ def source_url():
         raise RuntimeError("Missing input_url from GitHub Actions Run workflow form")
     return incoming
 
+
+def download_with_resume(url, dest):
+    """Resume bytes already downloaded; refresh expiring SourceForge mirror links."""
+    import time
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(url)
+    is_sf_mirror = (
+        parsed.hostname is not None
+        and (parsed.hostname == "downloads.sourceforge.net"
+             or parsed.hostname.endswith(".dl.sourceforge.net"))
+        and parsed.path.startswith("/project/")
+    )
+    # SourceForge mirror links may have expiring e/st/fid query parameters.
+    # The canonical project URL generates a fresh redirect on the next attempt.
+    canonical = "https://downloads.sourceforge.net" + parsed.path if is_sf_mirror else url
+    endpoints = [url] if canonical == url else [url, canonical]
+    attempts = 8
+
+    for attempt in range(1, attempts + 1):
+        endpoint = endpoints[0] if attempt == 1 else endpoints[-1]
+        before = dest.stat().st_size if dest.exists() else 0
+        print(
+            f"ROM download attempt {attempt}/{attempts}: "
+            f"{urlsplit(endpoint).hostname}, resume at {before:,} bytes",
+            flush=True,
+        )
+        cmd = [
+            "curl", "--fail", "--location", "--silent", "--show-error",
+            "--connect-timeout", "30", "--max-time", "2700",
+            "--speed-limit", "65536", "--speed-time", "180",
+            "--continue-at", "-", "--output", str(dest), endpoint,
+        ]
+        with subprocess.Popen(cmd) as proc:
+            while True:
+                try:
+                    code = proc.wait(timeout=45)
+                    break
+                except subprocess.TimeoutExpired:
+                    current = dest.stat().st_size if dest.exists() else 0
+                    print(f"ROM download progress: {current:,} bytes on disk", flush=True)
+
+        after = dest.stat().st_size if dest.exists() else 0
+        if after < before:
+            raise RuntimeError(
+                "Download source unexpectedly truncated existing partial ROM; "
+                "refusing to continue with potentially corrupt data"
+            )
+        if code == 0:
+            print(f"ROM transfer complete: {after:,} bytes", flush=True)
+            return
+        print(
+            f"ROM transfer failed (curl exit {code}) after {after:,} bytes. "
+            "Will preserve downloaded bytes for resumption.",
+            flush=True,
+        )
+        if code == 33 and endpoint == canonical:
+            raise RuntimeError(
+                "Server does not support HTTP Range resumption on the stable URL. "
+                "Use a ROM mirror that supports range requests."
+            )
+        if attempt < attempts:
+            time.sleep(min(3 * attempt, 20))
+
+    raise RuntimeError(
+        f"ROM download interrupted after {attempts} attempts "
+        f"({dest.stat().st_size if dest.exists() else 0:,} bytes retained). "
+        "Try another source mirror."
+    )
+
 def download():
     url = source_url()
     if not url.startswith(("https://", "http://")):
         raise RuntimeError("Need a direct ROM ZIP/super.img HTTP(S) download URL")
     dest = WORK / "download" / "source.bin"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # Retry intermittent failures, but fail on HTTP errors and never accept a JSON error as an image.
-    subprocess.run(["curl", "-fL", "--retry", "4", "--retry-delay", "5", "--connect-timeout", "30",
-                    "-o", str(dest), url], check=True)
+    # Resume interrupted multi-GB transfers. curl --retry alone does not recover curl (18).
+    download_with_resume(url, dest)
     if dest.stat().st_size < 4096:
         raise RuntimeError("Download is too small to contain a ROM/image")
     super_path = WORK / "original" / "super.img"
