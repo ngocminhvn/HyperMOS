@@ -68,6 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: super-img-editor
           lfs: false
 
       - name: Validate manual inputs
@@ -139,6 +140,7 @@ jobs:
       - name: Checkout editor and all Mods LFS blobs
         uses: actions/checkout@v4
         with:
+          ref: super-img-editor
           lfs: true
           persist-credentials: true
 

@@ -11,7 +11,7 @@ This is an isolated branch for applying **existing local mods** to an **already-
 
 Secrets reused from HyperMOS: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `RCLONE_TOKEN_PATH`, `PIXELDRAIN_API_KEY`. Optional repository variable: `RCLONE_REMOTE`.
 
-Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate super.img → unpack logical partitions → replace bootanimation → apply Mods/OS3 Kashi/System → adapt local InstallerX to com.miui.packageinstaller → report build.prop candidates → rebuild EROFS and LP metadata → repackage source ZIP → Rclone/Pixeldrain upload → Telegram result`.
+Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate super.img → unpack logical partitions → replace bootanimation → apply Mods/OS3 Kashi/System → adapt local InstallerX to com.miui.packageinstaller → verify all build.prop files remain unchanged → rebuild EROFS and LP metadata → repackage source ZIP → Rclone/Pixeldrain upload → Telegram result`.
 
 **This is not the HyperMOS stock-ROM build workflow.** A full OTA `payload.bin` without a `super.img` is rejected, not silently converted into a different ROM. ZIPs containing more than one `super.img` are also rejected.
 
@@ -45,7 +45,7 @@ The editor uses the repository's local `Linux/` and `Tools/` binaries, plus a ve
 ## Safety constraints and current limitations
 * **EROFS partitions only** (product/system/system_ext). If the input uses ext4 for a target partition, build fails rather than remounting or rewriting it incorrectly.
 * Original LP metadata A/B slots must agree; different/incomplete slots stop automatically. Original logical partition size is enforced; unrelated payloads are preserved.
-* `build.prop` changes are **audit-only**: see `build-prop-audit.txt`. Blind deletion of RYU/ZK/ZKOS/Kaorios properties could break services still running in the modded ROM.
+* **Every `build.prop` is preserved byte-for-byte**. No ROM identity/property cleanup or modification is performed. A pre/post hash check blocks output if a mod changes any `build.prop`.
 * Apk signing compatibility is not guaranteed. InstallerX adaptation signs with the upstream AOSP **testkey**, and signature differences from the installed ROM can disrupt updates/data. Back up app data and validate.
 * Original vbmeta/AVB state may be incompatible with modified partitions. The generated file has **not** been tested on device; do not flash until boot chain / AVB compatibility is independently verified.
 * Adequate disk space, an accessible direct download URL and valid existing upload credentials are required.

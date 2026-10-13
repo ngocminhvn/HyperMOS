@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +18,7 @@ REPORT.mkdir(parents=True,exist_ok=True)
 os.environ["PATH"]=str(ROOT/"Linux")+os.pathsep+os.environ.get("PATH","")
 PARTITIONS={"product","system","system_ext"}
 CHANGED=set()
+BUILD_PROP_BASELINE={}
 
 def run(*args, **kw):
     print("+", " ".join(str(x) for x in args), flush=True)
@@ -72,6 +72,33 @@ def unpack():
         if len(fc)!=1 or len(se)!=1 or not fc[0].stat().st_size or not se[0].stat().st_size:
             raise RuntimeError(f"{base}: missing exact fs_config or SELinux file_contexts from EROFS source")
     (REPORT/"partitions.json").write_text(json.dumps([{k:v for k,v in p.items() if k!="original_sha256"} for p in manifest["partitions"]],indent=2))
+    BUILD_PROP_BASELINE.update(snapshot_build_props())
+
+def snapshot_build_props():
+    """Read-only fingerprint of every build.prop in extracted partitions."""
+    result={}
+    for base in sorted(PARTITIONS):
+        directory=TREES/base
+        if not directory.is_dir():
+            continue
+        for f in directory.rglob("build.prop"):
+            if f.is_file():
+                rel=str(f.relative_to(TREES))
+                result[rel]=sha256(f)
+    return result
+
+def assert_build_props_untouched():
+    current=snapshot_build_props()
+    if current != BUILD_PROP_BASELINE:
+        before=set(BUILD_PROP_BASELINE)
+        after=set(current)
+        changed=sorted(key for key in before & after if BUILD_PROP_BASELINE[key]!=current[key])
+        added=sorted(after-before)
+        removed=sorted(before-after)
+        raise RuntimeError(
+            f"build.prop modification forbidden; changed={changed}, added={added}, removed={removed}")
+    (REPORT/"build-prop-preservation.txt").write_text(
+        f"Preserved {len(current)} build.prop files byte-for-byte. No properties were edited.\n")
 
 def bootanimation():
     source=ROOT/"Mods/Boot/bootanimation.zip"
@@ -159,22 +186,6 @@ def replace_installer():
     shutil.copy2(whitelist,perms/whitelist.name)
     CHANGED.add(base)
     (REPORT/"installer.txt").write_text(f"Replaced package com.miui.packageinstaller: {dest.relative_to(TREES)}\nNew SHA256: {sha256(apk)}\nCaution: AOSP test-key signing differs from stock; app data/privileges may be incompatible.\n")
-
-def audit_properties():
-    found=[]
-    for base in ("system","product","system_ext"):
-        d=TREES/base
-        if not d.exists():continue
-        for f in d.rglob("build.prop"):
-            for i,line in enumerate(f.read_text(errors="replace").splitlines(),1):
-                if re.search(r"ryu|zkos|kaorios|(?:^|[^a-z])zk(?:[^a-z]|$)",line,re.I):
-                    key=line.split("=",1)[0].strip()
-                    found.append(f"{f.relative_to(TREES)}:{i}: {key}")
-    (REPORT/"build-prop-audit.txt").write_text(
-      "# Audit only: deleting vendor/module properties automatically can break existing mods.\n"+
-      "\n".join(found)+"\n")
-    print("Potential old ROM props:",len(found))
-
 
 def verify_haotian_base():
     """Require evidence for HAOTIAN from original modified ROM product/system property values."""
@@ -304,8 +315,8 @@ def main():
     bootanimation()
     apply_os3()
     replace_installer()
-    audit_properties()
     apply_root()
+    assert_build_props_untouched()
     repack()
 
 if __name__=="__main__":
