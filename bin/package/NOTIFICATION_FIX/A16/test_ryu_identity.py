@@ -20,15 +20,14 @@ class IdentityTest(unittest.TestCase):
         self.meta = {'META-INF/CERT.RSA': b'\x30\x05' + self.cert,
                      'META-INF/CERT.SF': b'reference-sf', 'META-INF/MANIFEST.MF': b'reference-manifest'}
         self.write(self.reference, self.meta | {'classes.dex': b'original'})
-        self.write(self.base, {'AndroidManifest.xml': b'stock-manifest',
+        self.write(self.base, self.meta | {'AndroidManifest.xml': b'stock-manifest',
                               'resources.arsc': b'stock-resources', 'classes.dex': b'stock-dex'})
         self.write(self.patched, {'AndroidManifest.xml': b'changed-manifest',
                                  'resources.arsc': b'changed-resources', 'classes.dex': b'patched-dex',
                                  'META-INF/CERT.RSA': b'wrong-signer'})
+        self.reference = self.base  # Stock, not a separate APK donor.
         self.cert_patch = patch.object(identity, 'XIAOMI', hashlib.sha256(self.cert).hexdigest())
-        self.ref_patch = patch.object(identity, 'REFERENCE', identity.sha(self.reference))
         self.cert_patch.start(); self.addCleanup(self.cert_patch.stop)
-        self.ref_patch.start(); self.addCleanup(self.ref_patch.stop)
 
     def write(self, path, members):
         with zipfile.ZipFile(path, 'w') as z:
@@ -54,7 +53,7 @@ class IdentityTest(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_preserves_stock_offsets_when_metadata_removed_and_dex_grows(self):
-        self.write(self.base, {'META-INF/OLD.SF': b'old-stock-signature',
+        self.write(self.base, self.meta | {'META-INF/OLD.SF': b'old-stock-signature',
                               'classes.dex': b'stock-dex',
                               'assets/policy': b'unchanged-policy',
                               'AndroidManifest.xml': b'stock-manifest'})
@@ -68,8 +67,9 @@ class IdentityTest(unittest.TestCase):
             self.assertEqual(final.read('classes.dex'), b'larger-patched-dex' * 20)
 
     def test_rejects_reference_tampering(self):
-        self.reference.write_bytes(self.reference.read_bytes() + b'tamper')
-        with self.assertRaisesRegex(ValueError, 'SHA256'): self.build()
+        with zipfile.ZipFile(self.reference, 'a') as z:
+            z.writestr('META-INF/CERT.RSA', b'tamper')
+        with self.assertRaisesRegex(ValueError, 'Duplicate reference metadata'): self.build()
         self.assertFalse(self.output.exists())
 
     def test_rejects_changed_final_certificate(self):
