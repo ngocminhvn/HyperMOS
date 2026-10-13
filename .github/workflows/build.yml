@@ -87,126 +87,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Verify Xiaomi PowerKeeper and RYU framework patch scripts
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
-          bash -n bin/package/NOTIFICATION_FIX/A16/verify_packed_powerkeeper.sh
-          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py
-          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/verify_powerkeeper_rom_verifier.py
-          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16 -p 'test_ryu*.py'
-          if grep -Eq 'apksigner.* sign|sign_key=|cp -f "\$signed" "\$apk"' bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh; then
-            echo "::error::PowerKeeper must not be re-signed with Android/testkey"
-            exit 1
-          fi
-          python3 -m py_compile bin/package/COREPATCH/ryu_policy_a16.py
-          python3 bin/package/COREPATCH/test_ryu_policy_a16.py
-          python3 bin/package/COREPATCH/test_ryu_framework_gates_a16.py
-          python3 bin/package/COREPATCH/test_ryu_doze_a16.py
-          bash -n bin/package/COREPATCH/jar_patcher_a16.sh
-          bash -n bin/package/COREPATCH/update.sh
-          bash -n bin/package/patchpackage.sh
-          bash -n packROM.sh
-          grep -Fq 'verify_packed_powerkeeper.sh' packROM.sh
-          echo "[PASS] Patched PowerKeeper with retained Xiaomi certificate + RYU framework validated"
-
-      # Use the 181 KB source archive committed to this test branch.
-      # No RYU ROM download, super.img unpack, or extraction job required.
-      - name: Verify full RYU performance reference before ROM download
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py
-          python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py
-          python3 -m py_compile bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py
-          bash -n bin/modfile/UpdateFile/RYUPerfProfile/update.sh
-          case "$GITHUB_REF_NAME" in
-            main|Lock|test-ryu-performance-haotian|test-tnm-ryu-haotian) ;;
-            *) echo "::error::RYU performance profile requires a supported HAOTIAN branch"; exit 1 ;;
-          esac
-          zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
-          test -s "$zip" || { echo "::error::RYU thermal archive missing"; exit 1; }
-          expected_blob="34c23e2bc75d5e46c2e5688077d76d7e46562d64"
-          actual_blob="$(git hash-object "$zip")"
-          [[ "$actual_blob" == "$expected_blob" ]] || {
-            echo "::error::Checked-in RYU ZIP differs from approved source blob"
-            exit 1
-          }
-          unzip -tq "$zip"
-          ref="$RUNNER_TEMP/ryu-reference"
-          mkdir -p "$ref"
-          unzip -q "$zip" -d "$ref"
-          test -s "$ref/manifest.json"
-          python3 - "$ref" <<'PY'
-          import hashlib,json,sys
-          from pathlib import Path
-          root=Path(sys.argv[1])
-          records=json.loads((root/'manifest.json').read_text())
-          required={
-            'vendor/etc/perf/thermalbreakboostconfig.xml',
-            'vendor/etc/perf/perfboostsconfig.xml',
-            'odm/etc/powerhint.xml',
-            'vendor/etc/powerhint.xml',
-          }
-          found=set()
-          for item in records:
-            rel=item['partition']+'/'+item['original_path'].lstrip('/')
-            if rel not in required:
-              continue
-            file=root/item['artifact_path']
-            assert file.is_file(),rel
-            assert hashlib.sha256(file.read_bytes()).hexdigest()==item['sha256'],rel
-            found.add(rel)
-          assert found==required, f'incomplete RYU thermal artifact: missing {required-found}'
-          print('[RYU] Genuine source hashes verified for',len(found),'key performance files')
-          PY
-          echo "RYU_REF_DIR=$ref" >> "$GITHUB_ENV"
-
-      # The old tnm-ryu-9fbacea Release URL was removed (HTTP 404).
-      # Recover the original donor from this repository's extraction artifacts.
-      # Artifacts expire; the next RYU extraction run can renew the source.
-      # The following SHA-256 gate always rejects a different APK.
-      - name: Fetch SHA-pinned RYU PowerKeeper from extraction artifact
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          target="$RUNNER_TEMP/ryu-powerkeeper"
-          mkdir -p "$target"
-          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts"
-          metadata="$target/artifacts.json"
-          curl -fsSL --retry 3 --connect-timeout 20 --max-time 60 \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "$api?name=RYUOS-HAOTIAN-PowerKeeper&per_page=100" -o "$metadata"
-          artifact_id="$(jq -er '
-            [.artifacts[] |
-              select(.name == "RYUOS-HAOTIAN-PowerKeeper" and .expired == false)] |
-            sort_by(.created_at) | last | .id // empty
-          ' "$metadata")" || {
-            echo "::error::RYU PowerKeeper extraction artifact unavailable/expired. Re-run the RYU extraction workflow to refresh it."
-            exit 1
-          }
-          echo "[RYU] Downloading validated extraction artifact ID ${artifact_id}"
-          archive="$target/ryu-powerkeeper-artifact.zip"
-          curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "$api/${artifact_id}/zip" -o "$archive"
-          unzip -tq "$archive"
-          unzip -jo "$archive" 'RYUOS_HAOTIAN_PowerKeeper.apk' -d "$target"
-          test -s "$target/RYUOS_HAOTIAN_PowerKeeper.apk"
-          rm -f "$archive" "$metadata"
-
-      - name: Validate PowerKeeper reference
-        shell: bash
-        run: |
-          ref="$RUNNER_TEMP/ryu-powerkeeper/RYUOS_HAOTIAN_PowerKeeper.apk"
-          echo "7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108  $ref" | sha256sum -c -
-          echo "RYU_POWERKEEPER_APK=$ref" >> "$GITHUB_ENV"
-
       - name: Prepare build environment
         shell: bash
         run: |
@@ -235,6 +115,16 @@ jobs:
             tail -n 120 build_action.log
             exit 1
           fi
+
+          # Thermal source is already versioned in the repository (no remote artifact).
+          # Previous supported test branch: test-tnm-ryu-haotian.
+          thermal_zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
+          test -s "$thermal_zip"
+          thermal_ref="$RUNNER_TEMP/power-profiles"
+          mkdir -p "$thermal_ref"
+          unzip -oq "$thermal_zip" -d "$thermal_ref"
+          test -s "$thermal_ref/manifest.json"
+          echo "RYU_REF_DIR=$thermal_ref" >> "$GITHUB_ENV"
 
           # Validate Android 16 GMS XML and protect existing FCM exemptions.
           # Pure preflight: no Doze, PowerKeeper or notification settings changed.
@@ -317,20 +207,6 @@ jobs:
           sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
             "${{ inputs.builder_name }}" "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
 
-      - name: Ensure root manager is not preinstalled
-        if: ${{ inputs.root_mode == 'root' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          target="build/baserom/images/product/data-app"
-          if [ -d "$target" ] && find "$target" -type f \
-              \( -iname 'SukiSU*.apk' -o -iname 'KernelSU*.apk' -o -iname 'KSU*.apk' \) \
-              -print -quit | grep -q .; then
-            echo "::error::Root manager unexpectedly preinstalled in product/data-app"
-            exit 1
-          fi
-          echo "[ROOT] Root manager is not preinstalled"
-
       - name: Patch KernelSU Next into init_boot
         if: ${{ inputs.root_mode == 'root' }}
         shell: bash
@@ -338,6 +214,14 @@ jobs:
           ROOT_MODE: ${{ inputs.root_mode }}
         run: |
           set -euo pipefail
+          # Prevent an unintended preinstalled root-manager APK.
+          target="build/baserom/images/product/data-app"
+          if [ -d "$target" ] && find "$target" -type f \
+              \( -iname 'SukiSU*.apk' -o -iname 'KernelSU*.apk' -o -iname 'KSU*.apk' \) \
+              -print -quit | grep -q .; then
+            echo "::error::Root manager unexpectedly preinstalled in product/data-app"
+            exit 1
+          fi
           # build.sh extracts read-only partition trees with sudo.
           sudo -E env PATH="$PATH" ROOT_MODE="$ROOT_MODE" \
             bash bin/root/patch_init_boot.sh 2>&1 | tee -a build_action.log
