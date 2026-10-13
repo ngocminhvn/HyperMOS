@@ -58,8 +58,29 @@ def download():
             with z.open(selected) as src, super_path.open("wb") as out:
                 shutil.copyfileobj(src, out, length=8*1024*1024)
             meta.update({"input_type": "rom_zip", "super_member": selected.filename})
+            if os.environ.get("ROOT_MODE", "stock") == "root":
+                matches = {}
+                for name in ("boot.img", "init_boot.img"):
+                    options = [i for i in z.infolist()
+                               if not i.is_dir() and not i.filename.startswith(("/", "../"))
+                               and Path(i.filename).name == name
+                               and i.filename.split("/")[0] not in ("RootBackup", "backup", "Backup")]
+                    if len(options) != 1:
+                        raise RuntimeError(f"Root mode requires exactly one {name} inside the ROM ZIP; found {len(options)}")
+                    matches[name] = options[0].filename
+                    target = WORK / "root-input" / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with z.open(options[0]) as boot_src, target.open("wb") as fout:
+                        shutil.copyfileobj(boot_src, fout, length=8*1024*1024)
+                    with target.open("rb") as check:
+                        if check.read(8) != b"ANDROID!":
+                            raise RuntimeError(f"{name}: invalid Android boot image")
+                meta["root_members"] = matches
+                meta["original_init_boot_sha256"] = digest(WORK / "root-input/init_boot.img")
             # Zip excludes 7z/rar intentionally; preserve original layout exactly.
     else:
+        if os.environ.get("ROOT_MODE", "stock") == "root":
+            raise RuntimeError("Root mode requires a ROM ZIP containing both boot.img and init_boot.img, not standalone super.img")
         with dest.open("rb") as f:
             prefix = f.read(4)
         sparse_magic = prefix == bytes.fromhex("3aff26ed")
@@ -89,21 +110,49 @@ def package():
         target = new
     else:
         original = WORK / "download" / "source.bin"
-        target = out / f"HAOTIAN_SuperMods_{os.environ.get('GITHUB_RUN_NUMBER', 'local')}.zip"
+        suffix = "_KSUN" if os.environ.get("ROOT_MODE", "stock") == "root" else ""
+        target = out / f"HAOTIAN_SuperMods_{os.environ.get('GITHUB_RUN_NUMBER', 'local')}{suffix}.zip"
+        root_mode = os.environ.get("ROOT_MODE", "stock")
+        if root_mode not in ("root", "stock"):
+            raise RuntimeError("Invalid ROOT_MODE")
+        patched = WORK / "trees/init_boot.img"
+        backup = ROOT / "build/baserom/root-stock-init_boot.img"
+        manager = ROOT / "build/baserom/root-package/RootManager.apk"
+        root_info = ROOT / "build/baserom/root-package/ROOT-INFO.txt"
+        if root_mode == "root":
+            for path in (patched, backup, manager, root_info):
+                if not path.is_file() or not path.stat().st_size:
+                    raise RuntimeError(f"Missing root output: {path}")
+            if digest(patched) == digest(backup):
+                raise RuntimeError("Root patch returned unchanged init_boot.img")
+            if digest(backup) != info["original_init_boot_sha256"]:
+                raise RuntimeError("Original init_boot backup digest mismatch")
         with zipfile.ZipFile(original, "r", allowZip64=True) as src, zipfile.ZipFile(target, "w", allowZip64=True) as dst:
             for entry in src.infolist():
                 if entry.filename == info["super_member"]:
                     dst.write(new, arcname=entry.filename, compress_type=entry.compress_type, compresslevel=1)
+                elif root_mode == "root" and entry.filename == info["root_members"]["init_boot.img"]:
+                    dst.write(patched, arcname=entry.filename, compress_type=entry.compress_type, compresslevel=1)
                 elif entry.is_dir():
                     dst.writestr(entry, b"")
                 else:
                     with src.open(entry, "r") as fin, dst.open(entry, "w", force_zip64=True) as fout:
                         shutil.copyfileobj(fin, fout, length=8*1024*1024)
+            if root_mode == "root":
+                original_names = set(src.namelist())
+                for name, path in (
+                    ("RootBackup/init_boot.stock.img", backup),
+                    ("RootManager.apk", manager),
+                    ("ROOT-INFO.txt", root_info),
+                ):
+                    if name in original_names:
+                        raise RuntimeError(f"Source ROM already contains {name}; refusing to replace existing root payload")
+                    dst.write(path, arcname=name, compress_type=zipfile.ZIP_DEFLATED, compresslevel=1)
         with zipfile.ZipFile(target) as z:
             if z.testzip() is not None:
                 raise RuntimeError("Output ZIP CRC integrity check failed")
         print("Repacked ROM ZIP:", target)
-    (REPORTS / "result.txt").write_text(f"Output: {target}\nSHA256: {digest(target)}\nAVB compatibility with separate vbmeta not verified. Do not flash without verifying boot chain.\n")
+    (REPORTS / "result.txt").write_text(f"Output: {target}\nSHA256: {digest(target)}\nRoot mode: {os.environ.get('ROOT_MODE', 'stock')}\nAVB compatibility with separate vbmeta not verified. Do not flash without verifying boot chain.\n")
     envfile = os.environ.get("GITHUB_ENV")
     if envfile:
         with open(envfile, "a") as f:

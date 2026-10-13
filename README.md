@@ -5,6 +5,7 @@ This is an isolated branch for applying **existing local mods** to an **already-
 ## Inputs in GitHub Actions
 * `input_url` — **full ROM ZIP download link**, e.g. one containing `images/super.img` or `super/super.img`. Direct `super.img` is also accepted.
 * `upload_method` — `drive` (Rclone), `pixeldrain`.
+* `root_mode` — `root` (default: KernelSU Next LKM from pinned HyperMOS main code), or `stock` (preserve source init_boot unchanged).
 * `builder_id` — optional Telegram chat ID.
 * `source_sha256` — optional input SHA-256 (recommended).
 
@@ -15,7 +16,7 @@ Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate
 **This is not the HyperMOS stock-ROM build workflow.** A full OTA `payload.bin` without a `super.img` is rejected, not silently converted into a different ROM. ZIPs containing more than one `super.img` are also rejected.
 
 ## Non-default-branch Actions limitation
-GitHub may not show the *Run workflow* UI for a workflow that only exists on a non-default branch. We do not modify `main`. You can instead set `source_rom_url` in `config.json` and push it to `super-img-editor` to start a run. Set `upload_method` to `drive` or `pixeldrain` in `config.json` for push runs; manual inputs override it. Avoid writing private URLs with access tokens into public Git history.
+GitHub may not show the *Run workflow* UI for a workflow that only exists on a non-default branch. We do not modify `main`. You can instead set `source_rom_url` in `config.json` and push it to `super-img-editor` to start a run. Set `root_mode` to `root`/`stock` and `upload_method` to `drive`/`pixeldrain` in `config.json` for push runs; manual inputs override it. Avoid writing private URLs with access tokens into public Git history.
 
 ## Mods already in the branch
 * `Mods/Boot/bootanimation.zip`
@@ -32,7 +33,7 @@ The editor uses the repository's local `Linux/` and `Tools/` binaries, plus a ve
 * Apk signing compatibility is not guaranteed. InstallerX adaptation signs with the upstream AOSP **testkey**, and signature differences from the installed ROM can disrupt updates/data. Back up app data and validate.
 * Original vbmeta/AVB state may be incompatible with modified partitions. The generated file has **not** been tested on device; do not flash until boot chain / AVB compatibility is independently verified.
 * Adequate disk space, an accessible direct download URL and valid existing upload credentials are required.
-* Only a known-fastboot-style super-based ZIP or direct super.img is supported. No implicit root, vendor_boot, FakeLock or SELinux policy patches.
+* Only a known-fastboot-style super-based ZIP or direct super.img is supported. No vendor_boot, FakeLock, or SELinux policy patches. Root is explicit via `root_mode`.
 * Reports are uploaded as a small Artifact. The large ZIP/super.img goes through the selected uploader.
 
 ## Running after local edits
@@ -45,3 +46,15 @@ git push origin super-img-editor
 ```
 
 License for vendored `scripts/super_rw.py` in `third_party/super_rw.LICENSE`. Original source commit: `ybtag/super_rw@46ce981c6a523d1c4a1a0da8c75b090af0e91ee7`.
+
+## KernelSU Next root (ported from main)
+
+The exact four `main/bin/root` scripts were copied to `Root/`:
+`patch_init_boot.sh`, `detect_kernel_kmi.py`, `stage_root_manager.sh`, and `stage_root_manager.rc`.
+
+- `root_mode=root` is the default. Requires a **complete already-modded ROM ZIP** containing one `boot.img` and one `init_boot.img`. A standalone `super.img` cannot be rooted by this workflow and fails closed.
+- Root patches **only the original ROM's init_boot.img** using official KernelSU Next LKM stable assets, automatic kernel KMI detection, and upstream SHA-256 digests. It does not patch `boot.img`, `vendor_boot.img`, `vbmeta.img`, or disable AVB. A source identity check requires matching `haotian` properties, and the image must not already have HyperMOS root staging.
+- The matching root manager is staged in `system_ext` for copying to Download after user 0 unlock; it is *not* silently installed as a privileged Android app. The workflow adds metadata entries for these new files before EROFS repack.
+- The rebuilt ZIP replaces the original `init_boot.img`, appends `RootBackup/init_boot.stock.img`, `RootManager.apk`, `ROOT-INFO.txt`, and uses suffix `_KSUN.zip`. Keep the original ROM ZIP for recovery.
+- `root_mode=stock` skips root changes and retains source `init_boot.img` byte-for-byte. This is the safer choice when the input ROM is already rooted by another solution.
+- Static validation cannot confirm root activates on a real Xiaomi 15 Pro. Backup data, check Android Verified Boot compatibility, and inspect reports before flashing.

@@ -1,0 +1,15 @@
+# Android 16 UserDataPreparer sets sys.user.0.ce_available=true (string).
+# Only copy after user 0 credential-encrypted data becomes available.
+on property:sys.user.0.ce_available=true
+    exec_background - root root -- /system/bin/sh /system_ext/bin/hypermos-root-manager-stage
+
+# Some Android forks use numeric 1; permit both.
+on property:sys.user.0.ce_available=1
+    exec_background - root root -- /system/bin/sh /system_ext/bin/hypermos-root-manager-stage
+
+# Idempotent boot-complete fallback for either property style.
+on property:sys.boot_completed=1 && property:sys.user.0.ce_available=true
+    exec_background - root root -- /system/bin/sh /system_ext/bin/hypermos-root-manager-stage
+
+on property:sys.boot_completed=1 && property:sys.user.0.ce_available=1
+    exec_background - root root -- /system/bin/sh /system_ext/bin/hypermos-root-manager-stage

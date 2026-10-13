@@ -175,6 +175,109 @@ def audit_properties():
       "\n".join(found)+"\n")
     print("Potential old ROM props:",len(found))
 
+
+def verify_haotian_base():
+    """Require evidence for HAOTIAN from original modified ROM product/system property values."""
+    keys = {"ro.product.device", "ro.product.vendor.device",
+            "ro.product.product.device", "ro.product.system.device",
+            "ro.build.product"}
+    values = []
+    for base in ("product", "system", "system_ext"):
+        d = TREES/base
+        if not d.is_dir():
+            continue
+        for propfile in d.rglob("build.prop"):
+            for line in propfile.read_text(errors="replace").splitlines():
+                if "=" not in line or line.lstrip().startswith("#"):
+                    continue
+                key, value = (x.strip() for x in line.split("=", 1))
+                if key in keys and value:
+                    values.append((key, value))
+    if not any(value.lower() == "haotian" for _, value in values):
+        raise RuntimeError("Cannot verify Xiaomi 15 Pro HAOTIAN from original build.prop; refusing init_boot root patch")
+    mismatches = [(key,value) for key,value in values if value.lower() != "haotian"]
+    if mismatches:
+        raise RuntimeError(f"Conflicting device identities, do not root automatically: {mismatches}")
+    (REPORT/"root-device.txt").write_text("Device: haotian\n" + "\n".join(f"{key}={value}" for key,value in values)+"\n")
+
+def append_root_metadata():
+    """Add metadata only for new KernelSU Next manager staging files."""
+    base="system_ext"
+    c=CFG/base
+    fs=list(c.rglob("*_fs_config"))
+    ctx=list(c.rglob("*_file_contexts"))
+    if len(fs)!=1 or len(ctx)!=1:
+        raise RuntimeError("Missing original filesystem/SELinux metadata for system_ext root-manager staging")
+    additions=[
+        ("etc/hypermos-root", 0, 0, "0755"),
+        ("etc/hypermos-root/RootManager.apk", 0, 0, "0644"),
+        ("etc/hypermos-root/manager-name.txt", 0, 0, "0644"),
+        ("bin/hypermos-root-manager-stage", 0, 2000, "0755"),
+        ("etc/init/hypermos-root-manager.rc", 0, 0, "0644"),
+    ]
+    fs_lines=fs[0].read_text(errors="replace").splitlines()
+    ctx_lines=ctx[0].read_text(errors="replace").splitlines()
+    fs_keys={line.split()[0] for line in fs_lines if line.split()}
+    ctx_keys={line.split()[0] for line in ctx_lines if line.split()}
+    for rel,uid,gid,mode in additions:
+        target=TREES/base/rel
+        if not target.exists():
+            raise RuntimeError(f"Root manager staging component absent: {target}")
+        fskey=f"{base}/{rel}"
+        selkey=f"/{base}/{rel}"
+        if fskey not in fs_keys:
+            fs_lines.append(f"{fskey} {uid} {gid} {mode}")
+        if selkey not in ctx_keys:
+            ctx_lines.append(f"{selkey} u:object_r:system_file:s0")
+    fs[0].write_text("\n".join(fs_lines)+"\n")
+    ctx[0].write_text("\n".join(ctx_lines)+"\n")
+
+def apply_root():
+    mode=os.environ.get("ROOT_MODE","stock")
+    if mode=="stock":
+        (REPORT/"root.txt").write_text("ROOT_MODE=stock; input init_boot.img is unchanged.\n")
+        return
+    if mode!="root":
+        raise RuntimeError("ROOT_MODE must be root or stock")
+    info=json.loads((W/"input.json").read_text())
+    if info.get("input_type")!="rom_zip" or "root_members" not in info:
+        raise RuntimeError("Root requires a full ROM ZIP with paired boot.img and init_boot.img")
+    if "system_ext" not in json.loads((W/"metadata.json").read_text()):
+        raise RuntimeError("KernelSU Next manager staging needs a system_ext EROFS partition")
+    verify_haotian_base()
+    for name in ("boot.img", "init_boot.img"):
+        source=W/"root-input"/name
+        if not source.is_file() or source.stat().st_size<4096:
+            raise RuntimeError(f"Paired input image missing: {name}")
+        shutil.copy2(source,TREES/name)
+    if (TREES/"system_ext/etc/hypermos-root").exists() or (TREES/"system_ext/etc/init/hypermos-root-manager.rc").exists():
+        raise RuntimeError("Source ROM already has HyperMOS root manager staging; refusing to inject root twice")
+    binroot=ROOT/"bin"
+    (binroot/"Linux").mkdir(exist_ok=True)
+    for name,dest in (
+        (binroot/"root",ROOT/"Root"),
+        (binroot/"Linux/x86_64",ROOT/"Linux"),
+    ):
+        if not name.exists():
+            name.symlink_to(dest.resolve(),target_is_directory=True)
+    (binroot/"ddevice").mkdir(exist_ok=True)
+    (binroot/"ddevice/device_f.txt").write_text("haotian\n")
+    run("bash","Root/patch_init_boot.sh")
+    append_root_metadata()
+    CHANGED.add("system_ext")
+    backup=ROOT/"build/baserom/root-stock-init_boot.img"
+    if not backup.is_file() or sha256(backup)!=info.get("original_init_boot_sha256"):
+        raise RuntimeError("Root patch changed or lost the original init_boot.img backup")
+    patched=TREES/"init_boot.img"
+    if sha256(patched)==sha256(backup):
+        raise RuntimeError("KernelSU Next patched init_boot is unchanged")
+    (REPORT/"root.txt").write_text(
+        "ROOT_MODE=root\nProvider: KernelSU Next LKM from HyperMOS main\n"
+        f"Stock init_boot SHA256: {sha256(backup)}\n"
+        f"Patched init_boot SHA256: {sha256(patched)}\n"
+        "boot.img unchanged; original init_boot bundled for recovery.\n"
+        "Static checks only. AVB/device bootability not confirmed.\n")
+
 def repack():
     modified=sorted(CHANGED)
     orig=json.loads((W/"metadata.json").read_text())
@@ -202,6 +305,7 @@ def main():
     apply_os3()
     replace_installer()
     audit_properties()
+    apply_root()
     repack()
 
 if __name__=="__main__":

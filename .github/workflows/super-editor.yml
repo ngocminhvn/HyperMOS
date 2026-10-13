@@ -7,6 +7,14 @@ on:
         description: 'Direct download link to already-modded ROM ZIP containing super.img (or direct super.img)'
         required: true
         type: string
+      root_mode:
+        description: 'KernelSU Next LKM from HyperMOS main (root patches init_boot.img; stock preserves input)'
+        required: true
+        type: choice
+        default: root
+        options:
+          - root
+          - stock
       upload_method:
         description: 'Upload output to'
         required: true
@@ -42,18 +50,25 @@ jobs:
     outputs:
       ready: ${{ steps.source.outputs.ready }}
       upload_method: ${{ steps.source.outputs.upload_method }}
+      root_mode: ${{ steps.source.outputs.root_mode }}
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: false
       - name: Compile-check editor scripts
-        run: python3 -m py_compile scripts/*.py
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/*.py Root/detect_kernel_kmi.py
+          python3 Root/detect_kernel_kmi.py --self-test
+          bash -n Root/patch_init_boot.sh
+          sh -n Root/stage_root_manager.sh
 
       - name: Check whether a source URL has been supplied
         id: source
         env:
           INPUT_URL: ${{ inputs.input_url }}
           INPUT_UPLOAD_METHOD: ${{ inputs.upload_method }}
+          INPUT_ROOT_MODE: ${{ inputs.root_mode }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -64,9 +79,13 @@ jobs:
           method=(os.environ.get("INPUT_UPLOAD_METHOD") or c.get("upload_method") or "drive").strip().lower()
           if method not in ("drive","pixeldrain"):
               raise SystemExit("upload_method must be drive or pixeldrain")
+          root_mode=(os.environ.get("INPUT_ROOT_MODE") or c.get("root_mode") or "root").strip().lower()
+          if root_mode not in ("root","stock"):
+              raise SystemExit("root_mode must be root or stock")
           with open(os.environ["GITHUB_OUTPUT"],"a") as f:
               f.write("ready="+ready+chr(10))
               f.write("upload_method="+method+chr(10))
+              f.write("root_mode="+root_mode+chr(10))
           print("ROM input provided:",ready)
           PY
 
@@ -79,6 +98,8 @@ jobs:
       INPUT_URL: ${{ inputs.input_url }}
       SOURCE_SHA256: ${{ inputs.source_sha256 }}
       UPLOAD_METHOD: ${{ needs.preflight.outputs.upload_method }}
+      ROOT_MODE: ${{ needs.preflight.outputs.root_mode }}
+      GH_TOKEN: ${{ github.token }}
       BUILDER_ID: ${{ inputs.builder_id }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
@@ -136,7 +157,7 @@ jobs:
           set -euo pipefail
           python3 scripts/input_rom.py download 2>&1 | tee work/reports/download.log
 
-      - name: Replace bootanimation and OS3 apps, rebuild super
+      - name: Replace bootanimation, system apps, and optionally patch KernelSU Next root
         run: |
           set -euo pipefail
           python3 scripts/edit_super.py 2>&1 | tee work/reports/edit.log
