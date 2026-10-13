@@ -22,6 +22,13 @@ ARM64 native libraries before staging it as a privileged app.
 **Important:** This selects the latest *published* `app/main` version,
 not an unbuilt or unpublished commit on an experimental app branch.
 The RYU PowerKeeper donor APK is a separate dependency, not the TNM app.
+Because the old release URL returns HTTP 404, ROM build and RYU DEX preflight
+look up the newest unexpired `RYUOS-HAOTIAN-PowerKeeper` Actions extraction
+artifact from this repository. Its original SHA-256 is still pinned to
+`7783b8581deeaf2c39d4fdf04d68a724b9f9c2d0fdf2604b866b399efca27108`.
+The current extraction artifact expires on **2026-10-19 UTC**; before then,
+renew the extraction artifact or migrate the donor to a durable authorized
+storage location. Builds fail closed if the reference expires or hash differs.
 
 ## Framework, notifications and app behavior
 
