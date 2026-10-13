@@ -1,0 +1,25 @@
+{
+  "source_super_url": "",
+  "source_sha256": "",
+  "apk_bundle_url": "",
+  "apk_bundle_sha256": "",
+  "os3_source_ref": "15093d2eda32bfce25d4f8e27ba4bd5df72d501c",
+  "requested_changes": {
+    "bootanimation": true,
+    "packageinstaller": "com.miui.packageinstaller",
+    "os3_apps": [
+      "AppVault",
+      "ControlCenter",
+      "Launcher",
+      "SecurityCenter",
+      "ThemeManager",
+      "FileManager",
+      "GalleryEditor",
+      "Gallery",
+      "ScreenRecorder",
+      "Screenshot"
+    ],
+    "build_prop": "audit_only"
+  },
+  "preserve_unrelated_mods": true
+}

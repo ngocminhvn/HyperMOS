@@ -1,0 +1,39 @@
+name: Super IMG Editor - source audit
+
+on:
+  push:
+    branches:
+      - super-img-editor
+    paths:
+      - config.json
+      - scripts/**
+      - .github/workflows/super-editor.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: super-editor-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source and configuration
+        id: config
+        run: python3 scripts/preflight.py
+      - name: Download and inspect source image (read-only)
+        if: steps.config.outputs.has_source == 'true'
+        run: bash scripts/audit_super.sh
+      - name: Publish diagnostic logs
+        if: always() && steps.config.outputs.has_source == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: super-img-source-audit
+          path: work/reports/
+          retention-days: 7
+          if-no-files-found: warn

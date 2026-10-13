@@ -1,9 +1,0 @@
-# HyperMOS / TNM hosts integration.
-# Mount is performed by tnm-hostsctl so updates can explicitly re-bind after
-# atomic file replacement. If no user hosts exists, stock Android hosts stays.
-
-on post-fs-data
-    mkdir /data/system/tnm 0755 root root
-    # The controller is a shell script, not an ELF init service.
-    # Execute via /system/bin/sh in the init mount namespace before zygote.
-    exec - root root -- /system/bin/sh @TNM_HOSTSCTL@ boot
