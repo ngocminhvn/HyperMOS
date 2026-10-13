@@ -275,6 +275,7 @@ jobs:
           # before downloading a large stock ROM.
           bash -n bin/root/patch_init_boot.sh
           sh -n bin/root/stage_root_manager.sh
+          sh -n bin/root/sync_boot_properties.sh
           bash -n bin/modfile/Universal/downloadapp/update.sh
           python3 -m py_compile bin/root/detect_kernel_kmi.py
           python3 bin/root/detect_kernel_kmi.py --self-test
@@ -282,6 +283,8 @@ jobs:
           grep -Fq 'skip competing/preinstalled root manager' bin/modfile/Universal/downloadapp/update.sh
           grep -Fq 'KernelSU-Next_v' bin/root/stage_root_manager.sh
           test -s bin/root/stage_root_manager.rc
+          grep -Fq 'on property:sys.boot_completed=1' bin/root/sync_boot_properties.rc
+          grep -Fq 'exec_background - root root' bin/root/sync_boot_properties.rc
           echo "[ROOT] KernelSU Next patch and manager staging preflight passed"
 
 

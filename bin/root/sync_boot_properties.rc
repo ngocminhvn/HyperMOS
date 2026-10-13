@@ -1,0 +1,3 @@
+# Execute after Android has completed boot. A resetprop failure cannot block init.
+on property:sys.boot_completed=1
+    exec_background - root root -- /system/bin/sh /system_ext/bin/hypermos-sync-boot-properties
