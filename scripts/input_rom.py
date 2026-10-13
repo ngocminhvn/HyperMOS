@@ -36,9 +36,6 @@ def download():
     # Retry intermittent failures, but fail on HTTP errors and never accept a JSON error as an image.
     subprocess.run(["curl", "-fL", "--retry", "4", "--retry-delay", "5", "--connect-timeout", "30",
                     "-o", str(dest), url], check=True)
-    expected = os.environ.get("SOURCE_SHA256", "").strip().lower()
-    if expected and digest(dest) != expected:
-        raise RuntimeError("Input SHA-256 mismatch (incorrect URL or hotlink protection)")
     if dest.stat().st_size < 4096:
         raise RuntimeError("Download is too small to contain a ROM/image")
     super_path = WORK / "original" / "super.img"

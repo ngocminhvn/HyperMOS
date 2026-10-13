@@ -6,8 +6,8 @@ This is an isolated branch for applying **existing local mods** to an **already-
 * `input_url` — **full ROM ZIP download link**, e.g. one containing `images/super.img` or `super/super.img`. Direct `super.img` is also accepted.
 * `upload_method` — `drive` (Rclone), `pixeldrain`.
 * `root_mode` — `root` (default: KernelSU Next LKM from pinned HyperMOS main code), or `stock` (preserve source init_boot unchanged).
-* `builder_id` — optional Telegram chat ID.
-* `source_sha256` — optional input SHA-256 (recommended).
+
+Telegram recipient is read directly from repository secret `TELEGRAM_CHANNEL_ID`; no chat ID input is needed. The workflow calculates and records the downloaded ROM SHA-256 automatically in its diagnostic report, but this is not independent source verification.
 
 Secrets reused from HyperMOS: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `RCLONE_TOKEN_PATH`, `PIXELDRAIN_API_KEY`. Optional repository variable: `RCLONE_REMOTE`.
 
@@ -22,8 +22,6 @@ The only build input is the **GitHub Actions manual form**. You do **not** edit 
 - `input_url`: direct HTTPS/HTTP URL to a previously modded ROM ZIP containing `super.img` (or to a standalone `super.img` in stock mode).
 - `root_mode`: `root` (default) or `stock` (does not modify init_boot).
 - `upload_method`: `drive` or `pixeldrain`.
-- `builder_id`: optional Telegram recipient.
-- `source_sha256`: optional expected download hash.
 
 **GitHub default-branch requirement:** The GitHub website only displays the **Run workflow** button for workflows that exist on the repository's default branch. This project deliberately does not modify `main` without express approval. After the workflow has been registered by GitHub, it may be dispatched against `super-img-editor` using GitHub CLI:
 

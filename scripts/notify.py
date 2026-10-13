@@ -22,11 +22,11 @@ message="\n".join([
 ])
 token=os.environ.get("TELEGRAM_BOT_TOKEN","")
 channel=os.environ.get("TELEGRAM_CHANNEL_ID","")
-user=os.environ.get("BUILDER_ID","")
+
 if not token or not channel:
     print("Telegram secrets not configured; skipping notification")
     raise SystemExit(0)
-for chat in dict.fromkeys([channel,user]):
+for chat in [channel]:
     if not chat: continue
     data=urlencode({"chat_id":chat,"text":message,"parse_mode":"HTML","disable_web_page_preview":"true"}).encode()
     req=Request(f"https://api.telegram.org/bot{token}/sendMessage",data=data)

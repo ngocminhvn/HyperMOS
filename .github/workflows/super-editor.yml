@@ -23,14 +23,6 @@ on:
         options:
           - drive
           - pixeldrain
-      builder_id:
-        description: 'Telegram user/chat ID (optional, also notifies configured channel)'
-        required: false
-        type: string
-      source_sha256:
-        description: 'Input ROM SHA256 (optional, recommended)'
-        required: false
-        type: string
 
   workflow_call:
     inputs:
@@ -47,12 +39,6 @@ on:
         description: 'drive or pixeldrain'
         required: false
         default: drive
-        type: string
-      builder_id:
-        required: false
-        type: string
-      source_sha256:
-        required: false
         type: string
 
 permissions:
@@ -76,11 +62,9 @@ jobs:
           INPUT_URL: ${{ inputs.input_url }}
           ROOT_MODE: ${{ inputs.root_mode }}
           UPLOAD_METHOD: ${{ inputs.upload_method }}
-          SOURCE_SHA256: ${{ inputs.source_sha256 }}
         run: |
           python3 - <<'PY'
           import os
-          import re
           from urllib.parse import urlsplit
           source = os.environ.get("INPUT_URL", "").strip()
           parsed = urlsplit(source)
@@ -92,9 +76,6 @@ jobs:
               raise SystemExit("root_mode must be root or stock")
           if os.environ.get("UPLOAD_METHOD") not in ("drive", "pixeldrain"):
               raise SystemExit("upload_method must be drive or pixeldrain")
-          check = os.environ.get("SOURCE_SHA256", "").strip()
-          if check and not re.fullmatch(r"[0-9a-fA-F]{64}", check):
-              raise SystemExit("source_sha256 must be 64 hex digits")
           print("Manual build inputs accepted; link content will be checked during download.")
           PY
 
@@ -112,11 +93,9 @@ jobs:
     timeout-minutes: 360
     env:
       INPUT_URL: ${{ inputs.input_url }}
-      SOURCE_SHA256: ${{ inputs.source_sha256 }}
       UPLOAD_METHOD: ${{ inputs.upload_method }}
       ROOT_MODE: ${{ inputs.root_mode }}
       GH_TOKEN: ${{ github.token }}
-      BUILDER_ID: ${{ inputs.builder_id }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
       RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
