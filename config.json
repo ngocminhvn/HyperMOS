@@ -1,9 +1,7 @@
 {
+  "source_rom_url": "",
   "source_super_url": "",
-  "source_sha256": "",
-  "apk_bundle_url": "",
-  "apk_bundle_sha256": "",
-  "os3_source_ref": "15093d2eda32bfce25d4f8e27ba4bd5df72d501c",
+  "description": "For workflow dispatch enter a full already-modded ROM ZIP URL containing super.img. For push trigger, fill source_rom_url here.",
   "requested_changes": {
     "bootanimation": true,
     "packageinstaller": "com.miui.packageinstaller",

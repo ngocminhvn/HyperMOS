@@ -1,34 +1,47 @@
-# HyperMOS Super IMG Editor (isolated branch)
+# Super IMG Editor for Xiaomi 15 Pro (HAOTIAN)
 
-This branch is intentionally minimal. It operates on an **already modded** `super.img` for Xiaomi 15 Pro (HAOTIAN). No full ROM build, framework patching, root/boot image repacking, or modifications to `main`.
+This is an isolated branch for applying **existing local mods** to an **already-modded** ROM ZIP that contains a `super.img`. The original ROM's unrelated image entries and the repository `main` branch are not changed.
 
-## Requested scope (future editing phase)
+## Inputs in GitHub Actions
+* `input_url` — **full ROM ZIP download link**, e.g. one containing `images/super.img` or `super/super.img`. Direct `super.img` is also accepted.
+* `upload_method` — `drive` (Rclone), `pixeldrain`.
+* `builder_id` — optional Telegram chat ID.
+* `source_sha256` — optional input SHA-256 (recommended).
 
-1. Replace the active `bootanimation.zip` from a user-supplied ZIP.
-2. Replace **only** the APK whose Android package ID is `com.miui.packageinstaller`; preserve package permissions, signing compatibility, and native libraries.
-3. Apply OS3 app snapshots from the separately pinned HyperMOS revision: AppVault, ColorOS Control Center, Launcher, ThemeManager, SecurityCenter, File Manager, Gallery Editor, Gallery, ScreenRecorder, Screenshot. Keep required overlays, permissions and external native libraries.
-4. Audit cosmetic `build.prop` entries containing `ryu`, `zk`, `zkos`, or `kaorios`. Do NOT blindly delete active property keys, integrity/boot/security state or dependencies; require an audited list before deletion.
-5. Keep every unrelated logical partition, APK, existing ROM mod, boot chain and AVB file unchanged.
-6. When supported and verified, export `super.img` plus an audit/changes report as a GitHub Actions artifact.
+Secrets reused from HyperMOS: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `RCLONE_TOKEN_PATH`, `PIXELDRAIN_API_KEY`. Optional repository variable: `RCLONE_REMOTE`.
 
-## Status: safe preflight and READ-ONLY audit, not a finished repacker
+Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate super.img → unpack logical partitions → replace bootanimation → apply Mods/OS3 Kashi/System → adapt local InstallerX to com.miui.packageinstaller → report build.prop candidates → rebuild EROFS and LP metadata → repackage source ZIP → Rclone/Pixeldrain upload → Telegram result`.
 
-A ready-to-flash `super.img` is **not** produced by the current workflow. Repacking is intentionally blocked until the actual source image has been inspected for filesystem (EROFS/ext4), dynamic partition layout/slots, metadata and AVB consistency. The GitHub Actions audit records partition names and filesystem types only.
+**This is not the HyperMOS stock-ROM build workflow.** A full OTA `payload.bin` without a `super.img` is rejected, not silently converted into a different ROM. ZIPs containing more than one `super.img` are also rejected.
 
-## Inputs
+## Non-default-branch Actions limitation
+GitHub may not show the *Run workflow* UI for a workflow that only exists on a non-default branch. We do not modify `main`. You can instead set `source_rom_url` in `config.json` and push it to `super-img-editor` to start a run. It uses `drive` unless manually dispatched with another upload method. Avoid writing private URLs with access tokens into public Git history.
 
-Edit `config.json` **on this branch**, not on main.
+## Mods already in the branch
+* `Mods/Boot/bootanimation.zip`
+* `Mods/OS3/kashi/*.zip`: HyperOS AppVault, ColorOS plugin, Launcher, Security Center, ThemeManager
+* `Mods/OS3/system/*.apk`: File Manager, Gallery Editor, Gallery, ScreenRecorder, Screenshot. **Real Git LFS blobs are required**, not 132-byte pointer text.
+* `Mods/Packageinstaller/InstallerX-Revived-online-26.09.apk` or a prepared `Mods/Packageinstaller/MIUIPackageInstaller.apk`; permissions XML.
 
-* `source_super_url`: publicly accessible direct HTTPS download URL of an unchanged `super.img`. GitHub Actions cannot access `D:\\ROM-Work\\original\\super.img` directly.
-* `source_sha256`: SHA-256 of exactly those input bytes. Windows: `Get-FileHash 'D:\\ROM-Work\\original\\super.img' -Algorithm SHA256`.
-* `apk_bundle_url`: eventually a direct HTTPS URL to a ZIP of the user-provided `apk/` directory (can remain blank during audit). Do not include secrets or paid hotlink URLs requiring browser sessions.
-* `apk_bundle_sha256`: SHA-256 of that ZIP.
-* `os3_source_ref`: pinned original HyperMOS commit from which OS3 app assets will be sourced later.
+The editor uses the repository's local `Linux/` and `Tools/` binaries, plus a vendored pinned GPLv3 `super_rw.py` implementation and original AOSP test-signing key already present in HyperMOS. Original EROFS fs_config and SELinux contexts are required and regenerated from the input image, not from stock templates.
 
-The audit workflow runs on **push to this branch**. A workflow existing only on a non-default branch may not have an Actions UI `Run workflow` button; edit and commit `config.json` here to start a push run.
+## Safety constraints and current limitations
+* **EROFS partitions only** (product/system/system_ext). If the input uses ext4 for a target partition, build fails rather than remounting or rewriting it incorrectly.
+* Original LP metadata A/B slots must agree; different/incomplete slots stop automatically. Original logical partition size is enforced; unrelated payloads are preserved.
+* `build.prop` changes are **audit-only**: see `build-prop-audit.txt`. Blind deletion of RYU/ZK/ZKOS/Kaorios properties could break services still running in the modded ROM.
+* Apk signing compatibility is not guaranteed. InstallerX adaptation signs with the upstream AOSP **testkey**, and signature differences from the installed ROM can disrupt updates/data. Back up app data and validate.
+* Original vbmeta/AVB state may be incompatible with modified partitions. The generated file has **not** been tested on device; do not flash until boot chain / AVB compatibility is independently verified.
+* Adequate disk space, an accessible direct download URL and valid existing upload credentials are required.
+* Only a known-fastboot-style super-based ZIP or direct super.img is supported. No implicit root, vendor_boot, FakeLock or SELinux policy patches.
+* Reports are uploaded as a small Artifact. The large ZIP/super.img goes through the selected uploader.
 
-## Important
+## Running after local edits
+```cmd
+cd /d D:\\super-img-editor
+git pull --ff-only origin super-img-editor
+git add Mods config.json
+git commit -m "Update ROM assets"
+git push origin super-img-editor
+```
 
-A hosted GitHub runner may not have sufficient disk for a large `super.img`, extracted partitions, and a rebuilt image. The audit fails closed if space is insufficient; a self-hosted Linux runner with sufficient free space might be necessary for the actual build. APK signature/permissions checks and AVB verification will be mandatory before releasing a rebuilt image.
-
-Source baseline is the original modified image, NOT HyperMOS stock ROM. This branch deliberately excludes the old build scripts, obsolete workflows, and unrelated assets.
+License for vendored `scripts/super_rw.py` in `third_party/super_rw.LICENSE`. Original source commit: `ybtag/super_rw@46ce981c6a523d1c4a1a0da8c75b090af0e91ee7`.

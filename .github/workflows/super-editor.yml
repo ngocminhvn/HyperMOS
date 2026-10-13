@@ -1,14 +1,33 @@
-name: Super IMG Editor - source audit
+name: Super IMG Editor - ROM ZIP Mods
 
 on:
+  workflow_dispatch:
+    inputs:
+      input_url:
+        description: 'Direct download link to already-modded ROM ZIP containing super.img (or direct super.img)'
+        required: true
+        type: string
+      upload_method:
+        description: 'Upload output to'
+        required: true
+        type: choice
+        default: drive
+        options:
+          - drive
+          - pixeldrain
+      builder_id:
+        description: 'Telegram user/chat ID (optional, also notifies configured channel)'
+        required: false
+        type: string
+      source_sha256:
+        description: 'Input ROM SHA256 (optional, recommended)'
+        required: false
+        type: string
   push:
     branches:
       - super-img-editor
     paths:
       - config.json
-      - scripts/**
-      - .github/workflows/super-editor.yml
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,22 +37,126 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  source-audit:
+  preflight:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    outputs:
+      ready: ${{ steps.source.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate source and configuration
-        id: config
-        run: python3 scripts/preflight.py
-      - name: Download and inspect source image (read-only)
-        if: steps.config.outputs.has_source == 'true'
-        run: bash scripts/audit_super.sh
-      - name: Publish diagnostic logs
-        if: always() && steps.config.outputs.has_source == 'true'
+        with:
+          lfs: false
+      - name: Compile-check editor scripts
+        run: python3 -m py_compile scripts/*.py
+
+      - name: Check whether a source URL has been supplied
+        id: source
+        env:
+          INPUT_URL: ${{ inputs.input_url }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          c=json.loads(Path("config.json").read_text())
+          url=(os.environ.get("INPUT_URL") or c.get("source_rom_url") or c.get("source_super_url") or "").strip()
+          ready="true" if url.startswith(("https://","http://")) else "false"
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write("ready="+ready+chr(10))
+          print("ROM input provided:",ready)
+          PY
+
+  edit-rom:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      INPUT_URL: ${{ inputs.input_url }}
+      SOURCE_SHA256: ${{ inputs.source_sha256 }}
+      UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
+      BUILDER_ID: ${{ inputs.builder_id }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+      RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
+      RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE }}
+      PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Increase runner disk space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 1024
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Checkout editor and all Mods LFS blobs
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: true
+
+      - name: Resolve Git LFS content
+        run: |
+          set -euo pipefail
+          git lfs pull
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install required host tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            aapt curl jq rclone 7zip e2fsprogs util-linux file unzip zip \
+            android-sdk-libsparse-utils python3 ca-certificates
+          chmod +x Linux/* || true
+          echo "$PWD/Linux" >> "$GITHUB_PATH"
+          mkdir -p work/reports work/output
+          command -v aapt
+          Linux/lpunpack --help >/dev/null 2>&1 || true
+          df -h . | tee work/reports/disk-before.txt
+
+      - name: Download ROM ZIP and extract existing super.img
+        run: |
+          set -euo pipefail
+          python3 scripts/input_rom.py download 2>&1 | tee work/reports/download.log
+
+      - name: Replace bootanimation and OS3 apps, rebuild super
+        run: |
+          set -euo pipefail
+          python3 scripts/edit_super.py 2>&1 | tee work/reports/edit.log
+
+      - name: Package resulting ROM without modifying other image entries
+        run: |
+          set -euo pipefail
+          python3 scripts/input_rom.py package 2>&1 | tee work/reports/package.log
+
+      - name: Upload through Rclone or Pixeldrain
+        run: |
+          set -euo pipefail
+          bash scripts/upload.sh 2>&1 | tee work/reports/upload.log
+
+      - name: Save diagnostic reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: super-img-source-audit
+          name: super-editor-reports-${{ github.run_number }}
           path: work/reports/
-          retention-days: 7
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Telegram result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 scripts/notify.py || true
