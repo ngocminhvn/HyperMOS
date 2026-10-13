@@ -7,16 +7,6 @@ on:
         description: 'Xiaomi 15 Pro HAOTIAN stock OS3.0.308.0 (Android 16)'
         required: true
         default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
-      tnm_test_apk_url:
-        description: 'Test branch only: signed TNM APK URL (#127 reference)'
-        default: 'https://github.com/ngocminhvn/HyperMOS/releases/download/tnm-ryu-99a8659/TNM-99a8659.apk'
-        required: false
-        type: string
-      tnm_test_apk_sha256:
-        description: 'Test branch only: signed TNM APK lowercase SHA-256'
-        default: '40077d4ec70207a1d0b370ea8a0eb240d39585eb10c5c97d1386f1f2f1440212'
-        required: false
-        type: string
       builder_name:
         description: 'Builder name'
         required: false
@@ -53,22 +43,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      TNM_TEST_APK_URL: ${{ inputs.tnm_test_apk_url }}
-      TNM_TEST_APK_SHA256: ${{ inputs.tnm_test_apk_sha256 }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
 
     steps:
-      - name: Validate pinned TNM test APK input
-        if: github.ref_name == 'test-tnm-ryu-haotian'
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$TNM_TEST_APK_URL" == https://* && "$TNM_TEST_APK_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
-            echo "::error::Provide signed TNM test APK HTTPS URL and its lowercase SHA-256"
-            exit 1
-          }
-
       - name: Runner space
         id: diskcheck
         shell: bash
