@@ -1,6 +1,6 @@
 name: Super IMG Editor - New Build 2026-10-14
 
-# One-time new run for the tested HAOTIAN RYUOS source.
+# Use the requested SourceForge mirror without expiring signed ts/r query parameters.
 # Only a modification to this exact launcher file triggers a push build.
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
   new-build:
     uses: ngocminhvn/HyperMOS/.github/workflows/super-editor.yml@super-img-editor
     with:
-      input_url: 'https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip'
+      input_url: 'https://downloads.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip?use_mirror=onboardcloud'
       root_mode: root
       upload_method: drive
     secrets: inherit
