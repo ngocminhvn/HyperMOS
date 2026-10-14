@@ -1,4 +1,4 @@
-name: Super IMG Editor - Fresh ROM Validation (No LVM)
+name: Super IMG Editor - Fresh ROM Validation (EROFS resize)
 
 on:
   push:
