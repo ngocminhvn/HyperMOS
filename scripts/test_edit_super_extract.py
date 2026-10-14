@@ -82,13 +82,13 @@ class HaotianVendorIdentityTests(unittest.TestCase):
         vendor.mkdir()
         if device is not None:
             (vendor / "build.prop").write_text(
-                f"ro.product.vendor.device={device}\\n"
+                f"ro.product.vendor.device={device}\n"
             )
 
     def test_accepts_vendor_haotian_even_if_modded_system_has_other_properties(self):
         system = self.trees / "system"
         system.mkdir()
-        (system / "build.prop").write_text("ro.product.device=ryuos\\n")
+        (system / "build.prop").write_text("ro.product.device=ryuos\n")
         with patch.object(edit_super, "extract_erofs_partition",
                           side_effect=lambda base, image: self.extract_original_vendor()):
             edit_super.verify_haotian_base()
