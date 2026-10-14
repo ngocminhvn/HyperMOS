@@ -103,9 +103,15 @@ apply_system_apk() {
         return 1
     }
 
+    # RYUOS can omit or rename optional system packages. Never create an
+    # unknown system app directory or replace an APK with a different package.
+    # Skip only this optional mod; keep other app replacements fail-closed.
     stock_apk=$(find_stock_apk "$mod_package" "$preferred_stock_dir") || {
-        error "$label: stock package not found: $mod_package"
-        return 1
+        warn "$label: stock package $mod_package absent in editable ROM partitions; SKIPPED (stock kept unchanged)"
+        mkdir -p "$work_dir/work/reports"
+        printf '%s\t%s\t%s\t%s\n' "$label" "$mod_package" "$preferred_stock_dir" "missing matching stock package; safely skipped" \
+            >> "$work_dir/work/reports/skipped-system-apks.tsv"
+        return 0
     }
 
     stock_dir=$(dirname "$stock_apk")
