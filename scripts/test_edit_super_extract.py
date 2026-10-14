@@ -95,6 +95,17 @@ class HaotianVendorIdentityTests(unittest.TestCase):
         self.assertIn("Verified device: haotian",
                       (self.report / "root-device.txt").read_text())
 
+    def test_ignores_vendor_branding_if_canonical_device_matches(self):
+        def vendor_with_branding(base, image):
+            self.extract_original_vendor()
+            with (self.trees / "vendor" / "build.prop").open("a") as target:
+                target.write("ro.build.product=ryuos\n")
+        with patch.object(edit_super, "extract_erofs_partition",
+                          side_effect=vendor_with_branding):
+            edit_super.verify_haotian_base()
+        self.assertIn("Verified device: haotian",
+                      (self.report / "root-device.txt").read_text())
+
     def test_rejects_conflicting_vendor_identity(self):
         with patch.object(edit_super, "extract_erofs_partition",
                           side_effect=lambda base, image: self.extract_original_vendor("nuwa")):
