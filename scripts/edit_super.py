@@ -75,7 +75,19 @@ def extract_erofs_partition(base, img):
     if stage.exists():
         raise RuntimeError(f"{base}: stale EROFS staging directory: {stage}")
     stage.mkdir(parents=True)
-    run("extract.erofs", "-x", "-i", img, "-o", stage)
+    # The extractor renders thousands of incremental percentages. Keep its full
+    # diagnostics in the report artifact, not the live Actions console.
+    log_file = REPORT / f"extract-{base}.log"
+    with log_file.open("wb") as output:
+        try:
+            run("extract.erofs", "-x", "-i", img, "-o", stage,
+                stdout=output, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as exc:
+            tail = log_file.read_text(errors="replace").splitlines()[-40:]
+            raise RuntimeError(
+                f"{base}: extract.erofs failed with exit {exc.returncode}. "
+                f"Full log: {log_file}\\n" + "\\n".join(tail)
+            ) from exc
     extracted=[p for p in stage.iterdir() if p.is_dir() and p.name!="config"]
     config=stage/"config"
     if len(extracted)!=1 or not config.is_dir():
