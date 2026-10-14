@@ -380,7 +380,7 @@ def reconcile_erofs_metadata(base, fs_path, contexts_path):
     # Preserve existing entries (including capability strings) byte-for-byte.
     normalized_context = {}
     for regex_path, label in ctx_map.items():
-        plain = regex_path.removeprefix("^").replace(r"\\.", ".")
+        plain = regex_path.removeprefix("^").replace(r"\.", ".")
         if not any(ch in plain for ch in ("*", "[", "]", "(", ")", "+", "?", "|", "$")):
             normalized_context[plain] = label
 
