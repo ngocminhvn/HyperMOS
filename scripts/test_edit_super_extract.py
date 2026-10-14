@@ -172,9 +172,9 @@ class ErofsMetadataRepackTests(unittest.TestCase):
         self.assertNotIn("product/product", self.fs.read_text())
 
     def test_refuses_fs_config_without_source_root(self):
-        self.fs.write_text("/app 0 0 0755\\n/app/Original.apk 0 0 0644\\n")
-        self.ctx.write_text("/ u:object_r:rootfs:s0\\n"
-                            "/app u:object_r:system_file:s0\\n")
+        self.fs.write_text("/app 0 0 0755\n/app/Original.apk 0 0 0644\n")
+        self.ctx.write_text("/ u:object_r:rootfs:s0\n"
+                            "/app u:object_r:system_file:s0\n")
         with self.assertRaisesRegex(RuntimeError, "missing root inode metadata"):
             edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
 
