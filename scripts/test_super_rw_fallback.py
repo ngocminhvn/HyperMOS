@@ -79,5 +79,65 @@ class UnpackFallbackTests(unittest.TestCase):
             self.unpack(sample_metadata(name="../system"))
 
 
+class ErofsGrowthSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.product = {
+            "raw_name": "product_a", "name": "product_a",
+            "group_raw": "qti_dynamic_partitions_a",
+            "original_partition_size": 8 * 4096,
+        }
+
+    def test_stays_original_size_when_image_fits(self):
+        self.assertEqual(
+            super_rw.requested_erofs_size(self.product, 7 * 4096, 4096, True),
+            8 * 4096,
+        )
+
+    def test_grow_requires_explicit_opt_in(self):
+        with self.assertRaisesRegex(super_rw.SuperRwError, "explicit --allow-erofs-grow"):
+            super_rw.requested_erofs_size(self.product, 8 * 4096 + 1, 4096)
+
+    def test_grow_rounds_to_logical_block_boundary(self):
+        self.assertEqual(
+            super_rw.requested_erofs_size(self.product, 8 * 4096 + 1, 4096, True),
+            9 * 4096,
+        )
+
+    def test_refuses_group_overflow(self):
+        manifest = {
+            "groups": [
+                {"raw_name": "qti_dynamic_partitions_a", "maximum_size": 9 * 4096}
+            ],
+            "partitions": [self.product],
+        }
+        with self.assertRaisesRegex(super_rw.SuperRwError, "lacks room"):
+            super_rw.verify_group_size_budget(manifest, {"product_a": 10 * 4096})
+
+    def test_accepts_group_growth_within_unchanged_limit(self):
+        manifest = {
+            "groups": [
+                {"raw_name": "qti_dynamic_partitions_a", "maximum_size": 10 * 4096}
+            ],
+            "partitions": [self.product],
+        }
+        super_rw.verify_group_size_budget(manifest, {"product_a": 9 * 4096})
+
+    def test_counts_all_partitions_in_same_group(self):
+        other = {
+            "raw_name": "system_a", "name": "system_a",
+            "group_raw": "qti_dynamic_partitions_a",
+        }
+        manifest = {
+            "groups": [
+                {"raw_name": "qti_dynamic_partitions_a", "maximum_size": 12 * 4096}
+            ],
+            "partitions": [self.product, other],
+        }
+        with self.assertRaisesRegex(super_rw.SuperRwError, "short by"):
+            super_rw.verify_group_size_budget(
+                manifest, {"product_a": 9 * 4096, "system_a": 4 * 4096}
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
