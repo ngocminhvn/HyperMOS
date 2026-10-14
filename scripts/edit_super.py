@@ -61,18 +61,40 @@ def unpack():
     CFG.mkdir(exist_ok=True)
     for base,p in found.items():
         img=WS/p["image"]
-        target=TREES/base
-        target.mkdir(exist_ok=True)
-        c=CFG/base
-        c.mkdir(exist_ok=True)
-        # Extract filesystem metadata and data; never reconstruct contexts from generic defaults.
-        run("extract.erofs","-x","-i",img,"-o",target,"-c",c)
-        fc=list(c.rglob("*_fs_config"))
-        se=list(c.rglob("*_file_contexts"))
-        if len(fc)!=1 or len(se)!=1 or not fc[0].stat().st_size or not se[0].stat().st_size:
-            raise RuntimeError(f"{base}: missing exact fs_config or SELinux file_contexts from EROFS source")
+        extract_erofs_partition(base, img)
     (REPORT/"partitions.json").write_text(json.dumps([{k:v for k,v in p.items() if k!="original_sha256"} for p in manifest["partitions"]],indent=2))
     BUILD_PROP_BASELINE.update(snapshot_build_props())
+
+def extract_erofs_partition(base, img):
+    """Extract using extract.erofs' real output layout (outdir/<image-stem>, outdir/config).
+
+    -c/--config is an INPUT selection file, not a metadata output directory.
+    Never synthesize fs_config or SELinux file_contexts when the tool omits them.
+    """
+    stage=W/"extract-staging"/base
+    if stage.exists():
+        raise RuntimeError(f"{base}: stale EROFS staging directory: {stage}")
+    stage.mkdir(parents=True)
+    run("extract.erofs", "-x", "-i", img, "-o", stage)
+    extracted=[p for p in stage.iterdir() if p.is_dir() and p.name!="config"]
+    config=stage/"config"
+    if len(extracted)!=1 or not config.is_dir():
+        raise RuntimeError(
+            f"{base}: unexpected EROFS extractor layout; "
+            f"trees={len(extracted)}, config_present={config.is_dir()}")
+    fc=list(config.rglob("*_fs_config"))
+    se=list(config.rglob("*_file_contexts"))
+    if len(fc)!=1 or len(se)!=1 or not fc[0].stat().st_size or not se[0].stat().st_size:
+        raise RuntimeError(f"{base}: missing exact fs_config or SELinux file_contexts from EROFS source")
+    target=TREES/base
+    dest_config=CFG/base
+    if target.exists() or dest_config.exists():
+        raise RuntimeError(f"{base}: refusing to overwrite previous extracted trees or metadata")
+    extracted[0].rename(target)
+    config.rename(dest_config)
+    stage.rmdir()
+    print(f"Extracted {base}: files={target}, metadata={dest_config}", flush=True)
+
 
 def snapshot_build_props():
     """Read-only fingerprint of every build.prop in extracted partitions."""
