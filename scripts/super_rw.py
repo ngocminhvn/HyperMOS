@@ -1130,7 +1130,7 @@ def zero_sized_partition_names(manifest: dict[str, Any]) -> set[str]:
     return {
         item["raw_name"]
         for item in manifest["partitions"]
-        if item["size"] == 0
+        if item["original_partition_size"] == 0
     }
 
 
