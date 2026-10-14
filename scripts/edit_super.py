@@ -261,10 +261,15 @@ def verify_haotian_base():
                 if key in keys and value:
                     observed.append((base, str(propfile.relative_to(TREES)), key, value))
 
-    trusted={"ro.product.vendor.device", "ro.vendor.product.device",
-             "ro.product.device", "ro.build.product"}
-    vendor_values=[(key,value) for base,_,key,value in observed
-                   if base=="vendor" and key in trusted]
+    # Canonical vendor identity wins over generic/legacy ROM property aliases.
+    # A modified ROM can carry a branding name in ro.build.product.
+    canonical_keys={"ro.product.vendor.device", "ro.vendor.product.device"}
+    fallback_keys={"ro.product.device", "ro.build.product"}
+    canonical=[(key,value) for base,_,key,value in observed
+               if base=="vendor" and key in canonical_keys]
+    fallback=[(key,value) for base,_,key,value in observed
+              if base=="vendor" and key in fallback_keys]
+    vendor_values=canonical if canonical else fallback
     report=REPORT/"root-device.txt"
     report.write_text(
         "Device identity: original vendor EROFS (read-only source)\n"
