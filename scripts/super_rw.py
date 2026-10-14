@@ -817,20 +817,99 @@ def mount_workspace(
         )
 
 
+def unpack_validated_metadata(raw_super: Path, output_dir: Path, slot: int) -> None:
+    """Read only validated Android liblp metadata and copy partition extents.
+
+    The vendored lpunpack can reject a valid newer 256-byte LP header by
+    checksumming an older fixed-size header. Never rewrite metadata to appease
+    that binary, and never guess an extent's location.
+    """
+    with raw_super.open("rb") as source:
+        geometry = read_geometry(source)
+        metadata = read_metadata_slot(source, geometry, slot)
+        apply_display_names(metadata, slot)
+        if len(metadata["block_devices"]) != 1:
+            raise SuperRwError("Fallback only supports one physical super device")
+
+        device = metadata["block_devices"][0]
+        image_size = raw_super.stat().st_size
+        if device["size"] > image_size:
+            raise SuperRwError(
+                f"Declared super device is larger than raw image: "
+                f"{device['size']} > {image_size}"
+            )
+        data_start = device["first_logical_sector"] * LP_SECTOR_SIZE
+        existing_names: set[str] = set()
+        for partition in metadata["partitions"]:
+            name = partition["name"]
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or name in (".", ".."):
+                raise SuperRwError(f"Unsafe partition name: {name!r}")
+            if name in existing_names:
+                raise SuperRwError(f"Duplicate partition name: {name!r}")
+            existing_names.add(name)
+            target = output_dir / f"{name}.img"
+            pending = output_dir / f".{name}.img.partial"
+            try:
+                with pending.open("wb") as out:
+                    written = 0
+                    for extent in partition["extents"]:
+                        length = extent["num_sectors"] * LP_SECTOR_SIZE
+                        if length == 0:
+                            continue
+                        if extent["target_type"] == 0:  # LP_TARGET_TYPE_LINEAR
+                            if extent["target_source"] != 0:
+                                raise SuperRwError(
+                                    f"{name}: unexpected physical block device "
+                                    f"{extent['target_source']}"
+                                )
+                            offset = extent["target_data"] * LP_SECTOR_SIZE
+                            end = offset + length
+                            if offset < data_start or end > device["size"] or end > image_size:
+                                raise SuperRwError(
+                                    f"{name}: extent outside super data boundaries "
+                                    f"({offset}..{end})"
+                                )
+                            source.seek(offset)
+                            remaining = length
+                            while remaining:
+                                chunk = source.read(min(8 * 1024 * 1024, remaining))
+                                if not chunk:
+                                    raise SuperRwError(f"{name}: truncated linear extent")
+                                out.write(chunk)
+                                remaining -= len(chunk)
+                        elif extent["target_type"] == 1:  # LP_TARGET_TYPE_ZERO
+                            # Seek creates a sparse hole without allocating GB of zeros.
+                            out.seek(length, os.SEEK_CUR)
+                        else:
+                            raise SuperRwError(
+                                f"{name}: unsupported extent type {extent['target_type']}"
+                            )
+                        written += length
+                    if written != partition["size"]:
+                        raise SuperRwError(f"{name}: partition size mismatch")
+                    out.truncate(written)
+                os.replace(pending, target)
+            finally:
+                if pending.exists():
+                    pending.unlink()
+            info(f"Validated unpack: {name} ({human_size(partition['size'])})")
+
+
 def run_lpunpack(raw_super: Path, output_dir: Path, slot: int) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
-        run(["lpunpack", f"--slot={slot}", raw_super, output_dir])
-    except SuperRwError as first_error:
-        # Older downstream builds sometimes only accept the short -S spelling.
+        run(["lpunpack", f"--slot={slot}", raw_super, output_dir], capture=True)
+        return
+    except SuperRwError as exc:
+        warn(f"Vendored lpunpack rejected image: {exc}")
+        warn(
+            "Trying checksum-validated Python extent extraction instead; "
+            "source super metadata will remain untouched"
+        )
         for child in output_dir.iterdir():
             if child.is_file() or child.is_symlink():
                 child.unlink()
-        warn("lpunpack rejected --slot; retrying with -S")
-        try:
-            run(["lpunpack", "-S", str(slot), raw_super, output_dir])
-        except SuperRwError:
-            raise first_error
+        unpack_validated_metadata(raw_super, output_dir, slot)
 
 
 def command_unpack(args: argparse.Namespace) -> None:
