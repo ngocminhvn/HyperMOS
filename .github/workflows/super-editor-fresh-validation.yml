@@ -1,4 +1,4 @@
-name: Super IMG Editor - Fresh ROM Validation
+name: Super IMG Editor - Fresh ROM Validation (No LVM)
 
 on:
   push:
@@ -18,3 +18,4 @@ jobs:
       root_mode: root
       upload_method: drive
     secrets: inherit
+
