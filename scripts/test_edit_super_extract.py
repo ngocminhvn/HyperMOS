@@ -142,7 +142,7 @@ class ErofsMetadataRepackTests(unittest.TestCase):
         self.ctx.write_text(
             "/ u:object_r:rootfs:s0\n"
             "/app u:object_r:system_file:s0\n"
-            r"/app/Original\\.apk u:object_r:system_file:s0" + "\n"
+            r"/app/Original\.apk u:object_r:system_file:s0" + "\n"
         )
         (self.image / "app" / "New.apk").write_bytes(b"mod")
         edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
@@ -152,7 +152,7 @@ class ErofsMetadataRepackTests(unittest.TestCase):
         self.assertIn("product/app/Original.apk 0 0 0644 capabilities=0x0", config)
         self.assertIn("product/app/New.apk 0 0 0644", config)
         self.assertIn("/product/app u:object_r:system_file:s0", labels)
-        self.assertIn(r"/product/app/New\\.apk u:object_r:system_file:s0", labels)
+        self.assertIn(r"/product/app/New\.apk u:object_r:system_file:s0", labels)
         self.assertNotIn("product/product/app", config)
 
     def test_accepts_already_prefixed_config(self):
@@ -160,7 +160,7 @@ class ErofsMetadataRepackTests(unittest.TestCase):
                            "product/app/Original.apk 0 0 0644\n")
         self.ctx.write_text("/product u:object_r:rootfs:s0\n"
                             "/product/app u:object_r:system_file:s0\n"
-                            r"/product/app/Original\\.apk u:object_r:system_file:s0" + "\n")
+                            r"/product/app/Original\.apk u:object_r:system_file:s0" + "\n")
         edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
         self.assertEqual(len(self.fs.read_text().splitlines()), 3)
         self.assertNotIn("product/product", self.fs.read_text())
