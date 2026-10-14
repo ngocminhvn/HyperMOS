@@ -54,5 +54,59 @@ class ErofsExtractorContractTests(unittest.TestCase):
         self.assertFalse((self.config / "product").exists())
 
 
+class HaotianVendorIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.work = Path(self.tmp.name) / "work"
+        self.trees = self.work / "trees"
+        self.ws = self.work / "super-work"
+        self.report = self.work / "reports"
+        for directory in (self.trees, self.ws / "images", self.report):
+            directory.mkdir(parents=True)
+        (self.ws / "images" / "vendor_a.img").write_bytes(b"original vendor image")
+        (self.ws / "super_rw_manifest.json").write_text(
+            '{"partitions": [{"name": "vendor_a", "image": "images/vendor_a.img", '
+            '"filesystem": "erofs", "original_partition_size": 12345}]}'
+        )
+        for name,value in (
+            ("W", self.work), ("WS", self.ws),
+            ("TREES", self.trees), ("REPORT", self.report),
+        ):
+            patcher = patch.object(edit_super, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def extract_original_vendor(self, device="haotian"):
+        vendor = self.trees / "vendor"
+        vendor.mkdir()
+        if device is not None:
+            (vendor / "build.prop").write_text(
+                f"ro.product.vendor.device={device}\\n"
+            )
+
+    def test_accepts_vendor_haotian_even_if_modded_system_has_other_properties(self):
+        system = self.trees / "system"
+        system.mkdir()
+        (system / "build.prop").write_text("ro.product.device=ryuos\\n")
+        with patch.object(edit_super, "extract_erofs_partition",
+                          side_effect=lambda base, image: self.extract_original_vendor()):
+            edit_super.verify_haotian_base()
+        self.assertIn("Verified device: haotian",
+                      (self.report / "root-device.txt").read_text())
+
+    def test_rejects_conflicting_vendor_identity(self):
+        with patch.object(edit_super, "extract_erofs_partition",
+                          side_effect=lambda base, image: self.extract_original_vendor("nuwa")):
+            with self.assertRaisesRegex(RuntimeError, "conflicts"):
+                edit_super.verify_haotian_base()
+
+    def test_rejects_unidentified_vendor_despite_haotian_input_filename(self):
+        with patch.object(edit_super, "extract_erofs_partition",
+                          side_effect=lambda base, image: self.extract_original_vendor(None)):
+            with self.assertRaisesRegex(RuntimeError, "no device declaration"):
+                edit_super.verify_haotian_base()
+
+
 if __name__ == "__main__":
     unittest.main()
