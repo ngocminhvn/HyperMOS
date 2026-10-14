@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Small, offline regression checks for safe super.img LP extraction."""
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,6 +78,24 @@ class UnpackFallbackTests(unittest.TestCase):
     def test_invalid_name_fails_closed(self):
         with self.assertRaisesRegex(super_rw.SuperRwError, "Unsafe partition"):
             self.unpack(sample_metadata(name="../system"))
+
+
+class ZeroSizedPartitionMetadataTests(unittest.TestCase):
+    def test_clears_placeholder_extent_without_touching_other_entries(self):
+        entries = bytearray(2 * 52)
+        entries[0:36] = b"inactive_b\0" + bytes(25)
+        struct.pack_into("<IIII", entries, 36, 0, 0, 1, 0)
+        entries[52:88] = b"active_a\0" + bytes(27)
+        struct.pack_into("<IIII", entries, 88, 1, 1, 1, 0)
+
+        super_rw.clear_partition_extents(
+            entries,
+            {"offset": 0, "entry_size": 52, "num_entries": 2},
+            {"inactive_b"},
+        )
+
+        self.assertEqual(struct.unpack_from("<II", entries, 40), (0, 0))
+        self.assertEqual(struct.unpack_from("<II", entries, 92), (1, 1))
 
 
 class ErofsGrowthSafetyTests(unittest.TestCase):
