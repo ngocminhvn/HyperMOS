@@ -136,31 +136,30 @@ jobs:
         shell: bash
 
     steps:
-      - name: Increase runner disk space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 20480
-          temp-reserve-mb: 2048
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-
-      - name: Verify root and build volumes
+      - name: Prepare runner storage without LVM
         run: |
           set -euo pipefail
-          df -h / /tmp "$GITHUB_WORKSPACE"
+          echo "Disk space before cleanup:"
+          df -h / /mnt "$GITHUB_WORKSPACE"
+          # Keep apt/dpkg, /tmp and the ROM workspace on the real root FS.
+          # Previous maximize-build-space LVM consumed almost all root disk,
+          # leaving apt with 0.1-2 GiB despite a 99 GiB empty build volume.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          echo "Disk space after cleanup:"
+          df -h / /mnt "$GITHUB_WORKSPACE"
           root_free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
-          build_free_kb=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
-          if (( root_free_kb < 8 * 1024 * 1024 )); then
-            echo "::error::Root filesystem has less than 8 GiB available after LVM setup"
+          if (( root_free_kb < 80 * 1024 * 1024 )); then
+            echo "::error::Less than 80 GiB free on root volume; unsafe to start multi-image ROM repack"
             exit 1
           fi
-          if (( build_free_kb < 60 * 1024 * 1024 )); then
-            echo "::error::Build volume has less than 60 GiB available after LVM setup"
+          root_dev=$(df -P / | awk 'NR==2 {print $1}')
+          work_dev=$(df -P "$GITHUB_WORKSPACE" | awk 'NR==2 {print $1}')
+          if [[ "$root_dev" != "$work_dev" ]]; then
+            echo "::error::Unexpected separate workspace device: root=$root_dev workspace=$work_dev"
             exit 1
           fi
+          echo "Storage ready: no LVM, ample root space for apt and ROM packaging."
 
       - name: Checkout editor and all Mods LFS blobs
         uses: actions/checkout@v4
