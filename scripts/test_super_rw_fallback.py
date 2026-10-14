@@ -81,6 +81,15 @@ class UnpackFallbackTests(unittest.TestCase):
 
 
 class ZeroSizedPartitionMetadataTests(unittest.TestCase):
+    def test_identifies_empty_partitions_from_original_allocation(self):
+        manifest = {
+            "partitions": [
+                {"raw_name": "system_a", "original_partition_size": 0},
+                {"raw_name": "product_a", "original_partition_size": 4096},
+            ]
+        }
+        self.assertEqual(super_rw.zero_sized_partition_names(manifest), {"system_a"})
+
     def test_clears_placeholder_extent_without_touching_other_entries(self):
         entries = bytearray(2 * 52)
         entries[0:36] = b"inactive_b\0" + bytes(25)
