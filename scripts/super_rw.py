@@ -1591,6 +1591,53 @@ def validate_slot_repack_mode(
         )
 
 
+def requested_erofs_size(
+    partition: dict[str, Any],
+    image_size: int,
+    logical_block_size: int,
+    allow_grow: bool = False,
+) -> int:
+    """Keep stock logical allocation unless an opt-in EROFS image must grow."""
+    original_size = partition["original_partition_size"]
+    if image_size <= original_size:
+        return original_size
+    if not allow_grow:
+        raise SuperRwError(
+            f"EROFS {partition['name']} grew beyond its stock logical size: "
+            f"{image_size} > {original_size}; explicit --allow-erofs-grow required"
+        )
+    result = round_up(image_size, logical_block_size)
+    info(
+        f"Growing EROFS {partition['name']} logical allocation from "
+        f"{human_size(original_size)} to {human_size(result)} "
+        "(only if LP group and physical super layout allow it)"
+    )
+    return result
+
+
+def verify_group_size_budget(
+    manifest: dict[str, Any], requested_sizes: dict[str, int]
+) -> None:
+    """Never enlarge LP groups or displace unrelated partitions to gain space."""
+    totals: dict[str, int] = {}
+    for partition in manifest["partitions"]:
+        group = partition["group_raw"]
+        totals[group] = totals.get(group, 0) + requested_sizes[partition["raw_name"]]
+    for group in manifest["groups"]:
+        name = group["raw_name"]
+        maximum = group["maximum_size"]
+        used = totals.get(name, 0)
+        if maximum and used > maximum:
+            raise SuperRwError(
+                f"LP group {name} lacks room for rebuilt images: "
+                f"requested {used} bytes > stock maximum {maximum} bytes "
+                f"(short by {used - maximum} bytes). "
+                "Refusing to enlarge the original group or truncate any image."
+            )
+        if maximum:
+            info(f"LP group {name}: {human_size(used)} used of {human_size(maximum)}")
+
+
 def command_repack(args: argparse.Namespace) -> None:
     ensure_linux()
     require_tools("lpmake", "e2fsck", "resize2fs", "dumpe2fs")
@@ -1649,6 +1696,11 @@ def command_repack(args: argparse.Namespace) -> None:
             requested_sizes[partition["raw_name"]] = round_up(
                 new_size, logical_block_size
             )
+        elif current_type == "erofs":
+            requested_sizes[partition["raw_name"]] = requested_erofs_size(
+                partition, image.stat().st_size, logical_block_size,
+                args.allow_erofs_grow,
+            )
         else:
             image_size = image.stat().st_size
             original_size = partition["original_partition_size"]
@@ -1658,6 +1710,8 @@ def command_repack(args: argparse.Namespace) -> None:
                     f"{image_size} > {original_size}"
                 )
             requested_sizes[partition["raw_name"]] = original_size
+
+    verify_group_size_budget(manifest, requested_sizes)
 
     raw_tmp = output.parent / f".{output.name}.super_rw.{os.getpid()}.raw.tmp"
     final_tmp = output.parent / f".{output.name}.super_rw.{os.getpid()}.tmp"
@@ -1947,6 +2001,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--verify-payloads",
         action="store_true",
         help="unpack the rebuilt raw image and byte-check every payload (slow, extra disk I/O)",
+    )
+    repack.add_argument(
+        "--allow-erofs-grow",
+        action="store_true",
+        help=(
+            "allow EROFS images to grow their logical partitions within the "
+            "unchanged LP group and super device limits; never truncate data"
+        ),
     )
     repack.add_argument(
         "--allow-cow-change",
