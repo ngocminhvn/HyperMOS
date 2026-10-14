@@ -148,6 +148,10 @@ class ErofsMetadataRepackTests(unittest.TestCase):
         edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
         config = self.fs.read_text()
         labels = self.ctx.read_text()
+        # mkfs.erofs looks up its root inode with an empty path; the
+        # canned config must have "/" rather than "product" for that entry.
+        self.assertIn("/ 0 0 0755", config.splitlines())
+        self.assertNotIn("product 0 0 0755", config.splitlines())
         self.assertIn("product/app 0 0 0755", config)
         self.assertIn("product/app/Original.apk 0 0 0644 capabilities=0x0", config)
         self.assertIn("product/app/New.apk 0 0 0644", config)
@@ -163,7 +167,16 @@ class ErofsMetadataRepackTests(unittest.TestCase):
                             r"/product/app/Original\.apk u:object_r:system_file:s0" + "\n")
         edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
         self.assertEqual(len(self.fs.read_text().splitlines()), 3)
+        self.assertIn("/ 0 0 0755", self.fs.read_text().splitlines())
+        self.assertNotIn("product 0 0 0755", self.fs.read_text().splitlines())
         self.assertNotIn("product/product", self.fs.read_text())
+
+    def test_refuses_fs_config_without_source_root(self):
+        self.fs.write_text("/app 0 0 0755\\n/app/Original.apk 0 0 0644\\n")
+        self.ctx.write_text("/ u:object_r:rootfs:s0\\n"
+                            "/app u:object_r:system_file:s0\\n")
+        with self.assertRaisesRegex(RuntimeError, "missing root inode metadata"):
+            edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
 
     def test_refuses_unlabeled_mod_directory(self):
         (self.image / "surprise").mkdir()
