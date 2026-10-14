@@ -6,6 +6,8 @@ on:
       - super-img-editor
     paths:
       - .github/workflows/super-editor-fresh-validation.yml
+      - scripts/super_rw.py
+      - scripts/test_super_rw_fallback.py
 
 permissions:
   contents: read
