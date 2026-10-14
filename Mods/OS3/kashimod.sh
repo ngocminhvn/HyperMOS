@@ -32,7 +32,8 @@ modscenter_apply_native_module \
     "Mods-Center/ColorOS_Control_Center" \
     "miui.systemui.plugin" \
     "*MIUISystemUIPlugin*.apk" \
-    "-" \
+    "product/app/MiuiSystemUIPlugin" \
+    "MiuiSystemUIPlugin" \
     "MIUISystemUIPlugin" || exit 1
 
 modscenter_apply_native_module \
@@ -40,7 +41,7 @@ modscenter_apply_native_module \
     "Mods-Center/HyperOS-Theme-Manager" \
     "com.android.thememanager" \
     "*ThemeManager*.apk" \
-    "product/priv-app/MIUIThemeManager" \
+    "product/priv-app/ThemeManager" \
     "MIUIThemeManager" \
     "MIUIThemeManagerT" \
     "MIUIThemeManagerGlobal" \
@@ -52,7 +53,7 @@ modscenter_apply_native_module \
     "Mods-Center/HyperOS-Security-Center" \
     "com.miui.securitycenter" \
     "*SecurityCenter*.apk" \
-    "product/priv-app/MIUISecurityCenter" \
+    "product/priv-app/SecurityCenter" \
     "MIUISecurityCenter" \
     "MIUISecurityCenterT" \
     "MIUISecurityCenterGlobal" \
