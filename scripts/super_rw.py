@@ -1125,41 +1125,6 @@ def _patch_table_by_name(
         )
 
 
-def zero_sized_partition_names(manifest: dict[str, Any]) -> set[str]:
-    """Return names of intentionally empty LP entries from the source metadata."""
-    return {
-        item["raw_name"]
-        for item in manifest["partitions"]
-        if item["original_partition_size"] == 0
-    }
-
-
-def clear_partition_extents(
-    tables: bytearray, descriptor: dict[str, int], names: set[str]
-) -> None:
-    """Restore zero-sized LP entries after lpmake's one-block build placeholder.
-
-    AOSP lpmake rejects a zero-sized --partition entry. The repacker gives those
-    entries a temporary logical-block-sized zero image, then clears the generated
-    partition's extent range before checksumming metadata. Unreferenced placeholder
-    extents remain harmless and are validated by the normal metadata/payload checks.
-    """
-    found: set[str] = set()
-    for index in range(descriptor["num_entries"]):
-        start = descriptor["offset"] + index * descriptor["entry_size"]
-        name = fixed_string(bytes(tables[start : start + 36]))
-        if name not in names:
-            continue
-        struct.pack_into("<II", tables, start + 40, 0, 0)
-        found.add(name)
-    missing = names - found
-    if missing:
-        raise SuperRwError(
-            "Generated metadata is missing empty partition(s): "
-            + ", ".join(sorted(missing))
-        )
-
-
 def patch_metadata_blob(blob: bytes, manifest: dict[str, Any]) -> bytes:
     parsed = parse_metadata_blob(blob)
     original = manifest["metadata"]
@@ -1240,11 +1205,6 @@ def patch_metadata_blob(blob: bytes, manifest: dict[str, Any]) -> bytes:
         "<I",
         partition_attrs,
         "partition",
-    )
-    clear_partition_extents(
-        tables,
-        parsed["descriptors"]["partitions"],
-        zero_sized_partition_names(manifest),
     )
     _patch_table_by_name(
         tables,
@@ -1631,6 +1591,28 @@ def validate_slot_repack_mode(
         )
 
 
+def lpmake_partition_arguments(
+    raw_name: str,
+    attributes: int,
+    size: int,
+    group_raw: str,
+    image: Path,
+) -> list[object]:
+    """Build lpmake args; zero-sized inactive slots have no image argument.
+
+    This matches HyperMOS packROM.sh: an empty slot entry is declared with size
+    zero and no --image, which lets lpmake emit a valid zero-extent partition.
+    """
+    cli_attr = "readonly" if attributes & LP_ATTR_READONLY else "none"
+    args: list[object] = [
+        "--partition",
+        f"{raw_name}:{cli_attr}:{size}:{group_raw}",
+    ]
+    if size:
+        args.extend(["--image", f"{raw_name}={image}"])
+    return args
+
+
 def requested_erofs_size(
     partition: dict[str, Any],
     image_size: int,
@@ -1755,8 +1737,7 @@ def command_repack(args: argparse.Namespace) -> None:
 
     raw_tmp = output.parent / f".{output.name}.super_rw.{os.getpid()}.raw.tmp"
     final_tmp = output.parent / f".{output.name}.super_rw.{os.getpid()}.tmp"
-    zero_placeholder = output.parent / f".{output.name}.super_rw.{os.getpid()}.zero.img"
-    for temporary in (raw_tmp, final_tmp, zero_placeholder):
+    for temporary in (raw_tmp, final_tmp):
         if temporary.exists():
             temporary.unlink()
 
@@ -1793,24 +1774,15 @@ def command_repack(args: argparse.Namespace) -> None:
                 ["--group", f"{group['raw_name']}:{group['maximum_size']}"]
             )
     for partition in manifest["partitions"]:
-        cli_attr = "readonly" if partition["attributes"] & LP_ATTR_READONLY else "none"
         size = requested_sizes[partition["raw_name"]]
-        image = partition_image(workspace, partition)
-        if size == 0:
-            # lpmake rejects zero-size partitions. Build with a one-block zero
-            # placeholder, then clear its extent reference in every LP metadata
-            # copy so the resulting partition remains exactly zero bytes.
-            if not zero_placeholder.exists():
-                zero_placeholder.write_bytes(bytes(logical_block_size))
-            size = logical_block_size
-            image = zero_placeholder
         command.extend(
-            [
-                "--partition",
-                f"{partition['raw_name']}:{cli_attr}:{size}:{partition['group_raw']}",
-                "--image",
-                f"{partition['raw_name']}={image}",
-            ]
+            lpmake_partition_arguments(
+                partition["raw_name"],
+                partition["attributes"],
+                size,
+                partition["group_raw"],
+                partition_image(workspace, partition),
+            )
         )
     command.extend(["--output", raw_tmp])
 
@@ -1884,7 +1856,7 @@ def command_repack(args: argparse.Namespace) -> None:
             f"({human_size(output.stat().st_size)})"
         )
     finally:
-        for temporary in (raw_tmp, final_tmp, zero_placeholder):
+        for temporary in (raw_tmp, final_tmp):
             if temporary.exists():
                 temporary.unlink()
 
