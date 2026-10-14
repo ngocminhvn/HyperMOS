@@ -343,6 +343,11 @@ def reconcile_erofs_metadata(base, fs_path, contexts_path):
         if len(fields) < 2:
             raise RuntimeError(f"{base}: malformed fs_config line: {line!r}")
         key = canonical(fields[0])
+        # mkfs.erofs --mount-point still looks up its root inode using an
+        # empty path, i.e. a literal "/" entry in canned fs_config.
+        # Non-root inodes use the partition-prefixed paths as before.
+        if key == base:
+            key = "/"
         value = fields[1]
         if key in fs_map:
             if fs_map[key] != value:
@@ -350,6 +355,9 @@ def reconcile_erofs_metadata(base, fs_path, contexts_path):
             continue
         fs_map[key] = value
         fs_lines.append(f"{key} {value}")
+
+    if "/" not in fs_map:
+        raise RuntimeError(f"{base}: source fs_config missing root inode metadata")
 
     # extract.erofs emits an exact per-inode regex with escaped special
     # characters; preserve the original SELinux label for every source inode.
