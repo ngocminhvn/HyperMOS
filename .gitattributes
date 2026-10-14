@@ -1,0 +1,6 @@
+# Shell entrypoints must remain readable by Linux Bash runners.
+functions.sh text eol=lf
+Mods/OS3/*.sh text eol=lf
+Mods/OS3/system/*.sh text eol=lf
+Root/*.sh text eol=lf
+scripts/*.sh text eol=lf
