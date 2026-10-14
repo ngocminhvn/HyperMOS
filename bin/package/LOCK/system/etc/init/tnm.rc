@@ -1,5 +1,5 @@
-# TNM LOCK: RYUOS-style post-fs sync for three boot properties only.
+# TNM LOCK: RYUOS helper, only the three previously selected properties.
 on post-fs
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.flash.locked 1
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.vbmeta.device_state locked
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.verifiedbootstate green
+    exec u:r:init:s0 root root -- /system_ext/xbin/ryu_helper -n ro.boot.flash.locked 1
+    exec u:r:init:s0 root root -- /system_ext/xbin/ryu_helper -n ro.boot.vbmeta.device_state locked
+    exec u:r:init:s0 root root -- /system_ext/xbin/ryu_helper -n ro.boot.verifiedbootstate green

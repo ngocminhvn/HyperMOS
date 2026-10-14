@@ -7,17 +7,17 @@ source "$work_dir/functions.sh"
 
 system_ext="$images/system_ext"
 system="$images/system/system"
-binary="$work_dir/bin/package/LOCK/system_ext/xbin/hypermos-resetprop"
+binary="$work_dir/bin/package/LOCK/system_ext/xbin/ryu_helper"
 rc="$work_dir/bin/package/LOCK/system/etc/init/tnm.rc"
 policy="$system_ext/etc/selinux/system_ext_sepolicy.cil"
 image_contexts="$system_ext/etc/selinux/system_ext_file_contexts"
 config_contexts="$images/config/system_ext_file_contexts"
-resetprop_path="/system_ext/xbin/hypermos-resetprop"
-resetprop_context="u:object_r:tnm_resetprop_exec:s0"
+resetprop_path="/system_ext/xbin/ryu_helper"
+resetprop_context="u:object_r:ryu_helper_exec:s0"
 
 [ -d "$system_ext" ] || { error "LOCK: system_ext tree missing"; exit 1; }
 [ -d "$system" ] || { error "LOCK: system tree missing"; exit 1; }
-[ -s "$binary" ] || { error "LOCK: standalone resetprop binary missing"; exit 1; }
+[ -s "$binary" ] || { error "LOCK: RYU helper binary missing"; exit 1; }
 [ -s "$rc" ] || { error "LOCK: init trigger missing"; exit 1; }
 [ -s "$policy" ] || { error "LOCK: system_ext split SELinux policy missing"; exit 1; }
 [ -s "$image_contexts" ] || { error "LOCK: system_ext file contexts missing"; exit 1; }
@@ -32,16 +32,16 @@ if [ -e "$system/etc/init/tnm.rc" ] && ! cmp -s "$rc" "$system/etc/init/tnm.rc";
   exit 1
 fi
 
-if ! grep -qF '(type tnm_resetprop_exec)' "$policy"; then
+if ! grep -qF '(type ryu_helper_exec)' "$policy"; then
   cat >> "$policy" <<'EOF'
 
-; HyperMOS TNM one-shot boot property synchronization.
-(type tnm_resetprop_exec)
-(roletype object_r tnm_resetprop_exec)
-(typeattributeset file_type (tnm_resetprop_exec))
-(typeattributeset exec_type (tnm_resetprop_exec))
-(typeattributeset system_file_type (tnm_resetprop_exec))
-(allow init tnm_resetprop_exec (file (read getattr map execute open execute_no_trans)))
+; HyperMOS TNM RYU helper one-shot boot property synchronization.
+(type ryu_helper_exec)
+(roletype object_r ryu_helper_exec)
+(typeattributeset file_type (ryu_helper_exec))
+(typeattributeset exec_type (ryu_helper_exec))
+(typeattributeset system_file_type (ryu_helper_exec))
+(allow init ryu_helper_exec (file (read getattr map execute open execute_no_trans)))
 EOF
 fi
 
@@ -64,19 +64,19 @@ for part in vendor odm; do
   fi
 done
 
-install -D -m 0755 "$binary" "$system_ext/xbin/hypermos-resetprop"
+install -D -m 0755 "$binary" "$system_ext/xbin/ryu_helper"
 install -D -m 0644 "$rc" "$system/etc/init/tnm.rc"
 
-grep -qF '(allow init tnm_resetprop_exec (file (read getattr map execute open execute_no_trans)))' "$policy" || {
-  error "LOCK: resetprop SELinux execution rule missing"
+grep -qF '(allow init ryu_helper_exec (file (read getattr map execute open execute_no_trans)))' "$policy" || {
+  error "LOCK: helper SELinux execution rule missing"
   exit 1
 }
 for contexts in "$image_contexts" "$config_contexts"; do
   grep -qF "$resetprop_path $resetprop_context" "$contexts" || {
-    error "LOCK: resetprop file context missing from $contexts"
+    error "LOCK: helper file context missing from $contexts"
     exit 1
   }
 done
 
-mods "LOCK: bundled standalone resetprop with dedicated init execution policy"
+mods "LOCK: bundled RYU helper with dedicated init execution policy"
 info "LOCK: Kaorios hooks and AVB images left unchanged"
