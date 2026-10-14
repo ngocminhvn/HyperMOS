@@ -3,6 +3,8 @@
 import hashlib
 import json
 import os
+import re
+from urllib.parse import unquote, urlsplit
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,7 +20,6 @@ REPORT.mkdir(parents=True,exist_ok=True)
 os.environ["PATH"]=str(ROOT/"Linux")+os.pathsep+os.environ.get("PATH","")
 PARTITIONS={"product","system","system_ext"}
 CHANGED=set()
-BUILD_PROP_BASELINE={}
 
 def run(*args, **kw):
     print("+", " ".join(str(x) for x in args), flush=True)
@@ -63,7 +64,6 @@ def unpack():
         img=WS/p["image"]
         extract_erofs_partition(base, img)
     (REPORT/"partitions.json").write_text(json.dumps([{k:v for k,v in p.items() if k!="original_sha256"} for p in manifest["partitions"]],indent=2))
-    BUILD_PROP_BASELINE.update(snapshot_build_props())
 
 def extract_erofs_partition(base, img):
     """Extract using extract.erofs' real output layout (outdir/<image-stem>, outdir/config).
@@ -112,32 +112,6 @@ def extract_erofs_partition(base, img):
     stage.rmdir()
     print(f"Extracted {base}: files={target}, metadata={dest_config}", flush=True)
 
-
-def snapshot_build_props():
-    """Read-only fingerprint of every build.prop in extracted partitions."""
-    result={}
-    for base in sorted(PARTITIONS):
-        directory=TREES/base
-        if not directory.is_dir():
-            continue
-        for f in directory.rglob("build.prop"):
-            if f.is_file():
-                rel=str(f.relative_to(TREES))
-                result[rel]=sha256(f)
-    return result
-
-def assert_build_props_untouched():
-    current=snapshot_build_props()
-    if current != BUILD_PROP_BASELINE:
-        before=set(BUILD_PROP_BASELINE)
-        after=set(current)
-        changed=sorted(key for key in before & after if BUILD_PROP_BASELINE[key]!=current[key])
-        added=sorted(after-before)
-        removed=sorted(before-after)
-        raise RuntimeError(
-            f"build.prop modification forbidden; changed={changed}, added={added}, removed={removed}")
-    (REPORT/"build-prop-preservation.txt").write_text(
-        f"Preserved {len(current)} build.prop files byte-for-byte. No properties were edited.\n")
 
 def bootanimation():
     source=ROOT/"Mods/Boot/bootanimation.zip"
@@ -219,81 +193,36 @@ def replace_installer():
     CHANGED.add(base)
     (REPORT/"installer.txt").write_text(f"Replaced package com.miui.packageinstaller: {dest.relative_to(TREES)}\nNew SHA256: {sha256(apk)}\nCaution: AOSP test-key signing differs from stock; app data/privileges may be incompatible.\n")
 
-def verify_haotian_base():
-    """Validate HAOTIAN against the *original vendor* partition before root patching.
+def verify_haotian_input():
+    """Check the labeled ROM and expected vendor partition without reading properties.
 
-    A third-party ROM may rewrite product/system build properties. These are
-    unsuitable as the sole device identity source. The original vendor_a EROFS
-    image is preserved unmodified in the final super.img.
+    A filename is not hardware attestation. Always verify the target manually
+    before flashing; the kernel KMI is checked separately by the root patcher.
     """
-    manifest=json.loads((WS/"super_rw_manifest.json").read_text())
-    vendor_parts=[
+    url = os.environ.get("INPUT_URL", "").strip()
+    rom_name = Path(unquote(urlsplit(url).path)).name
+    if not re.search(r"(?i)(?:^|[^a-z0-9])haotian(?:[^a-z0-9]|$)", rom_name):
+        raise RuntimeError(
+            f"Root mode requires a HAOTIAN-labeled ROM ZIP (got {rom_name!r}); "
+            "no build.prop/device-property fallback is used"
+        )
+    manifest = json.loads((WS/"super_rw_manifest.json").read_text())
+    vendor_parts = [
         p for p in manifest["partitions"]
-        if partition_label(p)=="vendor" and p.get("original_partition_size", 0)>0
+        if partition_label(p) == "vendor" and p.get("original_partition_size", 0) > 0
     ]
-    if len(vendor_parts)!=1 or vendor_parts[0]["filesystem"]!="erofs":
-        raise RuntimeError("Cannot safely verify device: expected one original vendor EROFS partition")
-    vendor_image=WS/vendor_parts[0]["image"]
+    if len(vendor_parts) != 1 or vendor_parts[0].get("filesystem") != "erofs":
+        raise RuntimeError("Expected one populated vendor EROFS image for HAOTIAN root mode")
+    vendor_image = WS/vendor_parts[0]["image"]
     if not vendor_image.is_file():
         raise RuntimeError(f"Original vendor image missing: {vendor_image}")
-    extract_erofs_partition("vendor", vendor_image)
-
-    # Record all relevant properties, including modified system/product values,
-    # but trust only vendor-local device declarations for hardware identity.
-    keys={
-        "ro.product.vendor.device", "ro.vendor.product.device",
-        "ro.product.device", "ro.build.product",
-        "ro.product.product.device", "ro.product.system.device",
-        "ro.product.system_ext.device",
-    }
-    observed=[]
-    for base in ("vendor", "product", "system", "system_ext"):
-        directory=TREES/base
-        if not directory.is_dir():
-            continue
-        for propfile in sorted(directory.rglob("build.prop")):
-            if not propfile.is_file():
-                continue
-            for line in propfile.read_text(errors="replace").splitlines():
-                if "=" not in line or line.lstrip().startswith("#"):
-                    continue
-                key,value=(x.strip() for x in line.split("=",1))
-                if key in keys and value:
-                    observed.append((base, str(propfile.relative_to(TREES)), key, value))
-
-    # Canonical vendor identity wins over generic/legacy ROM property aliases.
-    # A modified ROM can carry a branding name in ro.build.product.
-    canonical_keys={"ro.product.vendor.device", "ro.vendor.product.device"}
-    fallback_keys={"ro.product.device", "ro.build.product"}
-    canonical=[(key,value) for base,_,key,value in observed
-               if base=="vendor" and key in canonical_keys]
-    fallback=[(key,value) for base,_,key,value in observed
-              if base=="vendor" and key in fallback_keys]
-    vendor_values=canonical if canonical else fallback
-    report=REPORT/"root-device.txt"
-    report.write_text(
-        "Device identity: original vendor EROFS (read-only source)\n"
-        + "Vendor image: " + str(vendor_parts[0]["image"]) + "\n"
-        + "Observed build.prop values (informational outside vendor):\n"
-        + "".join(f"{base}/{path}: {key}={value}\n"
-                  for base,path,key,value in observed)
+    (REPORT/"root-device.txt").write_text(
+        f"Input ROM filename: {rom_name}\n"
+        f"Original vendor image: {vendor_parts[0]['image']}\n"
+        "No build.prop or Android system-property inspection/overrides performed.\n"
+        "Note: ROM filename and layout are not cryptographic device identity proof.\n"
     )
-    if not vendor_values:
-        raise RuntimeError(
-            "Cannot verify HAOTIAN: original vendor build.prop contains no device declaration; "
-            "see root-device.txt (refusing root patch)"
-        )
-    conflicts=[(k,v) for k,v in vendor_values if v.lower()!="haotian"]
-    if conflicts:
-        raise RuntimeError(
-            f"Original vendor device identity conflicts with HAOTIAN: {conflicts}; "
-            "refusing root patch"
-        )
-    if not any(value.lower()=="haotian" for _,value in vendor_values):
-        raise RuntimeError("No HAOTIAN identity in original vendor; refusing root patch")
-    with report.open("a") as output:
-        output.write("Verified device: haotian via original vendor image\n")
-    print("[ROOT] Verified HAOTIAN from original vendor EROFS build.prop",flush=True)
+    print("[ROOT] HAOTIAN-labeled ROM and vendor image present; no property handling", flush=True)
 
 def append_root_metadata():
     """Add metadata only for new KernelSU Next manager staging files."""
@@ -339,7 +268,7 @@ def apply_root():
         raise RuntimeError("Root requires a full ROM ZIP with paired boot.img and init_boot.img")
     if "system_ext" not in json.loads((W/"metadata.json").read_text()):
         raise RuntimeError("KernelSU Next manager staging needs a system_ext EROFS partition")
-    verify_haotian_base()
+    verify_haotian_input()
     for name in ("boot.img", "init_boot.img"):
         source=W/"root-input"/name
         if not source.is_file() or source.stat().st_size<4096:
@@ -400,7 +329,6 @@ def main():
     apply_os3()
     replace_installer()
     apply_root()
-    assert_build_props_untouched()
     repack()
 
 if __name__=="__main__":
