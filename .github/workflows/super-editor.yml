@@ -84,6 +84,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/*.py Root/detect_kernel_kmi.py
           python3 -m unittest scripts.test_super_rw_fallback -v
+          python3 -m unittest scripts.test_edit_super_extract -v
           python3 Root/detect_kernel_kmi.py --self-test
           bash -n Root/patch_init_boot.sh
           sh -n Root/stage_root_manager.sh
