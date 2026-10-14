@@ -83,10 +83,15 @@ def extract_erofs_partition(base, img):
             run("extract.erofs", "-x", "-i", img, "-o", stage,
                 stdout=output, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError as exc:
-            tail = log_file.read_text(errors="replace").splitlines()[-40:]
+            lines = log_file.read_text(errors="replace").splitlines()
+            # Even on errors, omit per-file/percentage progress from console.
+            diagnostics = [
+                line for line in lines
+                if line.strip() and not ("Extract:" in line and "%" in line)
+            ]
             raise RuntimeError(
                 f"{base}: extract.erofs failed with exit {exc.returncode}. "
-                f"Full log: {log_file}\n" + "\n".join(tail)
+                f"Full log: {log_file}\n" + "\n".join(diagnostics[-25:])
             ) from exc
     extracted=[p for p in stage.iterdir() if p.is_dir() and p.name!="config"]
     config=stage/"config"
