@@ -469,10 +469,23 @@ def repack():
         run("mkfs.erofs","-zlz4hc,9","--mount-point",base,
             f"--fs-config-file={fs[0]}",f"--file-contexts={sel[0]}",
             replacement,TREES/base)
-        if replacement.stat().st_size>orig[base]["original_partition_size"]:
-            raise RuntimeError(f"{base} rebuilt EROFS exceeds logical partition size")
+        rebuilt_size = replacement.stat().st_size
+        source_size = orig[base]["original_partition_size"]
+        if rebuilt_size > source_size:
+            print(
+                f"[EROFS] {base}: rebuilt {rebuilt_size:,} bytes exceeds stock "
+                f"logical size {source_size:,} bytes by {rebuilt_size - source_size:,}; "
+                "requesting safe LP allocation growth", flush=True,
+            )
+        (REPORT / f"erofs-size-{base}.txt").write_text(
+            f"Stock logical size: {source_size} bytes\n"
+            f"Rebuilt image size: {rebuilt_size} bytes\n"
+            f"Growth required: {max(0, rebuilt_size - source_size)} bytes\n"
+            "Repack is only allowed if stock LP group/device limits are preserved.\n"
+        )
         shutil.copyfile(replacement,image)
-    run(sys.executable,"scripts/super_rw.py","repack",WS,W/"output/super.img","--verify-payloads")
+    run(sys.executable,"scripts/super_rw.py","repack",WS,W/"output/super.img",
+        "--allow-erofs-grow","--verify-payloads")
     (REPORT/"repacked-partitions.txt").write_text("\n".join(modified)+"\n")
 
 def main():
