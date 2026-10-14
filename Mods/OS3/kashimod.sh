@@ -12,7 +12,8 @@ modscenter_apply_native_module \
     "Mods-Center/HyperOS-App-Vault" \
     "com.miui.personalassistant" \
     "*PersonalAssistant*.apk" \
-    "-" \
+    "product/priv-app/AppVault" \
+    "AppVault" \
     "MIUIGlobalMinusScreenWidget" \
     "MIUIGlobalMinusScreen" \
     "MIUIPersonalAssistantT" \
