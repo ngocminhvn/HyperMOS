@@ -1,11 +1,6 @@
 name: Update Kashi Apps
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/update-kashi-apps.yml'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -22,30 +17,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  cleanup-accidental-branch:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Clean accidental Kashi branch
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          ref="repos/${GITHUB_REPOSITORY}/git/refs/heads/feat/update-kashi-apps"
-          current=$(gh api "$ref" --jq '.object.sha' 2>/dev/null || true)
-          if [ "$current" = "4743738b9aca83d717c16b85446e17b6adc08b78" ]; then
-            gh api -X DELETE "$ref"
-            echo "Removed accidentally created branch." >> "$GITHUB_STEP_SUMMARY"
-          elif [ -z "$current" ]; then
-            echo "Accidental branch already absent." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Branch changed; no deletion to protect newer work." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
   update:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     name: Verify latest Kashi system-app releases
     runs-on: ubuntu-latest
     timeout-minutes: 35
