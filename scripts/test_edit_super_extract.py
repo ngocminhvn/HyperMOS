@@ -17,15 +17,17 @@ class ErofsExtractorContractTests(unittest.TestCase):
         self.config = self.work / "config"
         self.trees.mkdir(parents=True)
         self.config.mkdir(parents=True)
-        for name, value in (("W", self.work), ("TREES", self.trees), ("CFG", self.config)):
+        (self.work / "reports").mkdir()
+        for name, value in (("W", self.work), ("TREES", self.trees), ("CFG", self.config), ("REPORT", self.work / "reports")):
             p = patch.object(edit_super, name, value)
             p.start()
             self.addCleanup(p.stop)
 
-    def simulate_tool(self, *args, omit_context=False):
+    def simulate_tool(self, *args, omit_context=False, **kwargs):
         self.assertEqual(args[:4], ("extract.erofs", "-x", "-i", self.work / "product_a.img"))
         self.assertEqual(args[4], "-o")
         self.assertEqual(len(args), 6, "Do not pass -c; it selects an input file list")
+        self.assertIn("stdout", kwargs, "Extractor progress should stay in a diagnostic report")
         stage = Path(args[5])
         (stage / "product_a" / "app").mkdir(parents=True)
         (stage / "product_a" / "app" / "unchanged.apk").write_bytes(b"test")
@@ -43,8 +45,8 @@ class ErofsExtractorContractTests(unittest.TestCase):
         self.assertFalse((self.work / "extract-staging" / "product").exists())
 
     def test_refuses_missing_selinux_metadata(self):
-        def without_context(*args):
-            self.simulate_tool(*args, omit_context=True)
+        def without_context(*args, **kwargs):
+            self.simulate_tool(*args, omit_context=True, **kwargs)
         with patch.object(edit_super, "run", side_effect=without_context):
             with self.assertRaisesRegex(RuntimeError, "missing exact fs_config"):
                 edit_super.extract_erofs_partition("product", self.work / "product_a.img")
