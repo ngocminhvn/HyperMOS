@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline contract checks for the vendored extract.erofs output layout."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,7 +55,7 @@ class ErofsExtractorContractTests(unittest.TestCase):
         self.assertFalse((self.config / "product").exists())
 
 
-class HaotianVendorIdentityTests(unittest.TestCase):
+class HaotianRomInputTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -69,7 +70,7 @@ class HaotianVendorIdentityTests(unittest.TestCase):
             '{"partitions": [{"name": "vendor_a", "image": "images/vendor_a.img", '
             '"filesystem": "erofs", "original_partition_size": 12345}]}'
         )
-        for name,value in (
+        for name, value in (
             ("W", self.work), ("WS", self.ws),
             ("TREES", self.trees), ("REPORT", self.report),
         ):
@@ -77,46 +78,40 @@ class HaotianVendorIdentityTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def extract_original_vendor(self, device="haotian"):
-        vendor = self.trees / "vendor"
-        vendor.mkdir()
-        if device is not None:
-            (vendor / "build.prop").write_text(
-                f"ro.product.vendor.device={device}\n"
-            )
+    def verify_url(self, filename):
+        with patch.dict(os.environ, {
+            "INPUT_URL": f"https://downloads.sourceforge.net/project/ryu/{filename}?use_mirror=onboardcloud"
+        }):
+            edit_super.verify_haotian_input()
 
-    def test_accepts_vendor_haotian_even_if_modded_system_has_other_properties(self):
-        system = self.trees / "system"
-        system.mkdir()
-        (system / "build.prop").write_text("ro.product.device=ryuos\n")
+    def test_accepts_haotian_archive_without_reading_build_prop(self):
+        product = self.trees / "product"
+        product.mkdir()
+        (product / "build.prop").write_text("ro.product.device=ryuos\n")
         with patch.object(edit_super, "extract_erofs_partition",
-                          side_effect=lambda base, image: self.extract_original_vendor()):
-            edit_super.verify_haotian_base()
-        self.assertIn("Verified device: haotian",
-                      (self.report / "root-device.txt").read_text())
+                          side_effect=AssertionError("No vendor/property extraction allowed")):
+            self.verify_url("RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip")
+        report = (self.report / "root-device.txt").read_text()
+        self.assertIn("HAOTIAN", report)
+        self.assertEqual((product / "build.prop").read_text(), "ro.product.device=ryuos\n")
 
-    def test_ignores_vendor_branding_if_canonical_device_matches(self):
-        def vendor_with_branding(base, image):
-            self.extract_original_vendor()
-            with (self.trees / "vendor" / "build.prop").open("a") as target:
-                target.write("ro.build.product=ryuos\n")
-        with patch.object(edit_super, "extract_erofs_partition",
-                          side_effect=vendor_with_branding):
-            edit_super.verify_haotian_base()
-        self.assertIn("Verified device: haotian",
-                      (self.report / "root-device.txt").read_text())
+    def test_rejects_different_device_labeled_archive(self):
+        with self.assertRaisesRegex(RuntimeError, "HAOTIAN-labeled"):
+            self.verify_url("RYUOS_NUWA_OS3.0.309.0.zip")
 
-    def test_rejects_conflicting_vendor_identity(self):
-        with patch.object(edit_super, "extract_erofs_partition",
-                          side_effect=lambda base, image: self.extract_original_vendor("nuwa")):
-            with self.assertRaisesRegex(RuntimeError, "conflicts"):
-                edit_super.verify_haotian_base()
+    def test_rejects_unlabeled_archive(self):
+        with self.assertRaisesRegex(RuntimeError, "HAOTIAN-labeled"):
+            self.verify_url("custom-rom.zip")
 
-    def test_rejects_unidentified_vendor_despite_haotian_input_filename(self):
-        with patch.object(edit_super, "extract_erofs_partition",
-                          side_effect=lambda base, image: self.extract_original_vendor(None)):
-            with self.assertRaisesRegex(RuntimeError, "no device declaration"):
-                edit_super.verify_haotian_base()
+    def test_rejects_missing_original_vendor(self):
+        (self.ws / "images" / "vendor_a.img").unlink()
+        with self.assertRaisesRegex(RuntimeError, "vendor image missing"):
+            self.verify_url("RYUOS_HAOTIAN_OS3.zip")
+
+    def test_rejects_unexpected_vendor_layout(self):
+        (self.ws / "super_rw_manifest.json").write_text('{"partitions": []}')
+        with self.assertRaisesRegex(RuntimeError, "vendor EROFS"):
+            self.verify_url("RYUOS_HAOTIAN_OS3.zip")
 
 
 if __name__ == "__main__":
