@@ -114,5 +114,66 @@ class HaotianRomInputTests(unittest.TestCase):
             self.verify_url("RYUOS_HAOTIAN_OS3.zip")
 
 
+class ErofsMetadataRepackTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.trees = root / "trees"
+        self.report = root / "reports"
+        self.trees.mkdir()
+        self.report.mkdir()
+        self.image = self.trees / "product"
+        (self.image / "app").mkdir(parents=True)
+        (self.image / "app" / "Original.apk").write_bytes(b"stock")
+        self.fs = root / "fs_config"
+        self.ctx = root / "file_contexts"
+        for attr, value in (("TREES", self.trees), ("REPORT", self.report)):
+            p = patch.object(edit_super, attr, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_rebases_extractor_relative_paths_and_preserves_ownership(self):
+        self.fs.write_text(
+            "/ 0 0 0755\n"
+            "/app 0 0 0755\n"
+            "/app/Original.apk 0 0 0644 capabilities=0x0\n"
+        )
+        self.ctx.write_text(
+            "/ u:object_r:rootfs:s0\n"
+            "/app u:object_r:system_file:s0\n"
+            r"/app/Original\\.apk u:object_r:system_file:s0" + "\n"
+        )
+        (self.image / "app" / "New.apk").write_bytes(b"mod")
+        edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
+        config = self.fs.read_text()
+        labels = self.ctx.read_text()
+        self.assertIn("product/app 0 0 0755", config)
+        self.assertIn("product/app/Original.apk 0 0 0644 capabilities=0x0", config)
+        self.assertIn("product/app/New.apk 0 0 0644", config)
+        self.assertIn("/product/app u:object_r:system_file:s0", labels)
+        self.assertIn(r"/product/app/New\\.apk u:object_r:system_file:s0", labels)
+        self.assertNotIn("product/product/app", config)
+
+    def test_accepts_already_prefixed_config(self):
+        self.fs.write_text("product 0 0 0755\nproduct/app 0 0 0755\n"
+                           "product/app/Original.apk 0 0 0644\n")
+        self.ctx.write_text("/product u:object_r:rootfs:s0\n"
+                            "/product/app u:object_r:system_file:s0\n"
+                            r"/product/app/Original\\.apk u:object_r:system_file:s0" + "\n")
+        edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
+        self.assertEqual(len(self.fs.read_text().splitlines()), 3)
+        self.assertNotIn("product/product", self.fs.read_text())
+
+    def test_refuses_unlabeled_mod_directory(self):
+        (self.image / "surprise").mkdir()
+        self.fs.write_text("/ 0 0 0755\n/app 0 0 0755\n"
+                           "/app/Original.apk 0 0 0644\n")
+        self.ctx.write_text("/ u:object_r:rootfs:s0\n"
+                            "/app u:object_r:system_file:s0\n")
+        with self.assertRaisesRegex(RuntimeError, "inherited SELinux label"):
+            edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
+
+
 if __name__ == "__main__":
     unittest.main()
