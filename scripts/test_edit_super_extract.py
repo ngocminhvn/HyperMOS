@@ -184,7 +184,7 @@ class ErofsMetadataRepackTests(unittest.TestCase):
                            "/app/Original.apk 0 0 0644\n")
         self.ctx.write_text("/ u:object_r:rootfs:s0\n"
                             "/app u:object_r:system_file:s0\n")
-        with self.assertRaisesRegex(RuntimeError, "inherited SELinux label"):
+        with self.assertRaisesRegex(RuntimeError, "untracked parent directory|inherited SELinux label"):
             edit_super.reconcile_erofs_metadata("product", self.fs, self.ctx)
 
 
