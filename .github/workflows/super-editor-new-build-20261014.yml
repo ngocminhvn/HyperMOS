@@ -1,7 +1,7 @@
 name: Super IMG Editor - New Build 2026-10-14
 
 # Fresh build: only Kashi OS3 mods; no legacy local system APK bundle.
-# Validate HAOTIAN from original vendor EROFS before root patch; no build.prop rewrites.
+# HAOTIAN ROM-label/vendor-layout guard; property reads/writes removed from active editor.
 # SourceForge mirror selection does not use expiring signed ts/r parameters.
 # Only a modification to this exact launcher file triggers a push build.
 on:
