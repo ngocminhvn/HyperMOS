@@ -86,7 +86,7 @@ def extract_erofs_partition(base, img):
             tail = log_file.read_text(errors="replace").splitlines()[-40:]
             raise RuntimeError(
                 f"{base}: extract.erofs failed with exit {exc.returncode}. "
-                f"Full log: {log_file}\\n" + "\\n".join(tail)
+                f"Full log: {log_file}\n" + "\n".join(tail)
             ) from exc
     extracted=[p for p in stage.iterdir() if p.is_dir() and p.name!="config"]
     config=stage/"config"
