@@ -1,6 +1,7 @@
 name: Super IMG Editor - New Build 2026-10-14
 
-# Use the requested SourceForge mirror without expiring signed ts/r query parameters.
+# Fresh build: only Kashi OS3 mods; no legacy local system APK bundle.
+# SourceForge mirror selection does not use expiring signed ts/r parameters.
 # Only a modification to this exact launcher file triggers a push build.
 on:
   push:

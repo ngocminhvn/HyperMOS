@@ -11,7 +11,7 @@ Telegram recipient is read directly from repository secret `TELEGRAM_CHANNEL_ID`
 
 Secrets reused from HyperMOS: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `RCLONE_TOKEN_PATH`, `PIXELDRAIN_API_KEY`. Optional repository variable: `RCLONE_REMOTE`.
 
-Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate super.img → unpack logical partitions → replace bootanimation → apply Mods/OS3 Kashi/System → adapt local InstallerX to com.miui.packageinstaller → verify all build.prop files remain unchanged → rebuild EROFS and LP metadata → repackage source ZIP → Rclone/Pixeldrain upload → Telegram result`.
+Workflow: `.github/workflows/super-editor.yml`. It runs `download ZIP → locate super.img → unpack logical partitions → replace bootanimation → apply Mods/OS3 Kashi only → adapt local InstallerX to com.miui.packageinstaller → verify all build.prop files remain unchanged → rebuild EROFS and LP metadata → repackage source ZIP → Rclone/Pixeldrain upload → Telegram result`.
 
 **This is not the HyperMOS stock-ROM build workflow.** A full OTA `payload.bin` without a `super.img` is rejected, not silently converted into a different ROM. ZIPs containing more than one `super.img` are also rejected.
 
@@ -35,7 +35,6 @@ To enable the **web form** while isolating all ROM code on `super-img-editor`, a
 ## Mods already in the branch
 * `Mods/Boot/bootanimation.zip`
 * `Mods/OS3/kashi/*.zip`: HyperOS AppVault, ColorOS plugin, Launcher, Security Center, ThemeManager
-* `Mods/OS3/system/*.apk`: File Manager, Gallery Editor, Gallery, ScreenRecorder, Screenshot. **Real Git LFS blobs are required**, not 132-byte pointer text.
 * `Mods/Packageinstaller/InstallerX-Revived-online-26.09.apk` or a prepared `Mods/Packageinstaller/MIUIPackageInstaller.apk`; permissions XML.
 
 The editor uses the repository's local `Linux/` and `Tools/` binaries, plus a vendored pinned GPLv3 `super_rw.py` implementation and original AOSP test-signing key already present in HyperMOS. Original EROFS fs_config and SELinux contexts are required and regenerated from the input image, not from stock templates.

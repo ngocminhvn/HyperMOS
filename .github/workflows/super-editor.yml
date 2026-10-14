@@ -91,7 +91,6 @@ jobs:
           shell_paths = [
               Path("functions.sh"),
               *Path("Mods/OS3").glob("*.sh"),
-              *Path("Mods/OS3/system").glob("*.sh"),
               *Path("Root").glob("*.sh"),
               *Path("scripts").glob("*.sh"),
           ]
@@ -101,10 +100,21 @@ jobs:
                   raise SystemExit(f"{path}: CR/CRLF detected; convert to LF before building")
           print(f"Checked LF line endings in {len(shell_paths)} shell scripts")
           PY
-          for script in functions.sh Mods/OS3/*.sh Mods/OS3/system/*.sh Root/*.sh scripts/*.sh; do
+          for script in functions.sh Mods/OS3/*.sh Root/*.sh scripts/*.sh; do
             bash -n "$script"
           done
           bash -c 'source functions.sh; declare -F mods info warn error >/dev/null'
+          python3 - <<'PY'
+          from pathlib import Path
+          if Path("Mods/OS3/system").exists():
+              raise SystemExit("Legacy OS3 system APK bundle still exists; refuse build")
+          source = Path("scripts/edit_super.py").read_text()
+          if "Mods/OS3/system" in source or "system/update.sh" in source:
+              raise SystemExit("Legacy system APK update is still referenced by editor")
+          if 'run("bash","Mods/OS3/kashimod.sh")' not in source:
+              raise SystemExit("Kashi module integration was unexpectedly removed")
+          print("Verified: stock system APKs preserved, Kashi mods retained.")
+          PY
           sh -n Root/stage_root_manager.sh
 
   edit-rom:

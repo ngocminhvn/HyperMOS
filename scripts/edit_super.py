@@ -177,18 +177,11 @@ info() { printf '[INFO] %s\\n' "$*"; }
 warn() { printf '[WARN] %s\\n' "$*" >&2; }
 error() { printf '[ERROR] %s\\n' "$*" >&2; }
 """)
-    # LFS pointers are not APKs; avoid partial replacement of system apps.
-    for p in (ROOT/"Mods/OS3/system").glob("*.apk"):
-        with p.open("rb") as apk:
-            is_lfs_pointer = apk.read(80).startswith(b"version https://git-lfs.github.com/spec/v1")
-        if is_lfs_pointer:
-            raise RuntimeError(f"Git LFS object missing: {p.name}; use checkout lfs:true and git lfs pull")
 
 def apply_os3():
     compatibility()
     if not shutil.which("aapt"):raise RuntimeError("aapt required to verify app package IDs")
     run("bash","Mods/OS3/kashimod.sh")
-    run("bash","Mods/OS3/system/update.sh")
     # Module applies cross-partition overlay/privapp changes; repack only eligible EROFS partitions.
     CHANGED.update({"product","system","system_ext"}.intersection(x.name for x in TREES.iterdir() if x.is_dir()))
 

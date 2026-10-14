@@ -30,9 +30,9 @@ The manual `Vendor fixed system apps` workflow is the only maintenance path that
 
 The old per-module `appvault/update.sh`, `controlcenter/update.sh`, `launcher/update.sh`, `thememanager/update.sh`, and `security/update.sh` entry scripts are no longer used.
 
-## System APKs
+## Supported replacements
 
-Local replacement APKs and their external libraries live in `bin/modfile/OS3/system/`. This folder contains local system APK replacements and their external libraries.
+This editor applies only the five Kashi modules above. The input ROM's stock File Manager, Gallery, Gallery Editor, Screen Recorder, and Screenshot are retained; no separate system-app replacement bundle is used.
 
 ## Integration flow
 
