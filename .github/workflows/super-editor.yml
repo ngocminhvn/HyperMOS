@@ -97,11 +97,13 @@ jobs:
           ]
           for path in shell_paths:
               data = path.read_bytes()
-              if b"\\r" in data:
+              if 13 in data:
                   raise SystemExit(f"{path}: CR/CRLF detected; convert to LF before building")
           print(f"Checked LF line endings in {len(shell_paths)} shell scripts")
           PY
-          bash -n functions.sh Mods/OS3/*.sh Mods/OS3/system/*.sh Root/*.sh scripts/*.sh
+          for script in functions.sh Mods/OS3/*.sh Mods/OS3/system/*.sh Root/*.sh scripts/*.sh; do
+            bash -n "$script"
+          done
           bash -c 'source functions.sh; declare -F mods info warn error >/dev/null'
           sh -n Root/stage_root_manager.sh
 
