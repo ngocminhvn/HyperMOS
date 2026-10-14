@@ -302,6 +302,150 @@ def apply_root():
         "boot.img unchanged; original init_boot bundled for recovery.\n"
         "Static checks only. AVB/device bootability not confirmed.\n")
 
+def reconcile_erofs_metadata(base, fs_path, contexts_path):
+    """Rebase extract.erofs' image-relative metadata and cover added mod files.
+
+    extract.erofs emits /app/... while mkfs.erofs --mount-point product looks
+    for product/app/.... Keep source ownership, capabilities and SELinux labels;
+    add only missing paths after mods are installed, never rewrite build.prop.
+    """
+    import stat
+
+    tree = TREES / base
+    if not tree.is_dir():
+        raise RuntimeError(f"{base}: extracted filesystem tree is missing")
+    original_fs = fs_path.read_text(errors="replace").splitlines()
+    original_ctx = contexts_path.read_text(errors="replace").splitlines()
+    if not original_fs or not original_ctx:
+        raise RuntimeError(f"{base}: empty original fs_config or file_contexts")
+
+    def canonical(raw):
+        raw = raw.lstrip("/")
+        if raw in ("", "."):
+            return base
+        # Some extractors emit a partition-prefixed path (or the A/B image
+        # stem) instead of a filesystem-root-relative path.
+        for prefix in (base + "_a", base + "_b", base):
+            if raw == prefix:
+                return base
+            if raw.startswith(prefix + "/"):
+                tail = raw[len(prefix) + 1:]
+                if prefix != base or not (tree / raw).exists():
+                    return base + "/" + tail
+        return base + "/" + raw
+
+    fs_map = {}
+    fs_lines = []
+    for line in original_fs:
+        fields = line.split(maxsplit=1)
+        if not fields:
+            continue
+        if len(fields) < 2:
+            raise RuntimeError(f"{base}: malformed fs_config line: {line!r}")
+        key = canonical(fields[0])
+        value = fields[1]
+        if key in fs_map:
+            if fs_map[key] != value:
+                raise RuntimeError(f"{base}: conflicting ownership for {key}")
+            continue
+        fs_map[key] = value
+        fs_lines.append(f"{key} {value}")
+
+    # extract.erofs emits an exact per-inode regex with escaped special
+    # characters; preserve the original SELinux label for every source inode.
+    ctx_map = {}
+    ctx_lines = []
+    for line in original_ctx:
+        fields = line.split(maxsplit=1)
+        if not fields:
+            continue
+        if len(fields) < 2:
+            raise RuntimeError(f"{base}: malformed SELinux context: {line!r}")
+        token = fields[0]
+        anchored = token.startswith("^")
+        if anchored:
+            token = token[1:]
+        if not token.startswith("/"):
+            raise RuntimeError(f"{base}: non-absolute SELinux path: {token}")
+        key = canonical(token)
+        token = ("^" if anchored else "") + "/" + key
+        if token in ctx_map and ctx_map[token] != fields[1]:
+            raise RuntimeError(f"{base}: conflicting SELinux context for {token}")
+        if token not in ctx_map:
+            ctx_lines.append(f"{token} {fields[1]}")
+        ctx_map[token] = fields[1]
+
+    # The extracted metadata contains original entries. Only paths created
+    # by selected mods/root staging require new ownership and SELinux entries.
+    # Preserve existing entries (including capability strings) byte-for-byte.
+    normalized_context = {}
+    for regex_path, label in ctx_map.items():
+        plain = regex_path.removeprefix("^").replace(r"\\.", ".")
+        if not any(ch in plain for ch in ("*", "[", "]", "(", ")", "+", "?", "|", "$")):
+            normalized_context[plain] = label
+
+    missing = []
+    for item in sorted(tree.rglob("*")):
+        rel = item.relative_to(tree).as_posix()
+        key = base + "/" + rel
+        if key in fs_map:
+            continue
+        mode = stat.S_IMODE(item.lstat().st_mode)
+        if item.is_dir() and not item.is_symlink():
+            mode = mode or 0o755
+        elif item.is_symlink():
+            mode = 0o777
+        elif not mode:
+            mode = 0o644
+        parent = key.rpartition("/")[0]
+        if parent not in fs_map:
+            raise RuntimeError(f"{base}: untracked parent directory for {key}")
+        # Newly copied APK/.so/overlays normally inherit root ownership;
+        # retain an existing owner's UID/GID when the parent specifies it.
+        owner = fs_map[parent].split()
+        if len(owner) < 3:
+            raise RuntimeError(f"{base}: invalid parent fs_config for {key}")
+        uid, gid = owner[:2]
+        fs_lines.append(f"{key} {uid} {gid} {mode:04o}")
+        fs_map[key] = f"{uid} {gid} {mode:04o}"
+
+        selkey = "/" + key
+        escaped = re.escape(selkey)
+        if not any(path.removeprefix("^") == escaped for path in ctx_map):
+            context = next(
+                (normalized_context["/" + ancestor]
+                 for ancestor in [parent] + [
+                     parent.rsplit("/", n)[0] for n in range(1, parent.count("/") + 1)
+                 ]
+                 if "/" + ancestor in normalized_context and ancestor != base),
+                None,
+            )
+            if context is None:
+                raise RuntimeError(
+                    f"{base}: missing inherited SELinux label for new {key}; "
+                    "refuse to guess a security context"
+                )
+            ctx_lines.append(f"{escaped} {context}")
+            ctx_map[escaped] = context
+            normalized_context[selkey] = context
+        missing.append(key)
+
+    if len(missing) > 500:
+        raise RuntimeError(
+            f"{base}: {len(missing)} paths lack source fs_config (possible bad "
+            "metadata root); refusing mass re-labeling"
+        )
+    fs_path.write_text("\n".join(fs_lines) + "\n")
+    contexts_path.write_text("\n".join(ctx_lines) + "\n")
+    (REPORT / f"metadata-{base}.txt").write_text(
+        f"Original fs_config entries: {len(original_fs)}\n"
+        f"Rebased entries: {len(fs_lines)}\n"
+        f"New mod paths: {len(missing)}\n" + "\n".join(missing) + "\n"
+    )
+    print(f"[EROFS] {base}: rebased source metadata; "
+          f"added {len(missing)} mod path entries", flush=True)
+
+
 def repack():
     modified=sorted(CHANGED)
     orig=json.loads((W/"metadata.json").read_text())
@@ -311,6 +455,7 @@ def repack():
         fs=list(conf.rglob("*_fs_config"))
         sel=list(conf.rglob("*_file_contexts"))
         if len(fs)!=1 or len(sel)!=1:raise RuntimeError(f"{base}: missing original EROFS metadata")
+        reconcile_erofs_metadata(base, fs[0], sel[0])
         replacement=W/"repacked"/f"{base}.img"
         replacement.parent.mkdir(exist_ok=True)
         run("mkfs.erofs","-zlz4hc,9","--mount-point",base,
