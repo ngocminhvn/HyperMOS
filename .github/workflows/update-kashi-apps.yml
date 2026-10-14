@@ -1,0 +1,229 @@
+name: Update Kashi Apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Check releases only; do not open an update PR'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-kashi-apps
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref == 'refs/heads/main'
+    name: Verify latest Kashi system-app releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout fixed app snapshots
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          lfs: false
+
+      - name: Prepare APK validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends aapt unzip
+
+      - name: Check latest releases and stage verified ZIPs
+        id: update
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          
+          import hashlib
+          import json
+          import os
+          from pathlib import Path, PurePosixPath
+          import re
+          import shutil
+          import stat
+          import subprocess
+          import tempfile
+          import zipfile
+          
+          SOURCES = [
+              ("App Vault", "Mods-Center/HyperOS-App-Vault", "HyperOS_AppVault", "com.miui.personalassistant"),
+              ("Control Center", "Mods-Center/ColorOS_Control_Center", "ColorOS_plugin_mod_", "miui.systemui.plugin"),
+              ("Launcher", "Mods-Center/HyperOS-Launcher", "HyperOS_Launcher", "com.miui.home"),
+              ("Security Center", "Mods-Center/HyperOS-Security-Center", "HyperOS_Security", "com.miui.securitycenter"),
+              ("Theme Manager", "Mods-Center/HyperOS-Theme-Manager", "HyperOS_ThemeManager", "com.android.thememanager"),
+          ]
+          DEST = Path("bin/modfile/OS3/kashi")
+          DEST.mkdir(parents=True, exist_ok=True)
+          rows = []
+          changed = False
+          
+          
+          def command(*args, timeout=300):
+              return subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout).stdout
+          
+          
+          def sha256(path):
+              digest = hashlib.sha256()
+              with open(path, "rb") as stream:
+                  for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+          
+          
+          def validate_zip(path, expected_pkg, label):
+              with zipfile.ZipFile(path) as archive:
+                  entries = archive.infolist()
+                  if not entries or len(entries) > 4000:
+                      raise ValueError(f"{label}: suspicious ZIP entry count")
+                  seen = set()
+                  total_size = 0
+                  apks = []
+                  for entry in entries:
+                      name = entry.filename
+                      parts = PurePosixPath(name).parts
+                      if not name or name.startswith("/") or "\\" in name or ".." in parts or name in seen:
+                          raise ValueError(f"{label}: unsafe or duplicate ZIP member: {name}")
+                      seen.add(name)
+                      if stat.S_IFMT(entry.external_attr >> 16) == stat.S_IFLNK:
+                          raise ValueError(f"{label}: ZIP symlinks not accepted: {name}")
+                      total_size += entry.file_size
+                      if total_size > 1024 * 1024 * 1024:
+                          raise ValueError(f"{label}: ZIP expands beyond 1 GiB")
+                      if not entry.is_dir() and name.lower().endswith(".apk"):
+                          apks.append(entry)
+                  corrupt = archive.testzip()
+                  if corrupt:
+                      raise ValueError(f"{label}: ZIP checksum failed at {corrupt}")
+                  if not apks:
+                      raise ValueError(f"{label}: no APK in release ZIP")
+          
+                  packages = []
+                  with tempfile.TemporaryDirectory(prefix="kashi-apks-") as folder:
+                      for index, entry in enumerate(apks):
+                          apk = Path(folder, f"{index}.apk")
+                          with archive.open(entry) as source, apk.open("wb") as sink:
+                              shutil.copyfileobj(source, sink)
+                          report = command("aapt", "dump", "badging", str(apk), timeout=120)
+                          match = re.search(r"^package: name='([^']+)'", report, re.MULTILINE)
+                          if not match:
+                              raise ValueError(f"{label}: package identity unreadable: {entry.filename}")
+                          packages.append(match.group(1))
+                  if packages.count(expected_pkg) != 1:
+                      raise ValueError(f"{label}: expected one {expected_pkg} APK; saw {packages}")
+                  if label == "Launcher":
+                      names = list(seen)
+                      if "android.miui.home.launcher.res" not in packages and not any(
+                          "LauncherResOverlay" in PurePosixPath(name).name and name.endswith(".apk")
+                          for name in names
+                      ):
+                          raise ValueError("Launcher: resource overlay APK absent")
+                      if not any(PurePosixPath(name).name == "privapp_whitelist_com.miui.home.xml" for name in names):
+                          raise ValueError("Launcher: privapp whitelist absent")
+          
+          
+          with tempfile.TemporaryDirectory(prefix="kashi-downloads-") as tmp:
+              for label, repo, prefix, expected_pkg in SOURCES:
+                  release = json.loads(command("gh", "api", f"repos/{repo}/releases/latest"))
+                  tag = release.get("tag_name", "")
+                  assets = [
+                      asset for asset in release.get("assets", [])
+                      if asset["name"].startswith(prefix) and asset["name"].lower().endswith(".zip")
+                  ]
+                  if release.get("draft") or release.get("prerelease") or not tag or len(assets) != 1:
+                      raise ValueError(f"{repo}: latest stable release must have exactly one {prefix}*.zip")
+                  asset = assets[0]
+                  filename = asset["name"]
+                  if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\.zip", filename):
+                      raise ValueError(f"{repo}: unsafe release filename: {filename}")
+                  digest = asset.get("digest") or ""
+                  if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+                      raise ValueError(f"{repo}: published SHA-256 digest missing or invalid")
+                  expected_sha = digest.partition(":")[2]
+                  expected_size = int(asset.get("size", 0))
+                  if not 1024 <= expected_size <= 100 * 1024 * 1024:
+                      raise ValueError(f"{repo}: suspicious release size: {expected_size}")
+          
+                  old_files = sorted(DEST.glob(prefix + "*.zip"))
+                  if len(old_files) != 1:
+                      raise ValueError(f"{repo}: expected one existing {prefix}*.zip; found {len(old_files)}")
+                  old = old_files[0]
+                  if old.name == filename and sha256(old) == expected_sha:
+                      rows.append((label, old.name, f"{tag} / {filename}", "Unchanged"))
+                      print(f"[UNCHANGED] {label}: {tag} ({filename})", flush=True)
+                      continue
+          
+                  workdir = Path(tmp, prefix)
+                  workdir.mkdir()
+                  command("gh", "release", "download", tag, "--repo", repo,
+                          "--pattern", filename, "--dir", str(workdir), "--clobber", timeout=600)
+                  downloaded = workdir / filename
+                  if not downloaded.is_file():
+                      raise ValueError(f"{repo}: expected downloaded asset missing")
+                  if downloaded.stat().st_size != expected_size or sha256(downloaded) != expected_sha:
+                      raise ValueError(f"{repo}: release size/SHA-256 mismatch: {filename}")
+                  validate_zip(downloaded, expected_pkg, label)
+                  old_name = old.name
+                  old.unlink()
+                  shutil.copyfile(downloaded, DEST / filename)
+                  rows.append((label, old_name, f"{tag} / {filename}", "Updated"))
+                  changed = True
+                  print(f"[UPDATED] {label}: {filename}, SHA-256 {expected_sha}", flush=True)
+          
+          summary = ["## Kashi app release check", "",
+                     "| App | Existing snapshot | Latest release | Result |",
+                     "|---|---|---|---|"]
+          summary.extend(f"| {label} | {before} | {latest} | {action} |"
+                         for label, before, latest, action in rows)
+          summary.extend(["", "Validated replacements: GitHub release SHA-256, size, ZIP CRC,",
+                          "safe paths, and expected APK package identity (plus Launcher overlay/whitelist).",
+                          "Static checks do not establish compatibility or successful boot.", ""])
+          content = "\n".join(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write(content)
+          Path(os.environ["RUNNER_TEMP"], "kashi-summary.md").write_text(content, encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              stream.write(f"changed={'true' if changed else 'false'}\n")
+          print(f"Kashi update: {'changes ready for PR' if changed else 'all releases up to date'}")
+          PY
+
+      - name: Commit verified Kashi snapshots to main
+        if: ${{ steps.update.outputs.changed == 'true' && inputs.dry_run != true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Kashi updater only runs on main"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A bin/modfile/OS3/kashi
+          if git diff --cached --quiet; then
+            echo "No ZIP files changed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git commit -m "chore(kashi): update verified system-app snapshots"
+          git push origin HEAD:main
+          echo "Verified app updates committed to main." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report dry-run or no-op
+        if: ${{ steps.update.outputs.changed != 'true' || inputs.dry_run == true }}
+        shell: bash
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "Dry-run mode: no branch or PR created." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No new Kashi release changes. Nothing committed." >> "$GITHUB_STEP_SUMMARY"
+          fi
