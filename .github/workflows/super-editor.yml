@@ -139,12 +139,28 @@ jobs:
       - name: Increase runner disk space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 1024
+          root-reserve-mb: 20480
+          temp-reserve-mb: 2048
           swap-size-mb: 1024
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
+
+      - name: Verify root and build volumes
+        run: |
+          set -euo pipefail
+          df -h / /tmp "$GITHUB_WORKSPACE"
+          root_free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          build_free_kb=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+          if (( root_free_kb < 8 * 1024 * 1024 )); then
+            echo "::error::Root filesystem has less than 8 GiB available after LVM setup"
+            exit 1
+          fi
+          if (( build_free_kb < 60 * 1024 * 1024 )); then
+            echo "::error::Build volume has less than 60 GiB available after LVM setup"
+            exit 1
+          fi
 
       - name: Checkout editor and all Mods LFS blobs
         uses: actions/checkout@v4
