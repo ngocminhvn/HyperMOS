@@ -42,8 +42,10 @@ class UnpackFallbackTests(unittest.TestCase):
         self.output.mkdir()
 
     def unpack(self, metadata, simulate_legacy_binary=False):
-        with patch.object(super_rw, "read_geometry", return_value={"metadata_slot_count": 1}), \\
-             patch.object(super_rw, "read_metadata_slot", return_value=metadata):
+        with (
+            patch.object(super_rw, "read_geometry", return_value={"metadata_slot_count": 1}),
+            patch.object(super_rw, "read_metadata_slot", return_value=metadata),
+        ):
             if simulate_legacy_binary:
                 with patch.object(
                     super_rw, "run",
@@ -57,7 +59,7 @@ class UnpackFallbackTests(unittest.TestCase):
         self.unpack(sample_metadata(), simulate_legacy_binary=True)
         self.assertEqual(
             (self.output / "system.img").read_bytes(),
-            b"A" * 512 + b"\\0" * 512 + b"B" * 512,
+            b"A" * 512 + bytes(512) + b"B" * 512,
         )
 
     def test_out_of_bounds_extent_fails_closed(self):
