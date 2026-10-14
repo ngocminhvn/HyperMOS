@@ -1,11 +1,5 @@
-# TNM LOCK: RYUOS-style one-shot boot property sync, without blacklist triggers.
+# TNM LOCK: RYUOS-style post-fs sync for three boot properties only.
 on post-fs
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.bootloader locked
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.vbmeta.device_state locked
     exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.flash.locked 1
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.veritymode enforcing
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.warranty_bit 0
+    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.vbmeta.device_state locked
     exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.boot.verifiedbootstate green
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.secureboot.devicelock 1
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n ro.secureboot.lockstate locked
-    exec u:r:init:s0 root root -- /system_ext/xbin/hypermos-resetprop -n sys.oem_unlock_allowed 0
