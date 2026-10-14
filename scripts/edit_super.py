@@ -220,28 +220,75 @@ def replace_installer():
     (REPORT/"installer.txt").write_text(f"Replaced package com.miui.packageinstaller: {dest.relative_to(TREES)}\nNew SHA256: {sha256(apk)}\nCaution: AOSP test-key signing differs from stock; app data/privileges may be incompatible.\n")
 
 def verify_haotian_base():
-    """Require evidence for HAOTIAN from original modified ROM product/system property values."""
-    keys = {"ro.product.device", "ro.product.vendor.device",
-            "ro.product.product.device", "ro.product.system.device",
-            "ro.build.product"}
-    values = []
-    for base in ("product", "system", "system_ext"):
-        d = TREES/base
-        if not d.is_dir():
+    """Validate HAOTIAN against the *original vendor* partition before root patching.
+
+    A third-party ROM may rewrite product/system build properties. These are
+    unsuitable as the sole device identity source. The original vendor_a EROFS
+    image is preserved unmodified in the final super.img.
+    """
+    manifest=json.loads((WS/"super_rw_manifest.json").read_text())
+    vendor_parts=[
+        p for p in manifest["partitions"]
+        if partition_label(p)=="vendor" and p.get("original_partition_size", 0)>0
+    ]
+    if len(vendor_parts)!=1 or vendor_parts[0]["filesystem"]!="erofs":
+        raise RuntimeError("Cannot safely verify device: expected one original vendor EROFS partition")
+    vendor_image=WS/vendor_parts[0]["image"]
+    if not vendor_image.is_file():
+        raise RuntimeError(f"Original vendor image missing: {vendor_image}")
+    extract_erofs_partition("vendor", vendor_image)
+
+    # Record all relevant properties, including modified system/product values,
+    # but trust only vendor-local device declarations for hardware identity.
+    keys={
+        "ro.product.vendor.device", "ro.vendor.product.device",
+        "ro.product.device", "ro.build.product",
+        "ro.product.product.device", "ro.product.system.device",
+        "ro.product.system_ext.device",
+    }
+    observed=[]
+    for base in ("vendor", "product", "system", "system_ext"):
+        directory=TREES/base
+        if not directory.is_dir():
             continue
-        for propfile in d.rglob("build.prop"):
+        for propfile in sorted(directory.rglob("build.prop")):
+            if not propfile.is_file():
+                continue
             for line in propfile.read_text(errors="replace").splitlines():
                 if "=" not in line or line.lstrip().startswith("#"):
                     continue
-                key, value = (x.strip() for x in line.split("=", 1))
+                key,value=(x.strip() for x in line.split("=",1))
                 if key in keys and value:
-                    values.append((key, value))
-    if not any(value.lower() == "haotian" for _, value in values):
-        raise RuntimeError("Cannot verify Xiaomi 15 Pro HAOTIAN from original build.prop; refusing init_boot root patch")
-    mismatches = [(key,value) for key,value in values if value.lower() != "haotian"]
-    if mismatches:
-        raise RuntimeError(f"Conflicting device identities, do not root automatically: {mismatches}")
-    (REPORT/"root-device.txt").write_text("Device: haotian\n" + "\n".join(f"{key}={value}" for key,value in values)+"\n")
+                    observed.append((base, str(propfile.relative_to(TREES)), key, value))
+
+    trusted={"ro.product.vendor.device", "ro.vendor.product.device",
+             "ro.product.device", "ro.build.product"}
+    vendor_values=[(key,value) for base,_,key,value in observed
+                   if base=="vendor" and key in trusted]
+    report=REPORT/"root-device.txt"
+    report.write_text(
+        "Device identity: original vendor EROFS (read-only source)\n"
+        + "Vendor image: " + str(vendor_parts[0]["image"]) + "\n"
+        + "Observed build.prop values (informational outside vendor):\n"
+        + "".join(f"{base}/{path}: {key}={value}\n"
+                  for base,path,key,value in observed)
+    )
+    if not vendor_values:
+        raise RuntimeError(
+            "Cannot verify HAOTIAN: original vendor build.prop contains no device declaration; "
+            "see root-device.txt (refusing root patch)"
+        )
+    conflicts=[(k,v) for k,v in vendor_values if v.lower()!="haotian"]
+    if conflicts:
+        raise RuntimeError(
+            f"Original vendor device identity conflicts with HAOTIAN: {conflicts}; "
+            "refusing root patch"
+        )
+    if not any(value.lower()=="haotian" for _,value in vendor_values):
+        raise RuntimeError("No HAOTIAN identity in original vendor; refusing root patch")
+    with report.open("a") as output:
+        output.write("Verified device: haotian via original vendor image\n")
+    print("[ROOT] Verified HAOTIAN from original vendor EROFS build.prop",flush=True)
 
 def append_root_metadata():
     """Add metadata only for new KernelSU Next manager staging files."""
