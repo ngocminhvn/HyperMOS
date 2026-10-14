@@ -16,7 +16,7 @@ This makes later replacement simple: remove the old ZIP and put the new ZIP in `
 
 InstallerX source remains local in `bin/modfile/Universal/packageinstaller/`.
 
-The manual `Vendor fixed system apps` workflow is the only maintenance path that downloads these upstream assets. It uses exact pinned tags and exact filenames, verifies SHA-256, and commits the files into HyperMOS. Running the normal ROM build never invokes that workflow.
+The manual `Update Kashi Apps` workflow checks the latest stable Mods-Center releases. It validates GitHub release SHA-256 digests, ZIP integrity, and APK package identities, and commits changed snapshots directly to `main`. The normal ROM build never invokes this updater. See `kashi/README.md`.
 
 ## Kashi mods
 
