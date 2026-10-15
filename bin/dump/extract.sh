@@ -69,7 +69,7 @@ fi
 count=0
 for part in $PARTS; do
   img="$WORK/partitions/$part.img"
-  if [[ ! -f "$img" && -f "$WORK/partitions/$part""_a.img" ]]; then img="$WORK/partitions/$part""_a.img"; fi
+  if [[ ! -f "$img" && -f "$WORK/partitions/$part""_a.img" ]]; then mv "$WORK/partitions/$part""_a.img" "$img"; fi
   [[ -s "$img" ]] || continue
   mkdir -p "$WORK/images/$part"
   kind="$("$ROOT/bin/Linux/x86_64/gettype" -i "$img" || true)"
