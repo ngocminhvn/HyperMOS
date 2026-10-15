@@ -54,3 +54,48 @@ security state faithfully. Review the complete build, resulting images and
 device's actual boot state before flashing. Existing documentation outside this
 directory describing active LOCK property writes is historical and is not the
 current package behavior.
+
+## RYUOS parity and Android init ordering (2026-10-15)
+
+| Component | HyperMOS result | Evidence / limit |
+| --- | --- | --- |
+| RYU helper payload | Retained ARM64 payload, pinned hash above | Proven identity against the existing HyperMOS blob; donor identity is repository provenance, not an independent RYUOS download |
+| Primary init path | Preserves Xiaomi `/system/etc/init/hw/init.rc` | This is the RYUOS location reported by the user and the AOSP primary init path |
+| Separate LOCK tnm.rc | Absent | No separate LOCK init action is installed; unrelated TNM files remain untouched |
+| RYUOS `post-fs` execution | Intentionally not reproduced | The former LOCK commands force three security properties; no safe replacement command has been established |
+| RYUOS SELinux/runtime behavior | Not certified identical | No original RYUOS init.rc, complete policy or extracted Xiaomi image is available |
+
+AOSP loads the primary init file and its imports, then partition init
+directories. Matching actions execute in parse order. Thus a standalone
+`/system/etc/init/tnm.rc` and an action appended to primary init.rc can share
+the `post-fs` event while running at different positions in the action queue.
+Moving an action is not a dependency check, a SELinux fix, or a guarantee of
+identical behavior. Existing Xiaomi `post-fs` actions must remain intact.
+`post-fs` is the early-mount configuration stage; `post-fs-data` is a distinct
+stage associated with mounting/configuring /data. A blocking `exec` pauses
+init commands until the child exits, so an unverified helper can stall boot.
+
+The binary's embedded usage text describes `-n NAME VALUE` as a property write
+without notifying listeners. Suppressing notifications does not make
+`locked/green` values faithful to hardware. No blacklist, seal hook, daemon,
+module, or fabricated TEE/KeyMint/AVB report is introduced. No helper invocation,
+including a diagnostic invocation, is added merely to imitate RYUOS timing.
+
+Source for Android init semantics:
+[AOSP init README](https://github.com/aosp-mirror/platform_system_core/blob/master/init/README.md).
+The RYUOS path/event comparison is based on the user's supplied information;
+full donor parity needs the actual donor init and policy, not this AOSP reference.
+
+## Reproducible workflow checks
+
+Run `bash -n bin/package/LOCK/update.sh` and
+`python3 bin/package/LOCK/test_update.py` from the repository root.
+The main ROM workflow now runs both before downloading/unpacking the ROM.
+The package dispatcher labels LOCK as a safety audit rather than property sync.
+The 14 offline tests passed locally. They cover the pinned ARM64 payload,
+repeat runs, standalone/appended duplicate actions, image and repack contexts,
+both legacy helper names, CIL remnants, missing paths and changed payloads.
+They preserve fixture bytes/modes, including stock init, unrelated TNM and
+vendor/ODM precompiled policy files. These fixtures are not actual Xiaomi policy
+or a substitute for Android init verification and combined SELinux compilation.
+The original helper is never executed.

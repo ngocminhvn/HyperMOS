@@ -113,6 +113,10 @@ jobs:
             exit 1
           fi
 
+          # LOCK audit is read-only; exercise clean/reused trees before downloading ROM.
+          bash -n bin/package/LOCK/update.sh
+          python3 bin/package/LOCK/test_update.py
+
           # Thermal source is already versioned in the repository (no remote artifact).
           # Previous supported test branch: test-tnm-ryu-haotian.
           thermal_zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"

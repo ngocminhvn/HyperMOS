@@ -9,7 +9,7 @@ info "PATCH 1/5: CorePatch / signature"
 bash $target_dir/COREPATCH/update.sh || exit 1
 info "PATCH 2/5: AVB"
 bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
-info "PATCH 3/6: LOCK boot property sync"
+info "PATCH 3/6: LOCK security-state safety audit"
 bash "$target_dir/LOCK/update.sh" || exit 1
 info "PATCH 4/6: Notification"
 bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh || exit 1
