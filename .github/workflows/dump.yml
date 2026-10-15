@@ -51,7 +51,7 @@ jobs:
       - name: Download ROM
         shell: bash
         env:
-          ROM_URL: \${{ inputs.rom_url }}
+          ROM_URL: ${{ inputs.rom_url }}
         run: |
           set -euo pipefail
           case "$ROM_URL" in http://*|https://*) ;; *) echo '[ERROR] Invalid ROM URL'; exit 1 ;; esac
@@ -69,7 +69,7 @@ jobs:
       - name: Copy files and create map
         shell: bash
         env:
-          ROM_URL: \${{ inputs.rom_url }}
+          ROM_URL: ${{ inputs.rom_url }}
         run: |
           set -euo pipefail
           python3 bin/dump/collect.py \
@@ -88,19 +88,19 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE/HyperMOS-dump-$GITHUB_RUN_NUMBER.zip"
 
       - name: Upload GitHub Artifact
-        if: \${{ inputs.upload_method == 'artifact' }}
+        if: ${{ inputs.upload_method == 'artifact' }}
         uses: actions/upload-artifact@v4
         with:
-          name: HyperMOS-dump-\${{ github.run_number }}
-          path: HyperMOS-dump-\${{ github.run_number }}.zip
+          name: HyperMOS-dump-${{ github.run_number }}
+          path: HyperMOS-dump-${{ github.run_number }}.zip
           if-no-files-found: error
           retention-days: 7
 
       - name: Upload Google Drive using existing rclone config
-        if: \${{ inputs.upload_method == 'drive' }}
+        if: ${{ inputs.upload_method == 'drive' }}
         shell: bash
         env:
-          RCLONE_TOKEN_PATH: \${{ secrets.RCLONE_TOKEN_PATH }}
+          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
         run: |
           set -euo pipefail
           test -n "$RCLONE_TOKEN_PATH" || { echo '[ERROR] Missing RCLONE_TOKEN_PATH'; exit 1; }
@@ -111,6 +111,6 @@ jobs:
           remote="$(rclone listremotes --config="$config" | head -1)"
           test -n "$remote" || { echo '[ERROR] No configured remote'; exit 1; }
           name="HyperMOS-dump-$GITHUB_RUN_NUMBER.zip"
-          rclone copyto "$name" "\${remote}HyperMOS/dump/$name" \
+          rclone copyto "$name" "${remote}HyperMOS/dump/$name" \
             --config="$config" --progress --transfers=1 --retries=6
-          rclone link "\${remote}HyperMOS/dump/$name" --config="$config" || true
+          rclone link "${remote}HyperMOS/dump/$name" --config="$config" || true
