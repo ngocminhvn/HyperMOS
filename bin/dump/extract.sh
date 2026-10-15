@@ -25,34 +25,34 @@ elif grep -Eq '^(images/)?super\.img(\.[0-9]+)?$' "$WORK/entries.txt"; then
   echo '[DUMP] Fastboot super.img'
   mapfile -t entries < <(grep -E '^(images/)?super\.img(\.[0-9]+)?$' "$WORK/entries.txt" | sort -V)
   segments=()
-  for entry in "\${entries[@]}"; do
+  for entry in "${entries[@]}"; do
     dest="$WORK/input/$(basename "$entry")"
     unzip -p "$ZIP" "$entry" > "$dest"
     segments+=("$dest")
   done
-  if (( \${#segments[@]} > 1 )); then
-    simg2img "\${segments[@]}" "$WORK/input/super.raw.img"
-  elif python3 - "\${segments[0]}" <<'PY'
+  if (( ${#segments[@]} > 1 )); then
+    simg2img "${segments[@]}" "$WORK/input/super.raw.img"
+  elif python3 - "${segments[0]}" <<'PY'
 import sys
 with open(sys.argv[1],'rb') as f:
     sys.exit(0 if f.read(4)==b'\x3a\xff\x26\xed' else 1)
 PY
   then
-    simg2img "\${segments[0]}" "$WORK/input/super.raw.img"
+    simg2img "${segments[0]}" "$WORK/input/super.raw.img"
   else
-    mv "\${segments[0]}" "$WORK/input/super.raw.img"
+    mv "${segments[0]}" "$WORK/input/super.raw.img"
   fi
-  rm -f "\${segments[@]}"
+  rm -f "${segments[@]}"
   requested=""
   for part in $PARTS; do requested+="$part,$part""_a,$part""_b,"; done
-  python3 "$ROOT/bin/lpunpack.py" -p "\${requested%,}" "$WORK/input/super.raw.img" "$WORK/partitions"
+  python3 "$ROOT/bin/lpunpack.py" -p "${requested%,}" "$WORK/input/super.raw.img" "$WORK/partitions"
   rm -f "$WORK/input/super.raw.img"
 elif grep -Eq '\.new\.dat\.br$' "$WORK/entries.txt"; then
   echo '[DUMP] new.dat.br'
   for part in $PARTS; do
     entry="$(grep -E "(^|/)$part\.new\.dat\.br$" "$WORK/entries.txt" | head -1 || true)"
     [[ -n "$entry" ]] || continue
-    transfer="\${entry%.new.dat.br}.transfer.list"
+    transfer="${entry%.new.dat.br}.transfer.list"
     if ! grep -Fxq "$transfer" "$WORK/entries.txt"; then
       echo "[WARN] Missing transfer.list for $part"; continue
     fi
