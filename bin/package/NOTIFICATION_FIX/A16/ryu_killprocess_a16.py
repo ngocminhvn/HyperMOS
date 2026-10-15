@@ -55,6 +55,75 @@ def check_abi(stock: str, donor: str) -> None:
         raise ValueError("Missing RYU conditional UID kill helper")
 
 
+
+# RYU has conditional UID-kill policy, but no explicit com.google.android.gms
+# exclusion in the two method bodies transplanted here. Protect only the
+# ProcessManager.kill path of this controller, not all Android process control.
+GMS_PACKAGE = "com.google.android.gms"
+GMS_MARKER = ":tnm_gms_uid_continue"
+PACKAGE_NAME_API = (
+    "Lcom/miui/powerkeeper/utils/PackageUtil;->getPackageNameByUid"
+    "(Landroid/content/Context;I)Ljava/lang/String;"
+)
+
+
+def protect_gms_uid(ryu_uid: str) -> tuple[str, bool]:
+    """Skip this controller's RYU UID-kill path for GMS's package name.
+
+    RYU already resolves a candidate UID to its package name in the deny
+    branch before evaluating window, IME, checker policy and ProcessManager.kill.
+    Piggyback on that lookup to avoid extra package-manager calls and guard
+    shared-screen/multi-user UIDs through the existing user-aware lookup.
+    Do not touch the allow/p2=true branch.
+    """
+    if GMS_MARKER in ryu_uid:
+        raise ValueError("Source RYU KillProcessController unexpectedly already patched")
+    if '"' + GMS_PACKAGE + '"' in ryu_uid:
+        raise ValueError("RYU UID method already mentions GMS; audit exemption before changing")
+    registers = list(re.finditer(r"(?m)^([ \t]*)\.registers[ \t]+(\d+)[ \t]*$", ryu_uid))
+    if len(registers) != 1 or int(registers[0].group(2)) != 9:
+        raise ValueError("Unsupported RYU setUidState register layout")
+    if re.search(r"\bv6\b", ryu_uid):
+        raise ValueError("RYU setUidState uses would-be scratch register v6")
+    # Exactly one result of the pre-existing getPackageNameByUid(ctx, uid)
+    # call is stored in p2. This call occurs only on the deny/kill path.
+    lookup = re.compile(
+        r"(?m)^([ \t]*)invoke-static[ \t]+\{p2, p1\},[ \t]+"
+        + re.escape(PACKAGE_NAME_API)
+        + r"[ \t]*\n[ \t]*move-result-object[ \t]+p2[ \t]*$"
+    )
+    matches = list(lookup.finditer(ryu_uid))
+    if len(matches) != 1:
+        raise ValueError(
+            f"Expected one RYU deny-path UID->package result, found {len(matches)}"
+        )
+    if ryu_uid.find("Lmiui/process/ProcessManager;->kill(") <= matches[0].end():
+        raise ValueError("RYU kill instruction is not after package lookup")
+    # .registers includes p0,p1,p2. At 9 total, locals are v0..v5.
+    # Adding one local v6 changes p0..p2 aliases but not p-named instructions.
+    indent = matches[0].group(1)
+    guard = (
+        f'\n{indent}# HyperMOS: GMS exemption scoped to RYU conditional UID kill'
+        f'\n{indent}const-string v6, "{GMS_PACKAGE}"'
+        f'\n{indent}invoke-virtual {{v6, p2}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z'
+        f'\n{indent}move-result v6'
+        f'\n{indent}if-eqz v6, {GMS_MARKER}'
+        f'\n{indent}return-void'
+        f'\n{GMS_MARKER}'
+    )
+    edited = (
+        ryu_uid[:matches[0].end()] + guard + ryu_uid[matches[0].end():]
+    )
+    edited = edited[:registers[0].start()] + (
+        registers[0].group(1) + ".registers 10"
+    ) + edited[registers[0].end():]
+    if edited.count(GMS_MARKER) != 2 or edited.count('"' + GMS_PACKAGE + '"') != 1:
+        raise ValueError("GMS guard postcondition failed")
+    if edited.count("Lmiui/process/ProcessManager;->kill(") != 1:
+        raise ValueError("RYU kill call changed unexpectedly")
+    return edited, True
+
+
 def port(zk_root: Path, ryu_root: Path) -> dict:
     target, donor_path = one_class(zk_root), one_class(ryu_root)
     stock = target.read_text(encoding="utf-8")
@@ -64,6 +133,7 @@ def port(zk_root: Path, ryu_root: Path) -> dict:
 
     ryu_uid, _, uid_gates = adapt_ryu_references(donor_methods[SET_UID])
     ryu_checker, _, checker_gates = adapt_ryu_references(donor_methods[RULE_CHECK])
+    ryu_uid, gms_guard_added = protect_gms_uid(ryu_uid)
     if "Lmiui/process/ProcessManager;->kill(" not in ryu_uid:
         raise ValueError("RYU UID path lost the conditional ProcessManager.kill call")
     if "->" + RULE_CHECK not in ryu_uid:
@@ -99,5 +169,6 @@ def port(zk_root: Path, ryu_root: Path) -> dict:
         "new_checker_method_added": helper_added,
         "untouched_zkos_killprocess_methods": len(stock_methods) - 1 - int(RULE_CHECK in stock_methods),
         "ryu_build_gates_adapted": uid_gates + checker_gates,
-        "gms_policy_exemption_added": False,
+        "gms_policy_exemption_added": gms_guard_added,
+        "gms_policy_scope": "only this RYU KillProcessController UID-kill path",
     }
