@@ -31,12 +31,13 @@ def normalize(url):
     if parts.scheme.lower() not in ("https", "http") or not parts.netloc:
         raise ValueError("ROM URL must begin with https:// or http://")
     hostname = (parts.hostname or "").lower()
+    mirrors = bool(re.fullmatch(r"[a-z0-9-]+\.dl\.sourceforge\.net", hostname))
     if hostname not in {
         "sourceforge.net", "www.sourceforge.net", "downloads.sourceforge.net"
-    }:
+    } and not mirrors:
         return None
     raw_path = unquote(parts.path)
-    if hostname == "downloads.sourceforge.net":
+    if hostname == "downloads.sourceforge.net" or mirrors:
         match = re.fullmatch(r"/project/([^/]+)/(.+)", raw_path, flags=re.I)
     else:
         match = re.fullmatch(r"/projects/([^/]+)/files/(.+)", raw_path, flags=re.I)
