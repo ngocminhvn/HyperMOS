@@ -5,78 +5,66 @@ work_dir=$(pwd)
 images="$work_dir/build/baserom/images"
 source "$work_dir/functions.sh"
 
-system_ext="$images/system_ext"
 system="$images/system/system"
+system_ext="$images/system_ext"
 binary="$work_dir/bin/package/LOCK/system_ext/xbin/ryu_helper"
-rc="$work_dir/bin/package/LOCK/system/etc/init/tnm.rc"
-policy="$system_ext/etc/selinux/system_ext_sepolicy.cil"
-image_contexts="$system_ext/etc/selinux/system_ext_file_contexts"
-config_contexts="$images/config/system_ext_file_contexts"
-resetprop_path="/system_ext/xbin/ryu_helper"
-resetprop_context="u:object_r:ryu_helper_exec:s0"
+stock_init="$system/etc/init/hw/init.rc"
 
-[ -d "$system_ext" ] || { error "LOCK: system_ext tree missing"; exit 1; }
 [ -d "$system" ] || { error "LOCK: system tree missing"; exit 1; }
-[ -s "$binary" ] || { error "LOCK: RYU helper binary missing"; exit 1; }
-[ -s "$rc" ] || { error "LOCK: init trigger missing"; exit 1; }
-[ -s "$policy" ] || { error "LOCK: system_ext split SELinux policy missing"; exit 1; }
-[ -s "$image_contexts" ] || { error "LOCK: system_ext file contexts missing"; exit 1; }
-[ -s "$config_contexts" ] || { error "LOCK: repack file contexts missing"; exit 1; }
+[ -d "$system_ext" ] || { error "LOCK: system_ext tree missing"; exit 1; }
+[ -s "$stock_init" ] || { error "LOCK: stock /system/etc/init/hw/init.rc missing"; exit 1; }
+[ -s "$binary" ] || { error "LOCK: bundled RYU helper missing"; exit 1; }
 
-if [ -e "$system/etc/init/hypermos-lock.rc" ]; then
-  error "LOCK: stale hypermos-lock.rc found; rebuild from a clean image tree"
-  exit 1
-fi
-if [ -e "$system/etc/init/tnm.rc" ] && ! cmp -s "$rc" "$system/etc/init/tnm.rc"; then
-  error "LOCK: existing tnm.rc differs; refusing to overwrite it"
-  exit 1
-fi
-
-if ! grep -qF '(type ryu_helper_exec)' "$policy"; then
-  cat >> "$policy" <<'EOF'
-
-; HyperMOS TNM RYU helper one-shot boot property synchronization.
-(type ryu_helper_exec)
-(roletype object_r ryu_helper_exec)
-(typeattributeset file_type (ryu_helper_exec))
-(typeattributeset exec_type (ryu_helper_exec))
-(typeattributeset system_file_type (ryu_helper_exec))
-(allow init ryu_helper_exec (file (read getattr map execute open execute_no_trans)))
-EOF
-fi
-
-for contexts in "$image_contexts" "$config_contexts"; do
-  existing="$(awk -v path="$resetprop_path" '$1 == path { print $2 }' "$contexts")"
-  if [ -n "$existing" ] && [ "$existing" != "$resetprop_context" ]; then
-    error "LOCK: conflicting SELinux context for $resetprop_path in $contexts: $existing"
-    exit 1
-  fi
-  if [ -z "$existing" ]; then
-    printf '%s %s\n' "$resetprop_path" "$resetprop_context" >> "$contexts"
-  fi
-done
-
-# A modified split CIL must be compiled by init instead of using stale policy.
-for part in vendor odm; do
-  policy_dir="$images/$part/etc/selinux"
-  if [ -d "$policy_dir" ]; then
-    find "$policy_dir" -maxdepth 1 -type f -name 'precompiled_sepolicy*' -delete
-  fi
-done
-
-install -D -m 0755 "$binary" "$system_ext/xbin/ryu_helper"
-install -D -m 0644 "$rc" "$system/etc/init/tnm.rc"
-
-grep -qF '(allow init ryu_helper_exec (file (read getattr map execute open execute_no_trans)))' "$policy" || {
-  error "LOCK: helper SELinux execution rule missing"
+# Retain the reviewed payload in the repository, without installing/executing it.
+# No security-state property writer is permitted by this package.
+expected=6d82fc8e92089ce24226636ec4d24deb15655d7a7473d37d24fa4ae53588c1df
+actual=$(sha256sum "$binary")
+[ "${actual%% *}" = "$expected" ] || {
+  error "LOCK: RYU helper changed; review the payload before building"
   exit 1
 }
-for contexts in "$image_contexts" "$config_contexts"; do
-  grep -qF "$resetprop_path $resetprop_context" "$contexts" || {
-    error "LOCK: helper file context missing from $contexts"
-    exit 1
-  }
-done
 
-mods "LOCK: bundled RYU helper with dedicated init execution policy"
-info "LOCK: Kaorios hooks and AVB images left unchanged"
+# Read-only audit: never guess how to remove a block from Xiaomi/TNM init.
+# Reused image trees with previous LOCK changes must be rebuilt from clean stock.
+python3 - "$images" <<'PY'
+import os
+import pathlib
+import sys
+
+images = pathlib.Path(sys.argv[1])
+legacy_names = {"hypermos-lock.rc"}
+legacy_tokens = (
+    b"ryu_helper", b"hypermos-resetprop", b"tnm_resetprop_exec",
+    b"hypermos-lock.rc",
+)
+conflicts = []
+def walk_error(exc):
+    sys.exit(f"LOCK: cannot audit image directory: {exc}")
+
+for root, dirs, files in os.walk(images, followlinks=False, onerror=walk_error):
+    for name in files:
+        path = pathlib.Path(root) / name
+        relative = path.relative_to(images)
+        if name in {"ryu_helper", "hypermos-resetprop"}:
+            conflicts.append(str(relative))
+            continue
+        if name in legacy_names:
+            conflicts.append(str(relative))
+            continue
+        # Include tnm.rc without treating an unrelated TNM file as ours.
+        if name.endswith((".rc", ".cil")) or "file_contexts" in name:
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                sys.exit(f"LOCK: cannot audit {relative}: {exc}")
+            if any(token in data for token in legacy_tokens):
+                conflicts.append(str(relative))
+if conflicts:
+    sys.exit(
+        "LOCK: existing helper trigger/policy/payload detected; rebuild from a "
+        "clean image tree (no files were changed):\n" + "\n".join(sorted(conflicts))
+    )
+PY
+
+mods "LOCK: security-state spoofing disabled; no helper boot trigger installed"
+info "LOCK: Xiaomi init and SELinux left unchanged; RYU helper retained only in source"
