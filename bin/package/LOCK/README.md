@@ -123,3 +123,12 @@ archive has not been downloaded or inspected. The retained helper hash is
 verified against the repository payload, not against this remote archive.
 There is still no extracted real ROM or native init/SELinux verifier result.
 GitHub Actions execution must be reported separately from local test results.
+
+`LOCK ROM evidence` runs on a change to its own workflow/extractor on main and
+also supports manual dispatch. It downloads the supplied donor and the stock
+base sequentially, extracts selected partitions with existing repository tools,
+collects init/policy/context/DAC metadata and helper ELF/hash evidence, and runs
+split CIL compilation plus native init verification when the tool is installed.
+It never executes donor helpers or modifies/flashes a ROM. Stock evidence is
+not evidence of a completed HyperMOS build. Artifacts include partial evidence
+and logs when extraction or verification fails.

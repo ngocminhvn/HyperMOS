@@ -1,0 +1,60 @@
+name: LOCK ROM evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/lock-rom-inspection.yml'
+      - 'bin/package/LOCK/inspect_rom.py'
+  workflow_dispatch:
+    inputs:
+      donor_url:
+        description: RYUOS HAOTIAN archive
+        default: 'https://psychz.dl.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip'
+        required: true
+      stock_url:
+        description: Stock HAOTIAN archive used by HyperMOS
+        default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            bin/package/LOCK
+            bin/Linux/x86_64
+            bin/imgextractor
+            bin/lpunpack.py
+          sparse-checkout-cone-mode: false
+          lfs: true
+      - name: Prepare extraction tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y secilc android-sdk-libsparse-utils binutils
+          chmod +x bin/Linux/x86_64/{payload-extract,extract.erofs,gettype}
+          python3 -m py_compile bin/package/LOCK/inspect_rom.py
+          python3 bin/package/LOCK/test_update.py
+      - name: Inspect donor
+        env:
+          DONOR_URL: ${{ inputs.donor_url || 'https://psychz.dl.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip' }}
+        run: python3 bin/package/LOCK/inspect_rom.py --url "$DONOR_URL" --output evidence/donor
+      - name: Inspect stock base
+        if: ${{ !cancelled() }}
+        env:
+          STOCK_URL: ${{ inputs.stock_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}
+        run: python3 bin/package/LOCK/inspect_rom.py --url "$STOCK_URL" --output evidence/stock
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: lock-rom-evidence-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 7
