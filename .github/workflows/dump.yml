@@ -70,8 +70,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 unzip brotli erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
-          python3 -m py_compile bin/dump/collect.py bin/dump/base.py
+          sudo apt-get install -y -qq aria2 curl unzip brotli erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
+          python3 -m py_compile bin/dump/collect.py bin/dump/base.py bin/dump/sourceforge_download.py
+          python3 -m unittest discover -s bin/dump -p 'test_sourceforge*.py' -v
           bash -n bin/dump/extract.sh
           test -s bin/dump/targets.txt
 
@@ -81,10 +82,11 @@ jobs:
           ROM_URL: ${{ inputs.rom_url }}
         run: |
           set -euo pipefail
-          case "$ROM_URL" in http://*|https://*) ;; *) echo '[ERROR] Invalid ROM URL'; exit 1 ;; esac
           mkdir -p "$RUNNER_TEMP/hypermos-dump"
-          aria2c --file-allocation=none --max-tries=5 --retry-wait=5 -c -x8 -s8 \
-            --dir="$RUNNER_TEMP/hypermos-dump" --out=source.zip "$ROM_URL"
+          python3 bin/dump/sourceforge_download.py \
+            --url "$ROM_URL" \
+            --output "$RUNNER_TEMP/hypermos-dump/source.zip" \
+            --report "$RUNNER_TEMP/hypermos-dump/mirror-report.json"
           unzip -tq "$RUNNER_TEMP/hypermos-dump/source.zip" >/dev/null
 
       - name: Unpack ROM without mod or repack
@@ -118,7 +120,9 @@ jobs:
               exit 1
               ;;
           esac
-          echo "Dump mode: $DUMP_MODE. map.tsv and map.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
+          cp "$RUNNER_TEMP/hypermos-dump/mirror-report.json" \
+            "$RUNNER_TEMP/hypermos-dump/output/pack-meta/mirror-report.json"
+          echo "Dump mode: $DUMP_MODE. map.tsv, map.json and mirror-report.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package dump ZIP
         shell: bash
