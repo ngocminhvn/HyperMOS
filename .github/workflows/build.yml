@@ -84,31 +84,26 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Fetch audited ZKOS PowerKeeper artifact
+      - name: Validate checked-in ZKOS and TNM DEX sources
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          target="$RUNNER_TEMP/zk-powerkeeper"
-          mkdir -p "$target"
-          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts"
-          metadata="$target/artifacts.json"
-          curl -fsSL --retry 3 -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "$api?name=ZKOS-HAOTIAN-PowerKeeper&per_page=100" -o "$metadata"
-          artifact_id="$(jq -er '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty' "$metadata")" || {
-            echo "::error::Run Collect ZKOS HAOTIAN PowerKeeper first; no live donor artifact exists"
-            exit 1
-          }
-          curl -fsSL --retry 3 -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "$api/${artifact_id}/zip" -o "$target/artifact.zip"
-          unzip -tq "$target/artifact.zip"
-          unzip -jo "$target/artifact.zip" 'PowerKeeperZK.apk' -d "$target"
-          ref="$target/PowerKeeperZK.apk"
-          echo "559665acc17f0e6c900cbaf644331ea431d1c59519a0c44a944b6cb16d7c003f  $ref" | sha256sum -c -
-          echo "ZK_POWERKEEPER_APK=$ref" >> "$GITHUB_ENV"
+          zk=bin/package/NOTIFICATION_FIX/A16/classes.dex
+          tnm=bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex
+          test -s "$zk" && test -s "$tnm"
+          test "$(git hash-object "$zk")" = f229fb0a5c67d41a55310a119ef64b18a86d6c04
+          test "$(git hash-object "$tnm")" = 1b5a46ea3f9ead44a5467584e15dddd7ba4b0555
+          python3 - "$zk" "$tnm" <<'PYDEX'
+          import sys
+          from pathlib import Path
+          for filename in sys.argv[1:]:
+              data = Path(filename).read_bytes()
+              if len(data) < 112 or not data.startswith(b'dex\\n'):
+                  raise SystemExit(f'Invalid Android DEX: {filename}')
+              if int.from_bytes(data[32:36], 'little') != len(data):
+                  raise SystemExit(f'DEX file size mismatch: {filename}')
+          print('[PowerKeeper] Both pinned local DEX sources verified')
+          PYDEX
 
       - name: Prepare build environment
         shell: bash

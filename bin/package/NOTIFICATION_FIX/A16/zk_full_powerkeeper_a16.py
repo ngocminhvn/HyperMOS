@@ -2,7 +2,6 @@
 """Build a ZKOS PowerKeeper port with TNM naming and TNM per-app PerfHook."""
 import argparse
 import re
-import zipfile
 from pathlib import Path
 
 from powerkeeper import (
@@ -160,51 +159,20 @@ def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
             "application_init_hooked": True}
 
 
-def adapt_xml(root: Path):
-    manifest = root / "AndroidManifest.xml"
-    if not manifest.is_file():
-        raise ValueError("Decoded ZKOS AndroidManifest.xml is missing")
-    source = manifest.read_text(encoding="utf-8")
-    if 'android:versionName="ZKOS-4.2.00"' not in source:
-        raise ValueError("Unexpected ZKOS manifest versionName")
-    source = source.replace('android:versionName="ZKOS-4.2.00"',
-                            'android:versionName="TNM-4.2.00"')
-    if "ZKOS" in source:
-        raise ValueError("Unadapted ZKOS identifier remains in manifest")
-    manifest.write_text(source, encoding="utf-8")
-    return 1
-
-
-def inject_dex(xml_root: Path, compiled_apk: Path):
-    with zipfile.ZipFile(compiled_apk) as archive:
-        dex = archive.read("classes.dex")
-    target = xml_root / "dex/classes.dex"
-    if not target.parent.is_dir():
-        raise ValueError("Decoded ZKOS XML DEX directory is missing")
-    target.write_bytes(dex)
-    return len(dex)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--zk-raw", type=Path, required=True)
-    parser.add_argument("--zk-xml", type=Path, required=True)
     parser.add_argument("--tnm-raw", type=Path, required=True)
-    parser.add_argument("--compiled-apk", type=Path)
     args = parser.parse_args()
-    if args.compiled_apk:
-        size = inject_dex(args.zk_xml, args.compiled_apk)
-        print(f"[TNM ZK FULL PORT] compiled_dex_bytes_injected={size}")
-        return
     report = adapt_zk_smali(args.zk_raw)
     report.update(graft_tnm_per_app_perf(args.zk_raw, args.tnm_raw))
-    report["manifest_version_name_changes"] = adapt_xml(args.zk_xml)
-    print("[TNM ZK FULL PORT] " + ", ".join(f"{k}={v}" for k, v in report.items()))
+    report["non_dex_content"] = "Xiaomi stock original"
+    print("[TNM ZK LOCAL DEX PORT] " + ", ".join(f"{k}={v}" for k, v in report.items()))
 
 
 if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError) as exc:
-        print(f"[TNM ZK FULL PORT] FAIL: {exc}", file=__import__("sys").stderr)
+        print(f"[TNM ZK LOCAL DEX PORT] FAIL: {exc}", file=__import__("sys").stderr)
         raise SystemExit(1)
