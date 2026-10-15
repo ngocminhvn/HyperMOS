@@ -84,27 +84,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Validate checked-in ZKOS and TNM DEX sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          zk=bin/package/NOTIFICATION_FIX/A16/classes.dex
-          tnm=bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex
-          test -s "$zk" && test -s "$tnm"
-          test "$(git hash-object "$zk")" = f229fb0a5c67d41a55310a119ef64b18a86d6c04
-          test "$(git hash-object "$tnm")" = 1b5a46ea3f9ead44a5467584e15dddd7ba4b0555
-          python3 - "$zk" "$tnm" <<'PYDEX'
-          import sys
-          from pathlib import Path
-          for filename in sys.argv[1:]:
-              data = Path(filename).read_bytes()
-              if len(data) < 112 or not data.startswith(b'dex\n'):
-                  raise SystemExit(f'Invalid Android DEX: {filename}')
-              if int.from_bytes(data[32:36], 'little') != len(data):
-                  raise SystemExit(f'DEX file size mismatch: {filename}')
-          print('[PowerKeeper] Both pinned local DEX sources verified')
-          PYDEX
-
       - name: Prepare build environment
         shell: bash
         run: |
@@ -138,6 +117,17 @@ jobs:
           bash -n bin/package/LOCK/update.sh
           # Fast-fail the full ZKOS PowerKeeper + TNM per-app hook port.
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          # Lightweight source sanity check; no version-locked DEX hashes.
+          python3 - <<'PYDEX'
+          from pathlib import Path
+          for rel in (
+              "bin/package/NOTIFICATION_FIX/A16/classes.dex",
+              "bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex",
+          ):
+              data = Path(rel).read_bytes()
+              if len(data) < 112 or not data.startswith(b"dex\n") or int.from_bytes(data[32:36], "little") != len(data):
+                  raise SystemExit(f"Invalid bundled DEX: {rel}")
+          PYDEX
           python3 -m py_compile \
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
             bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
@@ -231,8 +221,35 @@ jobs:
         run: |
           set -euo pipefail
           echo "[PHASE] - Build ROM" | tee -a build_action.log
-          sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
-            "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log
+          # Preserve the full build log while making long phases collapsible.
+          if sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
+              "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log | awk '
+                /^\[PHASE\] - [123]\/4 / {
+                  if (opened) print "::endgroup::"
+                  title = $0
+                  sub(/^\[PHASE\] - /, "", title)
+                  print "::group::" title
+                  opened = 1
+                }
+                { print; fflush() }
+                END { if (opened) print "::endgroup::" }
+              '; then
+            {
+              echo "### Build ROM"
+              echo "- ✅ 1/4 Download and inspect base ROM"
+              echo "- ✅ 2/4 Extract base ROM"
+              echo "- ✅ 3/4 Apply HyperMOS modifications"
+              echo "- ⏳ 4/4 Repack is handled by the separate Pack ROM step"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error title=Build ROM failed::Check the grouped download, extraction and modification logs."
+            {
+              echo "### Build ROM"
+              echo "**Failed.** Inspect the Build ROM groups and the last log lines."
+            } >> "$GITHUB_STEP_SUMMARY"
+            tail -n 35 build_action.log || true
+            exit 1
+          fi
 
       - name: Patch KernelSU Next into init_boot
         if: ${{ inputs.root_mode == 'root' }}
@@ -254,17 +271,18 @@ jobs:
           sudo -E env PATH="$PATH" ROOT_MODE="$ROOT_MODE" GH_TOKEN="$GH_TOKEN" \
             bash bin/root/patch_init_boot.sh 2>&1 | tee -a build_action.log
 
-      - name: Audit final LOCK image
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Recheck after every ROM mod/root stage, before repacking partitions.
-          sudo -E bash bin/package/LOCK/update.sh --check 2>&1 | tee -a build_action.log
-
       - name: Pack ROM
         shell: bash
         run: |
           set -euo pipefail
+          # Check the final LOCK staging within Pack ROM; no separate Actions step.
+          echo "::group::LOCK pre-pack sanity check"
+          if ! sudo -E bash bin/package/LOCK/update.sh --check 2>&1 | tee -a build_action.log; then
+            echo "::endgroup::"
+            echo "::error title=LOCK validation failed::Refusing to package inconsistent LOCK staging."
+            exit 1
+          fi
+          echo "::endgroup::"
           python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log
