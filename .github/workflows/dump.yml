@@ -15,6 +15,14 @@ on:
         options:
           - artifact
           - drive
+      dump_mode:
+        description: 'Dump mode (base: 5 files, full: target list)'
+        required: true
+        type: choice
+        default: base
+        options:
+          - base
+          - full
 
 permissions:
   contents: read
@@ -26,4 +34,5 @@ jobs:
     with:
       rom_url: ${{ inputs.rom_url }}
       upload_method: ${{ inputs.upload_method }}
+      dump_mode: ${{ inputs.dump_mode }}
     secrets: inherit
