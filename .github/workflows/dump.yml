@@ -1,6 +1,17 @@
 name: dump
 
 on:
+  workflow_call:
+    inputs:
+      rom_url:
+        description: 'Direct ROM ZIP URL'
+        required: true
+        type: string
+      upload_method:
+        description: 'Save extracted dump to'
+        required: true
+        type: string
+        default: artifact
   workflow_dispatch:
     inputs:
       rom_url:
@@ -35,6 +46,7 @@ jobs:
       - name: Checkout HyperMOS tools
         uses: actions/checkout@v4
         with:
+          ref: feature/dump-workflow
           lfs: false
           persist-credentials: false
 
