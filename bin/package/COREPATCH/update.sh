@@ -12,6 +12,11 @@ elif [[ $AndroidVER == "14" ]];then
 elif [[ $AndroidVER == "15" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a15.sh
 elif [[ $AndroidVER == "16" ]];then
+    # Port only RYU-derived app/background compatibility behavior on main. The full
+    # 44-gate audit profile remains available for explicit offline testing.
+    # Signature verification is an existing independent HyperMOS feature and
+    # is not part of this compatibility profile.
+    tnm_framework_options=(--tnm-app-compat-gates)
     # HyperMOS A16 patch stack:
     # - disable signature verification
     # - disable secure flag
@@ -22,6 +27,7 @@ elif [[ $AndroidVER == "16" ]];then
         --cn-notification-fix \
         --tnm-notification-policy \
         --tnm-low-power-doze \
+        "${tnm_framework_options[@]}" \
         --disable-secure-flag || exit 1
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh

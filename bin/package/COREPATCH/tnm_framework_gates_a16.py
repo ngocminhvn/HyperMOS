@@ -17,6 +17,24 @@ GATE = re.compile(
     r'com/projectryu/Build;->IS_RYU_BUILD):Z[ \t]*$')
 
 
+def load_entries(profile='full'):
+    manifest = json.loads(MANIFEST.read_text())
+    entries = manifest['entries']
+    if profile == 'full':
+        return entries
+    try:
+        selectors = manifest['profiles'][profile]
+    except KeyError as exc:
+        raise ValueError(f'Unknown gate profile: {profile}') from exc
+    if len(selectors) != len(set(selectors)):
+        raise ValueError(f'{profile}: duplicate selectors')
+    by_selector = {f'{entry["class"]}#{entry["method"]}': entry for entry in entries}
+    missing = [selector for selector in selectors if selector not in by_selector]
+    if missing:
+        raise ValueError(f'{profile}: unknown selectors: {missing}')
+    return [by_selector[selector] for selector in selectors]
+
+
 def method_span(text, signature):
     starts = [m for m in re.finditer(r'(?m)^\.method[^\n]*$', text)
               if m.group().split()[-1] == signature]
@@ -99,11 +117,11 @@ def transform(text, entry, verify=False):
     return result
 
 
-def apply(root, jar, verify=False, entries=None):
+def apply(root, jar, verify=False, entries=None, profile='full'):
     if not root.is_dir():
         raise ValueError(f'Missing decoded directory: {root}')
     if entries is None:
-        entries = json.loads(MANIFEST.read_text())['entries']
+        entries = load_entries(profile)
     entries = [e for e in entries if e['jar'] == jar]
     if not entries:
         raise ValueError(f'No manifest entries for {jar}')
@@ -144,8 +162,9 @@ if __name__ == '__main__':
     cli.add_argument('root', type=Path)
     cli.add_argument('jar', choices=['miui-services', 'miui-framework'])
     cli.add_argument('--verify', action='store_true')
+    cli.add_argument('--profile', default='full')
     args = cli.parse_args()
     try:
-        apply(args.root, args.jar, args.verify)
+        apply(args.root, args.jar, args.verify, profile=args.profile)
     except ValueError as exc:
         cli.exit(1, f'[TNM-TNM] ERROR: {exc}\n')

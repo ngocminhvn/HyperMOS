@@ -21,6 +21,7 @@ FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_TNM_NOTIFICATION_POLICY=0
 FEATURE_TNM_LOW_POWER_DOZE=0
 FEATURE_TNM_FRAMEWORK_GATES=0
+FEATURE_TNM_APP_COMPAT_GATES=0
 FEATURE_DISABLE_SECURE_FLAG=0
 
 parse_feature_flags() {
@@ -41,6 +42,9 @@ parse_feature_flags() {
       --tnm-framework-gates)
         FEATURE_TNM_FRAMEWORK_GATES=1
         ;;
+      --tnm-app-compat-gates)
+        FEATURE_TNM_APP_COMPAT_GATES=1
+        ;;
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
         ;;
@@ -58,6 +62,7 @@ parse_feature_flags() {
   [ "$FEATURE_TNM_NOTIFICATION_POLICY" -eq 1 ] && log "  [PATCH] TNM FCM + first-boot + foreground-service handling"
   [ "$FEATURE_TNM_LOW_POWER_DOZE" -eq 1 ] && log "  [PATCH] TNM HAOTIAN mIsLowPowerDozeDevice=false"
   [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ] && log "  [PATCH] TNM audited TNM framework build gates"
+  [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ] && log "  [PATCH] TNM/RYU app/background compatibility gates (no signature bypass)"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
@@ -65,6 +70,7 @@ parse_feature_flags() {
      [ "$FEATURE_TNM_NOTIFICATION_POLICY" -eq 0 ] &&
      [ "$FEATURE_TNM_LOW_POWER_DOZE" -eq 0 ] &&
      [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 0 ] &&
+     [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
@@ -1191,7 +1197,7 @@ patch_miui_services() {
   apply_miui_services_floating "$decompile_dir"
   # TNM skips the Taplus whitelist update; the old HyperMOS patch forces
   # the opposite build gate. Keep it only when the audited policy is off.
-  if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 0 ]; then
+  if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 0 ] && [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 0 ]; then
     apply_miui_services_contentextension "$decompile_dir"
   fi
 
@@ -1210,6 +1216,8 @@ patch_miui_services() {
     fi
     if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
       python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services || return 1
+    elif [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ]; then
+      python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services --profile hypermos-app-compat || return 1
     fi
     if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
       apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
@@ -1226,6 +1234,8 @@ patch_miui_services() {
 
   if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
     python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services --verify || return 1
+  elif [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services --profile hypermos-app-compat --verify || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
@@ -1292,6 +1302,8 @@ patch_miui_framework() {
 
   if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
     python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-framework || return 1
+  elif [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-framework --profile hypermos-app-compat || return 1
   fi
 
   # CN notification related xBuild substitutions are only enabled by the feature flag.
@@ -1301,6 +1313,8 @@ patch_miui_framework() {
 
   if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
     python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-framework --verify || return 1
+  elif [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-framework --profile hypermos-app-compat --verify || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
