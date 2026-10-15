@@ -135,7 +135,18 @@ def download(url, output):
 
 
 def valid_zip(output):
-    return output.is_file() and output.stat().st_size >= 1024 and zipfile.is_zipfile(output)
+    """Validate the entire downloaded archive before declaring mirror success."""
+    if not output.is_file() or output.stat().st_size < 1024 or not zipfile.is_zipfile(output):
+        return False
+    try:
+        test = subprocess.run(
+            ["unzip", "-tq", str(output)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=600, check=False
+        )
+        return test.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def main():
