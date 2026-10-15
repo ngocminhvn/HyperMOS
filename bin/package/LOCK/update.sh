@@ -32,16 +32,38 @@ import pathlib
 import sys
 
 images = pathlib.Path(sys.argv[1])
+image_root = images.resolve(strict=True)
 legacy_names = {"hypermos-lock.rc"}
 legacy_tokens = (
     b"ryu_helper", b"hypermos-resetprop", b"tnm_resetprop_exec",
     b"hypermos-lock.rc",
 )
 conflicts = []
+def image_file(path):
+    try:
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(image_root)
+    except ValueError:
+        sys.exit(f"LOCK: audit path outside image tree: {path.relative_to(images)}")
+    except (OSError, RuntimeError) as exc:
+        sys.exit(f"LOCK: cannot resolve audit path {path.relative_to(images)}: {exc}")
+    return resolved
+
 def walk_error(exc):
     sys.exit(f"LOCK: cannot audit image directory: {exc}")
 
 for root, dirs, files in os.walk(images, followlinks=False, onerror=walk_error):
+    # Relevant linked directories must not silently hide host-side content.
+    # Internal targets are also reached through their real location in images.
+    for name in dirs:
+        directory = pathlib.Path(root) / name
+        relative = directory.relative_to(images)
+        if directory.is_symlink() and (
+            name in {"init", "selinux", "config"}
+            or str(relative) in {"system", "system/system", "system_ext",
+                                 "product", "vendor", "odm"}
+        ):
+            image_file(directory)
     for name in files:
         path = pathlib.Path(root) / name
         relative = path.relative_to(images)
@@ -52,9 +74,10 @@ for root, dirs, files in os.walk(images, followlinks=False, onerror=walk_error):
             conflicts.append(str(relative))
             continue
         # Include tnm.rc without treating an unrelated TNM file as ours.
-        if name.endswith((".rc", ".cil")) or "file_contexts" in name:
+        if (name.endswith((".rc", ".cil")) or "file_contexts" in name
+                or name.endswith("_fs_config") or name.startswith("precompiled_sepolicy")):
             try:
-                data = path.read_bytes()
+                data = image_file(path).read_bytes()
             except OSError as exc:
                 sys.exit(f"LOCK: cannot audit {relative}: {exc}")
             if any(token in data for token in legacy_tokens):

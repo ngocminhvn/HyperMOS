@@ -226,6 +226,13 @@ jobs:
           sudo -E env PATH="$PATH" ROOT_MODE="$ROOT_MODE" GH_TOKEN="$GH_TOKEN" \
             bash bin/root/patch_init_boot.sh 2>&1 | tee -a build_action.log
 
+      - name: Audit final LOCK image
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Recheck after every ROM mod/root stage, before repacking partitions.
+          sudo -E bash bin/package/LOCK/update.sh 2>&1 | tee -a build_action.log
+
       - name: Pack ROM
         shell: bash
         run: |

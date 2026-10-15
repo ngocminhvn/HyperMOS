@@ -117,6 +117,32 @@ class LockAuditTest(unittest.TestCase):
         self.stock.unlink()
         self.run_audit(False, "stock /system/etc/init/hw/init.rc missing")
 
+    def test_stale_repack_dac_metadata(self):
+        self.put("config/system_ext_fs_config",
+                 "system_ext/xbin/ryu_helper 0 0 755 capabilities=0x0\n")
+        self.run_audit(False, "existing helper")
+
+    def test_stale_precompiled_policy(self):
+        self.put("vendor/etc/selinux/precompiled_sepolicy",
+                 "binary-policy\x00ryu_helper_exec\x00")
+        self.run_audit(False, "existing helper")
+
+    def test_image_metadata_symlink_cannot_escape_tree(self):
+        outside = self.work / "outside_file_contexts"
+        outside.write_text("host file, not part of extracted ROM\n")
+        metadata = self.images / "config/system_ext_file_contexts"
+        metadata.unlink()
+        metadata.symlink_to(outside)
+        self.run_audit(False, "outside image tree")
+        metadata.unlink()
+        metadata.write_text("original context\n")
+        external_init = self.work / "external_init"
+        (external_init / "hw").mkdir(parents=True)
+        (external_init / "hw/init.rc").write_text("on post-fs\n    setprop test.ready 1\n")
+        shutil.rmtree(self.stock.parent.parent)
+        self.stock.parent.parent.symlink_to(external_init, target_is_directory=True)
+        self.run_audit(False, "outside image tree")
+
     def test_missing_system_ext(self):
         shutil.rmtree(self.images / "system_ext")
         self.run_audit(False, "system_ext tree missing")

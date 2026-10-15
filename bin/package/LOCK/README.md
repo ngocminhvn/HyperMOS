@@ -92,10 +92,34 @@ Run `bash -n bin/package/LOCK/update.sh` and
 `python3 bin/package/LOCK/test_update.py` from the repository root.
 The main ROM workflow now runs both before downloading/unpacking the ROM.
 The package dispatcher labels LOCK as a safety audit rather than property sync.
-The 14 offline tests passed locally. They cover the pinned ARM64 payload,
+The 17 offline tests passed locally. They cover the pinned ARM64 payload,
 repeat runs, standalone/appended duplicate actions, image and repack contexts,
 both legacy helper names, CIL remnants, missing paths and changed payloads.
 They preserve fixture bytes/modes, including stock init, unrelated TNM and
 vendor/ODM precompiled policy files. These fixtures are not actual Xiaomi policy
 or a substitute for Android init verification and combined SELinux compilation.
 The original helper is never executed.
+
+## Residual image audit fixes
+
+The previous audit could report success with helper entries left in repack
+`*_fs_config`, or helper types left in `precompiled_sepolicy*` after the CIL
+and executable were removed. It now scans those files too. This is a search
+for legacy LOCK identifiers, not validation of compiled SELinux semantics.
+Relevant audit files and linked init/policy directories must resolve within
+the extracted image root; external, dangling or cyclic audit links fail rather
+than reading host files or silently skipping a linked policy/init tree.
+These failures leave the image unchanged and require a clean extraction.
+
+The workflow also reruns LOCK after the ROM modification/root stages and before
+packing, so a later stage cannot silently reintroduce a known LOCK remnant.
+Existing final split-policy compilation in the main build is left unchanged;
+no additional permissions or policy patches are introduced by LOCK.
+
+The user supplied the donor ROM URL:
+https://psychz.dl.sourceforge.net/project/projectzk/ProjectRYU/RYU-CN/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.zip
+The editing executor could not connect to its configured HTTP proxy, so this
+archive has not been downloaded or inspected. The retained helper hash is
+verified against the repository payload, not against this remote archive.
+There is still no extracted real ROM or native init/SELinux verifier result.
+GitHub Actions execution must be reported separately from local test results.
