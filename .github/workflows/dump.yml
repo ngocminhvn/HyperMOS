@@ -12,6 +12,11 @@ on:
         required: true
         type: string
         default: artifact
+      dump_mode:
+        description: 'base = 5 named JAR/APK files; full = complete target list'
+        required: false
+        type: string
+        default: base
   workflow_dispatch:
     inputs:
       rom_url:
@@ -26,6 +31,14 @@ on:
         options:
           - artifact
           - drive
+      dump_mode:
+        description: 'Dump mode (base: 5 files, full: target list)'
+        required: true
+        type: choice
+        default: base
+        options:
+          - base
+          - full
 
 permissions:
   contents: read
@@ -34,6 +47,8 @@ jobs:
   dump:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      DUMP_MODE: ${{ inputs.dump_mode }}
     steps:
       - name: Free runner space
         shell: bash
@@ -56,7 +71,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq aria2 unzip brotli erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
-          python3 -m py_compile bin/dump/collect.py
+          python3 -m py_compile bin/dump/collect.py bin/dump/base.py
           bash -n bin/dump/extract.sh
           test -s bin/dump/targets.txt
 
@@ -84,27 +99,41 @@ jobs:
           ROM_URL: ${{ inputs.rom_url }}
         run: |
           set -euo pipefail
-          python3 bin/dump/collect.py \
-            --images "$RUNNER_TEMP/hypermos-dump/work/images" \
-            --targets bin/dump/targets.txt \
-            --output "$RUNNER_TEMP/hypermos-dump/output" \
-            --source-url "$ROM_URL"
-          echo 'Dump map.tsv and map.json included in resulting ZIP.' >> "$GITHUB_STEP_SUMMARY"
+          case "$DUMP_MODE" in
+            base)
+              python3 bin/dump/base.py \
+                --images "$RUNNER_TEMP/hypermos-dump/work/images" \
+                --output "$RUNNER_TEMP/hypermos-dump/output" \
+                --source-url "$ROM_URL"
+              ;;
+            full)
+              python3 bin/dump/collect.py \
+                --images "$RUNNER_TEMP/hypermos-dump/work/images" \
+                --targets bin/dump/targets.txt \
+                --output "$RUNNER_TEMP/hypermos-dump/output" \
+                --source-url "$ROM_URL"
+              ;;
+            *)
+              echo "::error::Unsupported dump mode: $DUMP_MODE"
+              exit 1
+              ;;
+          esac
+          echo "Dump mode: $DUMP_MODE. map.tsv and map.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package dump ZIP
         shell: bash
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/hypermos-dump/output"
-          zip -q -r -1 "$GITHUB_WORKSPACE/HyperMOS-dump-$GITHUB_RUN_NUMBER.zip" .
-          ls -lh "$GITHUB_WORKSPACE/HyperMOS-dump-$GITHUB_RUN_NUMBER.zip"
+          zip -q -r -1 "$GITHUB_WORKSPACE/HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip" .
+          ls -lh "$GITHUB_WORKSPACE/HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"
 
       - name: Upload GitHub Artifact
         if: ${{ inputs.upload_method == 'artifact' }}
         uses: actions/upload-artifact@v4
         with:
-          name: HyperMOS-dump-${{ github.run_number }}
-          path: HyperMOS-dump-${{ github.run_number }}.zip
+          name: HyperMOS-dump-${{ inputs.dump_mode }}-${{ github.run_number }}
+          path: HyperMOS-dump-${{ inputs.dump_mode }}-${{ github.run_number }}.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -122,7 +151,7 @@ jobs:
           curl -fsSL --retry 4 "$config_url" -o "$config"
           remote="$(rclone listremotes --config="$config" | head -1)"
           test -n "$remote" || { echo '[ERROR] No configured remote'; exit 1; }
-          name="HyperMOS-dump-$GITHUB_RUN_NUMBER.zip"
+          name="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"
           rclone copyto "$name" "${remote}HyperMOS/dump/$name" \
             --config="$config" --progress --transfers=1 --retries=6
           rclone link "${remote}HyperMOS/dump/$name" --config="$config" || true
