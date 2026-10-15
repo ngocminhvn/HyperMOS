@@ -63,6 +63,17 @@ def validate(zk_dex, ryu_dex, output):
         results["source_zkos_controller_method_count"] = len(source_methods)
         results["source_ryu_controller_method_count"] = len(ryu_methods)
 
+        # Capture the real RYU PerfHook verifier for safe patch drift diagnosis.
+        perf_source = r / "com/projectryu/perf/PerfHook.smali"
+        raw_methods = get_methods(perf_source.read_text(encoding="utf-8"))
+        raw_verifier = raw_methods.get("writeRawAndVerify(Ljava/lang/String;Ljava/lang/String;)Z")
+        if not raw_verifier:
+            raise ValueError("Donor RYU PerfHook writeRawAndVerify signature missing")
+        diagnostic = output.parent / "ryu-verifier-original.smali"
+        diagnostic.write_text(raw_verifier + "\n", encoding="utf-8")
+        print("[PREFLIGHT RYU PERFHOOK VERIFIER]", flush=True)
+        print(raw_verifier[:15000], flush=True)
+
         run(sys.executable, REPO / "bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py",
             "--zk-raw", root / "zk", "--tnm-raw", root / "ryu")
         staged = files(z)
