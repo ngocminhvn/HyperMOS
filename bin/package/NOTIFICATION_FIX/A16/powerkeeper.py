@@ -227,8 +227,16 @@ def patch_perfhook_write_verify(smali: str) -> str:
     ):
         if required not in method:
             raise ValueError("Unknown TNM write verifier layout: " + required)
-    old = "    if-nez v1, :cond_2\n\n    new-instance v1, Ljava/lang/StringBuilder;"
-    if method.count(old) != 1:
+    # The assembler assigns branch labels from bytecode offsets. RYU's
+    # verified source uses :cond_78 and a .line directive here; the previous
+    # :cond_2 literal was never present in the actual DEX.
+    mismatch = re.compile(
+        r"(?m)^([ \\t]*)if-nez v1, (:cond_[0-9a-f]+)[ \\t]*\n"
+        r"((?:[ \\t]*\n|[ \\t]*\\.line[ \\t]+\\d+[ \\t]*\n)*)"
+        r"([ \\t]*new-instance v1, Ljava/lang/StringBuilder;)"
+    )
+    matches = list(mismatch.finditer(method))
+    if len(matches) != 1:
         raise ValueError("TNM strict readback comparison anchor changed")
     # The original donor overwrites p0 with a String before mismatch handling.
     # Capture the original typed receiver in a fresh local at method entry.
@@ -240,22 +248,25 @@ def patch_perfhook_write_verify(smali: str) -> str:
     method = method.replace(
         locals_anchor, "    .locals 8\n    move-object/from16 v7, p0\n", 1)
     # Invoke readTrimmed using saved v7, never the repurposed p0.
-    new = (
-        "    if-nez v1, :cond_2\n\n"
-        "    invoke-direct {v7, p1}, "
-        "Lcom/android/tnm/perf/PerfHook;->readTrimmed"
-        "(Ljava/lang/String;)Ljava/lang/String;\n"
-        "    move-result-object v1\n"
-        "    invoke-static {p1, p2, v1}, "
-        "Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp"
-        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z\n"
-        "    move-result v1\n"
-        "    if-eqz v1, :tnm_exact_mismatch\n"
-        "    return v4\n\n"
-        "    :tnm_exact_mismatch\n"
-        "    new-instance v1, Ljava/lang/StringBuilder;"
-    )
-    method = method.replace(old, new)
+    def insert_clamp(hit):
+        indent, jump, debug_lines, builder = hit.groups()
+        return (
+            f"{indent}if-nez v1, {jump}\n\n"
+            f"{indent}invoke-direct {{v7, p1}}, "
+            "Lcom/android/tnm/perf/PerfHook;->readTrimmed"
+            "(Ljava/lang/String;)Ljava/lang/String;\n"
+            f"{indent}move-result-object v1\n"
+            f"{indent}invoke-static {{p1, p2, v1}}, "
+            "Lcom/android/tnm/perf/PerfHook;->tnmSafeMaxClamp"
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z\n"
+            f"{indent}move-result v1\n"
+            f"{indent}if-eqz v1, :tnm_exact_mismatch\n"
+            f"{indent}return v4\n\n"
+            f"{indent}:tnm_exact_mismatch\n"
+            + debug_lines + builder
+        )
+
+    method = mismatch.sub(insert_clamp, method, count=1)
     if method.count("->tnmSafeMaxClamp(") != 1:
         raise ValueError("Expected exactly one safe clamp caller")
     return smali[:found.start()] + method + smali[found.end():] + "\n" + SAFE_MAX_HELPER
