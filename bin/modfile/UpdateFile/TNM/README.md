@@ -24,12 +24,12 @@ hoặc đường dẫn `/system_ext/bin/tnm-bridge` tương ứng.
 vì `insupdate.sh` quét các file `*.sh` trong thư mục UpdateFile.
 
 
-## TNMFramework v1 - RYU experimental ROM
+## TNMFramework v1 - TNM experimental ROM
 
 An on-demand root-only adapter at `/system_ext/bin/tnm-frameworkctl` uses existing
 PowerKeeper PerfHook and Android services. It is NOT a new Binder framework
 service or a daemon. Read-only CPU/GPU max, PerfHook settings, PowerKeeper,
-FCM/deviceidle and refresh diagnostics; explicit safe RYU thermal and game
+FCM/deviceidle and refresh diagnostics; explicit safe TNM thermal and game
 profiles, Android battery saver, and display auto/60/120 if Android refresh
 keys exist. Display writes use backup and readback; effective panel FPS is NOT
 verified. No thermal safety bypass, GMS unrestricted whitelist or SELinux disable.

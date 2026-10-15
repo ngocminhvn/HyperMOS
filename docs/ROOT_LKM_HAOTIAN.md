@@ -1,11 +1,11 @@
-# HyperMOS test-ryu-performance-haotian: KernelSU Next LKM root
+# HyperMOS test-tnm-performance-haotian: KernelSU Next LKM root
 
-The RYU test ROM build offers one Root mode and one Stock mode. **Root is selected by default.**
+The TNM test ROM build offers one Root mode and one Stock mode. **Root is selected by default.**
 Only [KernelSU Next](https://github.com/KernelSU-Next/KernelSU-Next) is supported.
 
 ## GitHub Actions
 
-Select [HyperMOS ROM Build](https://github.com/ngocminhvn/HyperMOS/actions/workflows/build.yml) on `test-ryu-performance-haotian`.
+Select [HyperMOS ROM Build](https://github.com/ngocminhvn/HyperMOS/actions/workflows/build.yml) on `test-tnm-performance-haotian`.
 
 - `root_mode=root` (default): Download the latest **stable KernelSU Next** release, detect kernel KMI from the source firmware, patch `init_boot.img`, and include the correct manager APK for manual install.
 - `root_mode=stock`: Leave stock `init_boot.img` unchanged; preserve the unmodified stock init_boot behavior.

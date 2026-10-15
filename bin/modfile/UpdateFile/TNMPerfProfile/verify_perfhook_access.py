@@ -12,7 +12,7 @@ def verify(images, compiler='secilc'):
         raise ValueError('PerfHook KGSL write rule missing')
     if '(allow init vendor_sysfs_kgsl (file (setattr)))' not in (vendor / 'vendor_sepolicy.cil').read_text():
         raise ValueError('Init KGSL ownership/mode permission missing')
-    rc = images / 'system_ext/etc/init/ryu-perfhook-access.rc'
+    rc = images / 'system_ext/etc/init/tnm-perfhook-access.rc'
     content = rc.read_text()
     for node in ['min_freq', 'max_freq']:
         path = '/sys/class/kgsl/kgsl-3d0/devfreq/' + node
@@ -34,7 +34,7 @@ def verify(images, compiler='secilc'):
     odm = images / 'odm/etc/selinux/odm_sepolicy.cil'
     if odm.is_file():
         inputs.append(odm)
-    with tempfile.TemporaryDirectory(prefix='ryu-policy-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='tnm-policy-') as tmp:
         # Android init's runtime split-policy compiler uses -N; neverallow
         # analysis is a separate build-time check, not a runtime allow rule.
         subprocess.run([compiler, '-m', '-M', 'true', '-G', '-N', '-c', '30',
@@ -52,4 +52,4 @@ if __name__ == '__main__':
     result = verify(a.images)
     a.report.parent.mkdir(parents=True, exist_ok=True)
     a.report.write_text(json.dumps(result, indent=2) + '\n')
-    print('[RYU ACCESS] Final split policy compiles; KGSL init permissions verified')
+    print('[TNM ACCESS] Final split policy compiles; KGSL init permissions verified')

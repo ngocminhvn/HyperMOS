@@ -33,11 +33,11 @@ def require(root: ET.Element, path: Path, tag: str, attr: str, value: str) -> No
 
 def validate() -> None:
     google = read(GOOGLE)
-    # RYU parity: Google's own stock sysconfig is the only GMS exemption source
+    # TNM parity: Google's own stock sysconfig is the only GMS exemption source
     # shipped by this module. The old HyperMOS push XML added rules absent from
-    # the original RYU HAOTIAN sysconfig.
+    # the original TNM HAOTIAN sysconfig.
     if PUSH.exists():
-        raise ValueError(f"{PUSH.name}: extra GMS push exemptions not present in RYU")
+        raise ValueError(f"{PUSH.name}: extra GMS push exemptions not present in TNM")
     # The two existing, valid Google backup transport declarations must be preserved.
     backup = [node.get("service") for node in google
               if node.tag == "backup-transport-whitelisted-service"]
@@ -56,7 +56,7 @@ def validate() -> None:
            for el in preinstall.iter()):
         raise ValueError("Google Maps auto-install rule remains")
 
-    # Actual RYUOS HAOTIAN product/etc/sysconfig/google.xml grants GMS
+    # Actual TNM HAOTIAN product/etc/sysconfig/google.xml grants GMS
     # precisely these power/data-saver exemptions; it DOES NOT grant the
     # extra bg-restriction-exemption HyperMOS previously injected.
     for tag in ("allow-in-power-save", "allow-in-data-usage-save"):
@@ -74,11 +74,11 @@ def validate() -> None:
                    "com.google.android.intent.action.GCM_RECONNECT"):
         if any(node.tag == "allow-implicit-broadcast" and
                node.get("action") == action for node in google):
-            raise ValueError(f"google.xml: extra non-RYU implicit broadcast {action}")
+            raise ValueError(f"google.xml: extra non-TNM implicit broadcast {action}")
     print("[OK] Android 16 GMS sysconfig parses correctly")
     print("[OK] Both GMS backup transports preserved")
     print("[OK] Google Maps APK and auto-install rule absent")
-    print("[OK] Exact RYU GMS power/data-saver exemption set; extra HyperMOS push XML absent")
+    print("[OK] Exact TNM GMS power/data-saver exemption set; extra HyperMOS push XML absent")
 
 
 if __name__ == "__main__":

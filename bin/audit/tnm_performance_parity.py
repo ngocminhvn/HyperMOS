@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Read-only PowerKeeper performance parity for Xiaomi 15 Pro/RYUOS A16.
+"""Read-only PowerKeeper performance parity for Xiaomi 15 Pro/TNM A16.
 
-Never import RYU binaries or touch thermal limits. The stock 3.0.308 versus
-RYU 3.0.309 comparison can include Xiaomi base-version differences.
+Never import TNM binaries or touch thermal limits. The stock 3.0.308 versus
+TNM 3.0.309 comparison can include Xiaomi base-version differences.
 """
 import argparse
 import hashlib
@@ -36,7 +36,7 @@ def catalogue(root):
             )
             methods[sig] = {
                 "sha": hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16],
-                "ryu_reference": "Lcom/projectryu/" in norm,
+                "tnm_reference": "Lcom/projectryu/" in norm,
                 "tiktok_reference": "zhiliaoapp" in norm.lower()
                                     or "tiktok" in norm.lower()
                                     or "musically" in norm.lower(),
@@ -45,13 +45,13 @@ def catalogue(root):
     return classes
 
 
-def report(stock, ryu):
-    a, b = catalogue(stock), catalogue(ryu)
+def report(stock, tnm):
+    a, b = catalogue(stock), catalogue(tnm)
     result = {
-        "warning": "Read-only: Xiaomi stock 3.0.308 vs RYUOS 3.0.309 are not the same base.",
+        "warning": "Read-only: Xiaomi stock 3.0.308 vs TNM 3.0.309 are not the same base.",
         "stock_classes": len(a),
-        "ryu_classes": len(b),
-        "ryu_private_classes": sorted(k for k in b if k.startswith("Lcom/projectryu/")),
+        "tnm_classes": len(b),
+        "tnm_private_classes": sorted(k for k in b if k.startswith("Lcom/projectryu/")),
         "performance_changes": [],
     }
     for cls in sorted(set(a) | set(b)):
@@ -64,11 +64,11 @@ def report(stock, ryu):
                 continue
             result["performance_changes"].append({
                 "class": cls, "method": sig,
-                "state": "ryu-only" if not left else ("stock-only" if not right else "different"),
-                "ryu_private_reference": bool(right and right["ryu_reference"]),
+                "state": "tnm-only" if not left else ("stock-only" if not right else "different"),
+                "tnm_private_reference": bool(right and right["tnm_reference"]),
                 "tiktok_reference": bool(right and right["tiktok_reference"]),
                 "stock_hash": left["sha"] if left else None,
-                "ryu_hash": right["sha"] if right else None,
+                "tnm_hash": right["sha"] if right else None,
             })
     return result
 
@@ -77,11 +77,11 @@ def markdown(data):
     lines = [
         "# HAOTIAN PowerKeeper performance audit (read only)", "",
         data["warning"], "",
-        f"Stock classes: {data['stock_classes']}; RYU classes: {data['ryu_classes']}.",
+        f"Stock classes: {data['stock_classes']}; TNM classes: {data['tnm_classes']}.",
         f"Performance-related method differences: {len(data['performance_changes'])}.",
-        f"Private RYU classes: {len(data['ryu_private_classes'])}.", "",
-        "## RYU-only class dependencies", "",
-        *[f"- `{x}`" for x in data["ryu_private_classes"][:100]], "",
+        f"Private TNM classes: {len(data['tnm_private_classes'])}.", "",
+        "## TNM-only class dependencies", "",
+        *[f"- `{x}`" for x in data["tnm_private_classes"][:100]], "",
         "## Changed performance-related methods", "",
         "| Class | Method | State | Private dependency | TikTok literal |",
         "|---|---|---|---|---|",
@@ -89,7 +89,7 @@ def markdown(data):
     for item in data["performance_changes"][:300]:
         lines.append(
             f"| `{item['class']}` | `{item['method']}` | {item['state']} | "
-            f"{item['ryu_private_reference']} | {item['tiktok_reference']} |"
+            f"{item['tnm_private_reference']} | {item['tiktok_reference']} |"
         )
     if len(data["performance_changes"]) > 300:
         lines.append(f"\n... {len(data['performance_changes']) - 300} additional entries in JSON.")
@@ -107,23 +107,23 @@ def markdown(data):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--stock", type=Path, required=True)
-    p.add_argument("--ryu", type=Path, required=True)
+    p.add_argument("--tnm", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args()
-    for path in (args.stock, args.ryu):
+    for path in (args.stock, args.tnm):
         if not path.is_dir():
             p.error(f"missing decompiled APK directory: {path}")
-    data = report(args.stock, args.ryu)
+    data = report(args.stock, args.tnm)
     args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "ryu-performance-parity.json").write_text(
+    (args.out / "tnm-performance-parity.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    (args.out / "ryu-performance-parity.md").write_text(
+    (args.out / "tnm-performance-parity.md").write_text(
         markdown(data), encoding="utf-8"
     )
-    print(f"[RYU-PERF] {len(data['performance_changes'])} method differences; "
-          f"{len(data['ryu_private_classes'])} private classes")
-    print("[RYU-PERF] REPORT ONLY: no policy, thermal or binaries modified")
+    print(f"[TNM-PERF] {len(data['performance_changes'])} method differences; "
+          f"{len(data['tnm_private_classes'])} private classes")
+    print("[TNM-PERF] REPORT ONLY: no policy, thermal or binaries modified")
 
 
 if __name__ == "__main__":

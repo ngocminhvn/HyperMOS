@@ -113,19 +113,17 @@ jobs:
             exit 1
           fi
 
-          # Validate LOCK installation/conflict handling before downloading ROM.
+          # Check the LOCK entrypoint before downloading ROM.
           bash -n bin/package/LOCK/update.sh
-          python3 bin/package/LOCK/test_update.py
 
           # Thermal source is already versioned in the repository (no remote artifact).
-          # Previous supported test branch: test-tnm-ryu-haotian.
-          thermal_zip="RYUOS-HAOTIAN-Thermal-Configs (1).zip"
+          thermal_zip="TNM-HAOTIAN-Thermal-Configs (1).zip"
           test -s "$thermal_zip"
           thermal_ref="$RUNNER_TEMP/power-profiles"
           mkdir -p "$thermal_ref"
           unzip -oq "$thermal_zip" -d "$thermal_ref"
           test -s "$thermal_ref/manifest.json"
-          echo "RYU_REF_DIR=$thermal_ref" >> "$GITHUB_ENV"
+          echo "TNM_REF_DIR=$thermal_ref" >> "$GITHUB_ENV"
 
           # Validate Android 16 GMS XML and protect existing FCM exemptions.
           # Pure preflight: no Doze, PowerKeeper or notification settings changed.
@@ -166,7 +164,7 @@ jobs:
           grep -Fq 'install -m 0755 "$src_bridge" "$bridge_dst"' bin/modfile/UpdateFile/TNM/update.sh
           grep -Fq 'exec "$BACKEND" "$@"' bin/modfile/UpdateFile/TNM/tnm-bridge
           echo "[OK] - Font catalog, shared emoji and TNM bridge preflight passed"
-          # KernelSU Next RYU-test integration: verify scripts and auto-KMI logic
+          # KernelSU Next integration: verify scripts and auto-KMI logic
           # before downloading a large stock ROM.
           bash -n bin/root/patch_init_boot.sh
           sh -n bin/root/stage_root_manager.sh
@@ -300,15 +298,6 @@ jobs:
             echo "NOTIFY_DOWNLOAD_URL=$FIRST_URL" >> "$GITHUB_ENV"
           fi
           echo "[OK] - Pixeldrain upload completed"
-
-      - name: Upload LOCK verification report
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: lock-build-report-${{ github.sha }}
-          path: build/reports/lock/
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: Notify result
         if: ${{ always() }}

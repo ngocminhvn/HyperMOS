@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Experimental HAOTIAN RYU ODM thermal *profile* import, without disabling safety.
+"""HAOTIAN TNM ODM thermal *profile* import, without disabling safety.
 
-Match original RYU files by archive manifest+SHA, device layout and opaque
+Match original TNM files by archive manifest+SHA, device layout and opaque
 format. Preserve emergency/no-limits bypass, charging, low-level thermald,
 boot, kernel and vendor safety rules on OS3.0.308.0 base. No wildcards on
 ROM destinations. Fail closed if a required source is missing.
@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import tempfile
 
-# RYU HAOTIAN original ODM thermal profiles with explicit exclusion of the
+# TNM HAOTIAN original ODM thermal profiles with explicit exclusion of the
 # bypass/charging profiles. Files are opaque: no unproved cutoff assumptions.
 PROFILES = (
     "4k", "arvr", "camera", "cclassvideo", "cgame", "class0",
@@ -36,7 +36,7 @@ def prepare(artifact: Path, images: Path):
     for record in records:
         key = record["partition"] + "/" + record["original_path"].lstrip("/")
         if key in keys:
-            raise ValueError("Duplicate RYU archive path: " + key)
+            raise ValueError("Duplicate TNM archive path: " + key)
         keys[key] = record
     staged = []
     skipped = []
@@ -45,15 +45,15 @@ def prepare(artifact: Path, images: Path):
         record = keys.get(rel)
         if record is None:
             if suffix in REQUIRED:
-                raise ValueError("Required RYU thermal profile missing: " + rel)
-            skipped.append({"file": rel, "reason": "RYU archive missing optional profile"})
+                raise ValueError("Required TNM thermal profile missing: " + rel)
+            skipped.append({"file": rel, "reason": "TNM archive missing optional profile"})
             continue
         src = artifact / record["artifact_path"]
         if not src.resolve().is_relative_to(artifact.resolve()) or not src.is_file():
-            raise ValueError("Invalid original RYU file path: " + rel)
+            raise ValueError("Invalid original TNM file path: " + rel)
         raw = src.read_bytes()
         if sha(raw) != record["sha256"]:
-            raise ValueError("RYU thermal hash mismatch: " + rel)
+            raise ValueError("TNM thermal hash mismatch: " + rel)
         dst = images / rel
         if not dst.is_file() or dst.is_symlink():
             if suffix in REQUIRED:
@@ -78,10 +78,10 @@ def run(artifact: Path, images: Path):
     try:
         for rel, dst, stock, new in staged:
             report.append(dict(file=rel, stock_sha256=sha(stock),
-                               ryu_sha256=sha(new), changed=(stock != new)))
+                               tnm_sha256=sha(new), changed=(stock != new)))
             if stock == new:
                 continue
-            fd, temporary = tempfile.mkstemp(prefix=".ryu-profile-", dir=dst.parent)
+            fd, temporary = tempfile.mkstemp(prefix=".tnm-profile-", dir=dst.parent)
             try:
                 with os.fdopen(fd, "wb") as out:
                     out.write(new)
@@ -104,17 +104,17 @@ def run(artifact: Path, images: Path):
             path = images / rel
             if path.is_file() and not path.is_symlink():
                 protected_before[rel] = sha(path.read_bytes())
-    result = dict(mode="RYU application-facing ODM thermal profiles",
+    result = dict(mode="TNM application-facing ODM thermal profiles",
                   installed=report, skipped=skipped,
                   excluded_safety_profiles=sorted(PROTECTED),
                   protected_stock_sha256=protected_before,
                   kernel_thermald_and_charging_unchanged=True)
-    (images.parent / "ryu-test-thermal-profiles.json").write_text(
+    (images.parent / "tnm-thermal-profiles.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"[RYU THERMAL] Verified {len(staged)} original RYU ODM profiles; "
+    print(f"[TNM THERMAL] Verified {len(staged)} original TNM ODM profiles; "
           f"{sum(x['changed'] for x in report)} differ from Xiaomi base; "
           f"{len(skipped)} optional skipped")
-    print("[RYU THERMAL] No Limits, TGame, charging, thermald and boot safeguards untouched")
+    print("[TNM THERMAL] No Limits, TGame, charging, thermald and boot safeguards untouched")
 
 
 if __name__ == "__main__":

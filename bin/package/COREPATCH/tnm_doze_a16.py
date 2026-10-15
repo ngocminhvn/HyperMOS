@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Apply RYU HAOTIAN A16 DeviceIdleControllerStubImpl low-power-Doze flag.
+"""Apply TNM HAOTIAN A16 DeviceIdleControllerStubImpl low-power-Doze flag.
 
-RYU's DeviceIdleControllerStubImpl.<clinit> checks
+TNM's DeviceIdleControllerStubImpl.<clinit> checks
 com.projectryu.Build.IS_RYU_BUILD and writes false to
 mIsLowPowerDozeDevice when that flag is true. We reproduce just that
 field's final value in the base Xiaomi framework without importing any
-RYU classes or changing Android DeviceIdleController.
+TNM classes or changing Android DeviceIdleController.
 """
 from pathlib import Path
 import re
@@ -66,20 +66,20 @@ def main(root: Path) -> None:
     source = targets[0].read_text(encoding="utf-8")
     edited = patch_class(source)
     if patch_class(edited) != edited:
-        raise ValueError("RYU Doze patch not idempotent")
+        raise ValueError("TNM Doze patch not idempotent")
     if edited == source:
-        print("[RYU-A16-DOZE] Already configured: mIsLowPowerDozeDevice=false")
+        print("[TNM-A16-DOZE] Already configured: mIsLowPowerDozeDevice=false")
         return
     targets[0].write_text(edited, encoding="utf-8")
-    print("[RYU-A16-DOZE] DeviceIdleControllerStubImpl.mIsLowPowerDozeDevice=false")
-    print("[RYU-A16-DOZE] No DeviceIdle service, thermal, PowerKeeper, or projectryu changes")
+    print("[TNM-A16-DOZE] DeviceIdleControllerStubImpl.mIsLowPowerDozeDevice=false")
+    print("[TNM-A16-DOZE] No DeviceIdle service, thermal, PowerKeeper, or projecttnm changes")
 
 
 if __name__ == "__main__":
     try:
         if len(sys.argv) != 2:
-            raise ValueError("Usage: ryu_doze_a16.py <decompiled-miui-services-dir>")
+            raise ValueError("Usage: tnm_doze_a16.py <decompiled-miui-services-dir>")
         main(Path(sys.argv[1]))
     except (ValueError, OSError) as exc:
-        print(f"[RYU-A16-DOZE] FAIL: {exc}", file=sys.stderr)
+        print(f"[TNM-A16-DOZE] FAIL: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare RYUOS vs Xiaomi HAOTIAN PowerKeeper without transplanting binary code.
+"""Compare TNM vs Xiaomi HAOTIAN PowerKeeper without transplanting binary code.
 
 Input trees are decoded with APKEditor (-t raw). Results are diagnostic;
 the script NEVER patches the ROM or rewrites a signed APK.
@@ -51,7 +51,7 @@ def methods(root, classname):
         result[method_id] = {
             "sha256": hashlib.sha256(code.encode()).hexdigest(),
             "insns": len(code.splitlines()),
-            "has_ryu_dependency": "Lcom/projectryu/" in code,
+            "has_tnm_dependency": "Lcom/projectryu/" in code,
         }
     return result
 
@@ -67,7 +67,7 @@ def chosen_method_text(root, name, method_id):
     return normalize(matching[0]).splitlines()
 
 
-def print_focused_diffs(stock, ryu):
+def print_focused_diffs(stock, tnm):
     selected = {
         "GmsObserver": ["<init>(Landroid/content/Context;)V", "updateGoogleSync(Z)V"],
         "KillProcessController": ["setUidState(IZ)V", "shouldKillByCheckerPolicy(I)Z"],
@@ -76,10 +76,10 @@ def print_focused_diffs(stock, ryu):
     for name, method_ids in selected.items():
         for method_id in method_ids:
             a = chosen_method_text(stock, name, method_id)
-            b = chosen_method_text(ryu, name, method_id)
+            b = chosen_method_text(tnm, name, method_id)
             print(f"[DIFF] {name}.{method_id}")
             diffs = list(difflib.unified_diff(
-                a, b, fromfile="Stock/Xiaomi", tofile="RYUOS", lineterm=""
+                a, b, fromfile="Stock/Xiaomi", tofile="TNM", lineterm=""
             ))
             for line in diffs[:120]:
                 print(line)
@@ -89,18 +89,18 @@ def print_focused_diffs(stock, ryu):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ryu", type=Path, required=True)
+    ap.add_argument("--tnm", type=Path, required=True)
     ap.add_argument("--stock", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     results = {"classes": {}, "methods": {}, "summary": {}}
     for name in CLASS_KEYS:
         stock = methods(a.stock, name)
-        ryu = methods(a.ryu, name)
-        ids = sorted(set(stock) | set(ryu))
-        changed = [sig for sig in ids if stock.get(sig,{}).get("sha256") != ryu.get(sig,{}).get("sha256")]
+        tnm = methods(a.tnm, name)
+        ids = sorted(set(stock) | set(tnm))
+        changed = [sig for sig in ids if stock.get(sig,{}).get("sha256") != tnm.get(sig,{}).get("sha256")]
         results["classes"][name] = {
-            "stock_count": len(stock), "ryu_count": len(ryu),
+            "stock_count": len(stock), "tnm_count": len(tnm),
             "unchanged_methods": len(ids) - len(changed),
             "different_methods": len(changed),
         }
@@ -111,10 +111,10 @@ def main():
                 result[sig] = {
                     "equivalent_code": not is_changed,
                     "stock": stock.get(sig),
-                    "ryu": ryu.get(sig),
+                    "tnm": tnm.get(sig),
                 }
         results["methods"][name] = result
-    for label, root in (("stock", a.stock), ("ryu", a.ryu)):
+    for label, root in (("stock", a.stock), ("tnm", a.tnm)):
         obj = find_one(root, "KillProcessController").read_text(encoding="utf-8")
         print("[AUDIT]", label, "KillProcessController rule checker field definitions:")
         for line in obj.splitlines():
@@ -129,7 +129,7 @@ def main():
         for line in obj.splitlines():
             if line.lstrip().startswith(".field"):
                 print(" ", line.strip())
-    for label, root in (("stock", a.stock), ("ryu", a.ryu)):
+    for label, root in (("stock", a.stock), ("tnm", a.tnm)):
         cls = find_one(root, "KillProcessController").read_text(encoding="utf-8")
         for sig in ("setUidState(IZ)V", "shouldKillByCheckerPolicy(I)Z"):
             found = [m.group() for m in METHOD.finditer(cls) if
@@ -139,18 +139,18 @@ def main():
                 for line in found[0].splitlines():
                     print(line)
             print(f"==== AUDIT END METHOD {label} {sig} ====")
-    perf = list(a.ryu.rglob("PerfHook.smali"))
-    results["summary"]["ryu_has_perf_hook"] = bool(perf)
+    perf = list(a.tnm.rglob("PerfHook.smali"))
+    results["summary"]["tnm_has_perf_hook"] = bool(perf)
     gms = results["methods"]["GmsObserver"].get("isGmsControlEnabled()Z")
     results["summary"]["gms_control_unchanged"] = bool(gms and gms["equivalent_code"])
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(results, indent=2, ensure_ascii=False))
-    print("RYU vs Xiaomi HAOTIAN PowerKeeper parity")
+    print("TNM vs Xiaomi HAOTIAN PowerKeeper parity")
     for name, item in results["classes"].items():
         print(f"  {name}: unchanged={item['unchanged_methods']} different={item['different_methods']}")
     print("  GmsObserver.isGmsControlEnabled identical:", results["summary"]["gms_control_unchanged"])
-    print("  RYU contains PerfHook:", results["summary"]["ryu_has_perf_hook"])
-    print_focused_diffs(a.stock, a.ryu)
+    print("  TNM contains PerfHook:", results["summary"]["tnm_has_perf_hook"])
+    print_focused_diffs(a.stock, a.tnm)
 
 
 if __name__ == "__main__":

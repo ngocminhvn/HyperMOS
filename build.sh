@@ -140,20 +140,20 @@ bash $work_dir/bin/modfile/Universal/insfile.sh || exit 1
 bash $work_dir/bin/modfile/UpdateFile/insupdate.sh || exit 1
 bash $work_dir/bin/package/patchpackage.sh || exit 1
 
-# Fail if any later HyperMOS mod overrode RYU CPU/boost, powerhint or thermal.
+# Fail if any later HyperMOS mod overrode TNM CPU/boost, powerhint or thermal.
 # Checks all ten pinned performance files and the ODM profiles. Never edits
 # governor/cpufreq/thermald or creates a resident service.
-if [[ "${GITHUB_REF_NAME:-}" == "main" || "${GITHUB_REF_NAME:-}" == "Lock" || "${GITHUB_REF_NAME:-}" == "test-ryu-performance-haotian" || "${GITHUB_REF_NAME:-}" == "test-tnm-ryu-haotian" ]]; then
-    python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/verify_ryu_perf_final.py" \
+if [[ "${GITHUB_REF_NAME:-}" == "main" ]]; then
+    python3 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/verify_tnm_perf_final.py" \
       --images "$work_dir/build/baserom/images" \
-      --report "$work_dir/build/reports/performance/ryu-cpu-thermal-final.json" || {
-        error "RYU CPU/thermal config audit failed; refuse to package inconsistent ROM"
+      --report "$work_dir/build/reports/performance/tnm-cpu-thermal-final.json" || {
+        error "TNM CPU/thermal config audit failed; refuse to package inconsistent ROM"
         exit 1
       }
-    python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/verify_perfhook_access.py" \
+    python3 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/verify_perfhook_access.py" \
       --images "$work_dir/build/baserom/images" \
-      --report "$work_dir/build/reports/performance/ryu-perfhook-access.json" || {
-        error "RYU PerfHook access policy failed to compile; refuse to package ROM"
+      --report "$work_dir/build/reports/performance/tnm-perfhook-access.json" || {
+        error "TNM PerfHook access policy failed to compile; refuse to package ROM"
         exit 1
       }
 fi

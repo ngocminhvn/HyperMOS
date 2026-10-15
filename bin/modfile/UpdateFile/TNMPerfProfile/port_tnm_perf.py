@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TEST BRANCH ONLY: import RYU HAOTIAN performance XMLs with exact SHA256 checks.
+"""import TNM HAOTIAN performance XMLs with exact SHA256 checks.
 
 Copy an internally consistent powerhint/perf XML group. This does NOT touch
 thermal safety profiles, per-app governors, kernel, boot, or notification policy.
@@ -31,7 +31,7 @@ EXPECTED = {
 def validate(artifact, rom):
     manifest_path = artifact / "manifest.json"
     if not manifest_path.is_file():
-        raise RuntimeError("Missing RYU thermal artifact manifest.json")
+        raise RuntimeError("Missing TNM thermal artifact manifest.json")
     items = json.loads(manifest_path.read_text(encoding="utf-8"))
     entry_map = {x["partition"] + "/" + x["original_path"].lstrip("/"): x
                  for x in items}
@@ -39,23 +39,23 @@ def validate(artifact, rom):
     for rel, expected_sha in EXPECTED.items():
         entry = entry_map.get(rel)
         if not entry:
-            raise RuntimeError("Missing original RYU artifact entry: " + rel)
+            raise RuntimeError("Missing original TNM artifact entry: " + rel)
         source = (artifact / entry["artifact_path"]).resolve()
         if not source.is_relative_to(artifact.resolve()) or not source.is_file():
             raise RuntimeError("Unsafe/missing artifact path: " + rel)
-        # Manifest produced by the RYU read-only collector, then pinned to
+        # Manifest produced by the TNM read-only collector, then pinned to
         # the actual original files supplied by the user.
         raw = source.read_bytes()
         actual_sha = hashlib.sha256(raw).hexdigest()
         if actual_sha != expected_sha or entry.get("sha256") != expected_sha:
-            raise RuntimeError(f"RYU file changed or corrupted: {rel}")
+            raise RuntimeError(f"TNM file changed or corrupted: {rel}")
         destination = rom / rel
         if not destination.is_file() or destination.is_symlink():
             raise RuntimeError("Missing non-symlink stock destination: " + rel)
         new_root = ET.fromstring(raw).tag
         old_root = ET.parse(destination).getroot().tag
         if new_root != old_root:
-            raise RuntimeError(f"Root tag mismatch {rel}: stock={old_root}, RYU={new_root}")
+            raise RuntimeError(f"Root tag mismatch {rel}: stock={old_root}, TNM={new_root}")
         prepared.append((rel, raw, destination, expected_sha))
     return prepared
 
@@ -65,10 +65,10 @@ def run(artifact, rom):
     for rel, raw, dst, digest in files:
         before = hashlib.sha256(dst.read_bytes()).hexdigest()
         if before == digest:
-            print("[RYU PERF] SAME", rel)
-            log.append({"file": rel, "stock_sha256": before, "ryu_sha256": digest, "changed": False})
+            print("[TNM PERF] SAME", rel)
+            log.append({"file": rel, "stock_sha256": before, "tnm_sha256": digest, "changed": False})
             continue
-        fd, tmp = tempfile.mkstemp(prefix=".ryu-", dir=str(dst.parent))
+        fd, tmp = tempfile.mkstemp(prefix=".tnm-", dir=str(dst.parent))
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(raw)
@@ -77,11 +77,11 @@ def run(artifact, rom):
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
-        print("[RYU PERF] PORT", rel, "stock", before, "RYU", digest)
-        log.append({"file": rel, "stock_sha256": before, "ryu_sha256": digest, "changed": True})
-    (rom.parent / "ryu-test-perf-manifest.json").write_text(
+        print("[TNM PERF] PORT", rel, "stock", before, "TNM", digest)
+        log.append({"file": rel, "stock_sha256": before, "tnm_sha256": digest, "changed": True})
+    (rom.parent / "tnm-perf-manifest.json").write_text(
         json.dumps(log, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print("[RYU PERF] Imported verified RYU perf/powerhint XML set; thermal protections preserved")
+    print("[TNM PERF] Imported verified TNM perf/powerhint XML set; thermal protections preserved")
 
 def main():
     p = argparse.ArgumentParser()

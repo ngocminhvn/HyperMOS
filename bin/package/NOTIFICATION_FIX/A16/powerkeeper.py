@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Port *all* original RYUOS PowerKeeper bytecode into Xiaomi's APK at build time.
+"""Port *all* original TNM PowerKeeper bytecode into Xiaomi's APK at build time.
 
 The pinned donor APK supplies every class/method (not a selective PerfHook
 subset). Keep original Xiaomi AndroidManifest/resources and asset payloads.
-Route the known RYU Settings wrappers to embedded TNMFramework; adapt build gates absent on
+Route the known TNM Settings wrappers to embedded TNMFramework; adapt build gates absent on
 the target ROM. No loader, daemon, runtime hook or extra framework jar.
 """
 import argparse
@@ -21,11 +21,11 @@ BUILD_GATE = re.compile(
     r"(?m)^([ \t]*)sget-boolean ([vp]\d+), "
     r"Lcom/projectryu/Build;->IS_RYU_BUILD:Z[ \t]*$")
 # TNMFramework is a real Java/Dalvik API embedded into the PowerKeeper DEX,
-# not merely the name of an external shell script or a ProjectRYU JAR alias.
+# not merely the name of an external shell script or a ProjectTNM JAR alias.
 # Its static methods implement the same Settings.System contract that the
 # TNM root-on-demand adapter writes. No additional service/daemon is spawned.
 TNM_API = "Lcom/android/tnm/TNMFramework;"
-RYU_OWNER = "Lcom/projectryu/ProjectRYUFramework;"
+DONOR_OWNER = "Lcom/projectryu/ProjectRYUFramework;"
 SETTINGS_OWNER = "Landroid/provider/Settings$System;"
 TNM_METHODS = {
     "getSystemInt": (
@@ -43,8 +43,7 @@ TNM_METHODS = {
     "putSystemString": (
         "(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z", "putString", 3, "Z"),
 }
-RYU_GET = RYU_OWNER + "->getSystemString" + TNM_METHODS["getSystemString"][0]
-TNM_GET = TNM_API + "->getSystemString" + TNM_METHODS["getSystemString"][0]
+# Source descriptors are a donor DEX ABI; output perf classes use com/android/tnm.
 OLD_PERF_PREFIX = "Lcom/projectryu/perf/"
 TNM_PERF_PREFIX = "Lcom/android/tnm/perf/"
 OLD_PERF_PATH = "com/projectryu/perf/"
@@ -101,18 +100,18 @@ def sha(data):
 
 def apk_contract(stock_apk: Path, donor_apk: Path):
     with zipfile.ZipFile(stock_apk) as stock, zipfile.ZipFile(donor_apk) as donor:
-        for label, archive in (("Xiaomi", stock), ("RYU", donor)):
+        for label, archive in (("Xiaomi", stock), ("TNM", donor)):
             if len(archive.namelist()) != len(set(archive.namelist())):
                 raise ValueError(label + " APK has duplicate ZIP entries")
             bad = archive.testzip()
             if bad:
                 raise ValueError(label + " APK has corrupt ZIP member " + bad)
         if stock.read("AndroidManifest.xml") != donor.read("AndroidManifest.xml"):
-            raise ValueError("RYU/Xiaomi manifests differ; full bytecode port is unsafe")
+            raise ValueError("TNM/Xiaomi manifests differ; full bytecode port is unsafe")
         stock_dex = {name for name in stock.namelist() if DEX.fullmatch(name)}
         donor_dex = {name for name in donor.namelist() if DEX.fullmatch(name)}
         if not stock_dex or stock_dex != donor_dex:
-            raise ValueError("RYU and Xiaomi DEX slots differ: "
+            raise ValueError("TNM and Xiaomi DEX slots differ: "
                              + repr((sorted(stock_dex), sorted(donor_dex))))
         resources_equal = (
             "resources.arsc" in stock.namelist()
@@ -148,7 +147,7 @@ def classes(root: Path):
 
 
 
-# The original RYU writeRawAndVerify uses strict string equality on sysfs.
+# The original TNM writeRawAndVerify uses strict string equality on sysfs.
 # If kernel/thermal keeps a lower, positive MAX CPU/GPU cap, it is safer and
 # shouldn't become a write-loop/false failure. Only after successful write;
 # preserve errors, sconfig writes, and scaling_min_freq strict verification.
@@ -210,13 +209,13 @@ SAFE_MAX_HELPER = r"""
 def patch_perfhook_write_verify(smali: str) -> str:
     """Safely allow lower CPU/GPU maximum caps, not failed writes."""
     if "tnmSafeMaxClamp(" in smali:
-        raise ValueError("RYU PerfHook already has safe clamp patch")
+        raise ValueError("TNM PerfHook already has safe clamp patch")
     pattern = re.compile(
         r"(?ms)^\.method private writeRawAndVerify"
         r"\(Ljava/lang/String;Ljava/lang/String;\)Z\s*$.*?^\.end method$")
     matches = list(pattern.finditer(smali))
     if len(matches) != 1:
-        raise ValueError("Expected exactly one RYU writeRawAndVerify method")
+        raise ValueError("Expected exactly one TNM writeRawAndVerify method")
     found = matches[0]
     method = found.group()
     for required in (
@@ -227,17 +226,17 @@ def patch_perfhook_write_verify(smali: str) -> str:
         "    return v4",
     ):
         if required not in method:
-            raise ValueError("Unknown RYU write verifier layout: " + required)
+            raise ValueError("Unknown TNM write verifier layout: " + required)
     old = "    if-nez v1, :cond_2\n\n    new-instance v1, Ljava/lang/StringBuilder;"
     if method.count(old) != 1:
-        raise ValueError("RYU strict readback comparison anchor changed")
+        raise ValueError("TNM strict readback comparison anchor changed")
     # The original donor overwrites p0 with a String before mismatch handling.
     # Capture the original typed receiver in a fresh local at method entry.
     if re.search(r"\bv7\b", method):
-        raise ValueError("RYU write verifier unexpectedly uses scratch v7")
+        raise ValueError("TNM write verifier unexpectedly uses scratch v7")
     locals_anchor = "    .locals 7\n"
     if method.count(locals_anchor) != 1:
-        raise ValueError("RYU write verifier local layout changed")
+        raise ValueError("TNM write verifier local layout changed")
     method = method.replace(
         locals_anchor, "    .locals 8\n    move-object/from16 v7, p0\n", 1)
     # Invoke readTrimmed using saved v7, never the repurposed p0.
@@ -263,13 +262,13 @@ def patch_perfhook_write_verify(smali: str) -> str:
 
 
 def adapt(body: str):
-    """Minimal, build-time RYU framework compatibility, without new hooks."""
+    """Minimal, build-time TNM framework compatibility, without new hooks."""
     reads = 0
-    # Every original RYU call now targets a REAL concrete TNMFramework method
+    # Every original TNM call now targets a REAL concrete TNMFramework method
     # defined within PowerKeeper. The TNM controller and this API share the
     # original Settings keys, but no foreign framework JAR is loaded.
     for name, (proto, _, _, _) in TNM_METHODS.items():
-        reference = RYU_OWNER + "->" + name + proto
+        reference = DONOR_OWNER + "->" + name + proto
         reads += body.count(reference)
         body = body.replace(reference, TNM_API + "->" + name + proto)
     gates = 0
@@ -278,10 +277,10 @@ def adapt(body: str):
         nonlocal gates
         reg = match[2]
         if not reg.startswith(("v", "p")):
-            raise ValueError("Unexpected register for RYU build gate: " + reg)
+            raise ValueError("Unexpected register for TNM build gate: " + reg)
         number = int(reg[1:])
         if number > 255:
-            raise ValueError("RYU build gate register out of range")
+            raise ValueError("TNM build gate register out of range")
         gates += 1
         # A p-register aliases a physical register after the local registers.
         # const/4 has only a 4-bit register operand; const/16 supports 8 bits.
@@ -290,10 +289,10 @@ def adapt(body: str):
         return match[1] + insn + " " + reg + ", 0x1"
 
     body = BUILD_GATE.sub(gate, body)
-    # Remap original RYU PerfHook implementation to TNM's namespace.
+    # Remap original TNM PerfHook implementation to TNM's namespace.
     # Update ALL DEX references, including self/cross-class descriptors
     # and dotted class names sometimes used by Class.forName/reflection.
-    # Do not touch projectryu_thermal_* Settings keys: those are the
+    # Do not touch projecttnm_thermal_* Settings keys: those are the
     # live config protocol consumed by the transplanted PerfHook observer.
     body = body.replace(OLD_PERF_PREFIX, TNM_PERF_PREFIX)
     body = body.replace(OLD_PERF_PATH, TNM_PERF_PATH)
@@ -302,7 +301,7 @@ def adapt(body: str):
         raise ValueError("Unconverted original PerfHook namespace in DEX smali")
     if ("Lcom/projectryu/ProjectRYUFramework;" in body
             or "Lcom/projectryu/Build;" in body):
-        raise ValueError("Unsupported RYU framework reference after compatibility adaptation")
+        raise ValueError("Unsupported TNM framework reference after compatibility adaptation")
     return body, reads, gates
 
 
@@ -314,12 +313,12 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
     stock_dirs = dex_dirs(stock_root)
     source_dirs = dex_dirs(donor_root)
     if set(stock_dirs) != set(source_dirs):
-        raise ValueError("RYU/Xiaomi decoded DEX directories do not match: "
+        raise ValueError("TNM/Xiaomi decoded DEX directories do not match: "
                          + repr((sorted(stock_dirs), sorted(source_dirs))))
     original = classes(stock_root)
     donor = classes(donor_root)
     if len(donor) < 2800:
-        raise ValueError("Incomplete original RYU PowerKeeper class set: " + str(len(donor)))
+        raise ValueError("Incomplete original TNM PowerKeeper class set: " + str(len(donor)))
     required = [
         "Lcom/miui/powerkeeper/PowerKeeperApplication;",
         "Lcom/miui/powerkeeper/controller/KillProcessController;",
@@ -329,11 +328,11 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
     ]
     for descriptor in required:
         if descriptor not in donor:
-            raise ValueError("Original RYU PowerKeeper is missing " + descriptor)
+            raise ValueError("Original TNM PowerKeeper is missing " + descriptor)
     perf_classes = sorted(name for name in donor if
                           name.startswith("Lcom/projectryu/perf/"))
     if len(perf_classes) != 20:
-        raise ValueError("Expected all 20 original RYU perf classes, got "
+        raise ValueError("Expected all 20 original TNM perf classes, got "
                          + str(len(perf_classes)))
 
     # Validate everything before replacing the decoded Xiaomi bytecode.
@@ -356,9 +355,9 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
         setting_reads += reads
         build_gates += gates
     if safe_max_patch_count != 1:
-        raise ValueError("Missing RYU safe max-frequency verification patch")
+        raise ValueError("Missing TNM safe max-frequency verification patch")
     if setting_reads < 3:
-        raise ValueError("Original RYU PerfHook getSystemString callers missing")
+        raise ValueError("Original TNM PerfHook getSystemString callers missing")
     for descriptor, body in adapted.items():
         for reference in FOREIGN_CLASS.findall(body):
             if reference not in donor:
@@ -382,7 +381,7 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
             # Relocate the source file together with its class descriptor.
             # No obsolete com/projectryu/perf/*.smali survives the build.
             if OLD_PERF_PATH not in relative.as_posix():
-                raise ValueError("Unexpected RYU PerfHook file location")
+                raise ValueError("Unexpected TNM PerfHook file location")
             new_relative = Path(relative.as_posix().replace(
                 OLD_PERF_PATH, TNM_PERF_PATH, 1))
             new_target = stock_root / new_relative
@@ -398,27 +397,27 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
     if actual_classes != expected_classes:
         raise ValueError("Full donor + renamed TNM PerfHook/framework class-set mismatch")
     if any(name.startswith(OLD_PERF_PREFIX) for name in actual_classes):
-        raise ValueError("Legacy RYU PerfHook class definition survived")
+        raise ValueError("Legacy TNM PerfHook class definition survived")
 
     report = {
-        "mode": "full original RYUOS PowerKeeper DEX port into Xiaomi APK",
+        "mode": "full original TNM PowerKeeper DEX port into Xiaomi APK",
         "original_xiaomi_classes": len(original),
-        "original_ryu_classes": len(donor),
-        "original_ryu_perf_classes": perf_classes,
+        "original_tnm_classes": len(donor),
+        "original_tnm_perf_classes": perf_classes,
         "classes": renamed_perf,  # compiled DEX verifier contract
         "tnm_perf_classes": renamed_perf,
-        "renamed_ryu_perf_classes": len(renamed_perf),
-        "legacy_ryu_perf_classes_remaining": 0,
-        "ryu_only_classes": sorted(set(donor) - set(original)),
+        "renamed_tnm_perf_classes": len(renamed_perf),
+        "legacy_tnm_perf_classes_remaining": 0,
+        "tnm_only_classes": sorted(set(donor) - set(original)),
         "xiaomi_only_classes_removed": sorted(set(original) - set(donor)),
-        "adapted_ryu_framework_setting_reads": setting_reads,
+        "adapted_tnm_framework_setting_reads": setting_reads,
         "tnm_framework_api": TNM_API,
         "tnm_framework_method_signatures": [
             name + details[0] for name, details in TNM_METHODS.items()],
         "tnm_framework_embedded_path": embedded_api,
         "tnm_framework_call_sites": setting_reads,
-        "projectryu_framework_jars_required": False,
-        "adapted_ryu_build_gates": build_gates,
+        "projecttnm_framework_jars_required": False,
+        "adapted_tnm_build_gates": build_gates,
         "safe_cpu_gpu_max_clamp_verification": True,
         "no_runtime_hook_or_daemon": True,
         "apk_contract": contract,
@@ -428,9 +427,9 @@ def port(stock_root: Path, donor_root: Path, stock_apk: Path,
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
                            encoding="utf-8")
-    print(f"[RYU FULL APK] {len(donor)} donor classes ({len(perf_classes)} PerfHook), "
+    print(f"[TNM FULL APK] {len(donor)} donor classes ({len(perf_classes)} PerfHook), "
           f"{setting_reads} Settings compatibility calls, {build_gates} build gates")
-    print("[RYU FULL APK] All donor DEX methods staged; TNMFramework API embedded; 20 PerfHook classes renamed to TNM; Xiaomi manifest/resources retained")
+    print("[TNM FULL APK] All donor DEX methods staged; TNMFramework API embedded; 20 PerfHook classes renamed to TNM; Xiaomi manifest/resources retained")
     return report
 
 

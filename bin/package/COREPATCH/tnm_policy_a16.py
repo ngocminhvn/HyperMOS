@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Selective RYUOS A16 notification policy transplant onto HyperMOS base smali.
+"""Selective TNM A16 notification policy transplant onto HyperMOS base smali.
 
 Preserves Xiaomi/HyperMOS framework classes, permissions and boot-chain.
 No dependency on com.projectryu.* classes. Fails closed on unknown layouts.
@@ -53,10 +53,10 @@ def inject(text: str, signature: str, marker: str, source: str,
 
 
 def fcm_autostart(text: str) -> str:
-    """Replicate the one-instruction RYU FCM gate delta, in its stock position.
+    """Replicate the one-instruction TNM FCM gate delta, in its stock position.
 
     Xiaomi stock already parses ResolveInfo, ApplicationInfo and C2DM action.
-    RYU changes IS_INTERNATIONAL_BUILD(false on CN) to IS_RYU_BUILD(true),
+    TNM changes IS_INTERNATIONAL_BUILD(false on CN) to IS_RYU_BUILD(true),
     after reading ApplicationInfo.uid and before the C2DM action test.
     Do NOT insert an early return or duplicate the FCM check.
     """
@@ -66,7 +66,7 @@ def fcm_autostart(text: str) -> str:
                  "Landroid/content/pm/ResolveInfo;)Z")
     m = method(text, signature)
     body = m.group()
-    marker = "# HyperMOS RYU FCM: enable existing post-ApplicationInfo gate"
+    marker = "# HyperMOS TNM FCM: enable existing post-ApplicationInfo gate"
     if marker in body:
         return text
     if ACTION not in body or "ResolveInfo;->activityInfo:" not in body or (
@@ -79,7 +79,7 @@ def fcm_autostart(text: str) -> str:
     if app_at >= action_at:
         raise ValueError("FCM action is not after ApplicationInfo uid resolution")
 
-    # The authentic RYU JAR already uses its own true-build flag here.
+    # The authentic TNM JAR already uses its own true-build flag here.
     if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
         return text
 
@@ -95,7 +95,7 @@ def fcm_autostart(text: str) -> str:
             continue
         reg = g.group("reg")
         # Skip only smali debug directives and comments. These instruction
-        # neighbors match the actual stock/RYU HAOTIAN method-level delta.
+        # neighbors match the actual stock/TNM HAOTIAN method-level delta.
         nxt = []
         for extra in lines[i + 1:]:
             stmt = extra.strip()
@@ -130,9 +130,9 @@ def first_boot_broadcast(text: str) -> str:
         raise ValueError("first-boot broadcast field not found")
     m = method(text, signature)
     body = m.group()
-    if ":hypermos_ryu_first_boot_marker" in body:
+    if ":hypermos_tnm_first_boot_marker" in body:
         return text
-    # On RYU the security service is initialized first, then its
+    # On TNM the security service is initialized first, then its
     # first-boot blocking policy is skipped. Preserve that setup here.
     guard = re.compile(
         r"(?m)^[ \t]*invoke-virtual[^\n]*"
@@ -142,11 +142,11 @@ def first_boot_broadcast(text: str) -> str:
     if len(hits) != 1:
         raise ValueError("updateBlockBroadcast: expected one provision guard")
     code = """
-    # RYU A16: keep first-boot broadcast blocker disabled, after service init.
+    # TNM A16: keep first-boot broadcast blocker disabled, after service init.
     const/4 v0, 0x0
     iput-boolean v0, p0, Lcom/android/server/am/BroadcastQueueModernStubImpl;->mIsBlockBroadcastFirstBoot:Z
     return-void
-:hypermos_ryu_first_boot_marker
+:hypermos_tnm_first_boot_marker
 """
     updated = body[:hits[0].start()] + code + body[hits[0].start():]
     return text[:m.start()] + updated + text[m.end():]
@@ -156,14 +156,14 @@ def first_boot_broadcast(text: str) -> str:
 def swipe_foreground_service_protection(text: str) -> str:
     """Enable Xiaomi's existing foreground-service guard on swipe cleanup.
 
-    Authentic RYU changes exactly one IS_INTERNATIONAL_BUILD read to
+    Authentic TNM changes exactly one IS_INTERNATIONAL_BUILD read to
     IS_RYU_BUILD immediately before hasForegroundServices(). Keep original
     branches and return values; do not replace the swipe-cleanup method.
     """
     sig = "handleSwipeKill(Lmiui/process/ProcessConfig;)Z"
     m = method(text, sig)
     body = m.group()
-    marker = "# HyperMOS RYU swipe: enable original Xiaomi FGS guard"
+    marker = "# HyperMOS TNM swipe: enable original Xiaomi FGS guard"
     if marker in body:
         return text
     if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
@@ -207,23 +207,23 @@ def swipe_foreground_service_protection(text: str) -> str:
     return text[:m.start()] + updated + text[m.end():]
 
 def foreground_service_protection(text: str) -> str:
-    """Enable Xiaomi's EXISTING FGS guard, exactly as RYU does for HAOTIAN.
+    """Enable Xiaomi's EXISTING FGS guard, exactly as TNM does for HAOTIAN.
 
     Stock Xiaomi already protects a foreground service in
     killAppForHasOtherTask(), but only if IS_INTERNATIONAL_BUILD is true.
-    Real RYUOS replaces that gate with IS_RYU_BUILD (true on RYU).
+    Real TNM replaces that gate with IS_RYU_BUILD (true on TNM).
     Reproduce the same true-gate outcome on HyperMOS CN without inserting
     another hasForegroundServices() call or changing the success return.
     """
     signature = "killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z"
     m = method(text, signature)
     body = m.group()
-    marker = "# HyperMOS RYU FGS: enable existing Xiaomi guard"
+    marker = "# HyperMOS TNM FGS: enable existing Xiaomi guard"
     if marker in body:
         return text
 
     if "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in body:
-        # The reference RYU JAR already implements exactly this behavior.
+        # The reference TNM JAR already implements exactly this behavior.
         return text
 
     if body.count("hasForegroundServices()Z") != 1:
@@ -303,21 +303,21 @@ def main(root: Path) -> None:
                  "Landroid/content/pm/ResolveInfo;)Z")
     post_fcm = method(changed, signature).group()
     if ACTION not in post_fcm or not (
-            "# HyperMOS RYU FCM: enable existing post-ApplicationInfo gate" in post_fcm
+            "# HyperMOS TNM FCM: enable existing post-ApplicationInfo gate" in post_fcm
             or "Lcom/projectryu/Build;->IS_RYU_BUILD:Z" in post_fcm):
-        raise ValueError("FCM postcondition failed: exact RYU gate not present")
+        raise ValueError("FCM postcondition failed: exact TNM gate not present")
     # Atomic-ish: make no write until every target validated.
     bq.write_text(changed, encoding="utf-8")
     psc.write_text(ps_changed, encoding="utf-8")
-    print("[RYU-A16] Verified RYU FCM build gate, first-boot policy and both FGS cleanup guards patched")
-    print("[RYU-A16] Android permission checks, RYU-private hooks, Doze, forced force-stop policies untouched")
+    print("[TNM-A16] Verified TNM FCM build gate, first-boot policy and both FGS cleanup guards patched")
+    print("[TNM-A16] Android permission checks, TNM-private hooks, Doze, forced force-stop policies untouched")
 
 
 if __name__ == "__main__":
     try:
         if len(sys.argv) != 2:
-            raise ValueError("Usage: ryu_policy_a16.py <decompiled-miui-services-dir>")
+            raise ValueError("Usage: tnm_policy_a16.py <decompiled-miui-services-dir>")
         main(Path(sys.argv[1]))
     except (ValueError, OSError) as exc:
-        print(f"[RYU-A16] FAIL: {exc}", file=sys.stderr)
+        print(f"[TNM-A16] FAIL: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the RYU post-fs property action in an extracted image, never run it here."""
+"""Stage the TNM post-fs property action in an extracted image, never run it here."""
 import argparse
 import hashlib
 import json
@@ -11,11 +11,11 @@ import stat
 import subprocess
 import tempfile
 
-from inspect_rom import verify_init, verify_policy
+from sepolicy import verify_init, verify_policy
 
 HASH = '6d82fc8e92089ce24226636ec4d24deb15655d7a7473d37d24fa4ae53588c1df'
-RUNTIME = '/system_ext/xbin/ryu_helper'
-CONTEXT = 'u:object_r:ryu_helper_exec:s0'
+RUNTIME = '/system_ext/xbin/tnm_helper'
+CONTEXT = 'u:object_r:tnm_helper_exec:s0'
 PROPERTIES = (
     ('ro.bootloader', 'locked'), ('ro.boot.vbmeta.device_state', 'locked'),
     ('ro.boot.flash.locked', '1'), ('ro.boot.veritymode', 'enforcing'),
@@ -27,15 +27,15 @@ INIT_BLOCK = ('# BEGIN HyperMOS LOCK (managed)\non post-fs\n' + ''.join(
     f'    exec u:r:init:s0 root root -- {RUNTIME} -n {name} {value}\n'
     for name, value in PROPERTIES) + '# END HyperMOS LOCK (managed)\n').encode()
 POLICY_BLOCK = b'''; BEGIN HyperMOS LOCK (managed)
-(type ryu_helper_exec)
-(roletype object_r ryu_helper_exec)
-(typeattributeset file_type (ryu_helper_exec))
-(typeattributeset exec_type (ryu_helper_exec))
-(typeattributeset system_file_type (ryu_helper_exec))
-(allow init ryu_helper_exec (file (read getattr map execute open execute_no_trans)))
+(type tnm_helper_exec)
+(roletype object_r tnm_helper_exec)
+(typeattributeset file_type (tnm_helper_exec))
+(typeattributeset exec_type (tnm_helper_exec))
+(typeattributeset system_file_type (tnm_helper_exec))
+(allow init tnm_helper_exec (file (read getattr map execute open execute_no_trans)))
 ; END HyperMOS LOCK (managed)
 '''
-TOKENS = (b'ryu_helper', b'hypermos-resetprop', b'tnm_resetprop_exec', b'hypermos-lock.rc')
+TOKENS = (b'tnm_helper', b'hypermos-resetprop', b'tnm_resetprop_exec', b'hypermos-lock.rc')
 
 
 def managed(data, block):
@@ -89,7 +89,7 @@ def replace_file(path, data, mode):
 def validate_binary(binary):
     data = binary.read_bytes()
     if hashlib.sha256(data).hexdigest() != HASH:
-        raise ValueError('RYU helper hash changed')
+        raise ValueError('TNM helper hash changed')
     output = subprocess.check_output(['readelf', '-h', '-l', '-d', str(binary)],
                                      text=True, env={**os.environ, 'LC_ALL': 'C'})
     needed = set(re.findall(r'Shared library: \[([^]]+)\]', output))
@@ -109,7 +109,7 @@ def integrate(images, binary, report, check=False):
     contexts = [checked(images, name) for name in (
         'system_ext/etc/selinux/system_ext_file_contexts', 'config/system_ext_file_contexts')]
     dac = checked(images, 'config/system_ext_fs_config')
-    helper = checked(images, 'system_ext/xbin/ryu_helper', required=False)
+    helper = checked(images, 'system_ext/xbin/tnm_helper', required=False)
     # Resolve the declared Bionic paths without dereferencing Android absolute
     # APEX links into the build host. Runtime namespace resolution needs boot testing.
     for relative, target in (
@@ -132,7 +132,7 @@ def integrate(images, binary, report, check=False):
     if helper.exists() and hashlib.sha256(helper.read_bytes()).hexdigest() != HASH:
         raise ValueError('Conflicting installed helper')
     expected_context = f'{RUNTIME} {CONTEXT}'.encode()
-    expected_dac = b'system_ext/xbin/ryu_helper 0 2000 0755'
+    expected_dac = b'system_ext/xbin/tnm_helper 0 2000 0755'
     allowed_rows = {**{p: expected_context for p in contexts}, dac: expected_dac}
     def walk_error(exc):
         raise exc
@@ -147,7 +147,10 @@ def integrate(images, binary, report, check=False):
                 continue  # Native CIL is checked below, then these caches are invalidated.
             if path == helper:
                 continue
-            if name in {'ryu_helper', 'hypermos-resetprop', 'hypermos-lock.rc'}:
+            if (name in {'tnm_helper', 'hypermos-resetprop', 'hypermos-lock.rc'} or
+                    (name.endswith('_helper') and path.is_file() and not path.is_symlink()
+                     and path.stat().st_size == len(payload)
+                     and hashlib.sha256(path.read_bytes()).hexdigest() == HASH)):
                 raise ValueError(f'Legacy/duplicate LOCK payload: {path.relative_to(images)}')
             if not (name.endswith(('.rc', '.cil', '_fs_config')) or 'file_contexts' in name):
                 continue
@@ -167,7 +170,7 @@ def integrate(images, binary, report, check=False):
         init: init.read_bytes() if installed_init else append(original_init, INIT_BLOCK),
         policy: policy.read_bytes() if installed_policy else append(original_policy, POLICY_BLOCK),
         **{p: row(p.read_bytes(), RUNTIME.encode(), expected_context) for p in contexts},
-        dac: row(dac.read_bytes(), b'system_ext/xbin/ryu_helper', expected_dac),
+        dac: row(dac.read_bytes(), b'system_ext/xbin/tnm_helper', expected_dac),
         helper: payload,
     }
     # Validate the complete action grammar we own, without executing the helper.

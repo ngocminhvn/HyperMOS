@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only SHA256 and text diff of RYU and Xiaomi stock thermal/perf configs."""
+"""Read-only SHA256 and text diff of TNM and Xiaomi stock thermal/perf configs."""
 import argparse
 import csv
 import difflib
@@ -49,21 +49,21 @@ def readable(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ryu", type=Path, required=True)
+    ap.add_argument("--tnm", type=Path, required=True)
     ap.add_argument("--stock", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "diffs").mkdir(exist_ok=True)
-    a, b = load(args.ryu), load(args.stock)
+    a, b = load(args.tnm), load(args.stock)
     rows, counts = [], Counter()
     for key in sorted(a.keys() | b.keys()):
         r, s = a.get(key), b.get(key)
-        state = ("ONLY_STOCK" if not r else "ONLY_RYU" if not s
+        state = ("ONLY_STOCK" if not r else "ONLY_TNM" if not s
                  else "IDENTICAL" if r[1] == s[1] else "MODIFIED")
         counts[state] += 1
-        row = dict(path=key, status=state, ryu_sha256=r[1] if r else "",
-                   stock_sha256=s[1] if s else "", ryu_bytes=r[2] if r else "",
+        row = dict(path=key, status=state, tnm_sha256=r[1] if r else "",
+                   stock_sha256=s[1] if s else "", tnm_bytes=r[2] if r else "",
                    stock_bytes=s[2] if s else "", diff_file="")
         if state == "MODIFIED":
             old, new = readable(s[0]), readable(r[0])
@@ -72,7 +72,7 @@ def main():
                 output = args.out / "diffs" / (safe + ".diff")
                 output.write_text("".join(difflib.unified_diff(
                     old.splitlines(True), new.splitlines(True),
-                    fromfile="STOCK/"+key, tofile="RYU/"+key, n=3)), encoding="utf-8")
+                    fromfile="STOCK/"+key, tofile="TNM/"+key, n=3)), encoding="utf-8")
                 row["diff_file"] = output.relative_to(args.out).as_posix()
         rows.append(row)
     with (args.out / "comparison.csv").open("w", newline="", encoding="utf-8") as f:
@@ -81,29 +81,29 @@ def main():
         writer.writerows(rows)
     (args.out / "summary.json").write_text(json.dumps(dict(
         stock_version="OS3.0.308.0.WOBCNXM",
-        ryu_label="RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005",
+        tnm_label="TNM_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005",
         counts=dict(counts), files=rows), indent=2, ensure_ascii=False)+"\n", encoding="utf-8")
     lines = [
-        "# RYU vs Xiaomi Stock thermal/performance audit", "",
+        "# TNM vs Xiaomi Stock thermal/performance audit", "",
         "- STOCK: OS3.0.308.0.WOBCNXM (official China Fastboot).",
-        "- RYU label: RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.",
+        "- TNM label: TNM_HAOTIAN_OS3.0.309.0.WOBCNXM_CN261005.",
         "- Scope: thermal, powerhint, perf, sconfig in vendor/odm/etc etc.",
         "- Different ROM version labels can also explain modified files.",
         "- A changed file is NOT proof of better battery efficiency.",
         "- Encrypted/binary thermal profiles are compared by SHA256 only.",
-        "- Unified diffs show STOCK -> RYU changes.", "",
+        "- Unified diffs show STOCK -> TNM changes.", "",
         "## Summary", "", "| Status | Files |", "|---|---:|"
     ]
-    for state in ("MODIFIED", "IDENTICAL", "ONLY_RYU", "ONLY_STOCK"):
+    for state in ("MODIFIED", "IDENTICAL", "ONLY_TNM", "ONLY_STOCK"):
         lines.append("| "+state+" | "+str(counts[state])+" |")
     lines += ["", "## File-by-file", "",
-              "| File | Status | Bytes RYU / STOCK | Diff |",
+              "| File | Status | Bytes TNM / STOCK | Diff |",
               "|---|---|---:|---|"]
     for row in rows:
         detail = ("[View diff]("+row["diff_file"]+")" if row["diff_file"]
                   else "Opaque/binary" if row["status"] == "MODIFIED" else "—")
         lines.append("| \`"+row["path"]+"\` | "+row["status"]+" | "+
-                     str(row["ryu_bytes"])+"/"+str(row["stock_bytes"])+" | "+detail+" |")
+                     str(row["tnm_bytes"])+"/"+str(row["stock_bytes"])+" | "+detail+" |")
     (args.out / "report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
     print(json.dumps(dict(counts), indent=2))
 

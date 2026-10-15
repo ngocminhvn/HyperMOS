@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audited RYU build gates for TNM, without importing RYU private framework.
+"""Audited TNM build gates for TNM, without importing TNM private framework.
 
 All targets are validated before writing. Unknown method/register/branch layouts
 abort the build. The original permission checks and method bodies stay in place.
@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 MANIFEST = Path(__file__).with_suffix('.json')
-MARKER = '# TNM RYU audited build gate'
+MARKER = '# TNM audited build gate'
 GATE = re.compile(
     r'(?m)^([ \t]*)sget-boolean\s+([vp]\d+),\s+'
     r'L(?:miui/os/(?:x?Build);->(?:IS_INTERNATIONAL_BUILD|IS_MIUI)|'
@@ -75,7 +75,7 @@ def transform(text, entry, verify=False):
         raise ValueError(f"{entry['method']}: audited gate missing")
     gates = list(GATE.finditer(body))
     # Older HyperMOS replaces this one entry gate with false for Taplus.
-    # RYU instead takes the international early exit, skipping its whitelist.
+    # TNM instead takes the international early exit, skipping its whitelist.
     if not gates and entry['method'] == 'updateContentCatcherWhitelist()V':
         if 'update taplus clipboard whitelist error, build international' not in body:
             raise ValueError('ContentCatcher: missing original early-exit log')
@@ -135,7 +135,7 @@ def apply(root, jar, verify=False, entries=None):
     if not verify:
         for path, text in pending.items():
             path.write_text(text, encoding='utf-8')
-    print(f'[TNM-RYU] {jar}: {len(entries)} methods / '
+    print(f'[TNM-TNM] {jar}: {len(entries)} methods / '
           f'{sum(len(e["registers"]) for e in entries)} exact build gates verified')
 
 
@@ -148,4 +148,4 @@ if __name__ == '__main__':
     try:
         apply(args.root, args.jar, args.verify)
     except ValueError as exc:
-        cli.exit(1, f'[TNM-RYU] ERROR: {exc}\n')
+        cli.exit(1, f'[TNM-TNM] ERROR: {exc}\n')

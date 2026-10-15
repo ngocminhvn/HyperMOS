@@ -33,7 +33,7 @@ def rebuild(decoded: Path, apk: Path, smali_jar: Path, api: int) -> None:
     if not apk.is_file() or not smali_jar.is_file():
         raise ValueError("Rebuilt PowerKeeper APK or smali assembler is missing")
     # os.replace must stay on the output filesystem (Windows and mounted CI disks).
-    with tempfile.TemporaryDirectory(prefix="ryu-powerkeeper-dex-", dir=apk.resolve().parent) as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="tnm-powerkeeper-dex-", dir=apk.resolve().parent) as temp_dir:
         temp = Path(temp_dir)
         replacements = {}
         for folder in folders:
@@ -45,7 +45,7 @@ def rebuild(decoded: Path, apk: Path, smali_jar: Path, api: int) -> None:
             if not output.is_file() or output.stat().st_size < 4096:
                 raise RuntimeError("Smali assembler produced no DEX: " + target_name)
             replacements[target_name] = output.read_bytes()
-            print(f"[RYU DEX] Compiled {folder.name} -> {target_name} "
+            print(f"[TNM DEX] Compiled {folder.name} -> {target_name} "
                   f"({len(replacements[target_name])} bytes)", flush=True)
         temporary_apk = temp / "PowerKeeper.dex-verified.apk"
         with zipfile.ZipFile(apk, "r") as source:
@@ -67,7 +67,7 @@ def rebuild(decoded: Path, apk: Path, smali_jar: Path, api: int) -> None:
             if bad:
                 raise RuntimeError("Corrupted output ZIP member: " + bad)
         os.replace(temporary_apk, apk)
-        print("[RYU DEX] Replaced all APK DEX with explicitly assembled patched classes",
+        print("[TNM DEX] Replaced all APK DEX with explicitly assembled patched classes",
               flush=True)
 
 

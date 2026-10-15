@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Focused, read-only HAOTIAN RYU vs Xiaomi notification/JAR audit.
+"""Focused, read-only HAOTIAN TNM vs Xiaomi notification/JAR audit.
 
 Never ports broad force-stop policies, notification AppOp bypasses, PerfHook,
-or private RYU classes. A stock/RYU difference is NOT proof of a RYU fix.
+or private TNM classes. A stock/TNM difference is NOT proof of a TNM fix.
 """
 import argparse
 import hashlib
@@ -45,7 +45,7 @@ def methods(source: str):
         out[sig] = {
             "digest": hashlib.sha256(normalized.encode()).hexdigest(),
             "calls": sorted(set(INVOKE.findall(normalized))),
-            "ryu_private": "Lcom/projectryu/" in normalized,
+            "tnm_private": "Lcom/projectryu/" in normalized,
             "has_fcm": "com.google.android.c2dm.intent.RECEIVE" in normalized,
         }
     return out
@@ -53,21 +53,21 @@ def methods(source: str):
 
 def method_summary(a, b):
     if a is None or b is None:
-        return {"state": "missing-stock" if a is None else "missing-ryu"}
+        return {"state": "missing-stock" if a is None else "missing-tnm"}
     return {
         "state": "identical" if a["digest"] == b["digest"] else "different",
         "stock_hash": a["digest"][:16],
-        "ryu_hash": b["digest"][:16],
-        "ryu_private_dependency": b["ryu_private"],
-        "calls_added_in_ryu": sorted(set(b["calls"]) - set(a["calls"])),
-        "calls_removed_in_ryu": sorted(set(a["calls"]) - set(b["calls"])),
+        "tnm_hash": b["digest"][:16],
+        "tnm_private_dependency": b["tnm_private"],
+        "calls_added_in_tnm": sorted(set(b["calls"]) - set(a["calls"])),
+        "calls_removed_in_tnm": sorted(set(a["calls"]) - set(b["calls"])),
         "fcm_action_in_stock": a["has_fcm"],
-        "fcm_action_in_ryu": b["has_fcm"],
+        "fcm_action_in_tnm": b["has_fcm"],
     }
 
 
-def audit(stock: Path, ryu: Path):
-    output = {"warning": "OS3.0.308 stock vs RYU OS3.0.309 may include base changes",
+def audit(stock: Path, tnm: Path):
+    output = {"warning": "OS3.0.308 stock vs TNM OS3.0.309 may include base changes",
               "focused": {}, "notification_manager": {},
               "policy": {
                   "port_fullscreen_intent_appop_bypass": False,
@@ -78,7 +78,7 @@ def audit(stock: Path, ryu: Path):
     for classname, needles in FOCUS.items():
         required = classname in ("BroadcastQueueModernStubImpl", "ProcessSceneCleaner")
         a = methods(read_class(stock, classname, required=required))
-        b = methods(read_class(ryu, classname, required=required))
+        b = methods(read_class(tnm, classname, required=required))
         for needle in needles:
             matching = sorted(x for x in set(a) | set(b) if x.startswith(needle))
             if not matching:
@@ -90,7 +90,7 @@ def audit(stock: Path, ryu: Path):
     # Compare NotificationManager methods, but never auto-import unknown hooks.
     classname = "NotificationManagerServiceImpl"
     a = methods(read_class(stock, classname, required=False))
-    b = methods(read_class(ryu, classname, required=False))
+    b = methods(read_class(tnm, classname, required=False))
     if not a or not b:
         output["warning"] += "; NotificationManagerServiceImpl absent from at least one JAR"
     for sig in sorted(set(a) | set(b)):
@@ -106,45 +106,45 @@ def audit(stock: Path, ryu: Path):
 
 def markdown(obj):
     rows = [
-        "# HAOTIAN RYU notification focused audit",
+        "# HAOTIAN TNM notification focused audit",
         "",
-        "Compared read-only Xiaomi stock OS3.0.308.0 and RYUOS 3.0.309.0 smali.",
+        "Compared read-only Xiaomi stock OS3.0.308.0 and TNM 3.0.309.0 smali.",
         "Changed methods are NOT automatically notification fixes.",
         "",
         "## FCM, swipe cleanup, and force-stop",
         "",
-        "| Method | Result | RYU-private dependency |",
+        "| Method | Result | TNM-private dependency |",
         "|---|---|---|",
     ]
     for sig, v in obj["focused"].items():
-        rows.append(f"| {sig} | {v['state']} | {v.get('ryu_private_dependency', 'N/A')} |")
+        rows.append(f"| {sig} | {v['state']} | {v.get('tnm_private_dependency', 'N/A')} |")
     rows += ["", "## NotificationManagerServiceImpl", ""]
     changed = obj["notification_manager"]
     rows.append(f"Changed or unmatched methods: {len(changed)}.")
     for sig, v in changed.items():
         rows.append(f"- {sig}: {v['state']} — {v['port_decision']}")
-        if v.get("calls_added_in_ryu"):
-            rows.append("  - Additional RYU calls: " + ", ".join(v["calls_added_in_ryu"][:5]))
+        if v.get("calls_added_in_tnm"):
+            rows.append("  - Additional TNM calls: " + ", ".join(v["calls_added_in_tnm"][:5]))
     rows += ["", "## Guaranteed exclusions", "",
-             "- No RYU PerfHook or proprietary classes.",
+             "- No TNM PerfHook or proprietary classes.",
              "- No modifications to ProcessManagerService.isForceStopEnable().",
              "- No AppOp bypass or full-screen-intent permission changes.",
-             "- No automatic transplant of unmatched RYU notification methods.",
+             "- No automatic transplant of unmatched TNM notification methods.",
              "",
              "Test actual build, boot, notifications and idle drain before merging.",
              ""]
     return "\n".join(rows)
 
 
-def focused_diffs(stock: Path, ryu: Path):
-    """Inspect method-local changes without transplanting any RYU code."""
+def focused_diffs(stock: Path, tnm: Path):
+    """Inspect method-local changes without transplanting any TNM code."""
     for classname, needle in (
         ("BroadcastQueueModernStubImpl", "checkApplicationAutoStart("),
         ("ProcessSceneCleaner", "handleSwipeKill("),
         ("NotificationManagerServiceImpl", "readDefaultsAndFixMiuiVersion("),
     ):
         a = read_class(stock, classname, required=False)
-        b = read_class(ryu, classname, required=False)
+        b = read_class(tnm, classname, required=False)
         def block(src):
             for m in METHOD.finditer(src):
                 if m.group().splitlines()[0].strip().split()[-1].startswith(needle):
@@ -152,8 +152,8 @@ def focused_diffs(stock: Path, ryu: Path):
                             if line.strip() and not line.strip().startswith(IGNORE)]
             return []
         left, right = block(a), block(b)
-        print(f"[RYU-AUDIT-DELTA] {classname}.{needle} stock={len(left)} ryu={len(right)}")
-        delta = list(difflib.unified_diff(left, right, fromfile="Xiaomi", tofile="RYU", n=3))
+        print(f"[TNM-AUDIT-DELTA] {classname}.{needle} stock={len(left)} tnm={len(right)}")
+        delta = list(difflib.unified_diff(left, right, fromfile="Xiaomi", tofile="TNM", n=3))
         for line in delta[:100]:
             print(line)
         if len(delta) > 100:
@@ -162,17 +162,17 @@ def focused_diffs(stock: Path, ryu: Path):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--stock", type=Path, required=True)
-    p.add_argument("--ryu", type=Path, required=True)
+    p.add_argument("--tnm", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
-    report = audit(args.stock, args.ryu)
+    report = audit(args.stock, args.tnm)
     args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "ryu-targeted-notification.json").write_text(
+    (args.output / "tnm-targeted-notification.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (args.output / "ryu-targeted-notification.md").write_text(
+    (args.output / "tnm-targeted-notification.md").write_text(
         markdown(report), encoding="utf-8")
     print(markdown(report), flush=True)
-    focused_diffs(args.stock, args.ryu)
+    focused_diffs(args.stock, args.tnm)
 
 
 if __name__ == "__main__":

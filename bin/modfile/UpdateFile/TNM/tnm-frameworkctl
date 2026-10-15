@@ -4,15 +4,14 @@
 set -eu
 umask 077
 [ "$(id -u)" = 0 ] || { echo 'Root required' >&2; exit 10; }
-RYU=/system_ext/bin/tnm-thermalctl
-[ -x "$RYU" ] || RYU=/system_ext/bin/ryu-thermalctl
+TNM=/system_ext/bin/tnm-thermalctl
 S=/system/bin/settings
 STATE=/data/adb/tnm/state
 BACKUP="$STATE/refresh.original"
 sys() { "$S" --user 0 get system "$1" 2>/dev/null || echo null; }
 global() { "$S" --user 0 get global "$1" 2>/dev/null || echo null; }
 empty() { [ "$#" -eq 0 ] || exit 2; }
-ryu() { [ -x "$RYU" ]; }
+tnm() { [ -x "$TNM" ]; }
 fps_supported() {
     printf '%s:%s\n' "$(sys peak_refresh_rate)" "$(sys min_refresh_rate)" |
       /system/bin/grep -Eq '^[0-9]+([.][0-9]+)?:[0-9]+([.][0-9]+)?$'
@@ -45,7 +44,7 @@ status() {
     echo protocol=1
     echo backend=existing_powerkeeper_perfhook
     echo daemon=none
-    if ryu; then echo thermal_control=available; else echo thermal_control=unsupported; fi
+    if tnm; then echo thermal_control=available; else echo thermal_control=unsupported; fi
     mode=$(sys projectryu_thermal_per_app)
     config=$(sys projectryu_thermal_sconfig)
     profiles=$(sys projectryu_thermal_profiles)
@@ -123,7 +122,7 @@ thermal_readback() {
     done
     echo persisted_settings_do_not_prove_perfhook_effect=yes
     echo frequency_limit_owner=not_verified
-    # Evidence from the RYU logger, if Android retained any recent entries.
+    # Evidence from the TNM logger, if Android retained any recent entries.
     if [ -x /system/bin/logcat ]; then
         echo ===perfhook_recent_log===
         /system/bin/logcat -d -t 120 -s ProjectRYU-Perf:V '*:S' 2>/dev/null |
@@ -160,7 +159,7 @@ perfhook_diagnose() {
     echo "projectryu_thermal_per_app=$(sys projectryu_thermal_per_app)"
     echo "projectryu_thermal_sconfig=$(sys projectryu_thermal_sconfig)"
     echo "projectryu_thermal_profiles=$(sys projectryu_thermal_profiles)"
-    echo "--- thermal message (RYU PerfHook sconfig target) ---"
+    echo "--- thermal message (TNM PerfHook sconfig target) ---"
     inspect_sysfs_node /sys/class/thermal/thermal_message/sconfig
     echo "--- GPU bounds (KGSL) ---"
     for node in /sys/class/kgsl/kgsl-3d0/devfreq/min_freq /sys/class/kgsl/kgsl-3d0/devfreq/max_freq /sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies; do
@@ -182,7 +181,7 @@ perfhook_diagnose() {
         esac
     done
     if [ -x /system/bin/logcat ]; then
-        echo "--- RYU PerfHook recent log ---"
+        echo "--- TNM PerfHook recent log ---"
         /system/bin/logcat -d -t 1500 -s 'ProjectRYU-Perf:V' '*:S' 2>/dev/null |
             /system/bin/tail -n 60 || true
         echo "--- filtered SELinux denials (if retained) ---"
@@ -241,7 +240,7 @@ case "$cmd" in
         empty "$@"
         echo status.read; echo power.status; echo power.saver
         echo notifications.status; echo display.status
-        if ryu; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; echo thermal.readback echo perfhook.diagnose; fi
+        if tnm; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; echo thermal.readback echo perfhook.diagnose; fi
         if fps_supported; then echo display.mode; fi
         ;;
     status) empty "$@"; status ;;
@@ -258,22 +257,22 @@ case "$cmd" in
         ;;
     thermal.profiles)
         empty "$@"
-        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
-        exec "$RYU" profiles
+        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
+        exec "$TNM" profiles
         ;;
     thermal.readback) empty "$@"; thermal_readback ;;
     perfhook.diagnose) perfhook_diagnose "$@" ;;
     thermal.status)
         empty "$@"
-        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
-        exec "$RYU" status
+        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
+        exec "$TNM" status
         ;;
     thermal.global|game.profile)
         [ "$#" -eq 1 ] || exit 2
         case "$1" in normal|performance|hp|game|huanji|phone|class0|arvr|navigation|video|videochat|camera|4k|mgame|per-class0|per-video|hp-mgame|cclassvideo) ;; *) exit 2 ;; esac
         if [ "$cmd" = game.profile ]; then case "$1" in game|normal) ;; *) exit 2 ;; esac; fi
-        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
-        "$RYU" global "$1"
+        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
+        "$TNM" global "$1"
         echo "requested_profile=$1"
         ;;
     thermal.perapp)
@@ -281,8 +280,8 @@ case "$cmd" in
         for e in "$@"; do
             printf '%s\n' "$e" | /system/bin/grep -Eq '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+:(normal|performance|hp|game|huanji|phone|class0|arvr|navigation|video|videochat|camera|4k|mgame|per-class0|per-video|hp-mgame|cclassvideo)$' || exit 2
         done
-        ryu || { echo 'PerfHook unavailable' >&2; exit 3; }
-        "$RYU" perapp "$@"
+        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
+        "$TNM" perapp "$@"
         echo requested_profile=perapp
         ;;
     *) echo 'TNMFramework capability unavailable' >&2; exit 3 ;;

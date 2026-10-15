@@ -6,54 +6,51 @@ source "$work_dir/functions.sh"
 device_file="$work_dir/bin/ddevice/device_f.txt"
 android_file="$work_dir/bin/ddevice/androidver.txt"
 
-[[ -s "$device_file" && -s "$android_file" ]] || { error "RYU FULL PERF: device metadata missing"; exit 1; }
+[[ -s "$device_file" && -s "$android_file" ]] || { error "TNM FULL PERF: device metadata missing"; exit 1; }
 device="$(tr '[:upper:]' '[:lower:]' < "$device_file" | tr -d '\r\n')"
 android="$(tr -d '\r\n' < "$android_file")"
 if [[ "$device" != "haotian" || "$android" != "16" ]]; then
-  mods "RYU FULL PERF: not HAOTIAN Android 16, skip"
+  mods "TNM FULL PERF: not HAOTIAN Android 16, skip"
   exit 0
 fi
 
-# Validated RYU performance import is supported on HAOTIAN main and test branches.
+# Validated TNM performance import is supported on HAOTIAN main.
 case "${GITHUB_REF_NAME:-}" in
-  main|Lock|test-ryu-performance-haotian|test-tnm-ryu-haotian)
+  main)
     ;;
   *)
-    error "RYU FULL PERF: unsupported branch, actual=${GITHUB_REF_NAME:-unknown}"
+    error "TNM FULL PERF: unsupported branch, actual=${GITHUB_REF_NAME:-unknown}"
     exit 1
     ;;
 esac
 
-artifact="${RYU_REF_DIR:-}"
+artifact="${TNM_REF_DIR:-}"
 [[ -n "$artifact" && -s "$artifact/manifest.json" ]] || {
-  error "RYU FULL PERF: missing validated repository thermal ZIP reference"
+  error "TNM FULL PERF: missing validated repository thermal ZIP reference"
   exit 1
 }
-python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_perf.py" \
+python3 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/port_tnm_perf.py" \
   --artifact "$artifact" \
   --rom "$work_dir/build/baserom/images"
-python3 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/port_ryu_thermal_profiles.py" \
+python3 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/port_tnm_thermal_profiles.py" \
   --artifact "$artifact" \
   --rom "$work_dir/build/baserom/images"
 
-mods "RYU FULL PERF: original powerhint/perf plus verified ODM app thermal profiles staged (charging and no-limit untouched)"
+mods "TNM FULL PERF: original powerhint/perf plus verified ODM app thermal profiles staged (charging and no-limit untouched)"
 
 # Live #115 evidence: KGSL frequency nodes are root:root 0644 and
 # system_app lacks SELinux file write. Retain all thermal services/limits.
 vendor_policy="$work_dir/build/baserom/images/vendor/etc/selinux/vendor_sepolicy.cil"
-[[ -s "$vendor_policy" ]] || { error "RYU PERF: vendor CIL missing"; exit 1; }
+[[ -s "$vendor_policy" ]] || { error "TNM PERF: vendor CIL missing"; exit 1; }
 for rule in '(allow system_app vendor_sysfs_kgsl (file (write)))' \
             '(allow init vendor_sysfs_kgsl (file (setattr)))'; do
   if ! grep -Fqx "$rule" "$vendor_policy"; then
     printf '\n%s\n' "$rule" >> "$vendor_policy"
   fi
 done
-install -Dm644 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-perfhook-access.rc" \
-  "$work_dir/build/baserom/images/system_ext/etc/init/ryu-perfhook-access.rc"
-install -Dm755 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-thermalctl" \
-  "$work_dir/build/baserom/images/system_ext/bin/ryu-thermalctl"
-# TNM entrypoint shares the original PerfHook settings contract.
-install -Dm755 "$work_dir/bin/modfile/UpdateFile/RYUPerfProfile/ryu-thermalctl" \
+install -Dm644 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/tnm-perfhook-access.rc" \
+  "$work_dir/build/baserom/images/system_ext/etc/init/tnm-perfhook-access.rc"
+install -Dm755 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/tnm-thermalctl" \
   "$work_dir/build/baserom/images/system_ext/bin/tnm-thermalctl"
 # Force init to compile modified split CIL instead of an old binary policy.
 for part in vendor odm; do
@@ -62,4 +59,4 @@ for part in vendor odm; do
     find "$policy_dir" -maxdepth 1 -type f -name 'precompiled_sepolicy*' -delete
   fi
 done
-mods "RYU PERF: KGSL min/max system-group access staged; thermal limits retained"
+mods "TNM PERF: KGSL min/max system-group access staged; thermal limits retained"

@@ -18,9 +18,9 @@ API_LEVEL=36
 # ============================================
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
-FEATURE_RYU_NOTIFICATION_POLICY=0
-FEATURE_RYU_LOW_POWER_DOZE=0
-FEATURE_RYU_FRAMEWORK_GATES=0
+FEATURE_TNM_NOTIFICATION_POLICY=0
+FEATURE_TNM_LOW_POWER_DOZE=0
+FEATURE_TNM_FRAMEWORK_GATES=0
 FEATURE_DISABLE_SECURE_FLAG=0
 
 parse_feature_flags() {
@@ -32,14 +32,14 @@ parse_feature_flags() {
       --cn-notification-fix)
         FEATURE_CN_NOTIFICATION_FIX=1
         ;;
-      --ryu-notification-policy)
-        FEATURE_RYU_NOTIFICATION_POLICY=1
+      --tnm-notification-policy)
+        FEATURE_TNM_NOTIFICATION_POLICY=1
         ;;
-      --ryu-low-power-doze)
-        FEATURE_RYU_LOW_POWER_DOZE=1
+      --tnm-low-power-doze)
+        FEATURE_TNM_LOW_POWER_DOZE=1
         ;;
-      --ryu-framework-gates)
-        FEATURE_RYU_FRAMEWORK_GATES=1
+      --tnm-framework-gates)
+        FEATURE_TNM_FRAMEWORK_GATES=1
         ;;
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
@@ -55,16 +55,16 @@ parse_feature_flags() {
   log "Android 16 COREPATCH features:"
   [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
-  [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ] && log "  [PATCH] RYU FCM + first-boot + foreground-service handling"
-  [ "$FEATURE_RYU_LOW_POWER_DOZE" -eq 1 ] && log "  [PATCH] RYU HAOTIAN mIsLowPowerDozeDevice=false"
-  [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ] && log "  [PATCH] TNM audited RYU framework build gates"
+  [ "$FEATURE_TNM_NOTIFICATION_POLICY" -eq 1 ] && log "  [PATCH] TNM FCM + first-boot + foreground-service handling"
+  [ "$FEATURE_TNM_LOW_POWER_DOZE" -eq 1 ] && log "  [PATCH] TNM HAOTIAN mIsLowPowerDozeDevice=false"
+  [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ] && log "  [PATCH] TNM audited TNM framework build gates"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
-     [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 0 ] &&
-     [ "$FEATURE_RYU_LOW_POWER_DOZE" -eq 0 ] &&
-     [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 0 ] &&
+     [ "$FEATURE_TNM_NOTIFICATION_POLICY" -eq 0 ] &&
+     [ "$FEATURE_TNM_LOW_POWER_DOZE" -eq 0 ] &&
+     [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
@@ -1189,9 +1189,9 @@ patch_miui_services() {
 
   # Existing HyperMOS patches
   apply_miui_services_floating "$decompile_dir"
-  # RYU skips the Taplus whitelist update; the old HyperMOS patch forces
+  # TNM skips the Taplus whitelist update; the old HyperMOS patch forces
   # the opposite build gate. Keep it only when the audited policy is off.
-  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 0 ]; then
+  if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 0 ]; then
     apply_miui_services_contentextension "$decompile_dir"
   fi
 
@@ -1203,20 +1203,20 @@ patch_miui_services() {
   if [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
-    # Match authentic RYU FCM/FGS gates before generic CN replaces
+    # Match authentic TNM FCM/FGS gates before generic CN replaces
     # IS_INTERNATIONAL_BUILD references with IS_MIUI.
-    if [ "$FEATURE_RYU_NOTIFICATION_POLICY" -eq 1 ]; then
-      python3 "$SCRIPT_DIR/ryu_policy_a16.py" "$decompile_dir" || return 1
+    if [ "$FEATURE_TNM_NOTIFICATION_POLICY" -eq 1 ]; then
+      python3 "$SCRIPT_DIR/tnm_policy_a16.py" "$decompile_dir" || return 1
     fi
-    if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
-      python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-services || return 1
+    if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
+      python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services || return 1
     fi
     if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
       apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
     fi
     apply_miui_services_gboard "$decompile_dir"
-    if [ "$FEATURE_RYU_LOW_POWER_DOZE" -eq 1 ]; then
-      python3 "$SCRIPT_DIR/ryu_doze_a16.py" "$decompile_dir" || return 1
+    if [ "$FEATURE_TNM_LOW_POWER_DOZE" -eq 1 ]; then
+      python3 "$SCRIPT_DIR/tnm_doze_a16.py" "$decompile_dir" || return 1
     fi
   fi
 
@@ -1224,8 +1224,8 @@ patch_miui_services() {
     apply_miui_services_disable_secure_flag "$decompile_dir"
   fi
 
-  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
-    python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-services --verify || return 1
+  if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services --verify || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
@@ -1290,8 +1290,8 @@ patch_miui_framework() {
   # Existing HyperMOS Gboard patch
   apply_miui_framework_gboard "$decompile_dir"
 
-  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
-    python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-framework || return 1
+  if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-framework || return 1
   fi
 
   # CN notification related xBuild substitutions are only enabled by the feature flag.
@@ -1299,8 +1299,8 @@ patch_miui_framework() {
     apply_miui_framework_cn_notification_fix "$decompile_dir"
   fi
 
-  if [ "$FEATURE_RYU_FRAMEWORK_GATES" -eq 1 ]; then
-    python3 "$SCRIPT_DIR/ryu_framework_gates_a16.py" "$decompile_dir" miui-framework --verify || return 1
+  if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-framework --verify || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)

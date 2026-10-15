@@ -1,11 +1,11 @@
 #!/system/bin/sh
 # On-demand configuration of PerfHook's Settings.System observer.
 set -eu
-settings_bin=${RYU_SETTINGS_BIN:-/system/bin/settings}
-user=${RYU_SETTINGS_USER:-0}
+settings_bin=${TNM_SETTINGS_BIN:-/system/bin/settings}
+user=${TNM_SETTINGS_USER:-0}
 get() { "$settings_bin" --user "$user" get system "$1"; }
 put() { "$settings_bin" --user "$user" put system "$1" "$2"; }
-# IDs verified against original RYU HAOTIAN thermal-odm-map.conf.
+# IDs verified against original TNM HAOTIAN thermal-odm-map.conf.
 # Charge, No Limits and TGame remain outside this manual selector.
 resolve() {
     case "$1" in
@@ -32,7 +32,7 @@ resolve() {
 }
 profile() {
     resolve "$1"
-    test -s "${RYU_PROFILE_ROOT:-/odm/etc}/thermal-$file.conf" || {
+    test -s "${TNM_PROFILE_ROOT:-/odm/etc}/thermal-$file.conf" || {
         echo "Profile file missing: thermal-$file.conf" >&2; exit 2;
     }
 }
@@ -67,12 +67,12 @@ finish() {
 }
 begin() {
     umask 077
-    state=${RYU_STATE_ROOT:-/data/adb/tnm/state}
+    state=${TNM_STATE_ROOT:-/data/adb/tnm/state}
     mkdir -p "$state"
     # Locks are scoped to this boot. Do not reap a dead PID here: competing
     # clients could otherwise delete a newly acquired lock after stale checks.
     # Normal exits/signals release it; a hard-killed writer needs a reboot.
-    boot_id=${RYU_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id)}
+    boot_id=${TNM_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id)}
     case "$boot_id" in ''|*[!a-zA-Z0-9-]*) echo 'Boot ID unavailable' >&2; exit 3 ;; esac
     lock="$state/thermal-$boot_id.lock"
     mkdir "$lock" 2>/dev/null || { echo 'Another thermal apply is running' >&2; exit 11; }
@@ -100,13 +100,13 @@ case "${1:-status}" in
         test "$#" -eq 1 || exit 2
         for selected in normal performance hp game huanji phone class0 arvr navigation video videochat camera 4k mgame per-class0 per-video hp-mgame cclassvideo; do
             resolve "$selected"
-            if test -s "${RYU_PROFILE_ROOT:-/odm/etc}/thermal-$file.conf"; then
+            if test -s "${TNM_PROFILE_ROOT:-/odm/etc}/thermal-$file.conf"; then
                 printf '%s:%s:%s\n' "$selected" "$id" "$file"
             fi
         done
         ;;
     global)
-        test "$#" -eq 2 || { echo 'Usage: ryu-thermalctl global PROFILE' >&2; exit 2; }
+        test "$#" -eq 2 || { echo 'Usage: tnm-thermalctl global PROFILE' >&2; exit 2; }
         profile "$2"
         begin
         write_checked projectryu_thermal_per_app 0
@@ -115,7 +115,7 @@ case "${1:-status}" in
         ;;
     perapp)
         shift
-        test "$#" -gt 0 && test "$#" -le 32 || { echo 'Usage: ryu-thermalctl perapp package:profile ...' >&2; exit 2; }
+        test "$#" -gt 0 && test "$#" -le 32 || { echo 'Usage: tnm-thermalctl perapp package:profile ...' >&2; exit 2; }
         profiles=''
         packages=','
         for entry in "$@"; do
@@ -139,5 +139,5 @@ case "${1:-status}" in
         write_checked projectryu_thermal_per_app 1
         committed=1
         ;;
-    *) echo 'Usage: ryu-thermalctl status|profiles|global PROFILE|perapp PACKAGE:PROFILE ...' >&2; exit 2 ;;
+    *) echo 'Usage: tnm-thermalctl status|profiles|global PROFILE|perapp PACKAGE:PROFILE ...' >&2; exit 2 ;;
 esac
