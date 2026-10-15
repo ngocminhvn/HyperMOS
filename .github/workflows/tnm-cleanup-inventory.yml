@@ -1,0 +1,57 @@
+name: Temporary TNM rename inventory
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tnm-cleanup-inventory.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Export source inventory
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, re, subprocess, zipfile
+          root = pathlib.Path('.')
+          paths = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          records, binary_matches = [], []
+          with zipfile.ZipFile('tnm-source-inventory.zip', 'w', zipfile.ZIP_DEFLATED) as output:
+              for name in filter(None, paths):
+                  path = root / name
+                  data = path.read_bytes()
+                  record = {'path': name, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+                  try:
+                      content = data.decode('utf-8')
+                      if '\0' in content:
+                          raise ValueError('binary')
+                  except (UnicodeError, ValueError):
+                      snippets = [m.group().decode('ascii')[:300] for m in re.finditer(rb'[ -~]{6,}', data)
+                                  if re.search(rb'ryu', m.group(), re.I)]
+                      if snippets or re.search('ryu', name, re.I):
+                          binary_matches.append({'path': name, 'strings': snippets[:40]})
+                      if name.endswith('.zip') and re.search('ryu', name, re.I):
+                          output.writestr(name, data)
+                      record['text'] = False
+                  else:
+                      record['text'] = True
+                      output.writestr(name, data)
+                  records.append(record)
+              output.writestr('inventory.json', json.dumps(records, indent=2))
+              output.writestr('binary-matches.json', json.dumps(binary_matches, indent=2))
+          print('Source files:', sum(r['text'] for r in records))
+          print(json.dumps(binary_matches, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tnm-source-inventory
+          path: tnm-source-inventory.zip
+          retention-days: 1
