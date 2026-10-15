@@ -98,7 +98,7 @@ jobs:
           from pathlib import Path
           for filename in sys.argv[1:]:
               data = Path(filename).read_bytes()
-              if len(data) < 112 or not data.startswith(b'dex\\n'):
+              if len(data) < 112 or not data.startswith(b'dex\n'):
                   raise SystemExit(f'Invalid Android DEX: {filename}')
               if int.from_bytes(data[32:36], 'little') != len(data):
                   raise SystemExit(f'DEX file size mismatch: {filename}')
