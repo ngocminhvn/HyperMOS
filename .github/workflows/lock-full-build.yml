@@ -1,0 +1,29 @@
+name: LOCK full build dispatch
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/lock-full-build.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the existing full ROM workflow on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          VALIDATION_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run build.yml --ref main -R "$REPOSITORY" \
+            -f input_url=https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip \
+            -f root_mode=root -f upload_method=drive -f builder_id=LOCK-audit
+          echo "Requested existing full build on main at $VALIDATION_SHA." >> "$GITHUB_STEP_SUMMARY"
+          echo "Dispatch success is not a build/boot success. Follow the HyperMOS ROM Build run." >> "$GITHUB_STEP_SUMMARY"
