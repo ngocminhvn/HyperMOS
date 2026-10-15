@@ -4,6 +4,8 @@ import argparse
 import re
 from pathlib import Path
 
+from ryu_killprocess_a16 import port as port_ryu_uid_kill
+
 from powerkeeper import (
     OLD_PERF_PREFIX,
     TNM_API,
@@ -165,6 +167,7 @@ def main():
     parser.add_argument("--tnm-raw", type=Path, required=True)
     args = parser.parse_args()
     report = adapt_zk_smali(args.zk_raw)
+    report.update(port_ryu_uid_kill(args.zk_raw, args.tnm_raw))
     report.update(graft_tnm_per_app_perf(args.zk_raw, args.tnm_raw))
     report["non_dex_content"] = "Xiaomi stock original"
     print("[TNM ZK LOCAL DEX PORT] " + ", ".join(f"{k}={v}" for k, v in report.items()))

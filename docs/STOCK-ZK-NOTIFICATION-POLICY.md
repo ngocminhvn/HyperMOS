@@ -15,6 +15,16 @@ preserved unchanged. The unavailable HAOTIAN zk_state thermal node is mapped
 to stock temp_state. ZKOS power behavior comes from the executable classes,
 not from its APK manifest/resources/assets or standalone apps.
 
+KillProcessController uses two verified RYU HAOTIAN method bodies,
+`setUidState(IZ)V` and `shouldKillByCheckerPolicy(I)Z`. The first retains
+RYU's conditional UID kill call; the second returns true for checker POLICY
+values 1 or 2, otherwise false. The remainder of KillProcessController and
+the GmsObserver, ActiveStateController and other ZKOS classes remain ZKOS.
+The port verifies the existing RYU-compatible checker field in both class
+layouts, checks dependency references, and fails on unexpected method layouts.
+No unconditional GMS keepalive exception is introduced; RYU's conditional kill
+behavior can still affect background apps and should be tested on-device.
+
 Only the compiled patched DEX replaces the stock PowerKeeper DEX. The final
 APK keeps the stock Xiaomi AndroidManifest.xml, resources, assets, JNI and
 META-INF entries byte-for-byte at the content level; the ROM's original stock

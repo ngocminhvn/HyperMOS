@@ -140,9 +140,11 @@ jobs:
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           python3 -m py_compile \
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
             bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
             bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
             bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_killprocess_a16.py
 
           # Thermal source is already versioned in the repository (no remote artifact).
           thermal_zip="TNM-HAOTIAN-Thermal-Configs (1).zip"
