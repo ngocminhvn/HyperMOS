@@ -1,160 +1,163 @@
 #!/usr/bin/env python3
-"""Offline LOCK regression checks. Never execute the bundled ARM64 helper."""
+"""LOCK installer regression tests. Native compilation is mocked only in unit fixtures."""
 import hashlib
-import pathlib
+import os
+from pathlib import Path
 import shutil
-import struct
-import subprocess
+import stat
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
-PACKAGE = pathlib.Path(__file__).resolve().parent
-SCRIPT = PACKAGE / "update.sh"
-BINARY = PACKAGE / "system_ext/xbin/ryu_helper"
-EXPECTED = "6d82fc8e92089ce24226636ec4d24deb15655d7a7473d37d24fa4ae53588c1df"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import integrate as lock
+
+BINARY = Path(__file__).resolve().parent / 'system_ext/xbin/ryu_helper'
 
 
-class LockAuditTest(unittest.TestCase):
+class LockIntegrationTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="hypermos-lock-")
+        self.temp = tempfile.TemporaryDirectory(prefix='lock-install-test-')
         self.addCleanup(self.temp.cleanup)
-        self.work = pathlib.Path(self.temp.name)
-        self.images = self.work / "build/baserom/images"
-        self.stock = self.images / "system/system/etc/init/hw/init.rc"
-        self.put("system/system/etc/init/hw/init.rc",
-                 "# Xiaomi fixture\non post-fs\n    mkdir /mnt/test 0755 root root\n")
-        self.put("system_ext/etc/selinux/system_ext_sepolicy.cil", "; original policy\n")
-        self.put("system_ext/etc/selinux/system_ext_file_contexts",
-                 "/system_ext(/.*)? u:object_r:system_file:s0\n")
-        self.put("config/system_ext_file_contexts",
-                 "/system_ext(/.*)? u:object_r:system_file:s0\n")
-        self.put("vendor/etc/selinux/precompiled_sepolicy", "original precompiled policy")
-        self.put("odm/etc/selinux/precompiled_sepolicy.plat_sepolicy_and_mapping.sha256",
-                 "original policy digest")
-        self.binary = self.work / "bin/package/LOCK/system_ext/xbin/ryu_helper"
-        self.binary.parent.mkdir(parents=True)
+        self.work = Path(self.temp.name)
+        self.images = self.work / 'images'
+        self.init = self.put('system/system/etc/init/hw/init.rc',
+                            b'# Xiaomi original\non post-fs\n    mkdir /mnt/example 0755 root root\n')
+        self.original_init = self.init.read_bytes()
+        self.policy = self.put('system_ext/etc/selinux/system_ext_sepolicy.cil', b'; original CIL\n')
+        self.contexts = [self.put(p, b'/system_ext(/.*)? u:object_r:system_file:s0\n') for p in
+                         ['config/system_ext_file_contexts',
+                          'system_ext/etc/selinux/system_ext_file_contexts']]
+        self.dac = self.put('config/system_ext_fs_config', b'system_ext 0 0 0755\n')
+        self.put('vendor/etc/selinux/precompiled_sepolicy', b'old compiled policy')
+        self.put('odm/etc/selinux/precompiled_sepolicy.plat_sepolicy_and_mapping.sha256', b'old digest')
+        self.put('system/system/etc/init/tnm.rc', b'on boot\n    setprop tnm.ready 1\n')
+        for relative, target in [
+            ('bin/linker64', '/apex/com.android.runtime/bin/linker64'),
+            ('lib64/libc.so', '/apex/com.android.runtime/lib64/bionic/libc.so'),
+            ('lib64/libdl.so', '/apex/com.android.runtime/lib64/bionic/libdl.so'),
+        ]:
+            path = self.images / 'system/system' / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(target)
+        self.helper = self.images / 'system_ext/xbin/ryu_helper'
+        self.helper.parent.mkdir()
+        self.binary = self.work / 'ryu_helper'
         shutil.copyfile(BINARY, self.binary)
-        # A log-only substitute, so no other ROM component is invoked.
-        (self.work / "functions.sh").write_text(
-            'error() { echo "$*" >&2; }\n'
-            'mods() { echo "$*"; }\ninfo() { echo "$*"; }\n')
+        self.compiler = patch.object(lock, 'verify_policy', side_effect=self.compile_candidate).start()
+        self.init_verifier = patch.object(lock, 'verify_init', return_value={'status': 'unavailable'}).start()
+        self.addCleanup(patch.stopall)
 
-    def put(self, relative, text):
+    def put(self, relative, data):
         path = self.images / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_bytes(data)
+        return path
+
+    def compile_candidate(self, root, report, candidate):
+        self.assertEqual(root, self.images)
+        self.assertEqual(candidate.read_bytes().count(lock.POLICY_BLOCK), 1)
+        return {'returncode': 0, 'unit_test_mock': True}
+
+    def apply(self, check=False):
+        return lock.integrate(self.images, self.binary, self.work / 'reports', check)
 
     def snapshot(self):
-        return {
-            str(p.relative_to(self.images)): (p.read_bytes(), p.stat().st_mode)
-            for p in self.images.rglob("*") if p.is_file()
-        }
+        return {str(p.relative_to(self.images)):
+                ('symlink', os.readlink(p)) if p.is_symlink() else
+                (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+                for p in self.images.rglob('*') if p.is_file() or p.is_symlink()}
 
-    def run_audit(self, success, diagnostic=None):
+    def assert_rejected_without_writes(self):
         before = self.snapshot()
-        for _ in range(2):
-            result = subprocess.run(
-                ["bash", str(SCRIPT)], cwd=self.work, text=True,
-                capture_output=True, timeout=30, check=False)
-            self.assertEqual(result.returncode == 0, success,
-                             result.stdout + result.stderr)
-            if diagnostic:
-                self.assertIn(diagnostic, result.stderr)
-            self.assertEqual(self.snapshot(), before)
+        with self.assertRaises((ValueError, OSError)):
+            self.apply()
+        self.assertEqual(self.snapshot(), before)
 
-    def test_payload_identity_and_architecture(self):
-        payload = BINARY.read_bytes()
-        self.assertEqual(hashlib.sha256(payload).hexdigest(), EXPECTED)
-        self.assertEqual(payload[:6], b"\x7fELF\x02\x01")  # ELF64, little endian
-        self.assertEqual(struct.unpack_from("<H", payload, 18)[0], 183)  # AArch64
+    def test_install_preserves_xiaomi_and_tnm_and_stages_exact_donor_action(self):
+        tnm = (self.images / 'system/system/etc/init/tnm.rc').read_bytes()
+        result = self.apply()
+        self.assertEqual(self.init.read_bytes(), self.original_init + b'\n' + lock.INIT_BLOCK)
+        self.assertEqual(self.init.read_bytes().count(lock.RUNTIME.encode()), 9)
+        self.assertNotIn(b'persist.sys.projectryu.blacklist', self.init.read_bytes())
+        self.assertEqual(self.helper.read_bytes(), self.binary.read_bytes())
+        self.assertEqual(stat.S_IMODE(self.helper.stat().st_mode), 0o755)
+        self.assertIn(b'system_ext/xbin/ryu_helper 0 2000 0755\n', self.dac.read_bytes())
+        for path in self.contexts:
+            self.assertIn((lock.RUNTIME + ' ' + lock.CONTEXT).encode(), path.read_bytes())
+        self.assertEqual((self.images / 'system/system/etc/init/tnm.rc').read_bytes(), tnm)
+        self.assertFalse(list(self.images.rglob('precompiled_sepolicy*')))
+        self.assertEqual(result['helper_commands'], 9)
+        self.assertFalse(result['runtime_tested'])
 
-    def test_clean_repeat_preserves_init_selinux_and_unrelated_tnm(self):
-        self.put("system/system/etc/init/tnm.rc", "on boot\n    setprop tnm.ready 1\n")
-        self.run_audit(True)
-        self.assertFalse((self.images / "system_ext/xbin/ryu_helper").exists())
+    def test_repeated_install_and_check_do_not_change_image(self):
+        self.apply()
+        first = self.snapshot()
+        self.apply()
+        self.apply(check=True)
+        self.assertEqual(self.snapshot(), first)
 
-    def test_standalone_lock_trigger(self):
-        self.put("system/system/etc/init/tnm.rc",
-                 "on post-fs\n    exec -- /system_ext/xbin/ryu_helper -n ro.boot.flash.locked 1\n")
-        self.run_audit(False, "existing helper")
+    def test_compile_failure_keeps_original_image_and_caches(self):
+        self.compiler.side_effect = None
+        self.compiler.return_value = {'returncode': 1}
+        self.assert_rejected_without_writes()
 
-    def test_appended_duplicate_actions(self):
-        self.stock.write_text(self.stock.read_text() +
-                              "\non post-fs\n    exec -- /system_ext/xbin/ryu_helper\n" * 2)
-        self.run_audit(False, "existing helper")
+    def test_native_init_failure_rolls_back_installation(self):
+        self.init_verifier.return_value = {'status': 'failed'}
+        self.assert_rejected_without_writes()
 
-    def test_legacy_filename_even_when_empty(self):
-        self.put("system/system/etc/init/hypermos-lock.rc", "")
-        self.run_audit(False, "existing helper")
+    def test_changed_or_duplicate_managed_block_is_rejected(self):
+        self.apply()
+        self.init.write_bytes(self.init.read_bytes() + lock.INIT_BLOCK)
+        self.assert_rejected_without_writes()
 
-    def test_stale_cil(self):
-        self.put("system_ext/etc/selinux/system_ext_sepolicy.cil", "(type ryu_helper_exec)\n")
-        self.run_audit(False, "existing helper")
+    def test_legacy_standalone_trigger_is_rejected(self):
+        self.put('system/system/etc/init/tnm.rc', b'on post-fs\n    exec -- /system_ext/xbin/ryu_helper\n')
+        self.assert_rejected_without_writes()
 
-    def test_legacy_cil(self):
-        self.put("system_ext/etc/selinux/system_ext_sepolicy.cil", "(type tnm_resetprop_exec)\n")
-        self.run_audit(False, "existing helper")
+    def test_unmanaged_appended_action_is_rejected(self):
+        self.init.write_bytes(self.original_init + b'on post-fs\n    exec -- /system_ext/xbin/ryu_helper\n')
+        self.assert_rejected_without_writes()
 
-    def test_stale_image_context(self):
-        self.put("system_ext/etc/selinux/system_ext_file_contexts",
-                 "/system_ext/xbin/ryu_helper u:object_r:ryu_helper_exec:s0\n")
-        self.run_audit(False, "existing helper")
+    def test_unmanaged_custom_type_is_rejected(self):
+        self.policy.write_bytes(b'(type ryu_helper_exec)\n')
+        self.assert_rejected_without_writes()
 
-    def test_stale_repack_context(self):
-        self.put("config/system_ext_file_contexts",
-                 "/system_ext/xbin/ryu_helper u:object_r:ryu_helper_exec:s0\n")
-        self.run_audit(False, "existing helper")
+    def test_conflicting_context_is_rejected(self):
+        self.contexts[0].write_bytes(b'/system_ext/xbin/ryu_helper u:object_r:system_file:s0\n')
+        self.assert_rejected_without_writes()
 
-    def test_stale_installed_payloads(self):
-        for name in ("ryu_helper", "hypermos-resetprop"):
-            with self.subTest(name=name):
-                path = "system_ext/xbin/" + name
-                self.put(path, "old payload")
-                self.run_audit(False, "existing helper")
-                (self.images / path).unlink()
+    def test_metadata_symlink_outside_image_is_rejected(self):
+        outside = self.work / 'host-contexts'
+        outside.write_bytes(b'host file')
+        self.contexts[0].unlink()
+        self.contexts[0].symlink_to(outside)
+        self.assert_rejected_without_writes()
 
-    def test_missing_stock_init(self):
-        self.stock.unlink()
-        self.run_audit(False, "stock /system/etc/init/hw/init.rc missing")
+    def test_damaged_bundled_helper_is_rejected(self):
+        self.binary.write_bytes(self.binary.read_bytes() + b'x')
+        self.assert_rejected_without_writes()
 
-    def test_stale_repack_dac_metadata(self):
-        self.put("config/system_ext_fs_config",
-                 "system_ext/xbin/ryu_helper 0 0 755 capabilities=0x0\n")
-        self.run_audit(False, "existing helper")
+    def test_missing_bionic_dependency_is_rejected(self):
+        (self.images / 'system/system/lib64/libdl.so').unlink()
+        self.assert_rejected_without_writes()
 
-    def test_stale_precompiled_policy(self):
-        self.put("vendor/etc/selinux/precompiled_sepolicy",
-                 "binary-policy\x00ryu_helper_exec\x00")
-        self.run_audit(False, "existing helper")
+    def test_partial_installation_is_rejected(self):
+        self.init.write_bytes(self.original_init + lock.INIT_BLOCK)
+        self.assert_rejected_without_writes()
 
-    def test_image_metadata_symlink_cannot_escape_tree(self):
-        outside = self.work / "outside_file_contexts"
-        outside.write_text("host file, not part of extracted ROM\n")
-        metadata = self.images / "config/system_ext_file_contexts"
-        metadata.unlink()
-        metadata.symlink_to(outside)
-        self.run_audit(False, "outside image tree")
-        metadata.unlink()
-        metadata.write_text("original context\n")
-        external_init = self.work / "external_init"
-        (external_init / "hw").mkdir(parents=True)
-        (external_init / "hw/init.rc").write_text("on post-fs\n    setprop test.ready 1\n")
-        shutil.rmtree(self.stock.parent.parent)
-        self.stock.parent.parent.symlink_to(external_init, target_is_directory=True)
-        self.run_audit(False, "outside image tree")
+    def test_check_fails_for_missing_or_modified_staging(self):
+        with self.assertRaises(ValueError):
+            self.apply(check=True)
+        self.apply()
+        self.dac.write_bytes(self.dac.read_bytes().replace(b'0 2000 0755', b'0 0 0644'))
+        with self.assertRaises(ValueError):
+            self.apply(check=True)
 
-    def test_missing_system_ext(self):
-        shutil.rmtree(self.images / "system_ext")
-        self.run_audit(False, "system_ext tree missing")
-
-    def test_missing_binary(self):
-        self.binary.unlink()
-        self.run_audit(False, "bundled RYU helper missing")
-
-    def test_changed_binary(self):
-        self.binary.write_bytes(self.binary.read_bytes() + b"x")
-        self.run_audit(False, "RYU helper changed")
+    def test_donor_payload_hash(self):
+        self.assertEqual(hashlib.sha256(BINARY.read_bytes()).hexdigest(), lock.HASH)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main(verbosity=2)

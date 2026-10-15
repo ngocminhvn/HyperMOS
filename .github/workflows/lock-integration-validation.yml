@@ -1,0 +1,83 @@
+name: LOCK integration validation
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/lock-integration-validation.yml']
+  workflow_dispatch:
+    inputs:
+      evidence_run_id:
+        description: Successful LOCK ROM evidence run with donor and stock artifacts
+        required: true
+        default: '38676092039'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            bin/package/LOCK
+            functions.sh
+          sparse-checkout-cone-mode: false
+          lfs: true
+      - name: Install host validators
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y secilc binutils
+          bash -n bin/package/LOCK/update.sh
+          python3 bin/package/LOCK/test_update.py
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.evidence_run_id || '38676092039' }}
+          pattern: lock-rom-evidence-*
+          merge-multiple: true
+          path: evidence
+      - name: Validate installation against real extracted stock metadata and CIL
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, shutil
+          images = pathlib.Path('build/baserom/images')
+          images.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copytree('evidence/stock/files', images)
+          wanted = {'system/system/bin/linker64', 'system/system/lib64/libc.so',
+                    'system/system/lib64/libdl.so'}
+          for item in json.load(open('evidence/stock/files.json')):
+              if item['path'] in wanted and 'symlink' in item:
+                  path = images / item['path']
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.symlink_to(item['symlink'])
+          PY
+          bash bin/package/LOCK/update.sh
+          python3 - <<'PY'
+          import hashlib, json, pathlib, subprocess
+          root = pathlib.Path('build/baserom/images')
+          def snapshot():
+              return {str(p): (str(p.readlink()) if p.is_symlink() else hashlib.sha256(p.read_bytes()).hexdigest(),
+                               p.lstat().st_mode) for p in root.rglob('*') if p.is_file() or p.is_symlink()}
+          first = snapshot()
+          subprocess.run(['bash', 'bin/package/LOCK/update.sh'], check=True)
+          subprocess.run(['bash', 'bin/package/LOCK/update.sh', '--check'], check=True)
+          assert first == snapshot(), 'Repeat build changed installed image'
+          original = pathlib.Path('evidence/stock/files/system/system/etc/init/hw/init.rc').read_bytes()
+          current = (root/'system/system/etc/init/hw/init.rc').read_bytes()
+          assert current.startswith(original), 'Xiaomi init bytes were changed'
+          assert current.count(b'/system_ext/xbin/ryu_helper -n ') == 9
+          assert b'persist.sys.projectryu.blacklist' not in current
+          print(json.dumps(json.load(open('build/reports/lock/integration.json')), indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: lock-integration-${{ github.sha }}
+          path: build/reports/lock/
+          if-no-files-found: warn
+          retention-days: 7

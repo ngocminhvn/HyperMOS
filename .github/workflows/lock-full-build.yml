@@ -1,9 +1,10 @@
 name: LOCK full build dispatch
 
 on:
-  push:
+  workflow_run:
+    workflows: ['LOCK integration validation']
+    types: [completed]
     branches: [main]
-    paths: ['.github/workflows/lock-full-build.yml']
   workflow_dispatch:
 
 permissions:
@@ -12,6 +13,7 @@ permissions:
 
 jobs:
   dispatch:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -19,9 +21,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          VALIDATION_SHA: ${{ github.sha }}
+          VALIDATION_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
+          current=$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          [ "$current" = "$VALIDATION_SHA" ] || {
+            echo 'main changed after validation; validate the new head before building' >&2
+            exit 1
+          }
           gh workflow run build.yml --ref main -R "$REPOSITORY" \
             -f input_url=https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip \
             -f root_mode=root -f upload_method=drive -f builder_id=LOCK-audit

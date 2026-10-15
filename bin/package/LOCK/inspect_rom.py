@@ -119,7 +119,7 @@ def collect(root, evidence):
     (evidence / 'files.json').write_text(json.dumps(records, indent=2) + '\n')
 
 
-def verify_policy(root, evidence):
+def verify_policy(root, evidence, system_ext_policy=None):
     platform = root / 'system/system/etc/selinux'
     if not platform.is_dir():
         platform = root / 'system/etc/selinux'
@@ -131,7 +131,8 @@ def verify_policy(root, evidence):
     optional = [platform / 'mapping' / (version + '.compat.cil')]
     for part in ('system_ext', 'product'):
         folder = root / part / 'etc/selinux'
-        optional += [folder / (part + '_sepolicy.cil'),
+        selected = system_ext_policy if part == 'system_ext' and system_ext_policy else folder / (part + '_sepolicy.cil')
+        optional += [selected,
                      folder / 'mapping' / (version + '.cil'),
                      folder / 'mapping' / (version + '.compat.cil')]
     inputs += [p for p in optional if p.is_file()]
