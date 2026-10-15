@@ -48,8 +48,8 @@ def validate(zk_dex, ryu_dex, output):
         r = root / "ryu" / "smali" / "classes"
         z.mkdir(parents=True)
         r.mkdir(parents=True)
-        run("baksmali", "disassemble", "--api", "36", "--jobs", "2", zk_dex, "-o", z)
-        run("baksmali", "disassemble", "--api", "36", "--jobs", "2", ryu_dex, "-o", r)
+        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", zk_dex, "-o", z)
+        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", ryu_dex, "-o", r)
 
         names = ("KillProcessController", "GmsObserver", "ActiveStateController")
         originals = {}
@@ -108,7 +108,7 @@ def validate(zk_dex, ryu_dex, output):
             raise ValueError("Recompiled DEX is missing or suspiciously small")
         compiled = root / "compiled"
         compiled.mkdir()
-        run("baksmali", "disassemble", "--api", "36", "--jobs", "2", dex_out, "-o", compiled)
+        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", dex_out, "-o", compiled)
         compiled_files = files(compiled)
         if set(compiled_files) != set(staged):
             raise ValueError(
