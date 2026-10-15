@@ -32,6 +32,13 @@ def files(root):
     }
 
 
+def unique_class(root, name):
+    hits = list(root.rglob(name + ".smali"))
+    if len(hits) != 1:
+        raise ValueError(f"Expected one {name} in {root}, found {len(hits)}")
+    return hits[0]
+
+
 def validate(zk_dex, ryu_dex, output):
     results = {"device": "HAOTIAN Android 16", "source": "pinned local RYU and ZKOS DEX",
                "rom_built": False, "real_apk_tested": False, "boot_tested": False}
@@ -47,10 +54,9 @@ def validate(zk_dex, ryu_dex, output):
         names = ("KillProcessController", "GmsObserver", "ActiveStateController")
         originals = {}
         for name in names:
-            path = z / CONTROLLER / (name + ".smali")
-            donor = r / CONTROLLER / (name + ".smali")
-            if not path.is_file() or not donor.is_file():
-                raise ValueError(f"Missing actual {name} in one of the decoded DEXs")
+            path = unique_class(z, name)
+            donor = unique_class(r, name)
+            print(f"[DEX CLASS] {name}: ZKOS={path.relative_to(z)}, RYU={donor.relative_to(r)}")
             originals[name] = path.read_text(encoding="utf-8")
         ryu_methods = get_methods((r / CONTROLLER / "KillProcessController.smali").read_text())
         source_methods = get_methods(originals["KillProcessController"])
@@ -75,7 +81,7 @@ def validate(zk_dex, ryu_dex, output):
                 raise ValueError(f"Missing RYU UID policy operation: {token}")
         for name in ("GmsObserver", "ActiveStateController"):
             old = get_methods(originals[name])
-            new = get_methods((z / CONTROLLER / (name + ".smali")).read_text())
+            new = get_methods(unique_class(z, name).read_text())
             if old.keys() != new.keys():
                 raise ValueError(f"{name} method inventory changed")
         perf_dir = z / "com/android/tnm/perf"
