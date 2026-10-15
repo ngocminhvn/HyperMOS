@@ -84,6 +84,32 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Fetch audited ZKOS PowerKeeper artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/zk-powerkeeper"
+          mkdir -p "$target"
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts"
+          metadata="$target/artifacts.json"
+          curl -fsSL --retry 3 -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api?name=ZKOS-HAOTIAN-PowerKeeper&per_page=100" -o "$metadata"
+          artifact_id="$(jq -er '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty' "$metadata")" || {
+            echo "::error::Run Collect ZKOS HAOTIAN PowerKeeper first; no live donor artifact exists"
+            exit 1
+          }
+          curl -fsSL --retry 3 -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api/${artifact_id}/zip" -o "$target/artifact.zip"
+          unzip -tq "$target/artifact.zip"
+          unzip -jo "$target/artifact.zip" 'PowerKeeperZK.apk' -d "$target"
+          ref="$target/PowerKeeperZK.apk"
+          echo "559665acc17f0e6c900cbaf644331ea431d1c59519a0c44a944b6cb16d7c003f  $ref" | sha256sum -c -
+          echo "ZK_POWERKEEPER_APK=$ref" >> "$GITHUB_ENV"
+
       - name: Prepare build environment
         shell: bash
         run: |
@@ -115,6 +141,13 @@ jobs:
 
           # Check the LOCK entrypoint before downloading ROM.
           bash -n bin/package/LOCK/update.sh
+          # Fast-fail the full ZKOS PowerKeeper + TNM per-app hook port.
+          bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+          python3 -m py_compile \
+            bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
+            bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
+            bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
 
           # Thermal source is already versioned in the repository (no remote artifact).
           thermal_zip="TNM-HAOTIAN-Thermal-Configs (1).zip"
