@@ -231,9 +231,9 @@ def patch_perfhook_write_verify(smali: str) -> str:
     # verified source uses :cond_78 and a .line directive here; the previous
     # :cond_2 literal was never present in the actual DEX.
     mismatch = re.compile(
-        r"(?m)^([ \\t]*)if-nez v1, (:cond_[0-9a-f]+)[ \\t]*\n"
-        r"((?:[ \\t]*\n|[ \\t]*\\.line[ \\t]+\\d+[ \\t]*\n)*)"
-        r"([ \\t]*new-instance v1, Ljava/lang/StringBuilder;)"
+        r"(?m)^([ \t]*)if-nez v1, (:cond_[0-9a-f]+)[ \t]*\n"
+        r"((?:[ \t]*\n|[ \t]*\.line[ \t]+\d+[ \t]*\n)*)"
+        r"([ \t]*new-instance v1, Ljava/lang/StringBuilder;)"
     )
     matches = list(mismatch.finditer(method))
     if len(matches) != 1:
