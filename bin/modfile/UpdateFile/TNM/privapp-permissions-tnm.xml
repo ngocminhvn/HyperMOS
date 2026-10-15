@@ -9,6 +9,8 @@
     -->
     <privapp-permissions package="com.android.trinhngocminh">
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
+        <!-- Read Xiaomi AppOps as TNM app UID; no global write/grant rights. -->
+        <permission name="android.permission.GET_APP_OPS_STATS" />
         <permission name="android.permission.REBOOT" />
         <permission name="android.permission.POWER_SAVER" />
         <permission name="android.permission.DUMP" />
