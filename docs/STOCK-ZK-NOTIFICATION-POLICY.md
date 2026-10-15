@@ -22,14 +22,13 @@ values 1 or 2, otherwise false. The remainder of KillProcessController and
 the GmsObserver, ActiveStateController and other ZKOS classes remain ZKOS.
 The port verifies the existing RYU-compatible checker field in both class
 layouts, checks dependency references, and fails on unexpected method layouts.
-RYU's imported UID decision has no explicit hardcoded GMS exclusion in the
-two transplanted methods. HyperMOS adds a **single package-name guard**
-after the existing UID-to-package lookup inside its deny/kill branch:
-`com.google.android.gms` returns before the conditional ProcessManager.kill
-path. This applies to the RYU KillProcessController port only, not every
-PowerKeeper controller or Android system process-kill mechanism. It does not
-add GMS to any global unrestricted wakelock, Doze, alarm or network whitelist.
-Runtime compatibility and GMS push delivery still require on-device testing.
+No HyperMOS-specific package-name exception is injected for GMS. The RYU
+`setUidState` and `shouldKillByCheckerPolicy` method bodies are installed
+unchanged apart from existing compatibility adaptations. RYU's handling of
+allowed UIDs, locked applications, visible windows and checker POLICY=1/2
+is preserved. As with RYU, this controller can stop GMS if its effective
+policy allows it; any independent GMS notification delivery settings remain
+outside this port. Verify notifications and standby power on the device.
 
 Only the compiled patched DEX replaces the stock PowerKeeper DEX. The final
 APK keeps the stock Xiaomi AndroidManifest.xml, resources, assets, JNI and

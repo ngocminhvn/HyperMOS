@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ryu_killprocess_a16 import port, check_abi, get_methods, SET_UID, RULE_CHECK, CHECKER_FIELD, protect_gms_uid, GMS_MARKER, GMS_PACKAGE
+from ryu_killprocess_a16 import port, check_abi, get_methods, SET_UID, RULE_CHECK, CHECKER_FIELD
 
 ROOT = ".class public Lcom/miui/powerkeeper/controller/KillProcessController;\n" \
        ".super Lcom/miui/powerkeeper/controller/Controller;\n" \
@@ -21,6 +21,8 @@ RYU_UID = """.method private setUidState(IZ)V
     move-result v0
     invoke-static {p2, p1}, Lcom/miui/powerkeeper/utils/PackageUtil;->getPackageNameByUid(Landroid/content/Context;I)Ljava/lang/String;
     move-result-object p2
+    invoke-static {p2, v3}, Lmiui/process/ProcessManager;->isLockedApplication(Ljava/lang/String;I)Z
+    invoke-interface {v3, p1}, Landroid/view/IWindowManager;->checkAppOnWindowsStatus(I)Z
     invoke-static {v1}, Lmiui/process/ProcessManager;->kill(Lmiui/process/ProcessConfig;)Z
     return-void
 .end method
@@ -62,33 +64,33 @@ class RyuKillProcessPortTest(unittest.TestCase):
             self.assertEqual(len(get_methods(body)), 3)
             self.assertIn("->kill(", get_methods(body)[SET_UID])
             self.assertIn('"POLICY"', get_methods(body)[RULE_CHECK])
-            self.assertTrue(report["gms_policy_exemption_added"])
-            self.assertIn('"com.google.android.gms"', get_methods(body)[SET_UID])
-            self.assertIn("if-eqz v6, :tnm_gms_uid_continue", get_methods(body)[SET_UID])
-            self.assertEqual(get_methods(body)[SET_UID].count(".registers 10"), 1)
+            self.assertFalse(report["gms_policy_exemption_added"])
+            self.assertEqual(get_methods(body)[SET_UID], RYU_UID.strip())
+            self.assertEqual(get_methods(body)[RULE_CHECK], RYU_HELPER.strip())
+            self.assertIn("isLockedApplication", get_methods(body)[SET_UID])
+            self.assertIn("checkAppOnWindowsStatus", get_methods(body)[SET_UID])
+            self.assertNotIn("tnm_gms_uid_continue", body)
+            self.assertNotIn('"com.google.android.gms"', body)
+            self.assertIn(".registers 9", get_methods(body)[SET_UID])
             self.assertFalse(port(zk, ryu)["new_checker_method_added"])
 
-    def test_gms_guard_only_after_candidate_package_lookup(self):
-        updated, added = protect_gms_uid(RYU_UID)
-        self.assertTrue(added)
-        self.assertEqual(updated.count(GMS_MARKER), 2)
-        self.assertLess(updated.index("move-result-object p2"),
-                        updated.index('"' + GMS_PACKAGE + '"'))
-        self.assertLess(updated.index('"' + GMS_PACKAGE + '"'),
-                        updated.index("Lmiui/process/ProcessManager;->kill("))
-        self.assertIn("invoke-virtual {v6, p2}", updated)
-        self.assertEqual(updated.count("Lmiui/process/ProcessManager;->kill("), 1)
-
-    def test_gms_guard_rejects_unknown_layout(self):
-        for invalid in (
-            RYU_UID.replace(".registers 9", ".registers 8"),
-            RYU_UID.replace("move-result-object p2", "move-result-object v0"),
-            RYU_UID.replace("    move-result-object p2\n", ""),
-            RYU_UID.replace("    return-void\n.end method\n", "    move-object v6, v0\n    return-void\n.end method\n"),
-        ):
-            with self.subTest(invalid=invalid[:60]):
-                with self.assertRaises(ValueError):
-                    protect_gms_uid(invalid)
+    def test_retains_ryu_policy_without_gms_exception(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            zk, ryu = self.roots(
+                Path(temporary),
+                ROOT + STOCK_UID + OTHER,
+                ROOT + RYU_UID + RYU_HELPER + OTHER,
+            )
+            port(zk, ryu)
+            body = next(zk.rglob("KillProcessController.smali")).read_text()
+            uid = get_methods(body)[SET_UID]
+            policy = get_methods(body)[RULE_CHECK]
+            self.assertEqual(uid, RYU_UID.strip())
+            self.assertEqual(policy, RYU_HELPER.strip())
+            self.assertIn("shouldKillByCheckerPolicy", uid)
+            self.assertIn("isLockedApplication", uid)
+            self.assertIn("checkAppOnWindowsStatus", uid)
+            self.assertNotIn("com.google.android.gms", uid)
 
     def test_fail_when_checker_field_missing(self):
         with self.assertRaises(ValueError):
