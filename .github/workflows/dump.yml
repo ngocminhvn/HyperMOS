@@ -1,0 +1,29 @@
+name: dump
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Direct ROM ZIP URL (OTA, fastboot or modified ROM)'
+        required: true
+        type: string
+      upload_method:
+        description: 'Save extracted dump to'
+        required: true
+        type: choice
+        default: artifact
+        options:
+          - artifact
+          - drive
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    # Launcher only: all dump logic remains on feature/dump-workflow.
+    uses: ngocminhvn/HyperMOS/.github/workflows/dump.yml@feature/dump-workflow
+    with:
+      rom_url: ${{ inputs.rom_url }}
+      upload_method: ${{ inputs.upload_method }}
+    secrets: inherit
