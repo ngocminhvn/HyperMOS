@@ -36,6 +36,14 @@ class SourceForgeDownloadTests(unittest.TestCase):
         self.assertEqual(sf.normalize(self.BASE + "?ts=123")[0],
                          self.BASE + "/download")
 
+    def test_sourceforge_mirror_redirect_url(self):
+        mirrored = (
+            "https://master.dl.sourceforge.net/project/eliteroms/"
+            "HyperOS-STABLE-UPDATES/HyperOS-v3.0/" + self.FILE
+            + "?viasf=1&fid=test"
+        )
+        self.assertEqual(sf.normalize(mirrored)[0], self.BASE + "/download")
+
     def test_downloads_sourceforge_project_url(self):
         direct = self.BASE.replace(
             "https://sourceforge.net/projects/eliteroms/files/",
