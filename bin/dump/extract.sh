@@ -5,7 +5,15 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ZIP="$1"; WORK="$2"
 mkdir -p "$WORK/partitions" "$WORK/images" "$WORK/input"
 PARTS="system system_ext product vendor odm mi_ext mi_product system_dlkm vendor_dlkm odm_dlkm product_dlkm"
+MODE="${3:-base}"
+case "$MODE" in
+  base) PARTS="system system_ext product" ;;
+  full) ;;
+  *) echo "[ERROR] Unsupported dump mode: $MODE"; exit 1 ;;
+esac
 unzip -Z1 "$ZIP" > "$WORK/entries.txt"
+echo "[DUMP] ZIP entries: $(wc -l < "$WORK/entries.txt"), mode=$MODE"
+sed -n '1,65p' "$WORK/entries.txt" | sed 's/^/[ZIP] /'
 python3 - "$WORK/entries.txt" <<'PY'
 from pathlib import PurePosixPath
 import sys
@@ -62,8 +70,8 @@ elif grep -Eq '\.new\.dat\.br$' "$WORK/entries.txt"; then
     rm -f "$WORK/input/$part.new.dat" "$WORK/input/$part.transfer.list"
   done
 else
-  echo '[ERROR] Need payload.bin, super.img or *.new.dat.br'
-  exit 1
+  echo '[DUMP] Standard layout not found, inspecting custom ROM formats'
+  python3 "$ROOT/bin/dump/archive_fallback.py" "$ZIP" "$WORK" "$MODE"
 fi
 
 count=0
@@ -90,5 +98,8 @@ for part in $PARTS; do
   count=$((count + 1))
   rm -f "$img" "$WORK/input/$part.raw.img"
 done
-(( count > 0 )) || { echo '[ERROR] No supported filesystem extracted'; exit 1; }
-echo "[DUMP] Extracted $count partitions"
+if (( count == 0 )) && [[ -z "$(find "$WORK/images" -type f -print -quit)" ]]; then
+  echo '[ERROR] No usable partition or direct ROM files extracted; see entries.txt'
+  exit 1
+fi
+echo "[DUMP] Extracted $count partition images"
