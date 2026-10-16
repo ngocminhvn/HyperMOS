@@ -56,8 +56,16 @@ Traced local-config path in ZK/EU:
 \`bgKillDelayMinutesHot\` -> \`HOT_DELAY_MINUTE\`.
 The conditional UID kill, however, checks \`POLICY\` (values 1 and 2), not
 \`HOT_DELAY_MINUTE\`. These config entries alone **do not prove** that
-\`com.google.android.gms\` is immune to \`ProcessManager.kill()\`; no new GMS
-unrestricted/polling policy is applied in this ABI fix.
+\`com.google.android.gms\` is immune to \`ProcessManager.kill()\`. HyperMOS
+now adds a *separate event-only* \`tnmIsGmsUid\` check in
+\`KillProcessController.shouldKillByCheckerPolicy\`. When Xiaomi's
+\`PackageUtil.getPackageNameByUid\` resolves to
+\`com.google.android.gms\`, the helper returns false before the conditional
+kill. This adds one package lookup only when the existing kill-decision
+path is entered. No polling, daemon, broad Doze bypass or unrestricted
+wakelock policy is introduced; other PowerKeeper kill routes are untouched.
+If package-to-UID resolution fails or the UID is shared with another
+package, this scoped check cannot prove absolute GMS protection.
 
 A preflight verifies the ABI restoration and aborts if the donor interface,
 two known implementations, or backing per-UID policy fields drift.
