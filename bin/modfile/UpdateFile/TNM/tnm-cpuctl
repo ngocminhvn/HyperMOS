@@ -44,7 +44,7 @@ op_floor() {
 }
 apply() {
     [ "$#" -eq 1 ] || exit 2
-    case "$1" in ''|*[!0-9]*) exit 2 ;; esac
+    case "$1" in ''|0*|*[!0-9]*) exit 2 ;; esac
     [ "$1" -ge 80 ] && [ "$1" -le 100 ] || { echo percent_out_of_range >&2; exit 2; }
     pct=$1
     [ ! -L /data/adb/tnm ] && [ ! -L /data/adb/tnm/state ] && [ ! -L "$STATE" ] || exit 4
@@ -104,8 +104,14 @@ apply() {
             exit 5
         fi
         printf '%s %s\n' "$name" "$old" >> "$previous"
-        actual=$(readnum "$node") || exit 5
-        [ "$actual" -le "$target" ] || { echo cpu_percent_readback_failed >&2; exit 5; }
+        actual=$(readnum "$node") || actual=0
+        if [ "$actual" -le 0 ] || [ "$actual" -gt "$target" ]; then
+            while read -r old_name old_value; do
+                printf '%s\n' "$old_value" > "$CPU/$old_name/scaling_max_freq" 2>/dev/null || true
+            done < "$previous"
+            echo "cpu_percent_readback_failed=$name" >&2
+            exit 5
+        fi
         printf '%s\n' "$actual" > "$STATE/$name.last"
     done < "$staged"
     printf '%s\n' "$pct" > "$STATE/percent"
