@@ -1,32 +1,40 @@
 #!/usr/bin/env python3
-"""Port ZKOS A16 HAOTIAN JAR power-policy gates with TNM branding.
+"""Faithful ZKOS HAOTIAN A16 JAR power and notification delta, renamed ZK -> TNM.
 
-The source ZKOS miui-services JAR differs from the Xiaomi reference at
-these power methods by replacing IS_INTERNATIONAL_BUILD with IS_ZK_BUILD.
-For Greeze, its region comparison literal is ZK instead of CN.
-Use the same instructions/branches with TNMBuild.IS_TNM_BUILD=true.
+The original uploaded ZK miui-services.jar differs from the Xiaomi reference in
+exactly twelve normalized target methods: ten IS_INTERNATIONAL_BUILD -> IS_ZK_BUILD
+field reads, the NotificationManagerServiceImpl static initialization (removal
+of the build-field assignment), and Greeze PolicyManager's CN -> ZK region literal.
+No other Xiaomi methods or unrelated policy areas are changed by this patch.
 """
-from __future__ import annotations
-
 from pathlib import Path
 import re
 import sys
 
-FIELD = 'Lcom/android/tnm/TNMBuild;->IS_TNM_BUILD:Z'
-LEGACY = re.compile(r'Lmiui/os/Build;->(?:IS_INTERNATIONAL_BUILD|IS_MIUI):Z')
-METHOD = re.compile(r'(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$')
-TARGETS = {
-    'com/android/server/DeviceIdleControllerStubImpl.smali': ('<clinit>()V',),
-    'com/android/server/am/ProcessManagerService.smali': ('isForceStopEnable(Lcom/android/server/am/ProcessRecord;I)Z',),
-    'com/android/server/am/ProcessSceneCleaner.smali': (
-        'handleSwipeKill(Lmiui/process/ProcessConfig;)Z',
-        'killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z',
+METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
+ZK_FIELD = "Lcom/android/tnm/TNMBuild;->IS_TNM_BUILD:Z"
+OLD_FIELD = r"Lmiui/os/Build;->(?:IS_INTERNATIONAL_BUILD|IS_MIUI):Z"
+ZK_METHODS = {
+    "com/android/server/DeviceIdleControllerStubImpl.smali": (
+        "<clinit>()V",),
+    "com/android/server/am/BroadcastQueueModernStubImpl.smali": (
+        "checkApplicationAutoStart(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Landroid/content/pm/ResolveInfo;)Z",
+        "checkReceiverAppDealBroadcast(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
+        "isInternationalSpecialAction(Ljava/lang/String;Landroid/content/pm/ResolveInfo;)Z",
+        "updateBlockBroadcast()V",
     ),
-    'com/android/server/job/JobServiceContextImpl.smali': (
-        'checkIfCancelJob(Lcom/android/server/job/JobServiceContext;Landroid/content/Context;Landroid/content/Intent;Landroid/content/Context$BindServiceFlags;Lcom/android/server/job/controllers/JobStatus;)Z',
+    "com/android/server/am/ProcessManagerService.smali": (
+        "isForceStopEnable(Lcom/android/server/am/ProcessRecord;I)Z",),
+    "com/android/server/am/ProcessSceneCleaner.smali": (
+        "handleSwipeKill(Lmiui/process/ProcessConfig;)Z",
+        "killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z",
     ),
+    "com/android/server/job/JobServiceContextImpl.smali": (
+        "checkIfCancelJob(Lcom/android/server/job/JobServiceContext;Landroid/content/Context;Landroid/content/Intent;Landroid/content/Context$BindServiceFlags;Lcom/android/server/job/controllers/JobStatus;)Z",),
+    "com/android/server/notification/NotificationManagerServiceImpl.smali": (
+        "checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOpsManager;ILjava/lang/String;)V",),
 }
-BUILD_CLASS = """.class public final Lcom/android/tnm/TNMBuild;
+BRIDGE = """.class public final Lcom/android/tnm/TNMBuild;
 .super Ljava/lang/Object;
 
 .field public static final IS_TNM_BUILD:Z = true
@@ -39,104 +47,119 @@ BUILD_CLASS = """.class public final Lcom/android/tnm/TNMBuild;
 """
 
 
-def unique_file(root: Path, suffix: str) -> Path:
-    hits = sorted(p for p in root.glob('smali*/' + suffix) if p.is_file())
-    if len(hits) != 1:
-        raise ValueError(f'{suffix}: expected one smali file, found {len(hits)}')
-    return hits[0]
+def one(root: Path, suffix: str) -> Path:
+    paths = sorted(p for p in root.glob("smali*/" + suffix) if p.is_file())
+    if len(paths) != 1:
+        raise ValueError(f"{suffix}: expected one definition; found {len(paths)}")
+    return paths[0]
 
 
-def replace_method(source: str, signature: str, transform) -> str:
-    hits = [m for m in METHOD.finditer(source)
-            if m.group().splitlines()[0].split()[-1] == signature]
-    if len(hits) != 1:
-        raise ValueError(f'{signature}: expected one method, got {len(hits)}')
-    match = hits[0]
-    return source[:match.start()] + transform(match.group()) + source[match.end():]
+def transform(source: str, signature: str, fn) -> str:
+    matches = [m for m in METHOD.finditer(source)
+               if m.group().splitlines()[0].split()[-1] == signature]
+    if len(matches) != 1:
+        raise ValueError(f"{signature}: unexpected method count {len(matches)}")
+    match = matches[0]
+    patched = fn(match.group())
+    return source[:match.start()] + patched + source[match.end():]
 
 
-def field_port(body: str) -> str:
-    """Change exactly the ZK source gate; never rewrite the surrounding flow."""
-    if body.count(FIELD) == 1 and not LEGACY.search(body):
+def port_field(body: str) -> str:
+    if body.count(ZK_FIELD) == 1 and not re.search(OLD_FIELD, body):
         return body
-    stock = re.compile(r'(?m)^([ \t]*sget-boolean[ \t]+[vp]\d+,[ \t]+)'
-                       r'Lmiui/os/Build;->(?:IS_INTERNATIONAL_BUILD|IS_MIUI):Z[ \t]*$')
-    hits = list(stock.finditer(body))
-    if len(hits) == 1:
-        m = hits[0]
-        return body[:m.start()] + m[1] + FIELD + body[m.end():]
-    if hits:
-        raise ValueError(f'Unexpected count of power build gates: {len(hits)}')
-    # TNM/RYU A16 already folds some original build gates to true.
-    marker = re.compile(
-        r'(?m)^(?P<indent>[ \t]*)# (?P<name>TNM audited build gate|'
-        r'HyperMOS TNM FGS: enable existing Xiaomi guard|'
-        r'HyperMOS TNM swipe: enable original Xiaomi FGS guard)\s*\n'
-        r'(?P=indent)const/4 (?P<reg>[vp]\d+), 0x1[ \t]*$')
-    folded = list(marker.finditer(body))
-    if len(folded) != 1:
-        raise ValueError(f'Expected one original or TNM-folded build gate: {len(folded)}')
-    m = folded[0]
-    sub = (f'{m["indent"]}# TNM power build gate: original branch preserved\n'
-           f'{m["indent"]}sget-boolean {m["reg"]}, {FIELD}')
-    return body[:m.start()] + sub + body[m.end():]
+    gate = re.compile(
+        rf"(?m)^([ \t]*sget-boolean[ \t]+[vp]\d+,[ \t]+){OLD_FIELD}[ \t]*$")
+    matches = list(gate.finditer(body))
+    if len(matches) != 1:
+        raise ValueError(
+            f"ZK power/notification method: expected one stock build field, "
+            f"found {len(matches)}; refusing guessed bytecode")
+    m = matches[0]
+    return body[:m.start()] + m[1] + ZK_FIELD + body[m.end():]
 
 
-def greeze_port(body: str) -> str:
-    if re.search(r'(?m)^\s*const-string(?:/jumbo)?\s+[vp]\d+,\s*"TNM"\s*$', body):
+def notification_static(body: str) -> str:
+    # ZKOS removed precisely these two stock instructions (no early return).
+    target = (
+        r"(?m)^[ \t]*sget-boolean[ \t]+(?P<reg>[vp]\d+),[ \t]+"
+        + OLD_FIELD + r"[ \t]*\n"
+        r"[ \t]*sput-boolean[ \t]+(?P=reg),[ \t]+"
+        r"Lcom/android/server/notification/NotificationManagerServiceImpl;"
+        r"->IS_INTERNATIONAL_BUILD:Z[ \t]*\n?"
+    )
+    matches = list(re.finditer(target, body))
+    if len(matches) != 1:
+        # Already ZK-equivalent only if the field assignment is entirely absent.
+        if ("NotificationManagerServiceImpl;->IS_INTERNATIONAL_BUILD:Z"
+                not in body and not re.search(OLD_FIELD, body)):
+            return body
+        raise ValueError(
+            "NotificationManagerServiceImpl.<clinit>: unexpected static gate")
+    m = matches[0]
+    result = body[:m.start()] + body[m.end():]
+    if "NotificationManagerServiceImpl;->IS_INTERNATIONAL_BUILD:Z" in result:
+        raise ValueError("Notification static field is still initialized")
+    return result
+
+
+def greeze_static(body: str) -> str:
+    needle = re.compile(
+        r'(?m)^([ \t]*const-string(?:/jumbo)?[ \t]+[vp]\d+,[ \t]+)"CN"[ \t]*$')
+    hits = list(needle.finditer(body))
+    if len(hits) == 0 and re.search(
+        r'(?m)^ *const-string(?:/jumbo)? +[vp]\d+, +"TNM"$', body
+    ):
         return body
-    pattern = re.compile(r'(?m)^([ \t]*const-string(?:/jumbo)?\s+[vp]\d+,\s*)"CN"[ \t]*$')
-    hits = list(pattern.finditer(body))
     if len(hits) != 1:
-        raise ValueError(f'Greeze CN comparison must occur once, got {len(hits)}')
+        raise ValueError(
+            f"PolicyManager.<clinit>: expected one CN region literal, found {len(hits)}")
     m = hits[0]
     return body[:m.start()] + m[1] + '"TNM"' + body[m.end():]
 
 
-def run(root: Path) -> None:
+def run(root: Path):
     if not root.is_dir():
-        raise ValueError(f'Missing decoded miui-services JAR: {root}')
+        raise ValueError(f"JAR smali folder not found: {root}")
     pending = {}
-    total = 0
-    for cls, methods in TARGETS.items():
-        path = unique_file(root, cls)
-        source = path.read_text(encoding='utf-8')
-        for signature in methods:
-            source = replace_method(source, signature, field_port)
-            total += 1
+    count = 0
+    for suffix, signatures in ZK_METHODS.items():
+        path = one(root, suffix)
+        source = path.read_text(encoding="utf-8")
+        for signature in signatures:
+            source = transform(source, signature, port_field)
+            count += 1
         pending[path] = source
-    policy = unique_file(root, 'com/miui/server/greeze/PolicyManager.smali')
-    pending[policy] = replace_method(
-        policy.read_text(encoding='utf-8'), '<clinit>()V', greeze_port)
-    total += 1
+    nm = one(root, "com/android/server/notification/NotificationManagerServiceImpl.smali")
+    pending[nm] = transform(
+        pending.get(nm, nm.read_text(encoding="utf-8")),
+        "<clinit>()V", notification_static)
+    greeze = one(root, "com/miui/server/greeze/PolicyManager.smali")
+    pending[greeze] = transform(
+        greeze.read_text(encoding="utf-8"), "<clinit>()V", greeze_static)
 
-    bridge_candidates = list(root.rglob('TNMBuild.smali'))
-    if bridge_candidates:
-        if (len(bridge_candidates) != 1
-                or bridge_candidates[0].read_text(encoding='utf-8') != BUILD_CLASS):
-            raise ValueError('Conflicting TNMBuild class')
-        bridge = bridge_candidates[0]
-    else:
-        if not (root / 'smali').is_dir():
-            raise ValueError('Expected smali dir to add TNMBuild')
-        bridge = root / 'smali/com/android/tnm/TNMBuild.smali'
-    for path, data in pending.items():
-        if 'Lmiui/zk/Build;' in data:
-            raise ValueError(f'Unadapted ZK dependency: {path}')
-    # Validate all targets before writing anything, fail fast on stock drift.
-    for path, data in pending.items():
-        path.write_text(data, encoding='utf-8')
+    bridge = root / "smali/com/android/tnm/TNMBuild.smali"
+    bridge_instances = list(root.rglob("TNMBuild.smali"))
+    if bridge_instances and (len(bridge_instances) != 1 or
+                             bridge_instances[0] != bridge or
+                             bridge.read_text(encoding="utf-8") != BRIDGE):
+        raise ValueError("Conflicting/duplicate TNMBuild implementation")
+    if not (root / "smali").is_dir():
+        raise ValueError("Missing primary smali directory for TNMBuild")
+
+    # All checks pass before first write; fail closed if the target ROM drifts.
+    for path, content in pending.items():
+        path.write_text(content, encoding="utf-8")
     bridge.parent.mkdir(parents=True, exist_ok=True)
-    bridge.write_text(BUILD_CLASS, encoding='utf-8')
-    print(f'[TNM-ZK-POWER] {total} power method gates verified, '
-          'TNMBuild.IS_TNM_BUILD=true; Greeze region=TNM')
+    bridge.write_text(BRIDGE, encoding="utf-8")
+    print(f"[TNM-ZKOS] {count} exact ZK field gates, 1 notification initializer, "
+          "1 Greeze region constant; only ZK naming adapted to TNM")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         if len(sys.argv) != 2:
-            raise ValueError('Usage: tnm_zk_power_a16.py <decoded-miui-services>')
+            raise ValueError("Usage: tnm_zk_power_a16.py <decompiled-miui-services>")
         run(Path(sys.argv[1]))
-    except (OSError, ValueError) as exc:
-        print(f'[TNM-ZK-POWER] FAIL: {exc}', file=sys.stderr)
+    except (ValueError, OSError) as exc:
+        print(f"[TNM-ZKOS] FAIL: {exc}", file=sys.stderr)
         sys.exit(1)
