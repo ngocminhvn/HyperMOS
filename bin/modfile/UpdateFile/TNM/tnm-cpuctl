@@ -1,0 +1,122 @@
+#!/system/bin/sh
+# On-demand CPU-only underclock (80..100%). No daemon, GPU writes or thermal XML.
+set -eu
+[ "$(id -u)" = 0 ] || { echo root_required >&2; exit 10; }
+CPU=/sys/devices/system/cpu/cpufreq
+STATE=/data/adb/tnm/state/cpu-percent
+[ -d "$CPU" ] && [ -r /proc/sys/kernel/random/boot_id ] || exit 3
+BOOT=$(cat /proc/sys/kernel/random/boot_id)
+case "$BOOT" in ''|*[!0-9a-f-]*) exit 3 ;; esac
+number() { case "$1" in ''|*[!0-9]*) return 1 ;; *) [ "$1" -gt 0 ] ;; esac; }
+readnum() {
+    [ -r "$1" ] || return 1
+    val=$(cat "$1") || return 1
+    number "$val" || return 1
+    printf '%s\n' "$val"
+}
+boot_ok() { [ -r "$STATE/boot" ] && [ "$(cat "$STATE/boot")" = "$BOOT" ]; }
+status() {
+    pct=100
+    if boot_ok && [ -r "$STATE/percent" ]; then
+        pct=$(cat "$STATE/percent")
+    fi
+    echo "cpu_percent_requested=$pct"
+    n=0
+    for policy in "$CPU"/policy[0-9]*; do
+        [ -d "$policy" ] || continue
+        name=$(basename "$policy")
+        echo "$name scaling_max=$(readnum "$policy/scaling_max_freq" || echo unavailable) hardware_max=$(readnum "$policy/cpuinfo_max_freq" || echo unavailable)"
+        n=$((n+1))
+    done
+    echo "cpu_policy_count=$n"
+    echo "thermal_limits=untouched"
+    echo "effective_frequency_requires_runtime_check=yes"
+}
+op_floor() {
+    best=0
+    if [ -r "$1/scaling_available_frequencies" ]; then
+        for f in $(cat "$1/scaling_available_frequencies"); do
+            number "$f" || continue
+            if [ "$f" -le "$2" ] && [ "$f" -gt "$best" ]; then best=$f; fi
+        done
+    fi
+    if [ "$best" -gt 0 ]; then echo "$best"; else echo "$2"; fi
+}
+apply() {
+    [ "$#" -eq 1 ] || exit 2
+    case "$1" in ''|*[!0-9]*) exit 2 ;; esac
+    [ "$1" -ge 80 ] && [ "$1" -le 100 ] || { echo percent_out_of_range >&2; exit 2; }
+    pct=$1
+    [ ! -L /data/adb/tnm ] && [ ! -L /data/adb/tnm/state ] && [ ! -L "$STATE" ] || exit 4
+    mkdir -p "$STATE"
+    chmod 0700 "$STATE"
+    lock="$STATE/lock"
+    mkdir "$lock" 2>/dev/null || { echo cpu_percent_busy >&2; exit 11; }
+    trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+    if ! boot_ok; then
+        rm -f "$STATE"/policy*.original "$STATE"/policy*.last "$STATE/percent"
+        printf '%s\n' "$BOOT" > "$STATE/boot"
+    fi
+    staged="$STATE/next"
+    previous="$STATE/rollback"
+    : > "$staged"; : > "$previous"
+    chmod 0600 "$staged" "$previous"
+    n=0
+    for policy in "$CPU"/policy[0-9]*; do
+        [ -d "$policy" ] || continue
+        [ ! -L "$policy" ] || exit 3
+        name=$(basename "$policy")
+        case "$name" in policy*[!0-9]*|policy) exit 3 ;; esac
+        now=$(readnum "$policy/scaling_max_freq") || exit 3
+        hw=$(readnum "$policy/cpuinfo_max_freq") || exit 3
+        min=$(readnum "$policy/scaling_min_freq") || exit 3
+        original_file="$STATE/$name.original"
+        if [ -r "$original_file" ]; then
+            original=$(readnum "$original_file") || exit 3
+        else
+            original=$now
+            printf '%s\n' "$now" > "$original_file"
+            chmod 0600 "$original_file"
+        fi
+        if [ "$pct" -eq 100 ]; then
+            target=$original
+        else
+            target=$(op_floor "$policy" "$((hw * pct / 100))")
+            [ "$target" -le "$original" ] || target=$original
+        fi
+        [ "$target" -ge "$min" ] && [ "$target" -le "$hw" ] || exit 3
+        last=unowned
+        if [ -r "$STATE/$name.last" ]; then last=$(readnum "$STATE/$name.last") || exit 3; fi
+        # Never raise a limit owned by a different writer, including thermal.
+        if [ "$target" -gt "$now" ] && [ "$now" != "$last" ]; then target=$now; fi
+        printf '%s %s %s\n' "$name" "$now" "$target" >> "$staged"
+        n=$((n+1))
+    done
+    [ "$n" -gt 0 ] || exit 3
+    while read -r name old target; do
+        node="$CPU/$name/scaling_max_freq"
+        [ "$old" != "$target" ] || continue
+        if ! printf '%s\n' "$target" > "$node"; then
+            while read -r old_name old_value; do
+                printf '%s\n' "$old_value" > "$CPU/$old_name/scaling_max_freq" 2>/dev/null || true
+            done < "$previous"
+            echo "cpu_percent_write_failed=$name" >&2
+            exit 5
+        fi
+        printf '%s %s\n' "$name" "$old" >> "$previous"
+        actual=$(readnum "$node") || exit 5
+        [ "$actual" -le "$target" ] || { echo cpu_percent_readback_failed >&2; exit 5; }
+        printf '%s\n' "$actual" > "$STATE/$name.last"
+    done < "$staged"
+    printf '%s\n' "$pct" > "$STATE/percent"
+    rm -f "$staged" "$previous"
+    echo "cpu_percent_requested=$pct"
+    echo "cpu_policy_count=$n"
+    echo "thermal_limits=untouched"
+}
+[ "$#" -ge 1 ] || exit 2
+case "$1" in
+    status) [ "$#" -eq 1 ] || exit 2; status ;;
+    apply) shift; apply "$@" ;;
+    *) echo 'Usage: tnm-cpuctl status|apply 80..100' >&2; exit 2 ;;
+esac
