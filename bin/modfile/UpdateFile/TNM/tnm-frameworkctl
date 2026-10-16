@@ -5,6 +5,7 @@ set -eu
 umask 077
 [ "$(id -u)" = 0 ] || { echo 'Root required' >&2; exit 10; }
 TNM=/system_ext/bin/tnm-thermalctl
+CPU_CTL=/system_ext/bin/tnm-cpuctl
 S=/system/bin/settings
 STATE=/data/adb/tnm/state
 BACKUP="$STATE/refresh.original"
@@ -43,6 +44,7 @@ status() {
     echo tnm_framework=1
     echo protocol=1
     echo backend=existing_powerkeeper_perfhook
+    if [ -x "$CPU_CTL" ]; then "$CPU_CTL" status; else echo cpu_percent=unsupported; fi
     echo daemon=none
     if tnm; then echo thermal_control=available; else echo thermal_control=unsupported; fi
     mode=$(sys projectryu_thermal_per_app)
@@ -240,6 +242,7 @@ case "$cmd" in
         empty "$@"
         echo status.read; echo power.status; echo power.saver
         echo notifications.status; echo display.status
+        if [ -x "$CPU_CTL" ]; then echo cpu.percent; echo cpu.status; fi
         if tnm; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; echo thermal.readback echo perfhook.diagnose; fi
         if fps_supported; then echo display.mode; fi
         ;;
@@ -247,6 +250,8 @@ case "$cmd" in
     power.status) empty "$@"; power ;;
     notifications.status) empty "$@"; notify ;;
     display.status) empty "$@"; display ;;
+    cpu.status) empty "$@"; [ -x "$CPU_CTL" ] || exit 3; exec "$CPU_CTL" status ;;
+    cpu.percent) [ "$#" -eq 1 ] || exit 2; [ -x "$CPU_CTL" ] || exit 3; exec "$CPU_CTL" apply "$1" ;;
     display.mode) change_display "$@" ;;
     power.saver)
         [ "$#" -eq 1 ] || exit 2
