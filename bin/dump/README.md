@@ -24,33 +24,28 @@ If the ZIP exposes only `META-INF/` and `firmware-update/` entries (as in EliteR
 
 On failure the GitHub Actions diagnostic artifact includes `zip-layout.json`, `zip-layout.txt`, `entries.txt`, and (when small enough) `updater-script.txt`. These allow identifying which ZIP entries contain the actual ROM data without guessing. If the package genuinely contains firmware images only, obtaining framework JAR/APK files requires a full system-containing ROM ZIP, not a different extractor flag.
 
-## EliteRom encrypted `custom.img`
+## EliteRom encrypted custom.img — password-free alternative
 
-Observed in [GitHub Actions run #38829480282](https://github.com/ngocminhvn/HyperMOS/actions/runs/38829480282):
-`firmware-update/custom.img` is 7,707,418,240 bytes and begins with
-`53616c7465645f5f` (ASCII `Salted__`), consistent with an OpenSSL encrypted
-file. It is **not** directly readable as EROFS, EXT4, or super. The original
-custom ROM files cannot be recovered by renaming the image.
+In [run #38835073204](https://github.com/ngocminhvn/HyperMOS/actions/runs/38835073204), the ~7 GiB firmware-update/custom.img begins with "Salted__" (encrypted payload). GitHub's standard hosted runner has no access to an already mounted Android ROM, and cannot extract this image directly without the correct decryption information.
 
-Default behavior: the workflow fails explicitly with
-`[ENCRYPTED-ROM-IMAGE]` and uploads a ZIP inventory. It never creates a
-misleading empty dump.
+There is **no DUMP_IMAGE_PASSWORD secret** in this repository's dump workflow anymore. The action fails explicitly with ENCRYPTED-ROM-IMAGE when given an encrypted ZIP, rather than pretending to produce a correct dump.
 
-Optional authorized decryption: if you have the **correct passphrase**, add
-it as a repository **Actions secret** named `DUMP_IMAGE_PASSWORD` (Repository
-Settings → Secrets and variables → Actions). Start a **new** `dump` run.
-The secret is inherited by the callable workflow and passed only to the
-extraction step; it is never provided as a workflow_dispatch text input or
-printed. The extractor tests a small ciphertext prefix against three common
-OpenSSL AES-256-CBC password derivations (PBKDF2, SHA-256 legacy, MD5 legacy).
-A profile is accepted **only** if its plaintext contains the Android
-sparse/super signature. Decryption of the complete image proceeds only after
-that verification, and the resulting super image is verified again before
-`lpunpack`. No password guessing or unknown-proprietary encryption bypass
-is attempted.
+### Read files from the installed ROM over authorized ADB
 
-The `Salted__` marker alone does not identify the actual cipher or passphrase.
-If those known profiles are not supported by the ROM, you must obtain a
-compatible unencrypted image or the appropriate decryption information from
-the ROM author. Avoid re-running a 7+ GiB download expecting automatic
-decryption without the key.
+If **that particular ROM is already running on a phone you control**, connect the phone to a computer with Android platform-tools and authorize USB debugging. With Python 3 installed, from the HyperMOS repository checkout:
+
+```bash
+python3 bin/dump/adb_dump.py --mode base --output HyperMOS-device-base.zip
+```
+
+For the larger target set:
+
+```bash
+python3 bin/dump/adb_dump.py --mode full --output HyperMOS-device-full.zip
+```
+
+Windows also accepts `py -3` in place of `python3`. The script uses local ADB and, when already authorized, optional `su` solely to read mounted system paths. It does **not** flash the phone, change partition mounts, install an app, or execute ROM installers. `--no-root` limits it to files the Android shell can already read. Output includes `map.tsv`, `map.json`, SHA256 checksums and `pack-meta/device-source.json` identifying the **installed device** as the source.
+
+**Important:** This local script cannot operate from a normal GitHub-hosted Actions runner because the runner does not have a USB connection to the user's phone. It also cannot recover modifications from an encrypted EliteRom ZIP if EliteRom is not installed on the connected device. An unencrypted ROM ZIP is the alternative for cloud-only extraction.
+
+One-shot tests: `python3 -m unittest discover -s bin/dump -p 'test_*.py' -v`.
