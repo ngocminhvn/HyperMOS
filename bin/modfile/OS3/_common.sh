@@ -13,7 +13,8 @@ modscenter_fixed_prefix() {
     local repo="$1"
     case "$repo" in
         "Mods-Center/HyperOS-App-Vault") printf '%s\n' "HyperOS_AppVault" ;;
-        "Mods-Center/ColorOS_Control_Center") printf '%s\n' "ColorOS_plugin_mod_" ;;
+        "Mods-Center/FreeStyle-Control-Center") printf '%s\n' "FreeStyle_CC_mod_" ;;
+        "Mods-Center/HyperOS-Screenshot-mod") printf '%s\n' "HyperOS_Screenshot" ;;
         "Mods-Center/HyperOS-Launcher") printf '%s\n' "HyperOS_Launcher" ;;
         "Mods-Center/HyperOS-Security-Center") printf '%s\n' "HyperOS_Security" ;;
         "Mods-Center/HyperOS-Theme-Manager") printf '%s\n' "HyperOS_ThemeManager" ;;
@@ -430,4 +431,97 @@ modscenter_apply_native_module() {
 
     rm -rf "$extract_dir"
     mods "$label: fixed local $MODSCENTER_TAG integrated"
+}
+
+
+# Locate stock APK by package while keeping its original partition and filename.
+modscenter_find_stock_apk() {
+    local expected_package="$1" preferred_dir="$2"
+    local folder apk pkg
+    local -a matches=()
+    while IFS= read -r -d '' folder; do
+        while IFS= read -r -d '' apk; do
+            pkg=$(modscenter_apk_package "$apk" || true)
+            [[ "$pkg" == "$expected_package" ]] && matches+=("$apk")
+        done < <(find "$folder" -maxdepth 1 -type f -iname '*.apk' -print0 2>/dev/null)
+    done < <(find "$OS3_IMAGES" -type d -name "$preferred_dir" -print0 2>/dev/null)
+    if (( ${#matches[@]} == 0 )); then
+        while IFS= read -r -d '' apk; do
+            pkg=$(modscenter_apk_package "$apk" || true)
+            [[ "$pkg" == "$expected_package" ]] && matches+=("$apk")
+        done < <(find "$OS3_IMAGES" -type f -iname '*.apk' -print0 2>/dev/null)
+    fi
+    if (( ${#matches[@]} != 1 )); then
+        error "Stock APK for $expected_package: expected 1, found ${#matches[@]}"
+        printf '  %s\n' "${matches[@]}" >&2
+        return 1
+    fi
+    printf '%s\n' "${matches[0]}"
+}
+
+# Install only a designated APK from a local release ZIP, not unrelated variants
+# or module scripts. Install into the stock app's existing partition.
+modscenter_apply_fixed_archive_apk() {
+    local label="$1" repo="$2" member="$3" expected_package="$4" preferred_dir="$5"
+    local staging="$OS3_MOD_CACHE/single-${repo##*/}"
+    local source_apk="$staging/$(basename "$member")"
+    local prepared="$staging/prepared"
+    local stock_apk stock_folder stock_filename copied_package actual_package
+
+    modscenter_prepare_fixed "$label" "$repo" || return 1
+    if ! unzip -tqq "$MODSCENTER_ARCHIVE" >/dev/null; then
+        error "$label: ZIP integrity check failed"
+        return 1
+    fi
+    if ! unzip -Z1 "$MODSCENTER_ARCHIVE" | grep -Fxq -- "$member"; then
+        error "$label: missing ZIP member: $member"
+        return 1
+    fi
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    if ! unzip -p "$MODSCENTER_ARCHIVE" "$member" > "$source_apk" || [[ ! -s "$source_apk" ]]; then
+        error "$label: cannot extract $member"
+        rm -rf "$staging"
+        return 1
+    fi
+
+    actual_package=$(modscenter_apk_package "$source_apk" || true)
+    if [[ "$actual_package" != "$expected_package" ]]; then
+        error "$label: package is ${actual_package:-<unreadable>}, expected $expected_package"
+        rm -rf "$staging"
+        return 1
+    fi
+    stock_apk=$(modscenter_find_stock_apk "$expected_package" "$preferred_dir") || {
+        error "$label: stock APK absent; refusing to guess destination partition"
+        rm -rf "$staging"
+        return 1
+    }
+    stock_folder=$(dirname "$stock_apk")
+    stock_filename=$(basename "$stock_apk")
+    mkdir -p "$prepared"
+    cp -f "$source_apk" "$prepared/$stock_filename" || return 1
+    modscenter_supplement_native_libs "$label" "$prepared/$stock_filename" "$prepared" || {
+        rm -rf "$staging"
+        return 1
+    }
+    find "$prepared" -type d -exec chmod 0755 {} +
+    find "$prepared" -type f -exec chmod 0644 {} +
+
+    mods "$label: $member -> $stock_folder/$stock_filename"
+    rm -rf "$stock_folder"
+    mkdir -p "$stock_folder"
+    if ! cp -a "$prepared/." "$stock_folder/"; then
+        error "$label: failed to copy mod app folder"
+        rm -rf "$staging"
+        return 1
+    fi
+    copied_package=$(modscenter_apk_package "$stock_folder/$stock_filename" || true)
+    if [[ "$copied_package" != "$expected_package" ]] ||
+       ! modscenter_verify_folder_shape "$label" "$prepared" "$stock_folder"; then
+        error "$label: post-copy verification failed"
+        rm -rf "$staging"
+        return 1
+    fi
+    mods "$label: exact APK installed successfully ($MODSCENTER_TAG)"
+    rm -rf "$staging"
 }
