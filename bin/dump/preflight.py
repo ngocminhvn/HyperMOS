@@ -61,14 +61,14 @@ def check_source(url: str) -> int:
             output.write(
                 "### Dump preflight: known encrypted ROM source\n\n"
                 "This exact EliteRomLite v4.05 HAOTIAN ZIP was confirmed to "
-                "contain an encrypted \`firmware-update/custom.img\` in "
+                "contain an encrypted `firmware-update/custom.img` in "
                 "[run #38840382765]"
                 "(https://github.com/ngocminhvn/HyperMOS/actions/runs/38840382765). "
                 "A ZIP-only GitHub runner cannot recover EliteRom system files "
                 "from it without decryption information, so the 7.5 GiB "
                 "download was skipped.\n\n"
                 "For files from that exact installed ROM, run the read-only "
-                "\`bin/dump/adb_dump.py\` tool on a computer connected to "
+                "`bin/dump/adb_dump.py` tool on a computer connected to "
                 "your authorized Android device. An unencrypted ZIP is "
                 "required for cloud-only extraction.\n"
             )
