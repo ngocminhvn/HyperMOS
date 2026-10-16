@@ -51,6 +51,18 @@ class UIDPolicyABITest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 patch(d)
 
+    def test_real_zk_unqualified_fields(self):
+        # APKEditor's real HAOTIAN ZK disassembly uses ".field e:..." and
+        # ".field a:I", without the synthetic fixture's "private" modifier.
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.fixtures(Path(tmp))
+            record = d / 'AppRuleChecker$j.smali'
+            state = d / 'AppRuleChecker$i.smali'
+            record.write_text(record.read_text().replace('.field private e:', '.field e:'))
+            state.write_text(state.read_text().replace('.field private a:', '.field a:'))
+            result = patch(d)
+            self.assertTrue(result['uid_policy_record_reader_added'])
+
     def test_other_implementor_must_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = self.fixtures(Path(tmp))
