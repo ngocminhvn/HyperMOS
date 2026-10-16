@@ -5,7 +5,6 @@ Handles nested payloads, nested/split/compressed super images, per-partition
 images, transfer-list images, or direct system file trees. Does not flash/repack.
 """
 import argparse
-import os
 import re
 import shutil
 import subprocess
@@ -13,7 +12,6 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from archive_inspect import inspect_archive, LP_GEOMETRY
-from openssl_image import probe_profile, decrypt_member
 
 PARTS = (
     "system", "system_ext", "product", "vendor", "odm", "mi_ext",
@@ -91,75 +89,50 @@ def unpack_super(archive, work, partitions, names, parts):
 
 
 def unpack_disguised_super(archive, work, partitions, report, parts):
-    """Accept renamed Android super only after verifying the real LP magic.
+    """Unpack a renamed super image only after verifying Android LP metadata.
 
-    OpenSSL Salted__ image is encrypted, not a filesystem; only try decryption
-    if the user provided their own GitHub Actions secret DUMP_IMAGE_PASSWORD.
+    A Salted__ container is encrypted: ZIP-only CI cannot obtain its plaintext
+    without a key. To avoid misleading results, direct users to extracting from
+    the *installed ROM* via adb_dump.py, not to guessing an image passphrase.
     """
     candidates = [
         row for row in report["entries"]
         if PurePosixPath(row["name"]).name.lower() in {"custom.img", "cust.img"}
-        and row["kind"] in {
-            "android-super-raw", "android-sparse", "encrypted-openssl-salted"
-        }
+        and row["kind"] in {"android-super-raw", "android-sparse",
+                            "encrypted-openssl-salted"}
     ]
     for row in candidates:
-        encrypted = row["kind"] == "encrypted-openssl-salted"
-        if encrypted and not os.environ.get("DUMP_IMAGE_PASSWORD"):
+        if row["kind"] == "encrypted-openssl-salted":
             raise SystemExit(
                 "[ENCRYPTED-ROM-IMAGE] " + row["name"] +
-                " starts with OpenSSL 'Salted__'; the ~7 GiB custom.img is "
-                "encrypted, not a readable Android filesystem. To dump "
-                "it, add a valid passphrase as GitHub Actions secret "
-                "DUMP_IMAGE_PASSWORD (Settings -> Secrets and variables -> "
-                "Actions), then start a NEW run. No password guessing "
-                "or bypass is performed. See zip-layout.json."
+                " is OpenSSL Salted__ encrypted and cannot be dumped from "
+                "the ZIP without decryption material. No password is "
+                "requested or stored by HyperMOS. Alternative: boot this "
+                "ROM on your own Android device, enable authorized ADB, "
+                "and run 'python3 bin/dump/adb_dump.py --mode base' "
+                "(or --mode full) from a computer. That reads the live "
+                "mounted filesystem, not the encrypted ZIP. "
+                "GitHub-hosted Actions cannot reach a local phone."
             )
-        opts = None
-        if encrypted:
-            with archive.open(row["name"]) as member:
-                prefix = member.read(16 + 8192)
-            found = probe_profile(prefix)
-            if found is None:
-                raise SystemExit(
-                    "[ENCRYPTED-ROM-IMAGE] Could not verify any supported "
-                    "AES-256-CBC OpenSSL password/KDF combination from "
-                    "DUMP_IMAGE_PASSWORD against Android super signature. "
-                    "The provided password or encryption parameters may "
-                    "be incorrect. No arbitrary decrypted output is trusted."
-                )
-            name, opts = found
-            print("[DUMP] Verified password-derived decryption profile:", name,
-                  flush=True)
         size = row["size_bytes"]
         if size + 2 * 1024 ** 3 > shutil.disk_usage(work).free:
             raise SystemExit(
-                "[ERROR] Not enough runner disk space for " + row["name"] +
-                " decryption and extraction."
+                "[ERROR] Not enough runner disk space for " + row["name"]
             )
         staged = work / "input" / "candidate-super.img"
-        if encrypted:
-            print("[DUMP] Decrypting supplied OpenSSL image with user-provided key",
-                  flush=True)
-            try:
-                decrypt_member(archive, row["name"], staged, opts)
-            except Exception as exc:
-                raise SystemExit(
-                    "[ENCRYPTED-ROM-IMAGE] Decryption did not complete: " +
-                    type(exc).__name__
-                ) from None
-        else:
-            read_member(archive, row["name"], staged)
+        read_member(archive, row["name"], staged)
         raw = make_raw(staged, work)
-        with raw.open("rb") as f:
-            f.seek(4096)
-            lp_geometry = f.read(4) == LP_GEOMETRY
+        with raw.open("rb") as src:
+            src.seek(4096)
+            lp_geometry = src.read(4) == LP_GEOMETRY
         if not lp_geometry:
-            print("[DUMP] Rejected", row["name"], "(not an LP super image)", flush=True)
+            print("[DUMP] Rejected", row["name"], "(not an LP super image)",
+                  flush=True)
             raw.unlink(missing_ok=True)
             continue
-        print("[DUMP] Verified disguised super partition:", row["name"], flush=True)
-        wanted = ",".join(n for p in parts for n in (p, p+"_a", p+"_b"))
+        print("[DUMP] Verified renamed Android super image:",
+              row["name"], flush=True)
+        wanted = ",".join(n for p in parts for n in (p, p + "_a", p + "_b"))
         run("python3", ROOT / "bin/lpunpack.py", "-p", wanted, raw, partitions)
         raw.unlink(missing_ok=True)
         return True
