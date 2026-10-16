@@ -71,7 +71,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq aria2 curl unzip brotli zstd lz4 xz-utils erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
-          python3 -m py_compile bin/dump/collect.py bin/dump/base.py bin/dump/sourceforge_download.py bin/dump/archive_fallback.py bin/dump/direct_files.py
+          python3 -m py_compile bin/dump/collect.py bin/dump/base.py bin/dump/sourceforge_download.py bin/dump/archive_fallback.py bin/dump/archive_inspect.py bin/dump/direct_files.py
           python3 -m unittest discover -s bin/dump -p 'test_*.py' -v
           bash -n bin/dump/extract.sh
           test -s bin/dump/targets.txt
@@ -102,6 +102,9 @@ jobs:
           name: HyperMOS-dump-diagnostics-${{ github.run_number }}
           path: |
             ${{ runner.temp }}/hypermos-dump/work/entries.txt
+            ${{ runner.temp }}/hypermos-dump/work/zip-layout.json
+            ${{ runner.temp }}/hypermos-dump/work/zip-layout.txt
+            ${{ runner.temp }}/hypermos-dump/work/updater-script.txt
             ${{ runner.temp }}/hypermos-dump/mirror-report.json
           if-no-files-found: warn
           retention-days: 7
