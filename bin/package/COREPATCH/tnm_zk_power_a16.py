@@ -79,26 +79,32 @@ def port_field(body: str) -> str:
 
 
 def notification_static(body: str) -> str:
-    # ZKOS removed precisely these two stock instructions (no early return).
-    target = (
-        r"(?m)^[ \t]*sget-boolean[ \t]+(?P<reg>[vp]\d+),[ \t]+"
-        + OLD_FIELD + r"[ \t]*\n"
-        r"[ \t]*sput-boolean[ \t]+(?P=reg),[ \t]+"
+    # The uploaded ZK JAR removes only the two instructions that initialized
+    # IS_INTERNATIONAL_BUILD; source debug .line comments can be interleaved.
+    read_pat = re.compile(
+        rf"(?m)^[ \t]*sget-boolean[ \t]+(?P<reg>[vp]\d+),[ \t]+"
+        rf"{OLD_FIELD}[ \t]*$")
+    write_pat = re.compile(
+        r"(?m)^[ \t]*sput-boolean[ \t]+(?P<reg>[vp]\d+),[ \t]+"
         r"Lcom/android/server/notification/NotificationManagerServiceImpl;"
-        r"->IS_INTERNATIONAL_BUILD:Z[ \t]*\n?"
-    )
-    matches = list(re.finditer(target, body))
-    if len(matches) != 1:
-        # Already ZK-equivalent only if the field assignment is entirely absent.
-        if ("NotificationManagerServiceImpl;->IS_INTERNATIONAL_BUILD:Z"
-                not in body and not re.search(OLD_FIELD, body)):
-            return body
-        raise ValueError(
-            "NotificationManagerServiceImpl.<clinit>: unexpected static gate")
-    m = matches[0]
-    result = body[:m.start()] + body[m.end():]
-    if "NotificationManagerServiceImpl;->IS_INTERNATIONAL_BUILD:Z" in result:
-        raise ValueError("Notification static field is still initialized")
+        r"->IS_INTERNATIONAL_BUILD:Z[ \t]*$")
+    reads = list(read_pat.finditer(body))
+    writes = list(write_pat.finditer(body))
+    if not reads and not writes:
+        return body
+    if len(reads) != 1 or len(writes) != 1 or reads[0]["reg"] != writes[0]["reg"]:
+        raise ValueError("NotificationManagerServiceImpl.<clinit>: ambiguous build field")
+    middle = body[reads[0].end():writes[0].start()]
+    # Debug directives are okay; actual instructions/control flow are not.
+    if reads[0].end() > writes[0].start() or any(
+        line.strip() and not line.strip().startswith((".", "#"))
+        for line in middle.splitlines()
+    ):
+        raise ValueError("Notification initializer build read/write not adjacent")
+    # Remove instructions in descending offset order; preserve all debug lines.
+    result = body
+    for m in sorted([reads[0], writes[0]], key=lambda x: x.start(), reverse=True):
+        result = result[:m.start()] + result[m.end():]
     return result
 
 
@@ -107,7 +113,63 @@ def greeze_static(body: str) -> str:
         r'(?m)^([ \t]*const-string(?:/jumbo)?[ \t]+[vp]\d+,[ \t]+)"CN"[ \t]*$')
     hits = list(needle.finditer(body))
     if len(hits) == 0 and re.search(
-        r'(?m)^ *const-string(?:/jumbo)? +[vp]\d+, +"TNM"$', body
+        r'(?m)^[ \t]*const-string(?:/jumbo)?[ \t]+[vp]\d+,[ \t]+"TNM"[ \t]*, body
+    ):
+        return body
+    if len(hits) != 1:
+        raise ValueError(
+            f"PolicyManager.<clinit>: expected one CN region literal, found {len(hits)}")
+    m = hits[0]
+    return body[:m.start()] + m[1] + '"TNM"' + body[m.end():]
+
+
+def run(root: Path):
+    if not root.is_dir():
+        raise ValueError(f"JAR smali folder not found: {root}")
+    pending = {}
+    count = 0
+    for suffix, signatures in ZK_METHODS.items():
+        path = one(root, suffix)
+        source = path.read_text(encoding="utf-8")
+        for signature in signatures:
+            source = transform(source, signature, port_field)
+            count += 1
+        pending[path] = source
+    nm = one(root, "com/android/server/notification/NotificationManagerServiceImpl.smali")
+    pending[nm] = transform(
+        pending.get(nm, nm.read_text(encoding="utf-8")),
+        "<clinit>()V", notification_static)
+    greeze = one(root, "com/miui/server/greeze/PolicyManager.smali")
+    pending[greeze] = transform(
+        greeze.read_text(encoding="utf-8"), "<clinit>()V", greeze_static)
+
+    bridge = root / "smali/com/android/tnm/TNMBuild.smali"
+    bridge_instances = list(root.rglob("TNMBuild.smali"))
+    if bridge_instances and (len(bridge_instances) != 1 or
+                             bridge_instances[0] != bridge or
+                             bridge.read_text(encoding="utf-8") != BRIDGE):
+        raise ValueError("Conflicting/duplicate TNMBuild implementation")
+    if not (root / "smali").is_dir():
+        raise ValueError("Missing primary smali directory for TNMBuild")
+
+    # All checks pass before first write; fail closed if the target ROM drifts.
+    for path, content in pending.items():
+        path.write_text(content, encoding="utf-8")
+    bridge.parent.mkdir(parents=True, exist_ok=True)
+    bridge.write_text(BRIDGE, encoding="utf-8")
+    print(f"[TNM-ZKOS] {count} exact ZK field gates, 1 notification initializer, "
+          "1 Greeze region constant; only ZK naming adapted to TNM")
+
+
+if __name__ == "__main__":
+    try:
+        if len(sys.argv) != 2:
+            raise ValueError("Usage: tnm_zk_power_a16.py <decompiled-miui-services>")
+        run(Path(sys.argv[1]))
+    except (ValueError, OSError) as exc:
+        print(f"[TNM-ZKOS] FAIL: {exc}", file=sys.stderr)
+        sys.exit(1)
+, body
     ):
         return body
     if len(hits) != 1:
