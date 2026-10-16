@@ -76,3 +76,38 @@ contains \`loader-analysis.json\`, \`loader-analysis.md\`,
 protected or obfuscated. It does **not** identify the key, confirm the precise
 AES/KDF invocation parameters or decrypt the encrypted \`custom.img\`.
 No ROM was flashed, and neither the Linux nor Windows installer was executed.
+
+
+## Isolated runtime result — confirmed self-directed SIGKILL
+
+The [restricted sandbox workflow #38861342961](https://github.com/ngocminhvn/HyperMOS/actions/runs/38861342961)
+completed successfully on main; all five synthetic tests passed. It used the
+previously verified Linux ELF, and **no ROM image, host network, phone, flash
+device or repository secret** was available inside the container.
+
+The installer was invoked with no arguments and with a help flag. Both
+invocations produced essentially identical observations:
+
+- Running without a tracer: process exited via SIGKILL (signal 9) after ~0.51 s.
+- Under strace: exited via SIGKILL after ~0.03 s.
+- Per-process strace files recorded **one kill syscall with SIGKILL targeting
+  the same PID as the calling process** in each case. The observation describes
+  the in-container tracee, not a host process.
+- The Linux dynamic loader opened libcrypto, but no OpenSSL EVP/PKCS5 calls
+  were recorded by ltrace (which itself exited with code 1). This is
+  **inconclusive**; ltrace may be incompatible with the protected executable.
+- No custom.img/firmware-update access, /dev path access, network connect
+  attempt, or ptrace syscall was recorded in these short startup traces.
+
+**Interpretation:** The installer explicitly attempts a self-directed
+SIGKILL in the traced startup scenario, and the untraced process is killed by
+the same signal. The cause of the decision to terminate is **not established**:
+missing installer context, protected-code logic, a device/environment check,
+or other conditions may all be relevant. The absence of crypto activity in
+this scenario does not prove the AES-256/PBKDF2 routines are unused.
+
+The artifact contains **only aggregated non-secret reports**:
+[EliteRomLite isolated runtime report](https://github.com/ngocminhvn/HyperMOS/actions/runs/38861342961/artifacts/12029490772).
+
+No encryption key, password or verified custom.img decryption procedure has
+been recovered, and no real phone/ROM has been flashed or modified.
