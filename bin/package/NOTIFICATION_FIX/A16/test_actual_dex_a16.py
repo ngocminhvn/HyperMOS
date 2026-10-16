@@ -14,6 +14,7 @@ import traceback
 
 from powerkeeper import adapt as adapt_ryu
 from ryu_killprocess_a16 import get_methods, SET_UID, RULE_CHECK
+from guard_gms_uid_kill_a16 import patch_method
 
 REPO = Path(__file__).resolve().parents[4]
 CONTROLLER = "com/miui/powerkeeper/controller"
@@ -80,17 +81,19 @@ def validate(zk_dex, ryu_dex, output):
         actual_methods = get_methods((z / CONTROLLER / "KillProcessController.smali").read_text())
         expected_uid = adapt_ryu(ryu_methods[SET_UID])[0]
         expected_checker = adapt_ryu(ryu_methods[RULE_CHECK])[0]
-        if actual_methods[SET_UID] != expected_uid:
-            raise ValueError("Ported UID-kill method does not match original RYU source")
+        if actual_methods[SET_UID] != patch_method(expected_uid):
+            raise ValueError("Ported UID-kill method differs beyond the scoped GMS check")
         checker = actual_methods[RULE_CHECK]
-        if "->getUidPolicy(I)Landroid/os/Bundle;" not in checker or "->tnmIsGmsUid(I)Z" not in checker:
-            raise ValueError("Conditional UID checker missing ABI lookup or scoped GMS guard")
-        if 'tnmIsGmsUid(I)Z' not in actual_methods or '"com.google.android.gms"' not in actual_methods['tnmIsGmsUid(I)Z']:
-            raise ValueError("Event-only GMS UID guard missing")
+        if checker != expected_checker:
+            raise ValueError("Conditional UID policy checker unexpectedly modified")
+        if "tnmIsGmsUid(I)Z" in actual_methods:
+            raise ValueError("Redundant GMS UID lookup helper remains")
         if any(actual_methods.get(m) != body for m, body in source_methods.items() if m != SET_UID):
             raise ValueError("Unrelated ZKOS KillProcessController method changed")
-        if "com.google.android.gms" in actual_methods[SET_UID]:
-            raise ValueError("Unexpected custom GMS exception in RYU policy")
+        if "com.google.android.gms" not in actual_methods[SET_UID] or "or-int/2addr" not in actual_methods[SET_UID]:
+            raise ValueError("Inline GMS skip-kill check missing")
+        if actual_methods[SET_UID].count("->getPackageNameByUid(") != expected_uid.count("->getPackageNameByUid("):
+            raise ValueError("Extra UID-to-package lookup inserted")
         for token in ("->isLockedApplication(", "->checkAppOnWindowsStatus(I)Z",
                       "Lmiui/process/ProcessManager;->kill(", "->shouldKillByCheckerPolicy(I)Z"):
             if token not in actual_methods[SET_UID]:
@@ -109,7 +112,7 @@ def validate(zk_dex, ryu_dex, output):
         application = (z / "com/miui/powerkeeper/PowerKeeperApplication.smali").read_text()
         if "Lcom/android/tnm/perf/PerfHook;->init()V" not in application:
             raise ValueError("PerfHook initialization call missing")
-        results["ryu_uid_exact_checker_guarded_after_adaptation"] = True
+        results["ryu_uid_reused_existing_package_lookup"] = True
         results["unchanged_zkos_controller_methods"] = len(source_methods) - 1
         results["tnm_perfhook_class_count"] = len(perf_classes)
         results["staged_class_count"] = len(staged)
@@ -137,8 +140,10 @@ def validate(zk_dex, ryu_dex, output):
                       "->checkAppOnWindowsStatus(I)Z", "Lmiui/process/ProcessManager;->kill("):
             if token not in compiled_kill:
                 raise ValueError(f"Reassembled DEX lost RYU policy: {token}")
-        if "com.google.android.gms" not in compiled_kill:
-            raise ValueError("Compiled controller missing scoped GMS exemption")
+        if "com.google.android.gms" not in compiled_kill or "or-int/2addr" not in compiled_kill:
+            raise ValueError("Compiled controller missing inline GMS exemption")
+        if "tnmIsGmsUid" in compiled_kill:
+            raise ValueError("Compiled controller retains redundant UID lookup helper")
         for filename, marker in (
             ("com/miui/powerkeeper/PowerKeeperInterface$l.smali", "getUidPolicy(I)Landroid/os/Bundle;"),
             ("com/miui/powerkeeper/AppRuleChecker.smali", "getUidPolicy(I)Landroid/os/Bundle;"),
