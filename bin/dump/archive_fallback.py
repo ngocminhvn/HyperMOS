@@ -11,6 +11,8 @@ import subprocess
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from archive_inspect import inspect_archive, LP_GEOMETRY
+
 PARTS = (
     "system", "system_ext", "product", "vendor", "odm", "mi_ext",
     "mi_product", "system_dlkm", "vendor_dlkm", "odm_dlkm", "product_dlkm",
@@ -86,6 +88,39 @@ def unpack_super(archive, work, partitions, names, parts):
     return True
 
 
+def unpack_disguised_super(archive, work, partitions, report, parts):
+    """Accept a renamed super image only if its Android LP signature is verified.
+
+    A partition called custom.img is NOT assumed to be an Android system image.
+    """
+    candidates = [
+        row for row in report["entries"]
+        if PurePosixPath(row["name"]).name.lower() in {"custom.img", "cust.img"}
+        and row["kind"] in {"android-super-raw", "android-sparse"}
+    ]
+    for row in candidates:
+        size = row["size_bytes"]
+        if size > shutil.disk_usage(work).free - 2 * 1024 ** 3:
+            print("[WARN] Cannot inspect disguised image: insufficient temporary disk")
+            continue
+        staged = work / "input" / "candidate-super.img"
+        read_member(archive, row["name"], staged)
+        raw = make_raw(staged, work)
+        with raw.open("rb") as f:
+            f.seek(4096)
+            lp_geometry = f.read(4) == LP_GEOMETRY
+        if not lp_geometry:
+            print("[DUMP] Rejected", row["name"], "(not an LP super image)", flush=True)
+            raw.unlink(missing_ok=True)
+            continue
+        print("[DUMP] Verified disguised super partition:", row["name"], flush=True)
+        wanted = ",".join(n for p in parts for n in (p, p+"_a", p+"_b"))
+        run("python3", ROOT / "bin/lpunpack.py", "-p", wanted, raw, partitions)
+        raw.unlink(missing_ok=True)
+        return True
+    return False
+
+
 def find_part_image(name, parts):
     basename = PurePosixPath(name).name
     match = re.fullmatch(
@@ -158,6 +193,7 @@ def extract(zip_path, work, mode):
                 raise SystemExit("Unsafe archive member: " + name)
         print("[DUMP] Archive members:", len(names), flush=True)
         print("[DUMP] First ZIP members:", names[:30], flush=True)
+        report = inspect_archive(archive, zip_path, work)
         payloads = [name for name in names if re.search(r"(?:^|/)payload\.bin$", name)]
         if payloads:
             payload = work / "input/payload.bin"
@@ -172,10 +208,31 @@ def extract(zip_path, work, mode):
             return "individual partition images"
         if unpack_transfer_lists(archive, work, partitions, names, parts):
             return "transfer-list images"
-    run("python3", ROOT / "bin/dump/direct_files.py",
-        "--zip", zip_path, "--output", work / "images",
-        "--mode", mode, "--targets", ROOT / "bin/dump/targets.txt")
-    return "direct partition file tree"
+        if unpack_disguised_super(archive, work, partitions, report, parts):
+            return "signature-verified renamed super image"
+    from direct_files import collect_archive
+    found = collect_archive(
+        zip_path, work / "images", mode, ROOT / "bin/dump/targets.txt"
+    )
+    if found:
+        return "direct partition file tree"
+    firmware_only = all(
+        name.startswith(("firmware-update/", "META-INF/"))
+        for name in names
+    )
+    if firmware_only:
+        raise SystemExit(
+            "[UNSUPPORTED-ROM-LAYOUT] ZIP contains firmware-update/ and "
+            "META-INF/ installer entries, but no verified Android system, "
+            "system_ext, product, or super partition. These firmware files "
+            "cannot be treated as framework.jar/PowerKeeper.apk. "
+            "Review zip-layout.json and updater-script.txt in the "
+            "diagnostics artifact to identify any embedded installer payload."
+        )
+    raise SystemExit(
+        "[UNSUPPORTED-ROM-LAYOUT] No Android system partitions or target "
+        "files found in the ROM ZIP. See zip-layout.json in diagnostics."
+    )
 
 
 def main():
