@@ -36,6 +36,16 @@ class ADBDumpTests(unittest.TestCase):
             selected["/system/framework/framework.jar"],
             ("system", "framework/framework.jar"))
 
+    def test_base_accepts_powerkeeperzk_alias(self):
+        selected = selected_remote_files(
+            ["/system_ext/app/PowerKeeper/PowerKeeperZK.apk"],
+            "base", []
+        )
+        self.assertEqual(
+            selected["/system_ext/app/PowerKeeper/PowerKeeperZK.apk"],
+            ("system_ext", "app/PowerKeeper/PowerKeeperZK.apk"),
+        )
+
     def test_full_exact_and_unique_apk_fallback(self):
         inventory = [
             "/system/framework/services.jar",
