@@ -85,7 +85,11 @@ class ArchiveFallbackTests(unittest.TestCase):
         self.assertIn("no verified Android system", str(raised.exception))
         inventory = json.loads((self.work / "zip-layout.json").read_text())
         self.assertEqual(inventory["members"], 4)
-        self.assertEqual(inventory["entries"][0]["kind"], "shell-or-script")
+        self.assertEqual(
+            next(entry["kind"] for entry in inventory["entries"]
+                 if entry["name"].endswith("/update-binary")),
+            "shell-or-script",
+        )
         self.assertTrue((self.work / "updater-script.txt").is_file())
         self.assertIn("custom.img", (self.work / "zip-layout.txt").read_text())
 
