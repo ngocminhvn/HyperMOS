@@ -5,6 +5,7 @@ Handles nested payloads, nested/split/compressed super images, per-partition
 images, transfer-list images, or direct system file trees. Does not flash/repack.
 """
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -12,6 +13,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from archive_inspect import inspect_archive, LP_GEOMETRY
+from openssl_image import probe_profile, decrypt_member
 
 PARTS = (
     "system", "system_ext", "product", "vendor", "odm", "mi_ext",
@@ -89,22 +91,65 @@ def unpack_super(archive, work, partitions, names, parts):
 
 
 def unpack_disguised_super(archive, work, partitions, report, parts):
-    """Accept a renamed super image only if its Android LP signature is verified.
+    """Accept renamed Android super only after verifying the real LP magic.
 
-    A partition called custom.img is NOT assumed to be an Android system image.
+    OpenSSL Salted__ image is encrypted, not a filesystem; only try decryption
+    if the user provided their own GitHub Actions secret DUMP_IMAGE_PASSWORD.
     """
     candidates = [
         row for row in report["entries"]
         if PurePosixPath(row["name"]).name.lower() in {"custom.img", "cust.img"}
-        and row["kind"] in {"android-super-raw", "android-sparse"}
+        and row["kind"] in {
+            "android-super-raw", "android-sparse", "encrypted-openssl-salted"
+        }
     ]
     for row in candidates:
+        encrypted = row["kind"] == "encrypted-openssl-salted"
+        if encrypted and not os.environ.get("DUMP_IMAGE_PASSWORD"):
+            raise SystemExit(
+                "[ENCRYPTED-ROM-IMAGE] " + row["name"] +
+                " starts with OpenSSL 'Salted__'; the ~7 GiB custom.img is "
+                "encrypted, not a readable Android filesystem. To dump "
+                "it, add a valid passphrase as GitHub Actions secret "
+                "DUMP_IMAGE_PASSWORD (Settings -> Secrets and variables -> "
+                "Actions), then start a NEW run. No password guessing "
+                "or bypass is performed. See zip-layout.json."
+            )
+        opts = None
+        if encrypted:
+            with archive.open(row["name"]) as member:
+                prefix = member.read(16 + 8192)
+            found = probe_profile(prefix)
+            if found is None:
+                raise SystemExit(
+                    "[ENCRYPTED-ROM-IMAGE] Could not verify any supported "
+                    "AES-256-CBC OpenSSL password/KDF combination from "
+                    "DUMP_IMAGE_PASSWORD against Android super signature. "
+                    "The provided password or encryption parameters may "
+                    "be incorrect. No arbitrary decrypted output is trusted."
+                )
+            name, opts = found
+            print("[DUMP] Verified password-derived decryption profile:", name,
+                  flush=True)
         size = row["size_bytes"]
-        if size > shutil.disk_usage(work).free - 2 * 1024 ** 3:
-            print("[WARN] Cannot inspect disguised image: insufficient temporary disk")
-            continue
+        if size + 2 * 1024 ** 3 > shutil.disk_usage(work).free:
+            raise SystemExit(
+                "[ERROR] Not enough runner disk space for " + row["name"] +
+                " decryption and extraction."
+            )
         staged = work / "input" / "candidate-super.img"
-        read_member(archive, row["name"], staged)
+        if encrypted:
+            print("[DUMP] Decrypting supplied OpenSSL image with user-provided key",
+                  flush=True)
+            try:
+                decrypt_member(archive, row["name"], staged, opts)
+            except Exception as exc:
+                raise SystemExit(
+                    "[ENCRYPTED-ROM-IMAGE] Decryption did not complete: " +
+                    type(exc).__name__
+                ) from None
+        else:
+            read_member(archive, row["name"], staged)
         raw = make_raw(staged, work)
         with raw.open("rb") as f:
             f.seek(4096)
