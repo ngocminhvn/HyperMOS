@@ -70,8 +70,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 curl unzip brotli zstd lz4 xz-utils erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
-          python3 -m py_compile bin/dump/collect.py bin/dump/base.py bin/dump/sourceforge_download.py bin/dump/archive_fallback.py bin/dump/archive_inspect.py bin/dump/direct_files.py
+          sudo apt-get install -y -qq aria2 curl unzip openssl brotli zstd lz4 xz-utils erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
+          python3 -m py_compile bin/dump/collect.py bin/dump/base.py bin/dump/sourceforge_download.py bin/dump/archive_fallback.py bin/dump/archive_inspect.py bin/dump/openssl_image.py bin/dump/direct_files.py
           python3 -m unittest discover -s bin/dump -p 'test_*.py' -v
           bash -n bin/dump/extract.sh
           test -s bin/dump/targets.txt
@@ -91,6 +91,8 @@ jobs:
 
       - name: Unpack ROM without mod or repack
         shell: bash
+        env:
+          DUMP_IMAGE_PASSWORD: ${{ secrets.DUMP_IMAGE_PASSWORD }}
         run: |
           set -euo pipefail
           bash bin/dump/extract.sh "$RUNNER_TEMP/hypermos-dump/source.zip" "$RUNNER_TEMP/hypermos-dump/work" "$DUMP_MODE"
