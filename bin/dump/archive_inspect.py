@@ -15,6 +15,8 @@ def format_mib(size):
 
 def classify(header):
     """Identify actual image/container magic; do not trust an .img filename."""
+    if header.startswith(b"Salted__"):
+        return "encrypted-openssl-salted"
     if header.startswith(b"\x3a\xff\x26\xed"):
         return "android-sparse"
     if header[4096:4100] == LP_GEOMETRY:
