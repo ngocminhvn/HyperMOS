@@ -17,15 +17,12 @@ elif [[ $AndroidVER == "16" ]];then
     # Signature verification is an existing independent HyperMOS feature and
     # is not part of this compatibility profile.
     tnm_framework_options=(--tnm-app-compat-gates)
-    # HyperMOS A16 patch stack:
-    # - disable signature verification
-    # - disable secure flag
-    # - PenguinOS-style CN notification policy
-    # - PolicyManager.CN_MODEL=false is applied inside the CN notification patch
+    # Preserve other existing A16 features. Reproduce ZK's twelve exact
+    # power/notification JAR method deltas; adapt only ZK build identity to TNM.
+    # No RYU FCM/FGS/first-boot overrides are stacked on top of the ZK methods.
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a16.sh \
         --disable-signature-verification \
         --cn-notification-fix \
-        --tnm-notification-policy \
         --tnm-zk-power-parity \
         "${tnm_framework_options[@]}" \
         --disable-secure-flag || exit 1
