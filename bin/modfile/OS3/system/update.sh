@@ -149,36 +149,12 @@ apply_system_apk() {
 
 mods "System APKs: starting"
 
+# Only Gallery remains in OS3/system. Screenshot is now installed directly
+# from the exact Kashi ZIP member in kashimod.sh.
 apply_system_apk \
-    "LLions File Manager" \
-    "[LLions] HyperOS File Manager Mod v8.1.0.5 Fix.apk" \
-    "MIUIFileExplorer" || exit 1
-
-apply_system_apk \
-    "LLions Gallery Editor" \
-    "[LLions] HyperOS Gallery Editor Mod v2.3.0.5.apk" \
-    "MIMediaEditor" || exit 1
-
-GALLERY_APK="MIUIGallery.apk"
-if [[ ! -f "$SYSTEM_DIR/$GALLERY_APK" ]]; then
-    info "Xiaomi Gallery 4.3.1.8-global not found; fallback to LLions Gallery v4.3.1.16"
-    GALLERY_APK="[LLions] HyperOS Gallery Mod v4.3.1.16.apk"
-fi
-
-apply_system_apk \
-    "Xiaomi Gallery 4.3.1.8-global" \
-    "$GALLERY_APK" \
+    "Xiaomi Gallery" \
+    "MIUIGallery.apk" \
     "MIUIGallery" || exit 1
-
-apply_system_apk \
-    "LLions Screen Recorder" \
-    "[LLions] HyperOS Screen Recorder Mod v4.15.2.12.1.apk" \
-    "ScreenRecorder" || exit 1
-
-apply_system_apk \
-    "LLions Screenshot" \
-    "[LLions] HyperOS Screenshot Mod v1.6.2.9.apk" \
-    "MIUIScreenshot" || exit 1
 
 rm -rf "$CACHE_DIR"
 mods "System APKs -> Done"
