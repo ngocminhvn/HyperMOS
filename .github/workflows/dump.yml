@@ -185,4 +185,89 @@ jobs:
           name="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"
           rclone copyto "$name" "${remote}HyperMOS/dump/$name" \
             --config="$config" --progress --transfers=1 --retries=6
-          rclone link "${remote}HyperMOS/dump/$name" --config="$config" || true
+          download_url="$(rclone link "${remote}HyperMOS/dump/$name" --config="$config" 2>/dev/null || true)"
+          if [[ -n "$download_url" && "$download_url" == https://* ]]; then
+            echo "DUMP_DOWNLOAD_URL=$download_url" >> "$GITHUB_ENV"
+            echo "[DUMP] Download URL: $download_url"
+            {
+              echo "### Dump download"
+              echo ""
+              echo "[Google Drive]($download_url)"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Drive upload succeeded but rclone did not return a valid HTTPS download link."
+          fi
+
+      - name: Notify Telegram with final dump result
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          DUMP_JOB_STATUS: ${{ job.status }}
+          DUMP_UPLOAD_METHOD: ${{ inputs.upload_method }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import html
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          chat_id = os.environ.get("TELEGRAM_CHANNEL_ID", "").strip()
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          run_no = os.environ.get("GITHUB_RUN_NUMBER", "")
+          mode = os.environ.get("DUMP_MODE", "base")
+          method = os.environ.get("DUMP_UPLOAD_METHOD", "artifact")
+          status = os.environ.get("DUMP_JOB_STATUS", "failure")
+          url = os.environ.get("DUMP_DOWNLOAD_URL", "").strip()
+          run_url = f"https://github.com/{repo}/actions/runs/{run_id}"
+          uploaded = status == "success"
+          file_name = f"HyperMOS-dump-{mode}-{run_no}.zip"
+
+          lines = [
+              "<b>HyperMOS — ROM Dump</b>",
+              f"• <b>Trạng thái:</b> {'HOÀN TẤT' if uploaded else 'THẤT BẠI'}",
+              f"• <b>Chế độ:</b> <code>{html.escape(mode)}</code>",
+              f"• <b>File:</b> <code>{html.escape(file_name)}</code>" if uploaded else "• <b>Kết quả:</b> Chưa upload thành công.",
+          ]
+          if uploaded:
+              if method == "drive":
+                  if url.startswith("https://"):
+                      lines.append(f'• <b>Tải dump:</b> <a href="{html.escape(url, quote=True)}">Google Drive</a>')
+                  else:
+                      lines.append("• <b>Link tải:</b> Chưa lấy được link Drive (kiểm tra log).")
+              else:
+                  lines.append(f'• <b>Tải dump:</b> <a href="{run_url}#artifacts">GitHub Artifacts</a> (đăng nhập GitHub)')
+          lines.append(f'• <b>Actions:</b> <a href="{run_url}">Run #{html.escape(run_no)}</a>')
+          message = "\n".join(lines)
+          print("[DUMP] " + ("Completed" if uploaded else "Failed") + " - " + (url if url else run_url))
+          if not token or not chat_id:
+              print("::warning::Telegram secrets missing; final dump notification was skipped.")
+              sys.exit(0)
+          payload = json.dumps({
+              "chat_id": chat_id,
+              "text": message,
+              "parse_mode": "HTML",
+              "disable_web_page_preview": True,
+          }).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=25) as response:
+                  result = json.load(response)
+              if not result.get("ok"):
+                  raise RuntimeError("Telegram returned ok=false")
+              print("[DUMP] Final Telegram notification sent.")
+          except (urllib.error.URLError, ValueError, RuntimeError) as exc:
+              print("::warning::Could not send final Telegram notification: " + str(exc))
+          PY
