@@ -5,7 +5,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq \
     && apt-get install -y --no-install-recommends \
-       python3-minimal strace ltrace libssl3t64 ca-certificates \
+       python3 strace ltrace libssl3t64 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY bin/dump/sandbox_probe.py /opt/hypermos/sandbox_probe.py
