@@ -20,6 +20,7 @@ FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
 FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_TNM_NOTIFICATION_POLICY=0
 FEATURE_TNM_LOW_POWER_DOZE=0
+FEATURE_ZK_POWER_PARITY=0
 FEATURE_TNM_FRAMEWORK_GATES=0
 FEATURE_TNM_APP_COMPAT_GATES=0
 FEATURE_DISABLE_SECURE_FLAG=0
@@ -38,6 +39,9 @@ parse_feature_flags() {
         ;;
       --tnm-low-power-doze)
         FEATURE_TNM_LOW_POWER_DOZE=1
+        ;;
+      --tnm-zk-power-parity)
+        FEATURE_ZK_POWER_PARITY=1
         ;;
       --tnm-framework-gates)
         FEATURE_TNM_FRAMEWORK_GATES=1
@@ -61,6 +65,7 @@ parse_feature_flags() {
   [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
   [ "$FEATURE_TNM_NOTIFICATION_POLICY" -eq 1 ] && log "  [PATCH] TNM FCM + first-boot + foreground-service handling"
   [ "$FEATURE_TNM_LOW_POWER_DOZE" -eq 1 ] && log "  [PATCH] TNM HAOTIAN mIsLowPowerDozeDevice=false"
+  [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ] && log "  [PATCH] ZKOS HAOTIAN JAR power policy with TNM branding"
   [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ] && log "  [PATCH] TNM audited TNM framework build gates"
   [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ] && log "  [PATCH] TNM/RYU app/background compatibility gates (no signature bypass)"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
@@ -69,6 +74,7 @@ parse_feature_flags() {
      [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
      [ "$FEATURE_TNM_NOTIFICATION_POLICY" -eq 0 ] &&
      [ "$FEATURE_TNM_LOW_POWER_DOZE" -eq 0 ] &&
+     [ "$FEATURE_ZK_POWER_PARITY" -eq 0 ] &&
      [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 0 ] &&
      [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
@@ -770,12 +776,17 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
 "
   for i in $class; do
     [ -f "$i" ] || continue
+    # Preserve ZK Greeze static policy instead of generic CN rewrites.
+    if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ] && [[ "$i" == */com/miui/server/greeze/PolicyManager.smali ]]; then
+      continue
+    fi
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/Build;->IS_MIUI:Z|g' "$i"
   done
   # PenguinOS A16 behavior uses the MIUI path for CN background policy.
   # HyperMOS additionally forces Greeze PolicyManager.CN_MODEL=false without
   # changing ro.miui.region, so the rest of Xiaomi regional behavior stays CN.
+  if [ "$FEATURE_ZK_POWER_PARITY" -eq 0 ]; then
   local policy_file
   policy_file=$(find "$decompile_dir" -type f -path '*/com/miui/server/greeze/PolicyManager.smali' -print -quit)
   if [ -z "$policy_file" ] || [ ! -f "$policy_file" ]; then
@@ -832,6 +843,7 @@ PY
     return 1
   fi
   log "[PATCH] PolicyManager.CN_MODEL=false -> Done"
+  fi
 
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
     [ -f "$i" ] || continue
@@ -1236,6 +1248,11 @@ patch_miui_services() {
     python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services --verify || return 1
   elif [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ]; then
     python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-services --profile hypermos-app-compat --verify || return 1
+  fi
+
+  # Apply ZK power gates AFTER all legacy CN/RYU edits and their checks.
+  if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ]; then
+    python3 "$SCRIPT_DIR/tnm_zk_power_a16.py" "$decompile_dir" || return 1
   fi
 
   # Apply invoke-custom patches (common to all features)
