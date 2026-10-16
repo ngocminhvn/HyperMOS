@@ -31,6 +31,38 @@
   Xiaomi DEX, but the original Xiaomi AndroidManifest.xml, resources, assets,
   native libraries, and META-INF are retained and verified by content.
 
+## Android 16 conditional UID-kill ABI restoration
+
+The original ZK donor declares \`PowerKeeperInterface$l.setUidPolicy\` but **not**
+\`getUidPolicy(I)Landroid/os/Bundle;\`. The EU/RYU \`setUidState\` method calls
+\`shouldKillByCheckerPolicy\`, which reads the missing interface method. Porting
+those two methods alone creates a possible \`NoSuchMethodError\`.
+
+The build now restores the abstract interface declaration and the matching
+concrete \`AppRuleChecker.getUidPolicy\` implementation. It reads the existing
+per-UID non-hot policy (\`AppRuleChecker$j.e.a\`) under the same checker lock and
+returns a Bundle with the \`POLICY\` key, the **only** field consumed by the
+imported kill decision. The existing \`HideModeStateMachineWrapper\` implementor
+already defines \`getUidPolicy\`; both known implementors are checked.
+The restored getter deliberately does **not** claim full EU hot/delay Bundle
+parity. It introduces no background service, timer or polling.
+
+Traced local-config path in ZK/EU:
+\`assets/local.config\` -> \`LocalUpdateUtils\` -> cloud app DB ->
+\`PowerKeeperAppConfigure\` -> \`toKillProcessAppRuleCheckerParams\` ->
+\`PowerKeeperConfigureManager\` -> \`AppRuleChecker\`.
+\`set_data_connection=true\` maps to \`bgData\` (background network permission).
+\`kill_delay_hot=-2\` maps to \`k_delay_hot\` ->
+\`bgKillDelayMinutesHot\` -> \`HOT_DELAY_MINUTE\`.
+The conditional UID kill, however, checks \`POLICY\` (values 1 and 2), not
+\`HOT_DELAY_MINUTE\`. These config entries alone **do not prove** that
+\`com.google.android.gms\` is immune to \`ProcessManager.kill()\`; no new GMS
+unrestricted/polling policy is applied in this ABI fix.
+
+A preflight verifies the ABI restoration and aborts if the donor interface,
+two known implementations, or backing per-UID policy fields drift.
+Compilation and real-world boot/FCM tests are still required.
+
 ## Original ZKOS miui-services.jar deltas
 
 The supplied ZKOS vs Xiaomi reference JARs contain exactly these **twelve**
