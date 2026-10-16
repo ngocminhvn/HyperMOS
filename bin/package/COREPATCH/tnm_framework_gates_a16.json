@@ -28,7 +28,6 @@
     ],
     "hypermos-zk-power": [
       "miui/app/ActivitySecurityHelper#getCheckStartActivityIntent(Landroid/content/pm/ApplicationInfo;Landroid/content/pm/ApplicationInfo;Landroid/content/Intent;ZIZII)Landroid/content/Intent;",
-      "android/app/AppOpsManagerInjector#<clinit>()V",
       "com/android/server/am/ProcessPolicy#updateContentCatcherWhitelist()V",
       "com/android/server/pm/PackageManagerServiceImpl#checkGTSSpecAppOptMode()V",
       "com/android/server/pm/PackageManagerServiceImpl#hasDomainVerificationRestriction()Z",
