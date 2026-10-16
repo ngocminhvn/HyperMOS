@@ -65,3 +65,32 @@ Windows also accepts `py -3` in place of `python3`. The script uses local ADB an
 **Important:** This local script cannot operate from a normal GitHub-hosted Actions runner because the runner does not have a USB connection to the user's phone. It also cannot recover modifications from an encrypted EliteRom ZIP if EliteRom is not installed on the connected device. An unencrypted ROM ZIP is the alternative for cloud-only extraction.
 
 One-shot tests: `python3 -m unittest discover -s bin/dump -p 'test_*.py' -v`.
+
+
+## Experimental offline behavior probe (no device)
+
+Run the manual workflow named **Probe EliteRom installer (offline sandbox)** to
+perform a bounded, *in-container* startup-only behavior observation of the
+previously extracted EliteRomLite Linux executable. The workflow reuses the
+15 MB installer artifact from run #38856269819 and **does not re-download the
+7.5 GiB ROM**.
+
+The untrusted ELF is mounted **read-only** inside a Docker container that has:
+no network, no host secrets, no attached phone or firmware images, a read-only
+root filesystem, all Linux capabilities dropped, no privilege escalation,
+a non-root UID, CPU/memory/PID limits and temporary in-memory storage. Only
+no-argument / help invocations are allowed; none are flash commands. A short
+timeout terminates any tracee process group still active.
+
+System-call and optional imported-function observations are reduced to
+**function names, counts and broad file-access categories** *inside the
+container*. Raw traces, program output, process memory, arbitrary arguments,
+possible passphrases and binary files are **not** exported. The artifact
+contains only aggregated JSON and Markdown.
+
+The sandbox's syscall or library tracer may itself fail under container
+security restrictions; these outcomes are reported as instrumentation limits,
+not proof that the installer lacks a crypto routine. Seeing EVP/PKCS5 symbols
+in an import list is not proof of their runtime use, and **no installer
+decryption password/key is expected to be recovered** by this limited test.
+The workflow does not interact with or modify build/flash pipelines.
