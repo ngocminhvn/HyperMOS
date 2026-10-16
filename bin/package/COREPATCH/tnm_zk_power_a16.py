@@ -113,7 +113,119 @@ def greeze_static(body: str) -> str:
         r'(?m)^([ \t]*const-string(?:/jumbo)?[ \t]+[vp]\d+,[ \t]+)"CN"[ \t]*$')
     hits = list(needle.finditer(body))
     if len(hits) == 0 and re.search(
-        r'(?m)^[ \t]*const-string(?:/jumbo)?[ \t]+[vp]\d+,[ \t]+"TNM"[ \t]*, body
+        r'(?m)^[ \t]*const-string(?:/jumbo)?[ \t]+[vp]\d+,[ \t]+"TNM"[ \t]*
+    ):
+        return body
+    if len(hits) != 1:
+        raise ValueError(
+            f"PolicyManager.<clinit>: expected one CN region literal, found {len(hits)}")
+    m = hits[0]
+    return body[:m.start()] + m[1] + '"TNM"' + body[m.end():]
+
+
+def run(root: Path):
+    if not root.is_dir():
+        raise ValueError(f"JAR smali folder not found: {root}")
+    pending = {}
+    count = 0
+    for suffix, signatures in ZK_METHODS.items():
+        path = one(root, suffix)
+        source = path.read_text(encoding="utf-8")
+        for signature in signatures:
+            source = transform(source, signature, port_field)
+            count += 1
+        pending[path] = source
+    nm = one(root, "com/android/server/notification/NotificationManagerServiceImpl.smali")
+    pending[nm] = transform(
+        pending.get(nm, nm.read_text(encoding="utf-8")),
+        "<clinit>()V", notification_static)
+    greeze = one(root, "com/miui/server/greeze/PolicyManager.smali")
+    pending[greeze] = transform(
+        greeze.read_text(encoding="utf-8"), "<clinit>()V", greeze_static)
+
+    bridge = root / "smali/com/android/tnm/TNMBuild.smali"
+    bridge_instances = list(root.rglob("TNMBuild.smali"))
+    if bridge_instances and (len(bridge_instances) != 1 or
+                             bridge_instances[0] != bridge or
+                             bridge.read_text(encoding="utf-8") != BRIDGE):
+        raise ValueError("Conflicting/duplicate TNMBuild implementation")
+    if not (root / "smali").is_dir():
+        raise ValueError("Missing primary smali directory for TNMBuild")
+
+    # All checks pass before first write; fail closed if the target ROM drifts.
+    for path, content in pending.items():
+        path.write_text(content, encoding="utf-8")
+    bridge.parent.mkdir(parents=True, exist_ok=True)
+    bridge.write_text(BRIDGE, encoding="utf-8")
+    print(f"[TNM-ZKOS] {count} exact ZK field gates, 1 notification initializer, "
+          "1 Greeze region constant; only ZK naming adapted to TNM")
+
+
+if __name__ == "__main__":
+    try:
+        if len(sys.argv) != 2:
+            raise ValueError("Usage: tnm_zk_power_a16.py <decompiled-miui-services>")
+        run(Path(sys.argv[1]))
+    except (ValueError, OSError) as exc:
+        print(f"[TNM-ZKOS] FAIL: {exc}", file=sys.stderr)
+        sys.exit(1)
+, body
+    ):
+        return body
+    if len(hits) != 1:
+        raise ValueError(
+            f"PolicyManager.<clinit>: expected one CN region literal, found {len(hits)}")
+    m = hits[0]
+    return body[:m.start()] + m[1] + '"TNM"' + body[m.end():]
+
+
+def run(root: Path):
+    if not root.is_dir():
+        raise ValueError(f"JAR smali folder not found: {root}")
+    pending = {}
+    count = 0
+    for suffix, signatures in ZK_METHODS.items():
+        path = one(root, suffix)
+        source = path.read_text(encoding="utf-8")
+        for signature in signatures:
+            source = transform(source, signature, port_field)
+            count += 1
+        pending[path] = source
+    nm = one(root, "com/android/server/notification/NotificationManagerServiceImpl.smali")
+    pending[nm] = transform(
+        pending.get(nm, nm.read_text(encoding="utf-8")),
+        "<clinit>()V", notification_static)
+    greeze = one(root, "com/miui/server/greeze/PolicyManager.smali")
+    pending[greeze] = transform(
+        greeze.read_text(encoding="utf-8"), "<clinit>()V", greeze_static)
+
+    bridge = root / "smali/com/android/tnm/TNMBuild.smali"
+    bridge_instances = list(root.rglob("TNMBuild.smali"))
+    if bridge_instances and (len(bridge_instances) != 1 or
+                             bridge_instances[0] != bridge or
+                             bridge.read_text(encoding="utf-8") != BRIDGE):
+        raise ValueError("Conflicting/duplicate TNMBuild implementation")
+    if not (root / "smali").is_dir():
+        raise ValueError("Missing primary smali directory for TNMBuild")
+
+    # All checks pass before first write; fail closed if the target ROM drifts.
+    for path, content in pending.items():
+        path.write_text(content, encoding="utf-8")
+    bridge.parent.mkdir(parents=True, exist_ok=True)
+    bridge.write_text(BRIDGE, encoding="utf-8")
+    print(f"[TNM-ZKOS] {count} exact ZK field gates, 1 notification initializer, "
+          "1 Greeze region constant; only ZK naming adapted to TNM")
+
+
+if __name__ == "__main__":
+    try:
+        if len(sys.argv) != 2:
+            raise ValueError("Usage: tnm_zk_power_a16.py <decompiled-miui-services>")
+        run(Path(sys.argv[1]))
+    except (ValueError, OSError) as exc:
+        print(f"[TNM-ZKOS] FAIL: {exc}", file=sys.stderr)
+        sys.exit(1)
+, body
     ):
         return body
     if len(hits) != 1:
