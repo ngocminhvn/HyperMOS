@@ -350,8 +350,17 @@ jobs:
           echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
           sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
 
-          if [ "$UPLOAD_METHOD" != "pixeldrain" ]; then
-            exit 0
+          # A Drive upload with no share URL must fall back to Pixeldrain.
+          if [ "$UPLOAD_METHOD" = "drive" ]; then
+            if [ -s bin/ddevice/download_url.txt ]; then
+              echo "[OK] - Google Drive share link generated"
+              exit 0
+            fi
+            echo "[WARN] - Google Drive link unavailable; retrying upload with Pixeldrain"
+          fi
+          if [ -z "${PD_API_KEY:-}" ]; then
+            echo "::error title=Pixeldrain API key missing::Configure PIXELDRAIN_API_KEY to enable direct upload or Drive-link fallback."
+            exit 1
           fi
 
           FILE=$(cat bin/ddevice/output_file.txt 2>/dev/null || true)
@@ -369,30 +378,51 @@ jobs:
             echo "[UPLOADING] - $(basename "$src")" >&2
             response=$(curl -fsS -u ":$PD_API_KEY" -F "file=@$src" https://pixeldrain.com/api/file)
             id=$(printf '%s' "$response" | jq -r '.id // empty')
-            [ -n "$id" ] || {
-              echo "[ERROR] - Pixeldrain response: $response" >&2
+            [[ "$id" =~ ^[A-Za-z0-9]+$ ]] || {
+              echo "[ERROR] - Pixeldrain did not return a valid file ID" >&2
               return 1
             }
             printf 'https://pixeldrain.com/u/%s\n' "$id"
           }
 
-          FIRST_URL=""
+          DOWNLOAD_URL=""
           if [ "$SIZE" -gt "$LIMIT" ]; then
             echo "[INFO] - ROM exceeds 9 GiB; splitting without recompression"
             7zz a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE" >/dev/null
+            manifest="${FILE}.parts.txt"
+            : > "$manifest"
+            file_ids='[]'
             for part in "${FILE}.7z".*; do
               [ -e "$part" ] || continue
               url=$(upload_one "$part")
-              [ -n "$FIRST_URL" ] || FIRST_URL="$url"
+              printf '%s %s\n' "$(basename "$part")" "$url" >> "$manifest"
+              file_ids=$(jq -cn --argjson ids "$file_ids" --arg id "${url##*/}" '$ids + [{id: $id}]')
             done
+            [ -s "$manifest" ] || { echo "[ERROR] - No ROM parts uploaded"; exit 1; }
+            # One album link gives access to every archive part, not only part 1.
+            payload=$(jq -cn --arg title "$(basename "$FILE")" --argjson files "$file_ids" \
+              '{title: $title, anonymous: false, files: $files}')
+            list_response=$(curl -fsS --retry 2 -u ":$PD_API_KEY" \
+              -H 'Content-Type: application/json' -d "$payload" \
+              https://pixeldrain.com/api/list 2>/dev/null || true)
+            list_id=$(printf '%s' "$list_response" | jq -r '.id // empty' 2>/dev/null || true)
+            if [[ "$list_id" =~ ^[A-Za-z0-9]+$ ]]; then
+              DOWNLOAD_URL="https://pixeldrain.com/l/$list_id"
+            else
+              echo "[WARN] - Pixeldrain album unavailable; sharing a manifest of all part links"
+              DOWNLOAD_URL=$(upload_one "$manifest")
+            fi
           else
-            FIRST_URL=$(upload_one "$FILE")
+            DOWNLOAD_URL=$(upload_one "$FILE")
           fi
 
-          if [ -n "$FIRST_URL" ]; then
-            echo "NOTIFY_DOWNLOAD_URL=$FIRST_URL" >> "$GITHUB_ENV"
-          fi
-          echo "[OK] - Pixeldrain upload completed"
+          [[ "$DOWNLOAD_URL" =~ ^https://pixeldrain.com/(u|l)/[A-Za-z0-9]+$ ]] || {
+            echo "[ERROR] - Pixeldrain did not produce a valid download URL"
+            exit 1
+          }
+          echo "$DOWNLOAD_URL" > bin/ddevice/download_url.txt
+          echo "NOTIFY_DOWNLOAD_URL=$DOWNLOAD_URL" >> "$GITHUB_ENV"
+          echo "[OK] - Pixeldrain upload completed: $DOWNLOAD_URL"
 
       - name: Notify result
         if: ${{ always() }}
@@ -441,3 +471,42 @@ jobs:
             echo "[WARN] No build log was created before the failure."
           fi
           echo "::endgroup::"
+
+      # Full unfiltered line coverage on failure; redact credentials before
+      # publishing an artifact in this public repository.
+      - name: Prepare full failure log
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
+          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p failure-diagnostics
+          python3 - <<'PYLOG'
+          import os
+          import re
+          from pathlib import Path
+
+          source = Path("build_action.log")
+          content = source.read_text(encoding="utf-8", errors="replace") if source.is_file() else "Build log was not created before failure.\n"
+          for name in ("RCLONE_TOKEN_PATH", "PIXELDRAIN_API_KEY", "TELEGRAM_BOT_TOKEN"):
+              secret = os.environ.get(name, "")
+              if secret:
+                  content = content.replace(secret, "[REDACTED]")
+          content = re.sub(r"(?i)([?&](?:token|key|api_key|secret|password|sig|signature|auth|access_token|refresh_token)=)[^&#\s]+", r"\1[REDACTED]", content)
+          content = re.sub(r"(?i)(https?://)[^\s/@:]+:[^\s/@]+@", r"\1[REDACTED]@", content)
+          content = re.sub(r"(?i)(\b(?:Authorization|password|api_key|secret|access_token|refresh_token)\s*[:=]\s*)[^\s,;]+", r"\1[REDACTED]", content)
+          Path("failure-diagnostics/build_action.log").write_text(content, encoding="utf-8")
+          print(f"[OK] Full failure log prepared ({len(content.splitlines())} lines; sensitive values redacted)")
+          PYLOG
+
+      - name: Upload full failure log artifact
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypermos-build-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: failure-diagnostics/build_action.log
+          if-no-files-found: warn
+          retention-days: 7
