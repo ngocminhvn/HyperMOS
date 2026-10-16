@@ -17,3 +17,9 @@ The output ZIP includes `pack-meta/mirror-report.json` with measured mirrors and
 Non-SourceForge URLs retain direct aria2 downloading and ZIP integrity checks. No modifications are made to ROM contents.
 
 Offline tests: `python3 -m unittest discover -s bin/dump -p 'test_sourceforge*.py' -v`.
+
+## Custom installers with firmware-update/ only
+
+If the ZIP exposes only `META-INF/` and `firmware-update/` entries (as in EliteRomLite HAOTIAN OS3.0.307.0's observed run #38827659686), it is not safe to assume that `firmware-update/custom.img` contains Android `system` or `product`. The dump extractor now examines ZIP member sizes and signatures, accepts a renamed `custom.img` as a `super` container **only when Android logical-partition metadata is verified**, and otherwise reports an explicit unsupported-layout error instead of a Python traceback. It never executes recovery `update-binary` scripts.
+
+On failure the GitHub Actions diagnostic artifact includes `zip-layout.json`, `zip-layout.txt`, `entries.txt`, and (when small enough) `updater-script.txt`. These allow identifying which ZIP entries contain the actual ROM data without guessing. If the package genuinely contains firmware images only, obtaining framework JAR/APK files requires a full system-containing ROM ZIP, not a different extractor flag.
