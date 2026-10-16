@@ -1,6 +1,22 @@
 name: dump
 
 on:
+  workflow_call:
+    inputs:
+      rom_url:
+        description: 'Direct ROM ZIP URL'
+        required: true
+        type: string
+      upload_method:
+        description: 'Save extracted dump to'
+        required: true
+        type: string
+        default: artifact
+      dump_mode:
+        description: 'base = 5 named JAR/APK files; full = complete target list'
+        required: false
+        type: string
+        default: base
   workflow_dispatch:
     inputs:
       rom_url:
@@ -29,10 +45,135 @@ permissions:
 
 jobs:
   dump:
-    # Launcher only: all dump logic remains on feature/dump-workflow.
-    uses: ngocminhvn/HyperMOS/.github/workflows/dump.yml@feature/dump-workflow
-    with:
-      rom_url: ${{ inputs.rom_url }}
-      upload_method: ${{ inputs.upload_method }}
-      dump_mode: ${{ inputs.dump_mode }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DUMP_MODE: ${{ inputs.dump_mode }}
+    steps:
+      - name: Free runner space
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h .
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          df -h .
+
+      - name: Checkout HyperMOS tools
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: false
+          persist-credentials: false
+
+      - name: Install extraction tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 curl unzip brotli zstd lz4 xz-utils erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
+          python3 -m py_compile bin/dump/collect.py bin/dump/base.py bin/dump/sourceforge_download.py bin/dump/archive_fallback.py bin/dump/archive_inspect.py bin/dump/adb_dump.py bin/dump/direct_files.py
+          python3 -m unittest discover -s bin/dump -p 'test_*.py' -v
+          bash -n bin/dump/extract.sh
+          test -s bin/dump/targets.txt
+
+      - name: Download ROM
+        shell: bash
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hypermos-dump"
+          python3 bin/dump/sourceforge_download.py \
+            --url "$ROM_URL" \
+            --output "$RUNNER_TEMP/hypermos-dump/source.zip" \
+            --report "$RUNNER_TEMP/hypermos-dump/mirror-report.json"
+          unzip -tq "$RUNNER_TEMP/hypermos-dump/source.zip" >/dev/null
+
+      - name: Unpack ROM without mod or repack
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash bin/dump/extract.sh "$RUNNER_TEMP/hypermos-dump/source.zip" "$RUNNER_TEMP/hypermos-dump/work" "$DUMP_MODE"
+
+      - name: Save ZIP layout diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HyperMOS-dump-diagnostics-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/hypermos-dump/work/entries.txt
+            ${{ runner.temp }}/hypermos-dump/work/zip-layout.json
+            ${{ runner.temp }}/hypermos-dump/work/zip-layout.txt
+            ${{ runner.temp }}/hypermos-dump/work/updater-script.txt
+            ${{ runner.temp }}/hypermos-dump/mirror-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Copy files and create map
+        shell: bash
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
+        run: |
+          set -euo pipefail
+          case "$DUMP_MODE" in
+            base)
+              python3 bin/dump/base.py \
+                --images "$RUNNER_TEMP/hypermos-dump/work/images" \
+                --output "$RUNNER_TEMP/hypermos-dump/output" \
+                --source-url "$ROM_URL"
+              ;;
+            full)
+              python3 bin/dump/collect.py \
+                --images "$RUNNER_TEMP/hypermos-dump/work/images" \
+                --targets bin/dump/targets.txt \
+                --output "$RUNNER_TEMP/hypermos-dump/output" \
+                --source-url "$ROM_URL"
+              ;;
+            *)
+              echo "::error::Unsupported dump mode: $DUMP_MODE"
+              exit 1
+              ;;
+          esac
+          cp "$RUNNER_TEMP/hypermos-dump/mirror-report.json" \
+            "$RUNNER_TEMP/hypermos-dump/output/pack-meta/mirror-report.json"
+          if [[ -f "$RUNNER_TEMP/hypermos-dump/work/zip-layout.json" ]]; then
+            cp "$RUNNER_TEMP/hypermos-dump/work/zip-layout.json" \
+              "$RUNNER_TEMP/hypermos-dump/output/pack-meta/zip-layout.json"
+          fi
+          echo "Dump mode: $DUMP_MODE. map.tsv, map.json and mirror-report.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package dump ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/hypermos-dump/output"
+          zip -q -r -1 "$GITHUB_WORKSPACE/HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip" .
+          ls -lh "$GITHUB_WORKSPACE/HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"
+
+      - name: Upload GitHub Artifact
+        if: ${{ inputs.upload_method == 'artifact' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: HyperMOS-dump-${{ inputs.dump_mode }}-${{ github.run_number }}
+          path: HyperMOS-dump-${{ inputs.dump_mode }}-${{ github.run_number }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Google Drive using existing rclone config
+        if: ${{ inputs.upload_method == 'drive' }}
+        shell: bash
+        env:
+          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_TOKEN_PATH" || { echo '[ERROR] Missing RCLONE_TOKEN_PATH'; exit 1; }
+          config_url="$RCLONE_TOKEN_PATH"
+          case "$config_url" in https://*|http://*) ;; //*) config_url="https:$config_url" ;; *) config_url="https://$config_url" ;; esac
+          config="$RUNNER_TEMP/hypermos-dump/rclone.conf"
+          curl -fsSL --retry 4 "$config_url" -o "$config"
+          remote="$(rclone listremotes --config="$config" | head -1)"
+          test -n "$remote" || { echo '[ERROR] No configured remote'; exit 1; }
+          name="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"
+          rclone copyto "$name" "${remote}HyperMOS/dump/$name" \
+            --config="$config" --progress --transfers=1 --retries=6
+          rclone link "${remote}HyperMOS/dump/$name" --config="$config" || true
