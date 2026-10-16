@@ -136,6 +136,10 @@ jobs:
           esac
           cp "$RUNNER_TEMP/hypermos-dump/mirror-report.json" \
             "$RUNNER_TEMP/hypermos-dump/output/pack-meta/mirror-report.json"
+          if [[ -f "$RUNNER_TEMP/hypermos-dump/work/zip-layout.json" ]]; then
+            cp "$RUNNER_TEMP/hypermos-dump/work/zip-layout.json" \
+              "$RUNNER_TEMP/hypermos-dump/output/pack-meta/zip-layout.json"
+          fi
           echo "Dump mode: $DUMP_MODE. map.tsv, map.json and mirror-report.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package dump ZIP
