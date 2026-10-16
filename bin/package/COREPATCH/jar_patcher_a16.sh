@@ -785,6 +785,7 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
       case "$i" in
         */com/android/server/DeviceIdleControllerStubImpl.smali|\
         */com/android/server/am/ActivityManagerServiceImpl.smali|\
+        */com/android/server/am/BroadcastQueueModernStubImpl.smali|\
         */com/android/server/am/MiProcessTracker.smali|\
         */com/android/server/am/PreStartFeedbackImpl.smali|\
         */com/android/server/am/ProcessManagerService.smali|\
@@ -792,6 +793,7 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
         */com/android/server/am/ProcessSceneCleaner.smali|\
         */com/android/server/alarm/AlarmManagerServiceStubImpl.smali|\
         */com/android/server/job/JobServiceContextImpl.smali|\
+        */com/android/server/notification/NotificationManagerServiceImpl.smali|\
         */com/miui/server/greeze/PolicyManager.smali|\
         */com/miui/server/smartpower/policy/SmartArtRuntimePolicy.smali|\
         */com/miui/server/smartpower/FlingOptimizeManager.smali|\
