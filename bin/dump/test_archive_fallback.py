@@ -93,6 +93,19 @@ class ArchiveFallbackTests(unittest.TestCase):
         self.assertTrue((self.work / "updater-script.txt").is_file())
         self.assertIn("custom.img", (self.work / "zip-layout.txt").read_text())
 
+    def test_encrypted_rom_reports_adb_alternative_not_password(self):
+        self.make_zip({
+            "META-INF/com/google/android/updater-script": b"EliteRom",
+            "firmware-update/custom.img": b"Salted__12345678" + b"\0" * 8192,
+        })
+        with self.assertRaises(SystemExit) as raised:
+            archive_fallback.extract(self.zip_path, self.work, "base")
+        message = str(raised.exception)
+        self.assertIn("[ENCRYPTED-ROM-IMAGE]", message)
+        self.assertIn("adb_dump.py", message)
+        self.assertNotIn("DUMP_IMAGE_PASSWORD", message)
+        self.assertTrue((self.work / "zip-layout.json").is_file())
+
     def test_renamed_image_requires_real_android_super_geometry_magic(self):
         self.assertEqual(classify(b"\0" * 4096 + LP_GEOMETRY), "android-super-raw")
         self.assertEqual(classify(b"\0" * 1024 + EROFS), "erofs")
