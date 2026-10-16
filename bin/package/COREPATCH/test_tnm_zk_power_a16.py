@@ -4,6 +4,7 @@
 The fixture tests transformation logic; a full ROM build is still required.
 """
 import importlib.util
+import json
 import tempfile
 from pathlib import Path
 
@@ -75,6 +76,32 @@ def check():
         assert before == after, "Port is not idempotent"
         print("PASS: 10 ZK build fields, NotificationManager initializer, "
               "Greeze TNM region, unrelated class intact, idempotent")
+
+    # Guard against silently re-introducing CN/RYU AppOps policy over ZKOS.
+    config = json.loads((ROOT / "tnm_framework_gates_a16.json").read_text())
+    profile = config["profiles"]["hypermos-zk-power"]
+    assert not any("AppOpsManagerInjector#" in method for method in profile), (
+        "Unverified AppOps RYU build gate reintroduced")
+    patcher = (ROOT / "jar_patcher_a16.sh").read_text()
+    cn = patcher.split("apply_miui_services_cn_notification_fix() {", 1)[1] \
+        .split("apply_miui_services_global_patch() {", 1)[0]
+    skip = cn.split('if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ]; then', 1)[1] \
+        .split("esac", 1)[0]
+    for cls in (
+        "BroadcastQueueModernStubImpl",
+        "NotificationManagerServiceImpl",
+        "ProcessManagerService",
+        "ProcessSceneCleaner",
+        "DeviceIdleControllerStubImpl",
+        "PolicyManager",
+        "AppOpsServiceStubImpl",
+        "MutableActivityManagerShellCommandStubImpl",
+    ):
+        assert cls + ".smali" in skip, f"ZK CN isolation missing: {cls}"
+    framework = patcher.split("apply_miui_framework_cn_notification_fix() {", 1)[1] \
+        .split("apply_framework_disable_secure_flag() {", 1)[0]
+    assert '[[ "$i" == */android/app/AppOpsManagerInjector.smali ]]' in framework
+    print("PASS: legacy CN/RYU AppOps and background gates isolated from ZK")
 
 
 if __name__ == "__main__":
