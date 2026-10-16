@@ -778,9 +778,27 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
 "
   for i in $class; do
     [ -f "$i" ] || continue
-    # Preserve ZK Greeze static policy instead of generic CN rewrites.
-    if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ] && [[ "$i" == */com/miui/server/greeze/PolicyManager.smali ]]; then
-      continue
+    # ZK does NOT globally convert power/kill/idle methods to the CN international
+    # branch. Preserve stock in these classes; the six verified ZK changes are
+    # applied after other patches by tnm_zk_power_a16.py.
+    if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ]; then
+      case "$i" in
+        */com/android/server/DeviceIdleControllerStubImpl.smali|\
+        */com/android/server/am/ActivityManagerServiceImpl.smali|\
+        */com/android/server/am/MiProcessTracker.smali|\
+        */com/android/server/am/PreStartFeedbackImpl.smali|\
+        */com/android/server/am/ProcessManagerService.smali|\
+        */com/android/server/am/ProcessPolicy.smali|\
+        */com/android/server/am/ProcessSceneCleaner.smali|\
+        */com/android/server/alarm/AlarmManagerServiceStubImpl.smali|\
+        */com/android/server/job/JobServiceContextImpl.smali|\
+        */com/miui/server/greeze/PolicyManager.smali|\
+        */com/miui/server/smartpower/policy/SmartArtRuntimePolicy.smali|\
+        */com/miui/server/smartpower/FlingOptimizeManager.smali|\
+        */com/miui/server/turbosched/TurboSchedManagerService.smali)
+          continue
+          ;;
+      esac
     fi
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/Build;->IS_MIUI:Z|g' "$i"
