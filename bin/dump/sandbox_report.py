@@ -37,6 +37,9 @@ def render(cases):
         ("connection_attempt", "network connect attempted"),
         ("writable_executable_mapping", "RWX mprotect seen"),
         ("sigkill_syscall_seen", "SIGKILL syscall observed"),
+        ("sigkill_target_is_self", "SIGKILL targets calling PID"),
+        ("sigkill_target_is_tracee_peer", "SIGKILL targets traced peer"),
+        ("sigkill_target_other_or_group", "SIGKILL targets other/group"),
         ("ptrace_syscall_seen", "ptrace syscall observed"),
     ]:
         result.append("| " + title + " | " +
