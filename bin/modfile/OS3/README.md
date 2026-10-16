@@ -49,10 +49,10 @@ on main when dry-run is disabled.
 ## Integration flow
 
 1. Read the fixed local ZIP/APK from the repository.
-2. Verify SHA-256.
-3. Extract the ZIP.
-4. Scan APKs with `aapt dump badging` and identify the expected Android package.
-5. Preserve release-provided external native libraries. If they are absent but embedded ARM libraries exist inside the APK, rebuild `lib/arm` and `lib/arm64` byte-for-byte from that same APK and verify them.
+2. Check ZIP readability and the required APK's presence.
+3. Extract the selected APK.
+4. Identify its expected Android package with `aapt dump badging`.
+5. Preserve native libraries provided by the module; when absent, extract embedded ARM libraries into `lib/arm` and `lib/arm64`. No SHA-256 calculation is performed.
 6. Replace the stock app at its expected system path.
 7. Verify the copied app-folder shape before continuing the ROM build.
 
