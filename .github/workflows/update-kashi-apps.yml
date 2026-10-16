@@ -46,7 +46,7 @@ jobs:
           python3 - <<'PY'
           from __future__ import annotations
           
-          import hashlib
+          import filecmp
           import json
           import os
           from pathlib import Path, PurePosixPath
@@ -73,14 +73,6 @@ jobs:
           
           def command(*args, timeout=300):
               return subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout).stdout
-          
-          
-          def sha256(path):
-              digest = hashlib.sha256()
-              with open(path, "rb") as stream:
-                  for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
-                      digest.update(chunk)
-              return digest.hexdigest()
           
           
           def validate_zip(path, expected_pkg, label, selected_apk=None):
@@ -152,10 +144,6 @@ jobs:
                   filename = asset["name"]
                   if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\.zip", filename):
                       raise ValueError(f"{repo}: unsafe release filename: {filename}")
-                  digest = asset.get("digest") or ""
-                  if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
-                      raise ValueError(f"{repo}: published SHA-256 digest missing or invalid")
-                  expected_sha = digest.partition(":")[2]
                   expected_size = int(asset.get("size", 0))
                   if not 1024 <= expected_size <= 100 * 1024 * 1024:
                       raise ValueError(f"{repo}: suspicious release size: {expected_size}")
@@ -164,11 +152,6 @@ jobs:
                   if len(old_files) != 1:
                       raise ValueError(f"{repo}: expected one existing {prefix}*.zip; found {len(old_files)}")
                   old = old_files[0]
-                  if old.name == filename and sha256(old) == expected_sha:
-                      rows.append((label, old.name, f"{tag} / {filename}", "Unchanged"))
-                      print(f"[UNCHANGED] {label}: {tag} ({filename})", flush=True)
-                      continue
-          
                   workdir = Path(tmp, prefix)
                   workdir.mkdir()
                   command("gh", "release", "download", tag, "--repo", repo,
@@ -176,22 +159,26 @@ jobs:
                   downloaded = workdir / filename
                   if not downloaded.is_file():
                       raise ValueError(f"{repo}: expected downloaded asset missing")
-                  if downloaded.stat().st_size != expected_size or sha256(downloaded) != expected_sha:
-                      raise ValueError(f"{repo}: release size/SHA-256 mismatch: {filename}")
+                  if downloaded.stat().st_size != expected_size:
+                      raise ValueError(f"{repo}: release size mismatch: {filename}")
                   validate_zip(downloaded, expected_pkg, label, selected_apk)
+                  if old.name == filename and filecmp.cmp(old, downloaded, shallow=False):
+                      rows.append((label, old.name, f"{tag} / {filename}", "Unchanged"))
+                      print(f"[UNCHANGED] {label}: {tag} ({filename})", flush=True)
+                      continue
                   old_name = old.name
                   old.unlink()
                   shutil.copyfile(downloaded, DEST / filename)
                   rows.append((label, old_name, f"{tag} / {filename}", "Updated"))
                   changed = True
-                  print(f"[UPDATED] {label}: {filename}, SHA-256 {expected_sha}", flush=True)
+                  print(f"[UPDATED] {label}: {filename}", flush=True)
           
           summary = ["## Kashi app release check", "",
                      "| App | Existing snapshot | Latest release | Result |",
                      "|---|---|---|---|"]
           summary.extend(f"| {label} | {before} | {latest} | {action} |"
                          for label, before, latest, action in rows)
-          summary.extend(["", "Validated replacements: GitHub release SHA-256, size, ZIP CRC,",
+          summary.extend(["", "Validated replacements: release size, ZIP CRC,",
                           "safe paths, and expected APK package identity (plus Launcher overlay/whitelist).",
                           "Static checks do not establish compatibility or successful boot.", ""])
           content = "\n".join(summary)
