@@ -66,6 +66,63 @@ def mirror_url(canonical, shortname):
     return canonical + "?" + urlencode({"use_mirror": shortname})
 
 
+def download_router_url(project, relative, mirror=None):
+    """The binary redirect endpoint, not the web/UI /projects/.../download page."""
+    path = quote(relative, safe="/._-()~+")
+    url = f"https://downloads.sourceforge.net/project/{project}/{path}"
+    return mirror_url(url, mirror) if mirror else url
+
+
+def direct_mirror_url(project, relative, mirror):
+    """Direct SourceForge CDN endpoint for testing actual mirror throughput."""
+    if not re.fullmatch(r"[a-z0-9-]+", mirror):
+        raise ValueError("Invalid mirror name")
+    path = quote(relative, safe="/._-()~+")
+    return f"https://{mirror}.dl.sourceforge.net/project/{project}/{path}"
+
+
+def candidate_urls(original_url, canonical, project, relative, ranked):
+    """Never discard the supplied (possibly short-lived signed) mirror link.
+
+    Benchmarked mirrors come first for ordinary SourceForge project URLs.
+    Signed mirror URLs supplied by the user come first to preserve valid tokens.
+    Unverified direct and downloads.sourceforge.net routes are still attempted
+    if SourceForge's small range checks are blocked by a CDN.
+    """
+    original_host = (urlsplit(original_url).hostname or "").lower()
+    is_direct_input = (
+        original_host == "downloads.sourceforge.net"
+        or bool(re.fullmatch(r"[a-z0-9-]+\.dl\.sourceforge\.net", original_host))
+    )
+    urls = []
+    if is_direct_input:
+        urls.append(("input-direct", original_url))
+    for mirror in ranked:
+        if mirror != "autoselect":
+            urls.append((f"measured-{mirror}",
+                         direct_mirror_url(project, relative, mirror)))
+    urls.append(("router-autoselect", download_router_url(project, relative)))
+    for mirror in ("onboardcloud", "zenlayer", "twds", "psychz", "master"):
+        urls.append((f"router-{mirror}",
+                     download_router_url(project, relative, mirror)))
+    # In some cases the router blocks byte-range probes but permits full GET.
+    for mirror in MIRRORS:
+        if mirror != "autoselect":
+            urls.append((f"direct-{mirror}",
+                         direct_mirror_url(project, relative, mirror)))
+    urls.append(("direct-master", direct_mirror_url(project, relative, "master")))
+    if not is_direct_input:
+        urls.append(("input-original", original_url))
+    # Last-resort UI URL. Some runners receive HTTP 403 here.
+    urls.append(("web-download", canonical))
+    deduplicated, seen = [], set()
+    for name, url in urls:
+        if url not in seen:
+            deduplicated.append((name, url))
+            seen.add(url)
+    return deduplicated
+
+
 def probe(item):
     name, url = item
     # curl's range and max-filesize bound network/data use; --proto-redir
@@ -106,8 +163,17 @@ def probe(item):
 
 
 def benchmark(canonical, mirrors=MIRRORS):
+    sf = normalize(canonical)
+    if sf is None:
+        raise ValueError("Benchmark requires a SourceForge URL")
+    _, project, relative = sf
+    probe_targets = [
+        (m, download_router_url(project, relative)
+         if m == "autoselect" else direct_mirror_url(project, relative, m))
+        for m in mirrors
+    ]
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        results = list(pool.map(probe, [(m, mirror_url(canonical, m)) for m in mirrors]))
+        results = list(pool.map(probe, probe_targets))
     results.sort(key=lambda x: x.get("speed_bps", 0), reverse=True)
     # SF sometimes reroutes unavailable mirrors to the same real mirror;
     # count only one copy of each actual serving host.
@@ -167,7 +233,10 @@ def main():
         for item in probed:
             if item["status"] == "ok":
                 print(f"[MIRROR] {item['mirror']}: {item['speed_mib_s']} MiB/s via {item['serving_host']}", flush=True)
-        urls = [(name, mirror_url(canonical, name)) for name in ordered]
+        urls = candidate_urls(args.url, canonical, project, file_path, ordered)
+        if not any(item["status"] == "ok" for item in probed):
+            print("[WARN] Range benchmarks blocked/unavailable; will still try input "
+                  "direct URL and SourceForge CDN/router fallback endpoints", flush=True)
     else:
         print("[DOWNLOAD] Non-SourceForge URL: using original direct download", flush=True)
         project = None
