@@ -57,15 +57,39 @@ Traced local-config path in ZK/EU:
 The conditional UID kill, however, checks \`POLICY\` (values 1 and 2), not
 \`HOT_DELAY_MINUTE\`. These config entries alone **do not prove** that
 \`com.google.android.gms\` is immune to \`ProcessManager.kill()\`. HyperMOS
-now adds a *separate event-only* \`tnmIsGmsUid\` check in
-\`KillProcessController.shouldKillByCheckerPolicy\`. When Xiaomi's
-\`PackageUtil.getPackageNameByUid\` resolves to
-\`com.google.android.gms\`, the helper returns false before the conditional
-kill. This adds one package lookup only when the existing kill-decision
-path is entered. No polling, daemon, broad Doze bypass or unrestricted
-wakelock policy is introduced; other PowerKeeper kill routes are untouched.
-If package-to-UID resolution fails or the UID is shared with another
-package, this scoped check cannot prove absolute GMS protection.
+now performs the GMS check **inline** in
+\`KillProcessController.setUidState(IZ)V\`, immediately after the existing
+\`PackageUtil.getPackageNameByUid\` and \`isLockedApplication\` calls.
+It compares the **already resolved package name** with
+\`com.google.android.gms\`, ORs that result with the existing locked-app
+exemption, and reuses the same branch around the conditional kill.
+There is **no additional UID/package lookup**, helper method, polling,
+daemon, broad Doze bypass, or unrestricted wakelock policy. Other
+PowerKeeper kill routes are untouched. If the existing package lookup
+fails or an Android UID represents multiple packages, this scoped check
+cannot guarantee absolute GMS protection.
+
+## Difference from original ZKOS PowerKeeper (A16)
+
+- \`KillProcessController.setUidState\`: ZKOS has no RYU/EU-style conditional
+  \`ProcessManager.kill()\` call here; HyperMOS uses the HAOTIAN RYU
+  conditional kill method with its locked-app/visible-window/IME guards,
+  **plus one inline GMS comparison reusing the donor's package lookup**.
+- \`KillProcessController.shouldKillByCheckerPolicy\`: the RYU POLICY 1/2
+  checker, not present in the ZKOS donor, is restored unchanged. The
+  previous \`tnmIsGmsUid\` helper and second package lookup were removed.
+- \`PowerKeeperInterface$l\`, \`AppRuleChecker\`, \`AppRuleChecker$j\`: the
+  \`getUidPolicy\` ABI and concrete non-hot \`POLICY\` reader are added
+  to support the conditional kill method. This is *not* a copy of the
+  complete EU policy Bundle.
+- \`PowerKeeperApplication.onCreate\`: a relocated, passive TNM
+  PerfHook is initialized (20 imported per-app classes); its initial
+  thermal/performance writes are suppressed.
+- \`GmsObserver\`, Doze, Millet, freeze, and stock HAOTIAN thermal/FPS
+  asset configuration are not changed by the inline GMS optimization.
+  Separate build-ID/SettingsHelper/FPS/thermal-node compatibility rewrites
+  described above still apply to the ZK-derived DEX.
+
 
 A preflight verifies the ABI restoration and aborts if the donor interface,
 two known implementations, or backing per-UID policy fields drift.
