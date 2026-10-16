@@ -59,7 +59,7 @@ def decrypt_member(archive, member_name, output, opts, env=None):
     try:
         with archive.open(member_name) as source, output.open("wb") as sink:
             process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=sink,
-                                       stderr=subprocess.PIPE, env=env)
+                                       stderr=subprocess.DEVNULL, env=env)
             try:
                 shutil.copyfileobj(source, process.stdin, 1024 * 1024)
             except Exception:
@@ -67,8 +67,8 @@ def decrypt_member(archive, member_name, output, opts, env=None):
                 raise
             finally:
                 process.stdin.close()
-            _stdout, stderr = process.communicate()
-            if process.returncode != 0:
+            result = process.wait()
+            if result != 0:
                 raise RuntimeError("OpenSSL could not decrypt image; wrong password or cipher")
         return output
     except BaseException:
