@@ -28,6 +28,18 @@ class SandboxProbeTests(unittest.TestCase):
             self.assertTrue(result["observations"]["writable_executable_mapping"])
             self.assertNotIn("firmware-update/custom.img", json.dumps(result))
 
+    def test_sigkill_target_attribution_uses_tracee_pid_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self_trace = Path(tmp) / "syscall.1234"
+            self_trace.write_text("kill(1234, SIGKILL) = ?\n")
+            peer_trace = Path(tmp) / "syscall.5678"
+            peer_trace.write_text("kill(1234, SIGKILL) = 0\n")
+            observation = sys_summary([str(self_trace), str(peer_trace)])["observations"]
+            self.assertTrue(observation["sigkill_target_is_self"])
+            self.assertTrue(observation["sigkill_target_is_tracee_peer"])
+            self.assertFalse(observation["sigkill_target_other_or_group"])
+            self.assertNotIn("1234", json.dumps(observation))
+
     def test_ltrace_only_function_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             file = Path(tmp) / "libtrace"
