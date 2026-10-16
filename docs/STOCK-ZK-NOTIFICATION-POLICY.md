@@ -1,4 +1,4 @@
-# HAOTIAN ZKOS power / thermal / notification parity (Android 16)
+# HAOTIAN mixed PowerKeeper policy: guarded UID cleanup + preserved GMS / thermal (Android 16)
 
 ## Actual donor evidence
 
@@ -7,12 +7,19 @@
   \`f229fb0a5c67d41a55310a119ef64b18a86d6c04\`.
 - The pinned DEX matches the \`classes.dex\` from the uploaded
   \`PowerKeeperZK.apk\`; this is checked prior to build.
-- RYU KillProcessController methods are **not** transplanted: ZKOS owns all
-  UID-kill, GMS, Greeze, Doze and notification policy. Only the 20 isolated
-  RYU per-app PerfHook classes and their onCreate initializer are restored;
-  they are moved under the TNM namespace without replacing ZKOS kill methods.
-- Original ZKOS GmsObserver, ActiveStateController, KillProcessController,
-  Millet, freeze/UID and thermal policy execution is retained.
+- The EU reference APK has guarded `setUidState(IZ)V` and
+  `shouldKillByCheckerPolicy(I)Z` methods, unlike the ZK DEX. The build now
+  transplants the corresponding **conditional UID cleanup methods** from the
+  checked-in RYU method donor into the ZK PowerKeeper class, preserving
+  locked-app / visible-window / current-IME checks and allowing the
+  policy-gated `ProcessManager.kill()` path. This recreates the relevant
+  EU-style behavior; it is **not** a claim of byte-identical EU methods.
+- The 20 isolated RYU PerfHook classes and their passive onCreate initializer
+  remain independently grafted under the TNM namespace.
+- Original ZKOS `GmsObserver`, `ActiveStateController`, Millet, freeze/UID,
+  and thermal policy execution is retained. In `KillProcessController`, only
+  `setUidState` and the conditional policy checker are taken from the RYU
+  donor; other ZK methods are left unchanged.
 - Only ZK integration identity is translated to TNM
   (\`IS_ZK_BUILD\` -> \`IS_TNM_BUILD\`, SettingsHelper, and local TNM settings
   names). The unavailable \`zk_state\` HAOTIAN thermal endpoint is mapped to
@@ -70,15 +77,16 @@ Xiaomi APK. The integrity and byte-for-byte *content* equality of non-DEX ZIP
 members are checked by \`preserve_powerkeeper_identity.py\`.
 
 This source patch uses checked smali method signatures and aborts on unexpected
-layouts. No successful full flash/boot, notification-latency comparison or
-standby drain/thermal safety result is established by source changes alone.
+layouts. CI runs conditional-UID synthetic tests before building. No successful
+full flash/boot, notification-latency comparison or standby drain/thermal
+safety result is established by source changes alone.
 Verify a completed ROM build and runtime on HAOTIAN before judging parity.
 
 ## RYU-style PerfHook and CPU percentage control (80–100%)
 
-The RYU PerfHook is an **explicit exception** to the otherwise original ZKOS
-background and notification policy. It adds its original per-app Settings.System
-observer and application initialization, but no RYU UID-kill override.
+The RYU PerfHook is an isolated addition to the underlying ZK power controls,
+independent of the now-restored EU-style conditional UID kill. It adds its
+original per-app Settings.System observer and application initialization.
 
 The donor PerfHook `init()` formerly invoked `applyInitialZeroOnce()`
 (`sconfig=0`) and `updateConfig()` at boot. HyperMOS strips **only those
