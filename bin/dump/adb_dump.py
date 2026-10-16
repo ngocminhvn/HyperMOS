@@ -14,7 +14,7 @@ import sys
 import tarfile
 import zipfile
 from collections import defaultdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 PARTS = {
@@ -32,7 +32,7 @@ ROOTS = ("/system", "/system_ext", "/product", "/vendor", "/odm",
 
 def target_location(path):
     """Convert old dump target names to actual Android mount-point paths."""
-    bits = Path(path).parts
+    bits = PurePosixPath(path).parts
     for index, name in enumerate(bits):
         if name not in PARTS:
             continue
@@ -49,8 +49,8 @@ def selected_remote_files(entries, mode, target_lines):
     index = {name.casefold(): name for name in entries if name.startswith("/")}
     by_name, by_directory = defaultdict(list), defaultdict(list)
     for name in index.values():
-        by_name[Path(name).name.casefold()].append(name)
-        by_directory[str(Path(name).parent).casefold()].append(name)
+        by_name[PurePosixPath(name).name.casefold()].append(name)
+        by_directory[PurePosixPath(name).parent.as_posix().casefold()].append(name)
     found = {}
 
     def add(name):
@@ -84,7 +84,7 @@ def selected_remote_files(entries, mode, target_lines):
             continue
         # APK names may vary across ROMs. Use exactly one APK in that folder.
         if relative.lower().endswith(".apk"):
-            parent = str(Path("/"+part+"/"+relative).parent).casefold()
+            parent = PurePosixPath("/"+part+"/"+relative).parent.as_posix().casefold()
             options = [f for f in by_directory.get(parent, [])
                        if f.casefold().endswith(".apk")]
             if len(options) == 1:
@@ -92,11 +92,11 @@ def selected_remote_files(entries, mode, target_lines):
             continue
         # Some target-list rows are *members inside* a disassembled PowerKeeper
         # APK. Fetch its container; collect.py can read those members.
-        chunks = Path(relative).parts
+        chunks = PurePosixPath(relative).parts
         for i, segment in enumerate(chunks[:-1]):
             if segment.casefold() not in ("powerkeeper", "powerkeeperzk"):
                 continue
-            dirname = (Path("/"+part) / Path(*chunks[:i+1])).as_posix().casefold()
+            dirname = PurePosixPath("/"+part, *chunks[:i+1]).as_posix().casefold()
             options = [f for f in by_directory.get(dirname, [])
                        if f.casefold().endswith(".apk")]
             if len(options) == 1:
