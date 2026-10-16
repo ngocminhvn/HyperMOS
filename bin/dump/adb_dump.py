@@ -62,6 +62,8 @@ def selected_remote_files(entries, mode, target_lines):
     if mode == "base":
         for name in BASE_NAMES:
             choices = by_name.get(name, [])
+            if name == "powerkeeper.apk" and not choices:
+                choices = by_name.get("powerkeeperzk.apk", [])
             if not choices:
                 continue
             def prefer(path):
