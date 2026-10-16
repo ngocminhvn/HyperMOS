@@ -80,6 +80,12 @@ if [[ "${GITHUB_REF_NAME:-}" == "main" ]]; then
   install -Dm755 "$framework_src" "$images/system_ext/bin/tnm-frameworkctl"
   grep -qF 'TNMFramework v1' "$images/system_ext/bin/tnm-frameworkctl" || exit 1
   mods "TNMFramework installed: /system_ext/bin/tnm-frameworkctl"
+  # On-demand CPU % cap; the historical TNM thermal/perf XML overlay stays disabled.
+  cpu_src="$work_dir/bin/modfile/UpdateFile/TNM/tnm-cpuctl"
+  [[ -s "$cpu_src" ]] || { error "TNM CPU controller missing"; exit 1; }
+  sh -n "$cpu_src" || { error "TNM CPU controller syntax invalid"; exit 1; }
+  install -Dm755 "$cpu_src" "$images/system_ext/bin/tnm-cpuctl"
+  mods "TNM CPU percent: 80-100%, on demand, no thermal XML changes"
 fi
 
 # ---------------------------------------------------------------------------
