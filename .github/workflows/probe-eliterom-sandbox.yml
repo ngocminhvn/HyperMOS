@@ -1,0 +1,100 @@
+name: Probe EliteRom installer (offline sandbox)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/probe-eliterom-sandbox.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: false
+          persist-credentials: false
+
+      - name: Syntax check and verify sandbox restrictions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/dump/sandbox_probe.py
+          python3 -m unittest discover -s bin/dump -p 'test_sandbox_probe.py' -v
+
+      - name: Fetch previously audited installer only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/elite-original"
+          gh run download 38856269819 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name EliteRomLite-HAOTIAN-installer-analysis \
+            --dir "$RUNNER_TEMP/elite-original"
+          installer="$RUNNER_TEMP/elite-original/installer/linux_mac_fastboot_install_or_update.sh"
+          test -s "$installer"
+          printf '%s  %s\n' \
+            1d5f605b89f04716eb1dbcb716e2e12dd3851693e058bc5e4aaa3dbe553548bc \
+            "$installer" | sha256sum --check --status
+          chmod 0555 "$installer"
+
+      - name: Build sandbox image (before disconnecting network)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file bin/dump/sandbox.Dockerfile \
+            --tag hypermos-eliterom-sandbox:local .
+
+      - name: Observe startup under strict offline container
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer="$RUNNER_TEMP/elite-original/installer/linux_mac_fastboot_install_or_update.sh"
+          mkdir -p "$RUNNER_TEMP/elite-sandbox-report"
+          for case in no-args help; do
+            timeout -s KILL 50s docker run --rm \
+              --pull never \
+              --network none \
+              --read-only \
+              --user 65534:65534 \
+              --cap-drop ALL \
+              --security-opt no-new-privileges \
+              --pids-limit 40 \
+              --memory 320m \
+              --cpus 1 \
+              --ipc none \
+              --ulimit core=0 \
+              --tmpfs /tmp:rw,nosuid,nodev,noexec,size=32m \
+              --mount "type=bind,src=$installer,dst=/analysis/installer,readonly" \
+              hypermos-eliterom-sandbox:local \
+              python3 /opt/hypermos/sandbox_probe.py \
+              --installer /analysis/installer --case "$case" \
+              > "$RUNNER_TEMP/elite-sandbox-report/$case.json"
+            python3 -m json.tool "$RUNNER_TEMP/elite-sandbox-report/$case.json" >/dev/null
+          done
+          python3 bin/dump/sandbox_report.py \
+            --input "$RUNNER_TEMP/elite-sandbox-report" \
+            --output "$RUNNER_TEMP/elite-sandbox-report/summary.md"
+          cat "$RUNNER_TEMP/elite-sandbox-report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload aggregate-only behavior report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EliteRomLite-HAOTIAN-isolated-runtime-report
+          path: |
+            ${{ runner.temp }}/elite-sandbox-report/no-args.json
+            ${{ runner.temp }}/elite-sandbox-report/help.json
+            ${{ runner.temp }}/elite-sandbox-report/summary.md
+          if-no-files-found: warn
+          retention-days: 7
