@@ -119,6 +119,46 @@ jobs:
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
+          # Check fixed OS3 app snapshots before downloading/extracting the ROM.
+          bash -n bin/modfile/OS3/_common.sh
+          bash -n bin/modfile/OS3/kashimod.sh
+          bash -n bin/modfile/OS3/system/update.sh
+          bash -n bin/modfile/OS3/insmod.sh
+          python3 - <<'PYOS3'
+          import re
+          import subprocess
+          import tempfile
+          import zipfile
+          from pathlib import Path
+
+          base = Path("bin/modfile/OS3")
+          snapshots = [
+              ("FreeStyle_CC_mod_", "files/OS3/MIUISystemUIPlugin.apk", "miui.systemui.plugin"),
+              ("HyperOS_Screenshot", "files/MIUIScreenshot.apk", "com.miui.screenshot"),
+          ]
+          with tempfile.TemporaryDirectory(prefix="os3-mod-preflight-") as tmp:
+              for prefix, member, expected_package in snapshots:
+                  matches = list((base / "kashi").glob(prefix + "*.zip"))
+                  if len(matches) != 1:
+                      raise SystemExit(f"[OS3] Need exactly one {prefix}*.zip; got {len(matches)}")
+                  with zipfile.ZipFile(matches[0]) as archive:
+                      if archive.namelist().count(member) != 1:
+                          raise SystemExit(f"[OS3] Missing/duplicate member {member} in {matches[0]}")
+                      apk = Path(tmp) / (prefix + ".apk")
+                      apk.write_bytes(archive.read(member))
+                  if not apk.stat().st_size:
+                      raise SystemExit(f"[OS3] Empty APK: {member}")
+                  result = subprocess.run(["aapt", "dump", "badging", str(apk)],
+                                          capture_output=True, text=True, check=True).stdout
+                  match = re.search(r"^package: name='([^']+)'", result, re.MULTILINE)
+                  if match is None or match.group(1) != expected_package:
+                      raise SystemExit(f"[OS3] Wrong APK package in {member}")
+                  print(f"[OS3] OK: {matches[0].name} -> {member} ({expected_package})")
+          gallery = base / "system/MIUIGallery.apk"
+          if not gallery.is_file() or gallery.stat().st_size < 1024:
+              raise SystemExit("[OS3] Gallery APK is absent or Git LFS pointer was not hydrated")
+          print("[OS3] Kashi and Gallery snapshot preflight passed")
+          PYOS3
           sh -n bin/modfile/UpdateFile/TNM/tnm-cpuctl
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           python3 bin/modfile/UpdateFile/TNM/test_cpu_percent.py
