@@ -14,6 +14,15 @@ if [[ "$device" != "haotian" || "$android" != "16" ]]; then
   exit 0
 fi
 
+# PowerKeeper and framework power/thermal policy now follow the original ZKOS
+# bytecode. Do not overlay the former RYU/TNM CPU/boost/powerhint/ODM thermal
+# profiles, KGSL SELinux access, or PerfHook init when building ZKOS-parity main.
+# Keep base-ROM vendor/ODM safety and performance files as shipped by Xiaomi.
+if [[ "${GITHUB_REF_NAME:-}" == "main" ]]; then
+  mods "ZKOS POWER/THERMAL: keep Xiaomi base thermal/perf XML; no RYU/TNM profile overlay"
+  exit 0
+fi
+
 # Validated TNM performance import is supported on HAOTIAN main.
 case "${GITHUB_REF_NAME:-}" in
   main)
