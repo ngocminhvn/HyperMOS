@@ -119,18 +119,26 @@ jobs:
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
+          sh -n bin/modfile/UpdateFile/TNM/tnm-cpuctl
+          bash -n bin/modfile/UpdateFile/TNM/update.sh
+          python3 bin/modfile/UpdateFile/TNM/test_cpu_percent.py
           bash -n bin/modfile/UpdateFile/TNMPerfProfile/update.sh
           python3 - <<'PYDEX'
           from pathlib import Path
           import subprocess
-          rel = Path("bin/package/NOTIFICATION_FIX/A16/classes.dex")
-          data = rel.read_bytes()
-          if len(data) < 112 or not data.startswith(b"dex\n") or int.from_bytes(data[32:36], "little") != len(data):
-              raise SystemExit(f"Invalid bundled ZKOS DEX: {rel}")
-          blob = subprocess.check_output(["git", "hash-object", str(rel)], text=True).strip()
-          if blob != "f229fb0a5c67d41a55310a119ef64b18a86d6c04":
-              raise SystemExit("ZKOS donor DEX hash mismatch")
-          print("PASS: pinned original ZKOS DEX")
+          for rel, expected in (
+              (Path("bin/package/NOTIFICATION_FIX/A16/classes.dex"),
+               "f229fb0a5c67d41a55310a119ef64b18a86d6c04"),
+              (Path("bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex"),
+               "1b5a46ea3f9ead44a5467584e15dddd7ba4b0555"),
+          ):
+              data = rel.read_bytes()
+              if len(data) < 112 or not data.startswith(b"dex\n") or int.from_bytes(data[32:36], "little") != len(data):
+                  raise SystemExit(f"Invalid bundled PowerKeeper/PerfHook DEX: {rel}")
+              blob = subprocess.check_output(["git", "hash-object", str(rel)], text=True).strip()
+              if blob != expected:
+                  raise SystemExit(f"Pinned donor DEX hash mismatch: {rel}")
+          print("PASS: original ZKOS DEX + RYU PerfHook source")
           PYDEX
           python3 -m py_compile \
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
