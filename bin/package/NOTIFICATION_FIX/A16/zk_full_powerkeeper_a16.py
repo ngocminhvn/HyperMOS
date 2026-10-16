@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Keep ZKOS PowerKeeper policy and add only the isolated RYU-style TNM PerfHook."""
+"""Retain ZK power services while restoring conditional EU-style UID cleanup."""
 import argparse
 import re
 from pathlib import Path
 
+from ryu_killprocess_a16 import port as port_conditional_uid_kill
 from powerkeeper import (
     OLD_PERF_PREFIX,
     TNM_PERF_PREFIX,
@@ -196,8 +197,13 @@ def main():
     parser.add_argument("--tnm-raw", type=Path, required=True)
     args = parser.parse_args()
     report = adapt_zk_smali(args.zk_raw)
+    # EU-style battery-conscious UID cleanup: retained-app/visible-window
+    # guards and per-UID POLICY 1/2 checks precede ProcessManager.kill().
+    # The pinned RYU donor provides the equivalent scoped methods. All other
+    # ZK controllers, GMS/Doze, thermal and TNM PerfHook code remain untouched.
+    report.update(port_conditional_uid_kill(args.zk_raw, args.tnm_raw))
     report.update(graft_tnm_per_app_perf(args.zk_raw, args.tnm_raw))
-    report["powerkeeper_policy"] = "Original ZKOS policy and KillProcessController; add isolated RYU PerfHook controller"
+    report["powerkeeper_policy"] = "EU-style conditional UID kill (pinned RYU method donor), ZK background services, passive TNM PerfHook"
     report["non_dex_content"] = "Xiaomi stock original"
     print("[TNM ZK LOCAL DEX PORT] " + ", ".join(f"{k}={v}" for k, v in report.items()))
 
