@@ -184,6 +184,7 @@ jobs:
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
             bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
             bin/package/NOTIFICATION_FIX/A16/restore_uid_policy_abi_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/guard_gms_uid_kill_a16.py \
             bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
             bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
             bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
@@ -191,6 +192,7 @@ jobs:
           python3 bin/package/COREPATCH/test_tnm_zk_power_a16.py
           python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_killprocess_a16.py
           python3 bin/package/NOTIFICATION_FIX/A16/test_restore_uid_policy_abi_a16.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_guard_gms_uid_kill_a16.py
           python3 bin/package/NOTIFICATION_FIX/A16/test_perfhook_passive_init.py
 
           # ZKOS-parity main retains the base Xiaomi thermal/CPU/powerhint XML.
