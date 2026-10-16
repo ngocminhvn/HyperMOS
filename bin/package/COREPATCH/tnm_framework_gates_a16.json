@@ -25,6 +25,16 @@
       "com/android/server/pm/PackageManagerServiceImpl#hasDomainVerificationRestriction()Z",
       "com/android/server/pm/PackageManagerServiceImpl#isExceptionByTestPolicy(Ljava/lang/String;)Z",
       "com/android/server/pm/PackageManagerServiceImpl#shouldInstallTargetSdkFail(Ljava/lang/String;)Z"
+    ],
+    "hypermos-zk-power": [
+      "miui/app/ActivitySecurityHelper#getCheckStartActivityIntent(Landroid/content/pm/ApplicationInfo;Landroid/content/pm/ApplicationInfo;Landroid/content/Intent;ZIZII)Landroid/content/Intent;",
+      "android/app/AppOpsManagerInjector#<clinit>()V",
+      "com/android/server/am/ProcessPolicy#updateContentCatcherWhitelist()V",
+      "com/android/server/notification/NotificationManagerServiceImpl#checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOpsManager;ILjava/lang/String;)V",
+      "com/android/server/pm/PackageManagerServiceImpl#checkGTSSpecAppOptMode()V",
+      "com/android/server/pm/PackageManagerServiceImpl#hasDomainVerificationRestriction()Z",
+      "com/android/server/pm/PackageManagerServiceImpl#isExceptionByTestPolicy(Ljava/lang/String;)Z",
+      "com/android/server/pm/PackageManagerServiceImpl#shouldInstallTargetSdkFail(Ljava/lang/String;)Z"
     ]
   },
   "entries": [
