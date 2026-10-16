@@ -4,35 +4,47 @@ HyperMOS builds use system-app payloads committed directly in this repository. N
 
 ## Local ZIP naming
 
-Normal ROM builds locate exactly one local ZIP for each module by filename prefix:
+ROM builds use local snapshots from bin/modfile/OS3/kashi/; no release downloads
+take place in the normal ROM build. Keep exactly one ZIP per active prefix:
 
-- `HyperOS_AppVault*.zip`
-- `ColorOS_plugin_mod_*.zip`
-- `HyperOS_Launcher*.zip`
-- `HyperOS_Security*.zip`
-- `HyperOS_ThemeManager*.zip`
+- HyperOS_AppVault*.zip
+- FreeStyle_CC_mod_*.zip (FreeStyle Control Center)
+- HyperOS_Screenshot*.zip (Screenshot)
+- HyperOS_Launcher*.zip
+- HyperOS_Security*.zip
+- HyperOS_ThemeManager*.zip
 
-This makes later replacement simple: remove the old ZIP and put the new ZIP in `bin/modfile/OS3/kashi/`. No script version or checksum needs to be edited. The build prints the actual SHA-256 for traceability and fails if zero or multiple files match a prefix.
-
-InstallerX source remains local in `bin/modfile/Universal/packageinstaller/`.
-
-The manual `Update Kashi Apps` workflow checks the latest stable Mods-Center releases. It validates GitHub release SHA-256 digests, ZIP integrity, and APK package identities, and commits changed snapshots directly to `main`. The normal ROM build never invokes this updater. See `kashi/README.md`.
+The previous ColorOS_plugin_mod_*.zip is no longer used by the ROM build.
+It may be removed separately once no longer needed as an archive.
 
 ## Kashi mods
 
-`bin/modfile/OS3/kashimod.sh` is the single integration entry for:
+bin/modfile/OS3/kashimod.sh installs App Vault, FreeStyle Control Center,
+Screenshot, Theme Manager, Launcher, and Security Center.
 
-- HyperOS App Vault
-- ColorOS Control Center
-- HyperOS Launcher
-- HyperOS Theme Manager
-- HyperOS Security Center
+For the two replacement packages, install only these exact ZIP members:
 
-The old per-module `appvault/update.sh`, `controlcenter/update.sh`, `launcher/update.sh`, `thememanager/update.sh`, and `security/update.sh` entry scripts are no longer used.
+- FreeStyle_CC_mod_*.zip: files/OS3/MIUISystemUIPlugin.apk
+  (miui.systemui.plugin)
+- HyperOS_Screenshot*.zip: files/MIUIScreenshot.apk
+  (com.miui.screenshot)
+
+Both APKs replace the matching stock package **in its current partition**.
+Other APK variants or installation scripts inside the ZIP are not injected.
+The build fails if the ZIP, expected APK member, package name, or stock target
+is missing.
 
 ## System APKs
 
-Local replacement APKs and their external libraries live in `bin/modfile/OS3/system/`. This folder contains local system APK replacements and their external libraries.
+bin/modfile/OS3/system/update.sh now installs only MIUIGallery.apk and the
+optional external libraries in MIUIGallery/lib/. Deleted LLions APKs are no
+longer mandatory. The Gallery APK is stored in Git LFS, so CI must fetch LFS
+objects before the build.
+
+The manual Update Kashi Apps workflow checks the matching Mods-Center releases,
+validates integrity and Android package identity, and updates local snapshots
+on main when dry-run is disabled.
+
 
 ## Integration flow
 
