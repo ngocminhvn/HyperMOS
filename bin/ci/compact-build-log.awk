@@ -24,7 +24,7 @@ function flush_progress() {
     sub(/\r$/, "", line)
 
     # Major checkpoints and GitHub diagnostic annotations are always visible.
-    if (line ~ /^\[PHASE\]/ || line ~ /^::(error|warning|notice|group|endgroup)::/) {
+    if (line ~ /^\[PHASE\]/ || line ~ /^::(error|warning|notice)([ :]|::)/ || line ~ /^::(group|endgroup)::/) {
         flush_progress()
         emit(line)
         next
