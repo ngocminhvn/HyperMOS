@@ -115,35 +115,33 @@ jobs:
 
           # Check the LOCK entrypoint before downloading ROM.
           bash -n bin/package/LOCK/update.sh
-          # Fast-fail the full ZKOS PowerKeeper + TNM per-app hook port.
+          # Fast fail original pinned ZKOS PowerKeeper and the scoped ZK JAR port.
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
-          # Lightweight source sanity check; no version-locked DEX hashes.
+          bash -n bin/package/COREPATCH/jar_patcher_a16.sh
+          bash -n bin/package/COREPATCH/update.sh
+          bash -n bin/modfile/UpdateFile/TNMPerfProfile/update.sh
           python3 - <<'PYDEX'
           from pathlib import Path
-          for rel in (
-              "bin/package/NOTIFICATION_FIX/A16/classes.dex",
-              "bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex",
-          ):
-              data = Path(rel).read_bytes()
-              if len(data) < 112 or not data.startswith(b"dex\n") or int.from_bytes(data[32:36], "little") != len(data):
-                  raise SystemExit(f"Invalid bundled DEX: {rel}")
+          import subprocess
+          rel = Path("bin/package/NOTIFICATION_FIX/A16/classes.dex")
+          data = rel.read_bytes()
+          if len(data) < 112 or not data.startswith(b"dex\n") or int.from_bytes(data[32:36], "little") != len(data):
+              raise SystemExit(f"Invalid bundled ZKOS DEX: {rel}")
+          blob = subprocess.check_output(["git", "hash-object", str(rel)], text=True).strip()
+          if blob != "f229fb0a5c67d41a55310a119ef64b18a86d6c04":
+              raise SystemExit("ZKOS donor DEX hash mismatch")
+          print("PASS: pinned original ZKOS DEX")
           PYDEX
           python3 -m py_compile \
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
-            bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
             bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
             bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
-            bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py
-          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_killprocess_a16.py
+            bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
+            bin/package/COREPATCH/tnm_zk_power_a16.py
+          python3 bin/package/COREPATCH/test_tnm_zk_power_a16.py
 
-          # Thermal source is already versioned in the repository (no remote artifact).
-          thermal_zip="TNM-HAOTIAN-Thermal-Configs (1).zip"
-          test -s "$thermal_zip"
-          thermal_ref="$RUNNER_TEMP/power-profiles"
-          mkdir -p "$thermal_ref"
-          unzip -oq "$thermal_zip" -d "$thermal_ref"
-          test -s "$thermal_ref/manifest.json"
-          echo "TNM_REF_DIR=$thermal_ref" >> "$GITHUB_ENV"
+          # ZKOS-parity main retains the base Xiaomi thermal/CPU/powerhint XML.
+          # The old TNM/RYU thermal archive is deliberately not imported.
 
           # Validate Android 16 GMS XML and protect existing FCM exemptions.
           # Pure preflight: no Doze, PowerKeeper or notification settings changed.
