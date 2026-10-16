@@ -41,3 +41,38 @@ ELF imports give credible evidence that the Linux installer **can use** AES-256-
 For reproducibility use `bin/dump/trace_eliterom_crypto.py` (read-only) against the Linux ELF. The `trace-eliterom-crypto.yml` workflow downloads the prior 15 MB GitHub artifact, **not the 7.5 GiB ROM**, and uploads JSON+Markdown reports. GitHub retains that installer artifact only temporarily; the source run may expire on October 23, 2026.
 
 **No installer execution, USB operation, flashing, password guessing, or decryption was performed.**
+
+
+## Second-stage loader structure (confirmed by run #38859562859)
+
+The new [static loader analysis](https://github.com/ngocminhvn/HyperMOS/actions/runs/38859562859)
+ran successfully on the exact original 7,711,996-byte Linux ELF, alongside
+inspection of the original Windows installer. **Eight synthetic parser tests
+passed**; the real-file SHA-256 was verified before analysis.
+
+- The Linux ELF has **no section headers**.
+- **7,703,130 file-backed bytes** belong to one RWX (read-write-execute) PT_LOAD.
+- In 512 KiB executable-data windows, **six** have measured Shannon entropy
+  greater than **7.99 bits/byte**; this is consistent with compressed,
+  encrypted or heavily transformed program content, not proof of any exact
+  packer or of a ROM decryption key.
+- Verified entry VA: \`0xac0454\`. Direct initial edges:
+  \`call rel32\` at \`0xac0458\` goes to \`0xcde021\`;
+  \`jmp rel32\` at \`0xac0462\` goes to \`0xdd72e5\`.
+  These are **control-flow starting points**, not confirmed crypto callers.
+- Dynamic imports include \`fopen\`, \`fread\`, \`fwrite\`, \`getenv\`,
+  \`system\`, \`popen\`, and the OpenSSL functions above. Import coexistence
+  does not establish a file→PBKDF2→AES→flash execution path.
+- No plaintext occurrences of \`custom.img\`, \`Salted__\`, or
+  \`firmware-update\` were detected in the Linux ELF.
+- The Windows executable has a section explicitly named \`.themida\`,
+  further supporting protected installation logic.
+
+[Runner-produced report artifact](https://github.com/ngocminhvn/HyperMOS/actions/runs/38859562859/artifacts/12028378428)
+contains \`loader-analysis.json\`, \`loader-analysis.md\`,
+\`crypto-trace.json\` and \`crypto-trace.md\`.
+
+**Bottom line:** This is stronger evidence that the installer logic is
+protected or obfuscated. It does **not** identify the key, confirm the precise
+AES/KDF invocation parameters or decrypt the encrypted \`custom.img\`.
+No ROM was flashed, and neither the Linux nor Windows installer was executed.
