@@ -1,0 +1,55 @@
+name: Inspect EliteRom installer (read-only)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/inspect-eliterom-installer.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: false
+          persist-credentials: false
+
+      - name: Free runner disk and install inspection tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          python3 -m pip install --quiet requests
+          python3 -m py_compile bin/dump/inspect_eliterom_installer.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 unzip
+
+      - name: Extract only installer scripts and inspect statically
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/dump/inspect_eliterom_installer.py \
+            --output "$RUNNER_TEMP/elite-installer-analysis" \
+            --full-fallback
+          sed -n '1,70p' "$RUNNER_TEMP/elite-installer-analysis/installer-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installer audit and selected original files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EliteRomLite-HAOTIAN-installer-analysis
+          path: |
+            ${{ runner.temp }}/elite-installer-analysis/installer-report.json
+            ${{ runner.temp }}/elite-installer-analysis/installer-report.md
+            ${{ runner.temp }}/elite-installer-analysis/mirror-report.json
+            ${{ runner.temp }}/elite-installer-analysis/installer
+          if-no-files-found: warn
+          retention-days: 7
