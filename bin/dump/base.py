@@ -49,6 +49,8 @@ def collect(images, output, source_url):
         dirs[:] = [name for name in dirs if not (Path(current) / name).is_symlink()]
         for filename in files:
             key = filename.casefold()
+            if key == "powerkeeperzk.apk":
+                key = "powerkeeper.apk"
             if key not in matches:
                 continue
             path = Path(current) / filename
