@@ -147,6 +147,7 @@ jobs:
             bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
             bin/package/COREPATCH/tnm_zk_power_a16.py
           python3 bin/package/COREPATCH/test_tnm_zk_power_a16.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_perfhook_passive_init.py
 
           # ZKOS-parity main retains the base Xiaomi thermal/CPU/powerhint XML.
           # The old TNM/RYU thermal archive is deliberately not imported.
