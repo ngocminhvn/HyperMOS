@@ -100,6 +100,56 @@ class SourceForgeDownloadTests(unittest.TestCase):
             ranked, _ = sf.benchmark(self.BASE + "/download", ("twds",))
         self.assertEqual(ranked, ["autoselect"])
 
+    def test_preserve_signed_master_link_first_on_probe_failure(self):
+        original = (
+            "https://master.dl.sourceforge.net/project/eliteroms/"
+            "HyperOS-STABLE-UPDATES/HyperOS-v3.0/" + self.FILE
+            + "?viasf=1&fid=abc&st=signedtoken"
+        )
+        canonical, project, relative = sf.normalize(original)
+        candidates = sf.candidate_urls(
+            original, canonical, project, relative, ["autoselect"]
+        )
+        self.assertEqual(candidates[0], ("input-direct", original))
+        self.assertIn(
+            ("router-autoselect", sf.download_router_url(project, relative)),
+            candidates,
+        )
+        self.assertIn(
+            ("direct-master", sf.direct_mirror_url(project, relative, "master")),
+            candidates,
+        )
+        # The old implementation only attempted one failing web-UI URL.
+        self.assertGreater(len(candidates), 8)
+
+    def test_ordinary_sourceforge_page_can_use_measured_direct_cdn(self):
+        original = self.BASE + "*/*"
+        canonical, project, relative = sf.normalize(original)
+        candidates = sf.candidate_urls(
+            original, canonical, project, relative,
+            ["zenlayer", "autoselect"],
+        )
+        self.assertEqual(
+            candidates[0],
+            ("measured-zenlayer", sf.direct_mirror_url(project, relative, "zenlayer")),
+        )
+        self.assertTrue(all("use_mirror=autoselect" not in u for _, u in candidates))
+        self.assertIn(("input-original", original), candidates)
+
+    def test_download_router_not_sourceforge_web_page(self):
+        _, project, relative = sf.normalize(self.BASE)
+        self.assertEqual(
+            sf.download_router_url(project, relative),
+            self.BASE.replace(
+                "https://sourceforge.net/projects/eliteroms/files/",
+                "https://downloads.sourceforge.net/project/eliteroms/",
+            ),
+        )
+        self.assertTrue(
+            sf.download_router_url(project, relative, "psychz")
+              .endswith("?use_mirror=psychz")
+        )
+
     def test_probe_rejects_html_without_download(self):
         class Result:
             returncode = 0
