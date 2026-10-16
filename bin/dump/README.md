@@ -24,6 +24,22 @@ If the ZIP exposes only `META-INF/` and `firmware-update/` entries (as in EliteR
 
 On failure the GitHub Actions diagnostic artifact includes `zip-layout.json`, `zip-layout.txt`, `entries.txt`, and (when small enough) `updater-script.txt`. These allow identifying which ZIP entries contain the actual ROM data without guessing. If the package genuinely contains firmware images only, obtaining framework JAR/APK files requires a full system-containing ROM ZIP, not a different extractor flag.
 
+## Fast preflight for a verified encrypted release
+
+The dump workflow now blocks the **exact** SourceForge `eliteroms` release
+`EliteRomLite_v4.05_HAOTIAN_OS3.0.307.0_ChinaStable-A16.zip` before package
+installation or an ~7.5 GiB download. Runs #38829480282, #38835073204, and
+#38840382765 confirmed that this ZIP contains `firmware-update/custom.img`
+with the OpenSSL `Salted__` header. Changing `base` to `full` cannot read
+encrypted plaintext. This is not a general ban on EliteRom files or a
+preflight guess based only on the project name; unverified ROM sources continue
+through normal processing. The job ends with a clear explanation and an Actions
+Step Summary instead of generating a false empty result.
+
+For this encrypted build, use the read-only device ADB alternative below,
+**but only if that exact build is installed on the connected device**, or
+provide a ROM ZIP that genuinely contains unencrypted system partitions.
+
 ## EliteRom encrypted custom.img — password-free alternative
 
 In [run #38835073204](https://github.com/ngocminhvn/HyperMOS/actions/runs/38835073204), the ~7 GiB firmware-update/custom.img begins with "Salted__" (encrypted payload). GitHub's standard hosted runner has no access to an already mounted Android ROM, and cannot extract this image directly without the correct decryption information.
