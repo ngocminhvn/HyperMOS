@@ -543,12 +543,13 @@ def add_link(lines, label: str, url: str, text: str):
 
 
 def compose_message(status, repo_name, rom_link, build_id):
-    """Compact Telegram progress: one edited message; details only on failure."""
     status = normalize_status(status)
-    marker, _status_title, _status_desc = STATUS_INFO.get(
-        status, ("THÔNG TIN", "CẬP NHẬT", f"Trạng thái: {status}")
+    marker, status_title, status_desc = STATUS_INFO.get(
+        status,
+        ("THÔNG TIN", "CẬP NHẬT TRẠNG THÁI", f"Nhận được trạng thái: {status}"),
     )
 
+    previous_status = read_file_if_exists("bin/ddevice/last_status.txt")
     if status not in FINAL_STATUSES:
         write_file("bin/ddevice/last_status.txt", status)
 
@@ -556,57 +557,45 @@ def compose_message(status, repo_name, rom_link, build_id):
     device_info = collect_device_info()
     run_info = collect_run_info(repo_name, build_id)
 
-    lines = [f"<b>Build ROM</b> — <b>{escape(marker)}</b>"]
+    lines = [
+        "<b>Build ROM</b>",
+        f"• <b>Trạng thái:</b> <code>{escape(marker)}</code> — <b>{escape(status_title)}</b>",
+        f"• <b>Mã build:</b> <code>{escape(build_id)}</code>",
+    ]
 
-    device = device_info.get("Thiết bị", "")
-    codename = device_info.get("Mã thiết bị", "")
-    device_label = " ".join(
-        part for part in (device, f"({codename})" if is_available(codename) else "")
-        if is_available(part)
-    )
-    add_field(lines, "Thiết bị", device_label)
+    for label in ("Thiết bị", "Mã thiết bị", "ROM nền", "Android / SDK", "File output"):
+        add_field(lines, label, device_info.get(label), code=True)
 
-    rom = device_info.get("ROM nền", "")
-    android = device_info.get("Android / SDK", "").split("|", 1)[0].strip()
-    rom_label = " · ".join(part for part in (rom, android) if is_available(part))
-    add_field(lines, "ROM", rom_label)
+    for label in ("Kho lưu trữ", "Lượt chạy", "Nhánh / SHA"):
+        add_field(lines, label, run_info.get(label), code=True)
 
-    run_number = os.environ.get("GITHUB_RUN_NUMBER", "")
-    branch = os.environ.get("GITHUB_REF_NAME", "")
-    sha = os.environ.get("GITHUB_SHA", "")[:7]
-    run_label = " · ".join(
-        part for part in (
-            f"#{run_number}" if run_number else "",
-            "/".join(part for part in (branch, sha) if part),
-        )
-        if part
-    )
-    add_field(lines, "Run", run_label or run_info.get("Lượt chạy") or build_id, code=True)
+    add_link(lines, "Build log", action_url, "GitHub Actions")
+    add_link(lines, "Source ROM", rom_link, "Source")
 
-    links = []
-    if is_available(action_url):
-        links.append(f'<a href="{escape(action_url)}">GitHub Actions</a>')
-    if is_available(rom_link):
-        links.append(f'<a href="{escape(rom_link)}">ROM nguồn</a>')
-    if links:
-        lines.append("• " + " | ".join(links))
-
-    if status in {"fail", "cancelled"}:
+    if status == "fail":
         reason, _log_path, _log_tail = collect_diagnostics(status)
-        add_field(lines, "Lỗi" if status == "fail" else "Lý do", reason)
-        if status == "fail":
-            lines.append("• Log chẩn đoán gửi riêng cho người build nếu có ID.")
+        add_field(lines, "Lý do", reason, code=True)
+        lines.append("• <b>Log lỗi:</b> gửi riêng cho người build nếu có user ID.")
+    elif status == "cancelled":
+        reason, _log_path, _log_tail = collect_diagnostics(status)
+        add_field(lines, "Lý do", reason, code=True)
+        lines.append("• <b>Chi tiết:</b> xem Build log trên GitHub Actions.")
     elif status == "success":
-        add_field(lines, "File", device_info.get("File output"), code=True)
+        lines.append("• <b>Kết quả:</b> build hoàn tất thành công.")
         download_url = (
             os.environ.get("NOTIFY_DOWNLOAD_URL")
             or os.environ.get("RCLONE_DOWNLOAD_URL")
             or read_file_if_exists("bin/ddevice/download_url.txt")
         )
         if is_available(download_url):
-            add_link(lines, "Tải ROM", download_url, "Download")
+            add_link(lines, "Link tải", download_url, "Tải ROM")
+    else:
+        lines.append(f"• <b>Tóm tắt:</b> {escape(status_desc)}")
 
-    return "\n".join(lines)
+    message = "\n".join(lines)
+    if len(message) > 3900:
+        message = message[:3800] + "\n...\n(Nội dung đã được rút gọn.)"
+    return message
 
 
 def save_env(name: str, value: str) -> None:
