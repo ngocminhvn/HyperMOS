@@ -119,7 +119,6 @@ jobs:
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
-          awk -f bin/ci/compact-build-log.awk /dev/null >/dev/null
           # Check fixed OS3 app snapshots before downloading/extracting the ROM.
           bash -n bin/modfile/OS3/_common.sh
           bash -n bin/modfile/OS3/kashimod.sh
@@ -269,10 +268,19 @@ jobs:
         run: |
           set -euo pipefail
           echo "[PHASE] - Build ROM" | tee -a build_action.log
-          # Preserve every line in build_action.log; show only significant milestones.
+          # Preserve the full build log while making long phases collapsible.
           if sudo -E bash build.sh "$INPUT_URL" "${{ github.repository }}" "xiaomi" \
-              "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log \
-              | awk -f bin/ci/compact-build-log.awk; then
+              "${{ inputs.builder_id }}" 2>&1 | tee -a build_action.log | awk '
+                /^\[PHASE\] - [123]\/4 / {
+                  if (opened) print "::endgroup::"
+                  title = $0
+                  sub(/^\[PHASE\] - /, "", title)
+                  print "::group::" title
+                  opened = 1
+                }
+                { print; fflush() }
+                END { if (opened) print "::endgroup::" }
+              '; then
             {
               echo "### Build ROM"
               echo "- ✅ 1/4 Download and inspect base ROM"
@@ -281,10 +289,10 @@ jobs:
               echo "- ⏳ 4/4 Repack is handled by the separate Pack ROM step"
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error title=Build ROM failed::See the failure diagnostics at the end of this job."
+            echo "::error title=Build ROM failed::Check the grouped build logs and the failure diagnostics."
             {
               echo "### Build ROM"
-              echo "**Failed.** Inspect the failure diagnostics printed at the end of this job."
+              echo "**Failed.** Inspect the grouped Build ROM logs and failure diagnostics."
             } >> "$GITHUB_STEP_SUMMARY"
             tail -n 25 build_action.log || true
             exit 1
@@ -308,8 +316,7 @@ jobs:
           fi
           # build.sh extracts read-only partition trees with sudo.
           sudo -E env PATH="$PATH" ROOT_MODE="$ROOT_MODE" GH_TOKEN="$GH_TOKEN" \
-            bash bin/root/patch_init_boot.sh 2>&1 | tee -a build_action.log \
-              | awk -f bin/ci/compact-build-log.awk
+            bash bin/root/patch_init_boot.sh 2>&1 | tee -a build_action.log
 
       - name: Pack ROM
         shell: bash
@@ -326,8 +333,7 @@ jobs:
           python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log
-          sudo -E bash packROM.sh 2>&1 | tee -a build_action.log \
-            | awk -f bin/ci/compact-build-log.awk
+          sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
 
       - name: Package and upload ROM
         shell: bash
@@ -342,8 +348,7 @@ jobs:
             "${{ inputs.builder_id }}" || true
 
           echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
-          sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log \
-            | awk -f bin/ci/compact-build-log.awk
+          sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
 
           if [ "$UPLOAD_METHOD" != "pixeldrain" ]; then
             exit 0
