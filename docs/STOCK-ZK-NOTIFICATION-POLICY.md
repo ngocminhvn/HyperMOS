@@ -1,49 +1,77 @@
-# HAOTIAN PowerKeeper and notification policy
+# HAOTIAN ZKOS power / thermal / notification parity (Android 16)
 
-Android 16 builds use the uploaded ZKOS PowerKeeper executable DEX in
-`bin/package/NOTIFICATION_FIX/A16/classes.dex` (pinned Git blob
-`f229fb0a5c67d41a55310a119ef64b18a86d6c04`). The historical RYU/TNM
-PerfHook DEX is retained separately as `tnm-perfhook-source.dex` (pinned Git
-blob `1b5a46ea3f9ead44a5467584e15dddd7ba4b0555`). It contributes only
-20 per-app PerfHook classes and the embedded TNMFramework compatibility API.
-No ZKOS ROM or donor APK is downloaded by the ROM build.
+## Actual donor evidence
 
-The ZK bytecode is adapted for TNM: IS_ZK_BUILD becomes IS_TNM_BUILD,
-com.zk.SettingsHelper becomes com.android.tnm.TNMSettingsHelper, and
-zk_max_fps becomes tnm_max_fps. The donor ro.product.zk_device reference is
-preserved unchanged. The unavailable HAOTIAN zk_state thermal node is mapped
-to stock temp_state. ZKOS power behavior comes from the executable classes,
-not from its APK manifest/resources/assets or standalone apps.
+- \`bin/package/NOTIFICATION_FIX/A16/classes.dex\` is the original uploaded ZKOS
+  PowerKeeper DEX, pinned by Git blob
+  \`f229fb0a5c67d41a55310a119ef64b18a86d6c04\`.
+- The pinned DEX matches the \`classes.dex\` from the uploaded
+  \`PowerKeeperZK.apk\`; this is checked prior to build.
+- Neither RYU KillProcessController methods nor RYU/TNM PerfHook classes are
+  inserted. No PowerKeeperApplication onCreate hook is added.
+- Original ZKOS GmsObserver, ActiveStateController, KillProcessController,
+  Millet, freeze/UID and thermal policy execution is retained.
+- Only ZK integration identity is translated to TNM
+  (\`IS_ZK_BUILD\` -> \`IS_TNM_BUILD\`, SettingsHelper, and local TNM settings
+  names). The unavailable \`zk_state\` HAOTIAN thermal endpoint is mapped to
+  the existing stock \`temp_state\` endpoint. The donor product-property
+  *lookup key* \`ro.product.zk_device\` is intentionally preserved because
+  renaming a system-property lookup without a matching value would change
+  behavior; it is not UI branding.
+- This is **not** a byte-for-byte ZKOS APK: compiled adapted DEX replaces stock
+  Xiaomi DEX, but the original Xiaomi AndroidManifest.xml, resources, assets,
+  native libraries, and META-INF are retained and verified by content.
 
-KillProcessController uses two verified RYU HAOTIAN method bodies,
-`setUidState(IZ)V` and `shouldKillByCheckerPolicy(I)Z`. The first retains
-RYU's conditional UID kill call; the second returns true for checker POLICY
-values 1 or 2, otherwise false. The remainder of KillProcessController and
-the GmsObserver, ActiveStateController and other ZKOS classes remain ZKOS.
-The port verifies the existing RYU-compatible checker field in both class
-layouts, checks dependency references, and fails on unexpected method layouts.
-No HyperMOS-specific package-name exception is injected for GMS. The RYU
-`setUidState` and `shouldKillByCheckerPolicy` method bodies are installed
-unchanged apart from existing compatibility adaptations. RYU's handling of
-allowed UIDs, locked applications, visible windows and checker POLICY=1/2
-is preserved. As with RYU, this controller can stop GMS if its effective
-policy allows it; any independent GMS notification delivery settings remain
-outside this port. Verify notifications and standby power on the device.
+## Original ZKOS miui-services.jar deltas
 
-Only the compiled patched DEX replaces the stock PowerKeeper DEX. The final
-APK keeps the stock Xiaomi AndroidManifest.xml, resources, assets, JNI and
-META-INF entries byte-for-byte at the content level; the ROM's original stock
-Xiaomi certificate metadata is retained without re-signing the modified DEX.
-This is NOT a cryptographically valid Xiaomi signature. The existing ROM
-signature handling is separate; no new bypass is added here.
+The supplied ZKOS vs Xiaomi reference JARs contain exactly these **twelve**
+code changes in common methods:
 
-Global C2DM/FCM framework transport remains enabled for valid GMS receivers.
-No blanket Doze whitelist, all-app instant-notification backend, or dedicated
-GMS wake/alarm/network unrestricted rule is added. Stock SecurityCenter,
-MiuiSystemUI and vendor/ODM thermal services remain independent of this port;
-TNM perf/powerhint/thermal XML is imported through its existing module.
+1. DeviceIdleControllerStubImpl.<clinit> build field
+2. BroadcastQueueModernStubImpl.checkApplicationAutoStart build field
+3. BroadcastQueueModernStubImpl.checkReceiverAppDealBroadcast build field
+4. BroadcastQueueModernStubImpl.isInternationalSpecialAction build field
+5. BroadcastQueueModernStubImpl.updateBlockBroadcast build field
+6. ProcessManagerService.isForceStopEnable build field
+7. ProcessSceneCleaner.handleSwipeKill build field
+8. ProcessSceneCleaner.killAppForHasOtherTask build field
+9. JobServiceContextImpl.checkIfCancelJob build field
+10. NotificationManagerServiceImpl.checkFullScreenIntent build field
+11. NotificationManagerServiceImpl.<clinit> removes the existing Xiaomi static
+    assignment of IS_INTERNATIONAL_BUILD
+12. Greeze PolicyManager.<clinit> changes a literal region comparison
+    \`CN\` -> \`ZK\`
 
-The manual Collect ZKOS HAOTIAN PowerKeeper workflow may still be used for
-future donor comparison, but it is no longer a dependency for build.yml.
-Static DEX/metadata checks are performed; compatibility, battery and
-notification behavior require a full build and on-device validation.
+\`tnm_zk_power_a16.py\` preserves the underlying ZK branch control flow and
+substitutes \`Lcom/android/tnm/TNMBuild;->IS_TNM_BUILD:Z\`, with the value true.
+The literal Greeze region compare uses \`TNM\` rather than \`ZK\`.
+It does not blanket-force all background APIs or whitelist all GMS apps.
+The older RYU FCM/first-boot/FGS one-off patch is **not selected** in
+\`COREPATCH/update.sh\`, and overlapping legacy gates are excluded from the
+active \`hypermos-zk-power\` compatibility profile. Other unrelated HyperMOS
+patches and their existing flags remain unchanged.
+
+Original ZKOS vs uploaded Xiaomi \`framework.jar\`: the 1,701 common methods
+in the audited focus classes had identical normalized instructions. Do not
+transplant the entire framework.jar from another build. The
+\`miui-framework.jar\` and \`services.jar\` donors from ZKOS were not separately
+provided, so full cross-JAR bit parity is **not** claimed.
+
+## APK metadata, Android signing and validation
+
+PowerKeeper's verified Xiaomi stock APK is the source of every non-DEX member
+and of META-INF/CERT.RSA, CERT.SF and MANIFEST.MF. The original certificate
+identity is retained just as before, **but the signature is not cryptographically
+valid after replacing DEX**. This flow relies on the ROM's independently
+configured signature-verification policy. It cannot be called a valid signed
+Xiaomi APK. The integrity and byte-for-byte *content* equality of non-DEX ZIP
+members are checked by \`preserve_powerkeeper_identity.py\`.
+
+This source patch uses checked smali method signatures and aborts on unexpected
+layouts. No successful full flash/boot, notification-latency comparison or
+standby drain/thermal safety result is established by source changes alone.
+Verify a completed ROM build and runtime on HAOTIAN before judging parity.
+
+The TNM app's historical per-app PerfHook interface is **not part of ZKOS**.
+With this exact-ZK PowerKeeper policy, a UI that depends on the removed
+RYU/TNM hook must be treated as unsupported unless separately adapted.
