@@ -25,7 +25,7 @@ modscenter_fixed_prefix() {
 modscenter_prepare_fixed() {
     local label="$1"
     local repo="$2"
-    local prefix archive actual_sha
+    local prefix archive
     local -a matches
 
     prefix=$(modscenter_fixed_prefix "$repo") || {
@@ -54,14 +54,11 @@ modscenter_prepare_fixed() {
         return 1
     }
 
-    # No hard-coded version/checksum: replacing a fixed local ZIP later should
-    # only require swapping the file. We still print its SHA256 for traceability.
-    actual_sha=$(sha256sum "$archive" | awk '{print $1}')
+    # Use the fixed local ZIP directly; no SHA-256 calculation.
     MODSCENTER_ARCHIVE="$archive"
     MODSCENTER_TAG=$(basename "$archive" .zip)
 
     mods "$label: fixed local -> $(basename "$archive")"
-    mods "$label: SHA256 $actual_sha"
 }
 
 modscenter_unpack_latest() {
@@ -151,7 +148,7 @@ modscenter_supplement_native_libs() {
     local app_dir="$3"
     local existing_count=0
     local extracted=0
-    local mapping apk_abi rom_abi entry rel out src_hash dst_hash
+    local mapping apk_abi rom_abi entry rel out
     local -a entries
 
     if [[ -d "$app_dir/lib/arm" || -d "$app_dir/lib/arm64" ]]; then
@@ -191,14 +188,6 @@ modscenter_supplement_native_libs() {
             if [[ ! -s "$out" ]]; then
                 rm -f "$out"
                 error "$label: extracted empty native lib from $entry"
-                return 1
-            fi
-
-            src_hash=$(unzip -p "$apk" "$entry" | sha256sum | awk '{print $1}')
-            dst_hash=$(sha256sum "$out" | awk '{print $1}')
-            if [[ "$src_hash" != "$dst_hash" ]]; then
-                rm -f "$out"
-                error "$label: native lib checksum mismatch: $entry"
                 return 1
             fi
 
