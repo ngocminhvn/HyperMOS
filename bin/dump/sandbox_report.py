@@ -18,6 +18,7 @@ def render(cases):
     a, b = cases["no-args"], cases["help"]
 
     for key, title in [
+        ("untraced_baseline", "Untraced baseline (same offline sandbox)"),
         ("syscall_tracing", "System call tracer"),
         ("library_tracing", "OpenSSL call tracer"),
     ]:
@@ -35,6 +36,8 @@ def render(cases):
         ("device_path", "/dev file path accessed"),
         ("connection_attempt", "network connect attempted"),
         ("writable_executable_mapping", "RWX mprotect seen"),
+        ("sigkill_syscall_seen", "SIGKILL syscall observed"),
+        ("ptrace_syscall_seen", "ptrace syscall observed"),
     ]:
         result.append("| " + title + " | " +
                       str(a.get("observations", {}).get(key, False)) + " | " +
