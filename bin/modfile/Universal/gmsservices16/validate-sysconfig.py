@@ -6,6 +6,7 @@ Pure validation. Does not modify GMS, Doze, notifications, or any ROM files.
 from __future__ import annotations
 
 import sys
+import hashlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -14,6 +15,8 @@ GOOGLE = CONFIG_DIR / "google.xml"
 PUSH = CONFIG_DIR / "hypermos-google-push-keepalive.xml"
 PREINSTALL = CONFIG_DIR / "preinstalled-packages-product-pixel-2017-and-newer.xml"
 MAPS_APK = Path(__file__).resolve().parent / "product/app/Maps/Maps.apk"
+ZK_PERMISSIONS = Path(__file__).resolve().parent / "product/etc/permissions/google-zk-permissions.xml"
+ZK_PERMISSIONS_SHA256 = "dc5064a434ee8005eec31c04b0f7e6904e9dbc04f429c829121c7f981ae3b29b"
 
 
 def read(path: Path) -> ET.Element:
@@ -33,6 +36,19 @@ def require(root: ET.Element, path: Path, tag: str, attr: str, value: str) -> No
 
 def validate() -> None:
     google = read(GOOGLE)
+    # Exact uploaded ZK/Litegapps privileged-permissions overlay, installed
+    # *separately* from the stock Google sysconfig. Do not merge or replace
+    # background-power exemptions, nor broaden framework patching.
+    raw = ZK_PERMISSIONS.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != ZK_PERMISSIONS_SHA256:
+        raise ValueError("ZK permissions XML differs from pinned uploaded source")
+    perms = ET.fromstring(raw)
+    packages = [node.get("package") for node in perms if node.tag == "privapp-permissions"]
+    if perms.tag != "permissions" or len(packages) != 76 or len(set(packages)) != len(packages):
+        raise ValueError("ZK permissions XML package inventory mismatch")
+    for package in ("com.google.android.gms", "com.google.android.gsf", "com.android.vending"):
+        if package not in packages:
+            raise ValueError(f"ZK permissions XML missing {package}")
     # TNM parity: Google's own stock sysconfig is the only GMS exemption source
     # shipped by this module. The old HyperMOS push XML added rules absent from
     # the original TNM HAOTIAN sysconfig.
@@ -79,6 +95,7 @@ def validate() -> None:
     print("[OK] Both GMS backup transports preserved")
     print("[OK] Google Maps APK and auto-install rule absent")
     print("[OK] Exact TNM GMS power/data-saver exemption set; extra HyperMOS push XML absent")
+    print("[OK] Pinned ZK permissions XML staged separately (76 packages)")
 
 
 if __name__ == "__main__":

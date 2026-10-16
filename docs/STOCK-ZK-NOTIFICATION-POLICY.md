@@ -80,6 +80,16 @@ The RYU PerfHook is an **explicit exception** to the otherwise original ZKOS
 background and notification policy. It adds its original per-app Settings.System
 observer and application initialization, but no RYU UID-kill override.
 
+The donor PerfHook `init()` formerly invoked `applyInitialZeroOnce()`
+(`sconfig=0`) and `updateConfig()` at boot. HyperMOS strips **only those
+two boot-time calls**, retaining observer and foreground callbacks so that
+explicit TNM settings changes can activate per-app logic. Frequency discovery
+is read-only. Other, explicitly enabled RYU PerfHook profiles may still adjust
+governors/GPU; the separate CPU 80–100% slider never uses those profile paths.
+Kernel thermal mechanisms remain stock. This is source-audited, not yet
+validated by a flashed device.
+
+
 The new ROM-provided `/system_ext/bin/tnm-cpuctl` is root-only and executes
 **only when TNM requests it**. It caps CPU `scaling_max_freq` for the real
 cpufreq policy clusters to 80–100% of each cluster's `cpuinfo_max_freq`,
@@ -97,3 +107,25 @@ TNM's app/Rust backend exposes `rom.cpu.percent` and `rom.cpu.status`.
 
 Historical TNM thermal XML import on HAOTIAN A16 remains disabled, so CPU
 percent is not implemented as an ODM or powerhint config rewrite.
+
+## Google FCM permissions: supplied ZK overlay
+
+`product/etc/permissions/google-zk-permissions.xml` is copied directly
+from the user-supplied ZK-named XML (Litegapps header; 76 privapp package
+groups). Build preflight pins SHA256
+`dc5064a434ee8005eec31c04b0f7e6904e9dbc04f429c829121c7f981ae3b29b`.
+It is installed by the existing GMS16 product payload copy, **not** in place
+of `product/etc/sysconfig/google.xml`.
+
+The separately supplied `google.xml` contains two entries absent from the
+current HyperMOS `google.xml`: a OneTimeInitializer implicit broadcast and a
+SearchSelector setup exemption. Both relate to apps not part of the intended
+minimal HyperMOS GMS install, so no new background keepalive exemptions are
+added. The HyperMOS Google sysconfig has other modern exemptions/associations
+not present in the supplied file; these are left untouched rather than
+replacing newer configuration with a potentially older Google reference.
+
+Privapp permissions and GMS sysconfig are fundamentally different inputs;
+installing the ZK-named permissions is **not** proof of FCM runtime parity.
+Actual permission grants depend on APK partition/location and Android version.
+

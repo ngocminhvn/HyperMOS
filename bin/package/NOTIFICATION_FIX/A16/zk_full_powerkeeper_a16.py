@@ -101,6 +101,34 @@ def adapt_zk_smali(root: Path):
 
 
 
+
+def make_perfhook_init_passive(source: str) -> str:
+    """Keep the observers, but avoid automatically writing thermal/performance.
+
+    init() used to call applyInitialZeroOnce() (forces sconfig=0) and
+    updateConfig() (can update GPU/CPU/governor). Explicit TNM settings
+    changes remain observable by the registered ContentObservers.
+    """
+    method_re = re.compile(
+        r"(?ms)^\.method[^\n]*[ \t]init\(\)V[ \t]*$.*?^\.end method[ \t]*$")
+    matches = list(method_re.finditer(source))
+    if len(matches) != 1:
+        raise ValueError("Expected one original RYU PerfHook.init()")
+    match = matches[0]
+    body = match.group()
+    for method in ("applyInitialZeroOnce", "updateConfig"):
+        invocation = re.compile(
+            rf"(?m)^[ \t]*invoke-(?:direct|virtual)(?:/range)?[ \t]+"
+            rf"\{{[^}}]+\}},[ \t]*{re.escape(TNM_PERF_PREFIX)}PerfHook;"
+            rf"->{method}\(\)V[ \t]*\n?")
+        if len(list(invocation.finditer(body))) != 1:
+            raise ValueError(f"Missing/ambiguous boot-only PerfHook.{method}() call")
+        body = invocation.sub("", body, count=1)
+    if "->startPerfWorker()V" not in body or "->registerContentObserver(" not in body:
+        raise ValueError("RYU PerfHook passive observer contract changed")
+    return source[:match.start()] + body + source[match.end():]
+
+
 def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
     """Retain the existing TNM per-app percentage control, not RYU power policy."""
     source_dir = ryu_root / "smali/classes/com/projectryu/perf"
@@ -119,6 +147,7 @@ def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
             raise ValueError(f"Unexpected RYU build gates inside TNM PerfHook: {descriptor}")
         if descriptor == OLD_PERF_PREFIX + "PerfHook;":
             body = patch_perfhook_write_verify(body)
+            body = make_perfhook_init_passive(body)
         target_descriptor = TNM_PERF_PREFIX + descriptor[len(OLD_PERF_PREFIX):]
         target = zk_root / "smali/classes" / (target_descriptor[1:-1] + ".smali")
         if target.exists():
@@ -157,7 +186,8 @@ def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
     if len(list(output_dir.glob("*.smali"))) != len(sources) or not framework.is_file():
         raise ValueError("TNM per-app PerfHook/Framework class set is incomplete")
     return {"tnm_per_app_perf_classes": copied, "tnm_framework_api_embedded": True,
-            "application_init_hooked": True}
+            "application_init_hooked": True,
+            "perfhook_boot_config_writes_suppressed": True}
 
 
 def main():
