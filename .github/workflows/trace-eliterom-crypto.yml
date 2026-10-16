@@ -27,8 +27,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile bin/dump/trace_eliterom_crypto.py
+          python3 -m py_compile bin/dump/trace_eliterom_crypto.py bin/dump/inspect_eliterom_loader.py
           python3 -m unittest discover -s bin/dump -p 'test_trace_eliterom_crypto.py' -v
+          python3 -m unittest discover -s bin/dump -p 'test_inspect_eliterom_loader.py' -v
 
       - name: Download existing EliteRom installer artifact (not 7.5 GiB ROM)
         shell: bash
@@ -56,12 +57,24 @@ jobs:
             --output "$RUNNER_TEMP/eliterom-crypto-trace"
           cat "$RUNNER_TEMP/eliterom-crypto-trace/crypto-trace.md" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload static crypto trace report only
+      - name: Analyze loader structure and installer capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/dump/inspect_eliterom_loader.py \
+            --linux "$RUNNER_TEMP/eliterom-audit/installer/linux_mac_fastboot_install_or_update.sh" \
+            --windows "$RUNNER_TEMP/eliterom-audit/installer/windows_fastboot_install_or_update.exe" \
+            --output "$RUNNER_TEMP/eliterom-crypto-trace"
+          cat "$RUNNER_TEMP/eliterom-crypto-trace/loader-analysis.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload static crypto trace and loader analysis
         uses: actions/upload-artifact@v4
         with:
           name: EliteRomLite-HAOTIAN-crypto-trace
           path: |
             ${{ runner.temp }}/eliterom-crypto-trace/crypto-trace.json
             ${{ runner.temp }}/eliterom-crypto-trace/crypto-trace.md
+            ${{ runner.temp }}/eliterom-crypto-trace/loader-analysis.json
+            ${{ runner.temp }}/eliterom-crypto-trace/loader-analysis.md
           if-no-files-found: error
           retention-days: 7
