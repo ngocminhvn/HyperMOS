@@ -784,9 +784,11 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
     if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ]; then
       case "$i" in
         */com/android/server/DeviceIdleControllerStubImpl.smali|\
+        */com/android/server/AppOpsServiceStubImpl.smali|\
         */com/android/server/am/ActivityManagerServiceImpl.smali|\
         */com/android/server/am/BroadcastQueueModernStubImpl.smali|\
         */com/android/server/am/MiProcessTracker.smali|\
+        */com/android/server/am/MutableActivityManagerShellCommandStubImpl.smali|\
         */com/android/server/am/PreStartFeedbackImpl.smali|\
         */com/android/server/am/ProcessManagerService.smali|\
         */com/android/server/am/ProcessPolicy.smali|\
@@ -906,6 +908,11 @@ $decompile_dir/smali*/miui/util/font/MultiLangHelper.smali
 "
   for i in $class; do
     [ -f "$i" ] || continue
+    # Do not blend the legacy CN AppOps/autostart gate with the ZKOS policy.
+    # Keep all unrelated IME/font compatibility patches unchanged.
+    if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ] && [[ "$i" == */android/app/AppOpsManagerInjector.smali ]]; then
+      continue
+    fi
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
   done
