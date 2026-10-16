@@ -103,33 +103,30 @@ def adapt_zk_smali(root: Path):
 
 
 def make_perfhook_init_passive(source: str) -> str:
-    """Retain observers but remove only automatic boot-time config/thermal writes.
+    """Keep the observers, but avoid automatically writing thermal/performance.
 
-    Original RYU PerfHook.init() invokes applyInitialZeroOnce() (sconfig=0)
-    and updateConfig() (may write sconfig, GPU limits and CPU governor).
-    ContentObservers still call updateConfig() after an explicit TNM Settings
-    change. TNM's 80-100% CPU slider uses the independent on-demand ROM
-    controller, never these PerfHook power/governor branches.
+    init() used to call applyInitialZeroOnce() (forces sconfig=0) and
+    updateConfig() (can update GPU/CPU/governor). Explicit TNM settings
+    changes remain observable by the registered ContentObservers.
     """
     method_re = re.compile(
-        r"(?ms)^\\.method[^\\n]*[ \\t]init\\(\\)V[ \\t]*$.*?^\\.end method[ \\t]*$")
-    methods = list(method_re.finditer(source))
-    if len(methods) != 1:
-        raise ValueError("Expected exactly one PerfHook.init() method")
-    body = methods[0].group()
-    for name in ("applyInitialZeroOnce", "updateConfig"):
+        r"(?ms)^\.method[^\n]*[ \t]init\(\)V[ \t]*$.*?^\.end method[ \t]*$")
+    matches = list(method_re.finditer(source))
+    if len(matches) != 1:
+        raise ValueError("Expected one original RYU PerfHook.init()")
+    match = matches[0]
+    body = match.group()
+    for method in ("applyInitialZeroOnce", "updateConfig"):
         invocation = re.compile(
-            rf"(?m)^[ \\t]*invoke-(?:direct|virtual)(?:/range)?[ \\t]+"
-            rf"\\{{[^}}]+\\}},[ \\t]*{re.escape(TNM_PERF_PREFIX)}PerfHook;"
-            rf"->{name}\\(\\)V[ \\t]*\\n?")
-        matched = list(invocation.finditer(body))
-        if len(matched) != 1:
-            raise ValueError(
-                f"Unexpected PerfHook.init() boot call count for {name}: {len(matched)}")
+            rf"(?m)^[ \t]*invoke-(?:direct|virtual)(?:/range)?[ \t]+"
+            rf"\{{[^}}]+\}},[ \t]*{re.escape(TNM_PERF_PREFIX)}PerfHook;"
+            rf"->{method}\(\)V[ \t]*\n?")
+        if len(list(invocation.finditer(body))) != 1:
+            raise ValueError(f"Missing/ambiguous boot-only PerfHook.{method}() call")
         body = invocation.sub("", body, count=1)
     if "->startPerfWorker()V" not in body or "->registerContentObserver(" not in body:
-        raise ValueError("Passive PerfHook must retain worker and explicit-control observers")
-    return source[:methods[0].start()] + body + source[methods[0].end():]
+        raise ValueError("RYU PerfHook passive observer contract changed")
+    return source[:match.start()] + body + source[match.end():]
 
 
 def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
