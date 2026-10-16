@@ -171,6 +171,9 @@ phase "Upload ROM"
 upload "Preparing selected upload method"
 output_file="out/${final_name}"
 echo "${final_name}" > "$work_dir/bin/ddevice/output_zip.txt"
+# Persist the local ZIP for either a direct Pixeldrain upload or a Drive-link fallback.
+echo "$output_file" > "$work_dir/bin/ddevice/output_file.txt"
+rm -f "$work_dir/bin/ddevice/download_url.txt"
 
 if [[ $rom_os == "MIUI" ]]; then
     uploaddir="MIUI"
@@ -183,7 +186,6 @@ echo "[UPLOAD] Method: $UPLOAD_METHOD"
 
 if [ "$UPLOAD_METHOD" = "pixeldrain" ]; then
     upload "ROM package is ready for Pixeldrain upload"
-    echo "$output_file" > "$work_dir/bin/ddevice/output_file.txt"
     upload "Build ${os_type}_${polyxver} for ${device_code} packaged successfully!"
     exit 0
 fi
@@ -247,14 +249,18 @@ if ! rclone copyto "$output_file" "${remote_path}${final_name}" \
 fi
 
 download_url=""
-if download_url="$(rclone link "${remote_path}${final_name}" --config="$RCLONE_CONFIG_GDRIVE" 2>/dev/null)" && [ -n "$download_url" ]; then
+# A successful Drive upload is not enough: Telegram needs a valid public URL.
+# On link failure, leave the ZIP in place for the Actions Pixeldrain fallback.
+download_url="$(rclone link "${remote_path}${final_name}" --config="$RCLONE_CONFIG_GDRIVE" 2>/dev/null || true)"
+download_url="$(printf '%s' "$download_url" | tr -d '\r\n')"
+if [[ "$download_url" =~ ^https?://[^[:space:]]+$ ]]; then
     echo "$download_url" > "$work_dir/bin/ddevice/download_url.txt"
     echo "[RCLONE] Download URL: $download_url"
     if [ -n "${GITHUB_ENV:-}" ]; then
         echo "RCLONE_DOWNLOAD_URL=$download_url" >> "$GITHUB_ENV"
     fi
 else
-    echo "[RCLONE] Remote does not provide a public link; Telegram will use the workflow fallback link."
+    echo "[WARN] rclone did not produce a valid public Drive URL; switching to Pixeldrain in the workflow."
 fi
 
 upload "Upload to Google Drive completed"
