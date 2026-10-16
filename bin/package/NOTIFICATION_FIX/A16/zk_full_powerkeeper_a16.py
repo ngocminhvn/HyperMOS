@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ryu_killprocess_a16 import port as port_conditional_uid_kill
 from restore_uid_policy_abi_a16 import patch as restore_uid_policy_abi
+from guard_gms_uid_kill_a16 import patch as guard_gms_uid_kill
 from powerkeeper import (
     OLD_PERF_PREFIX,
     TNM_PERF_PREFIX,
@@ -207,8 +208,11 @@ def main():
     # Restore both the abstract declaration and the concrete UID POLICY reader
     # before DEX assembly. This also checks the existing second implementor.
     report.update(restore_uid_policy_abi(args.zk_raw))
+    # The two local.config entries do not unconditionally suppress UID kill.
+    # Skip only the GMS UID in the existing decision path (no daemon/polling).
+    report.update(guard_gms_uid_kill(args.zk_raw))
     report.update(graft_tnm_per_app_perf(args.zk_raw, args.tnm_raw))
-    report["powerkeeper_policy"] = "EU-style conditional UID kill (pinned RYU method donor), ZK background services, passive TNM PerfHook"
+    report["powerkeeper_policy"] = "EU-style conditional UID kill + event-only GMS exemption, ZK background services, passive TNM PerfHook"
     report["non_dex_content"] = "Xiaomi stock original"
     print("[TNM ZK LOCAL DEX PORT] " + ", ".join(f"{k}={v}" for k, v in report.items()))
 
