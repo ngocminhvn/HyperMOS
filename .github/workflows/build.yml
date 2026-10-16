@@ -281,10 +281,10 @@ jobs:
               echo "- ⏳ 4/4 Repack is handled by the separate Pack ROM step"
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error title=Build ROM failed::The full unfiltered build log is attached on failure."
+            echo "::error title=Build ROM failed::See the failure diagnostics at the end of this job."
             {
               echo "### Build ROM"
-              echo "**Failed.** Inspect the last log lines below or download the complete failure log artifact."
+              echo "**Failed.** Inspect the failure diagnostics printed at the end of this job."
             } >> "$GITHUB_STEP_SUMMARY"
             tail -n 25 build_action.log || true
             exit 1
@@ -419,11 +419,20 @@ jobs:
           esac
           exit 0
 
-      - name: Full diagnostic log (failed builds only)
+      # Avoid publishing an unredacted raw log artifact from this public repo:
+      # build_action.log may contain private URLs or other sensitive parameters.
+      - name: Failure diagnostics
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: hypermos-build-log-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build_action.log
-          if-no-files-found: warn
-          retention-days: 7
+        shell: bash
+        run: |
+          echo "::group::Recent build errors and context"
+          if [ -f build_action.log ]; then
+            tail -n 60 build_action.log
+            {
+              echo "### Failure diagnostics"
+              echo "Recent error context was printed in the Failure diagnostics step."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "[WARN] No build log was created before the failure."
+          fi
+          echo "::endgroup::"
