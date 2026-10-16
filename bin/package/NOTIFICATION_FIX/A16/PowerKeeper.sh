@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Port the checked-in ZKOS bytecode and TNM per-app PerfHook into stock Xiaomi
+# Port the original pinned ZKOS executable bytecode into stock Xiaomi
 # PowerKeeper. All non-DEX APK content and META-INF are sourced from Xiaomi stock.
 set -euo pipefail
 
@@ -9,17 +9,13 @@ image_root="$work_dir/build/baserom/images"
 base_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16"
 apkeditor=(java -jar "$work_dir/bin/apktool/apke.jar")
 zk_dex="$base_dir/classes.dex"
-tnm_dex="$base_dir/tnm-perfhook-source.dex"
 tmp="$work_dir/apk_temp/notification-zk-local-dex"
 
-[[ -s "$zk_dex" && -s "$tnm_dex" ]] || {
-  error "PowerKeeper: local ZKOS/TNM DEX is missing"; exit 1;
+[[ -s "$zk_dex" ]] || {
+  error "PowerKeeper: original local ZKOS DEX is missing"; exit 1;
 }
 [[ "$(git -C "$work_dir" hash-object "$zk_dex")" == f229fb0a5c67d41a55310a119ef64b18a86d6c04 ]] || {
   error "PowerKeeper: ZKOS DEX differs from uploaded pinned source"; exit 1;
-}
-[[ "$(git -C "$work_dir" hash-object "$tnm_dex")" == 1b5a46ea3f9ead44a5467584e15dddd7ba4b0555 ]] || {
-  error "PowerKeeper: TNM PerfHook DEX differs from pinned historical source"; exit 1;
 }
 
 mapfile -d '' apks < <(find "$image_root" -type f -name PowerKeeper.apk -print0)
@@ -39,14 +35,11 @@ trap 'rm -rf "$tmp"' EXIT
 # Neither temporary wrapper is installed into the final ROM.
 python3 "$base_dir/powerkeeper.py" prepare-donor \
   --stock-apk "$apk" --dex-file "$zk_dex" --output "$tmp/zk-source.apk"
-python3 "$base_dir/powerkeeper.py" prepare-donor \
-  --stock-apk "$apk" --dex-file "$tnm_dex" --output "$tmp/tnm-perf-source.apk"
 "${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/zk-source.apk" -o "$tmp/zk-raw" >/dev/null
-"${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/tnm-perf-source.apk" -o "$tmp/tnm-raw" >/dev/null
 
-# Adapt ZK classes to TNM and graft exactly 20 historical RYU PerfHook classes.
-python3 "$base_dir/zk_full_powerkeeper_a16.py" \
-  --zk-raw "$tmp/zk-raw" --tnm-raw "$tmp/tnm-raw"
+# Adapt original ZK classes only where ZK branding/private identity must become TNM.
+# Do not transplant RYU KillProcessController or PerfHook; preserve all ZK policy.
+python3 "$base_dir/zk_full_powerkeeper_a16.py" --zk-raw "$tmp/zk-raw"
 
 # APKEditor raw-build can silently preserve old DEX; explicit smali rebuild
 # is required before copying compiled DEX into the verified stock APK.
@@ -76,5 +69,5 @@ cp "$tmp/final-identity.json" "$report_dir/final-identity.json"
 sha256sum "$tmp/final/PowerKeeper.aligned.apk" | awk '{print $1}' > "$report_dir/patched-sha256.txt"
 cp -f "$tmp/final/PowerKeeper.aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "PowerKeeper: checked-in full ZKOS DEX + TNM per-app PerfHook; stock Xiaomi non-DEX/meta"
+mods "PowerKeeper: original ZKOS executable DEX with TNM identity; stock Xiaomi manifest/resources/META-INF"
 patch "PowerKeeper: no ZKOS donor APK/artifact download required"
