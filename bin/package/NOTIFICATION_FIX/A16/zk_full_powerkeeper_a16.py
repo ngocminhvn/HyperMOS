@@ -101,6 +101,37 @@ def adapt_zk_smali(root: Path):
 
 
 
+
+def make_perfhook_init_passive(source: str) -> str:
+    """Retain observers but remove only automatic boot-time config/thermal writes.
+
+    Original RYU PerfHook.init() invokes applyInitialZeroOnce() (sconfig=0)
+    and updateConfig() (may write sconfig, GPU limits and CPU governor).
+    ContentObservers still call updateConfig() after an explicit TNM Settings
+    change. TNM's 80-100% CPU slider uses the independent on-demand ROM
+    controller, never these PerfHook power/governor branches.
+    """
+    method_re = re.compile(
+        r"(?ms)^\\.method[^\\n]*[ \\t]init\\(\\)V[ \\t]*$.*?^\\.end method[ \\t]*$")
+    methods = list(method_re.finditer(source))
+    if len(methods) != 1:
+        raise ValueError("Expected exactly one PerfHook.init() method")
+    body = methods[0].group()
+    for name in ("applyInitialZeroOnce", "updateConfig"):
+        invocation = re.compile(
+            rf"(?m)^[ \\t]*invoke-(?:direct|virtual)(?:/range)?[ \\t]+"
+            rf"\\{{[^}}]+\\}},[ \\t]*{re.escape(TNM_PERF_PREFIX)}PerfHook;"
+            rf"->{name}\\(\\)V[ \\t]*\\n?")
+        matched = list(invocation.finditer(body))
+        if len(matched) != 1:
+            raise ValueError(
+                f"Unexpected PerfHook.init() boot call count for {name}: {len(matched)}")
+        body = invocation.sub("", body, count=1)
+    if "->startPerfWorker()V" not in body or "->registerContentObserver(" not in body:
+        raise ValueError("Passive PerfHook must retain worker and explicit-control observers")
+    return source[:methods[0].start()] + body + source[methods[0].end():]
+
+
 def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
     """Retain the existing TNM per-app percentage control, not RYU power policy."""
     source_dir = ryu_root / "smali/classes/com/projectryu/perf"
@@ -119,6 +150,7 @@ def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
             raise ValueError(f"Unexpected RYU build gates inside TNM PerfHook: {descriptor}")
         if descriptor == OLD_PERF_PREFIX + "PerfHook;":
             body = patch_perfhook_write_verify(body)
+            body = make_perfhook_init_passive(body)
         target_descriptor = TNM_PERF_PREFIX + descriptor[len(OLD_PERF_PREFIX):]
         target = zk_root / "smali/classes" / (target_descriptor[1:-1] + ".smali")
         if target.exists():
@@ -157,7 +189,8 @@ def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
     if len(list(output_dir.glob("*.smali"))) != len(sources) or not framework.is_file():
         raise ValueError("TNM per-app PerfHook/Framework class set is incomplete")
     return {"tnm_per_app_perf_classes": copied, "tnm_framework_api_embedded": True,
-            "application_init_hooked": True}
+            "application_init_hooked": True,
+            "perfhook_boot_config_writes_suppressed": True}
 
 
 def main():
