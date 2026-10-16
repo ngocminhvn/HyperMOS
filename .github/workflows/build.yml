@@ -115,7 +115,7 @@ jobs:
 
           # Check the LOCK entrypoint before downloading ROM.
           bash -n bin/package/LOCK/update.sh
-          # Fast fail original pinned ZKOS PowerKeeper and the scoped ZK JAR port.
+          # Fast fail pinned PowerKeeper sources, guarded UID port and scoped JAR port.
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
@@ -178,15 +178,17 @@ jobs:
               blob = subprocess.check_output(["git", "hash-object", str(rel)], text=True).strip()
               if blob != expected:
                   raise SystemExit(f"Pinned donor DEX hash mismatch: {rel}")
-          print("PASS: original ZKOS DEX + RYU PerfHook source")
+          print("PASS: pinned ZKOS DEX + RYU conditional UID/PerfHook source")
           PYDEX
           python3 -m py_compile \
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
             bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
             bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
             bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
             bin/package/COREPATCH/tnm_zk_power_a16.py
           python3 bin/package/COREPATCH/test_tnm_zk_power_a16.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_killprocess_a16.py
           python3 bin/package/NOTIFICATION_FIX/A16/test_perfhook_passive_init.py
 
           # ZKOS-parity main retains the base Xiaomi thermal/CPU/powerhint XML.
