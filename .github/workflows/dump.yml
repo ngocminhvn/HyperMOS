@@ -66,6 +66,7 @@ jobs:
           persist-credentials: false
 
       - name: Preflight encrypted ROM check
+        id: preflight
         shell: bash
         env:
           ROM_URL: ${{ inputs.rom_url }}
@@ -103,8 +104,8 @@ jobs:
           set -euo pipefail
           bash bin/dump/extract.sh "$RUNNER_TEMP/hypermos-dump/source.zip" "$RUNNER_TEMP/hypermos-dump/work" "$DUMP_MODE"
 
-      - name: Save ZIP layout diagnostics on failure
-        if: failure()
+      - name: Save ZIP layout diagnostics on extraction failure
+        if: ${{ failure() && steps.preflight.conclusion == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: HyperMOS-dump-diagnostics-${{ github.run_number }}
