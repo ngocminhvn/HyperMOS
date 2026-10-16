@@ -48,21 +48,22 @@ def patch_method(uid_method: str) -> str:
         raise ValueError('Existing package-to-locked-app branch is missing/ambiguous')
     hit = hits[0]
     pkg, locked = hit['pkg'], hit['locked']
-    # v0 is the known scratch slot in the HAOTIAN RYU setUidState body:
-    # v0 is reassigned by getCurrentIME() before the later integer use.
-    if pkg == 'v0' or locked == 'v0' or 'v0' not in uid_method:
-        raise ValueError('Expected HAOTIAN spare v0 slot is unavailable')
+    # The donor keeps v0 = userId for a later getCurrentIME() call: never
+    # overwrite it here. v1 is the recyclable StringBuilder scratch slot;
+    # it is not live across the locked-app guard in the HAOTIAN RYU path.
+    if pkg == 'v1' or locked == 'v1' or 'v1' not in uid_method:
+        raise ValueError('Expected HAOTIAN reusable v1 scratch slot is unavailable')
     regs = list(REGISTERS.finditer(uid_method))
     if len(regs) != 1 or int(regs[0][1]) < 9:
         raise ValueError('Unexpected register allocation for HAOTIAN UID method')
     # The existing locked-app branch now also skips kill for GMS. No
     # short-circuit of unrelated UID state or logging occurs.
     injected = (
-        f'{hit["indent"]}const-string v0, "{GMS}"\n'
-        f'{hit["indent"]}invoke-virtual {{v0, {pkg}}}, '
+        f'{hit["indent"]}const-string v1, "{GMS}"\n'
+        f'{hit["indent"]}invoke-virtual {{v1, {pkg}}}, '
         'Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n'
-        f'{hit["indent"]}move-result v0\n'
-        f'{hit["indent"]}or-int/2addr {locked}, v0\n'
+        f'{hit["indent"]}move-result v1\n'
+        f'{hit["indent"]}or-int/2addr {locked}, v1\n'
     )
     return uid_method[:hit.start('debug')] + injected + uid_method[hit.start('debug'):]
 
