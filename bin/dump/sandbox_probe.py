@@ -51,7 +51,18 @@ def sys_summary(paths):
                         device_path=False, connection_attempt=False,
                         new_exec=False, writable_executable_mapping=False,
                         sigkill_syscall_seen=False, ptrace_syscall_seen=False)
+    tracee_pids = {
+        int(match.group(1)) for file in paths
+        if (match := re.search(r"\.(\d+)$", file))
+    }
+    observations.update({
+        "sigkill_target_is_self": False,
+        "sigkill_target_is_tracee_peer": False,
+        "sigkill_target_other_or_group": False,
+    })
     for file in paths:
+        pid_match = re.search(r"\.(\d+)$", file)
+        tracee_pid = int(pid_match.group(1)) if pid_match else None
         with open(file, "rb") as stream:
             lines = stream.read(LIMIT).decode("utf-8", "replace").splitlines()
         for line in lines:
@@ -73,6 +84,16 @@ def sys_summary(paths):
                 name in ("kill", "tkill", "tgkill") and "sigkill" in lower
             )
             observations["ptrace_syscall_seen"] |= name == "ptrace"
+            kill_match = re.search(r"\bkill\((-?\d+),\s*SIGKILL\)", line)
+            if name == "kill" and kill_match:
+                target = int(kill_match.group(1))
+                observations["sigkill_target_is_self"] |= target == tracee_pid
+                observations["sigkill_target_is_tracee_peer"] |= (
+                    target in tracee_pids and target != tracee_pid
+                )
+                observations["sigkill_target_other_or_group"] |= (
+                    target not in tracee_pids
+                )
             observations["writable_executable_mapping"] |= (
                 name == "mprotect" and "prot_exec" in lower and "prot_write" in lower
             )
