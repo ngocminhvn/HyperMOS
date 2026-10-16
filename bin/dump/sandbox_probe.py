@@ -16,7 +16,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-SYSCALL = re.compile(r"\b(execveat|execve|openat2|openat|open|connect|ioctl|mprotect|ptrace|clone3|clone|mmap)\(")
+SYSCALL = re.compile(r"\b(execveat|execve|openat2|openat|open|connect|ioctl|mprotect|ptrace|clone3|clone|mmap|kill|tkill|tgkill|prctl|seccomp)\(")
 CRYPTO = re.compile(r"\b(EVP_(?:aes_256_cbc|DecryptInit_ex|DecryptUpdate|DecryptFinal_ex|sha256|md5)|PKCS5_PBKDF2_HMAC)\s*\(")
 LIMIT = 2 * 1024 * 1024
 
@@ -49,7 +49,8 @@ def sys_summary(paths):
     observations = dict(custom_img=False, firmware_update=False,
                         libcrypto_open=False, fastboot_path=False,
                         device_path=False, connection_attempt=False,
-                        new_exec=False, writable_executable_mapping=False)
+                        new_exec=False, writable_executable_mapping=False,
+                        sigkill_syscall_seen=False, ptrace_syscall_seen=False)
     for file in paths:
         with open(file, "rb") as stream:
             lines = stream.read(LIMIT).decode("utf-8", "replace").splitlines()
@@ -68,6 +69,10 @@ def sys_summary(paths):
                 observations["device_path"] |= '"/dev/' in lower
             observations["connection_attempt"] |= name == "connect"
             observations["new_exec"] |= name in ("execve", "execveat")
+            observations["sigkill_syscall_seen"] |= (
+                name in ("kill", "tkill", "tgkill") and "sigkill" in lower
+            )
+            observations["ptrace_syscall_seen"] |= name == "ptrace"
             observations["writable_executable_mapping"] |= (
                 name == "mprotect" and "prot_exec" in lower and "prot_write" in lower
             )
@@ -102,9 +107,10 @@ def main():
         "no_rom_image": True,
         "installer_executed_in_isolated_container": True,
         "raw_output_exported": False,
+        "untraced_baseline": trace(argv, timeout=5),
         "syscall_tracing": trace([
             "/usr/bin/strace", "-ff", "-qq", "-s", "96",
-            "-e", "trace=execve,execveat,open,openat,openat2,connect,ioctl,mprotect,ptrace,clone,clone3,mmap",
+            "-e", "trace=execve,execveat,open,openat,openat2,connect,ioctl,mprotect,ptrace,clone,clone3,mmap,kill,tkill,tgkill,prctl,seccomp",
             "-o", sysroot, *argv
         ]),
     }
