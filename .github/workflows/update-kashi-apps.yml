@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Check releases only; do not open an update PR'
+        description: 'Check releases only; do not commit changed ZIPs'
         required: false
         default: false
         type: boolean
@@ -58,11 +58,12 @@ jobs:
           import zipfile
           
           SOURCES = [
-              ("App Vault", "Mods-Center/HyperOS-App-Vault", "HyperOS_AppVault", "com.miui.personalassistant"),
-              ("Control Center", "Mods-Center/ColorOS_Control_Center", "ColorOS_plugin_mod_", "miui.systemui.plugin"),
-              ("Launcher", "Mods-Center/HyperOS-Launcher", "HyperOS_Launcher", "com.miui.home"),
-              ("Security Center", "Mods-Center/HyperOS-Security-Center", "HyperOS_Security", "com.miui.securitycenter"),
-              ("Theme Manager", "Mods-Center/HyperOS-Theme-Manager", "HyperOS_ThemeManager", "com.android.thememanager"),
+              ("App Vault", "Mods-Center/HyperOS-App-Vault", "HyperOS_AppVault", "com.miui.personalassistant", None),
+              ("FreeStyle Control Center", "Mods-Center/FreeStyle-Control-Center", "FreeStyle_CC_mod_", "miui.systemui.plugin", "files/OS3/MIUISystemUIPlugin.apk"),
+              ("Screenshot", "Mods-Center/HyperOS-Screenshot-mod", "HyperOS_Screenshot", "com.miui.screenshot", "files/MIUIScreenshot.apk"),
+              ("Launcher", "Mods-Center/HyperOS-Launcher", "HyperOS_Launcher", "com.miui.home", None),
+              ("Security Center", "Mods-Center/HyperOS-Security-Center", "HyperOS_Security", "com.miui.securitycenter", None),
+              ("Theme Manager", "Mods-Center/HyperOS-Theme-Manager", "HyperOS_ThemeManager", "com.android.thememanager", None),
           ]
           DEST = Path("bin/modfile/OS3/kashi")
           DEST.mkdir(parents=True, exist_ok=True)
@@ -82,7 +83,7 @@ jobs:
               return digest.hexdigest()
           
           
-          def validate_zip(path, expected_pkg, label):
+          def validate_zip(path, expected_pkg, label, selected_apk=None):
               with zipfile.ZipFile(path) as archive:
                   entries = archive.infolist()
                   if not entries or len(entries) > 4000:
@@ -108,6 +109,10 @@ jobs:
                       raise ValueError(f"{label}: ZIP checksum failed at {corrupt}")
                   if not apks:
                       raise ValueError(f"{label}: no APK in release ZIP")
+                  if selected_apk is not None:
+                      apks = [item for item in apks if item.filename == selected_apk]
+                      if len(apks) != 1:
+                          raise ValueError(f"{label}: expected one exact APK at {selected_apk}")
           
                   packages = []
                   with tempfile.TemporaryDirectory(prefix="kashi-apks-") as folder:
@@ -134,7 +139,7 @@ jobs:
           
           
           with tempfile.TemporaryDirectory(prefix="kashi-downloads-") as tmp:
-              for label, repo, prefix, expected_pkg in SOURCES:
+              for label, repo, prefix, expected_pkg, selected_apk in SOURCES:
                   release = json.loads(command("gh", "api", f"repos/{repo}/releases/latest"))
                   tag = release.get("tag_name", "")
                   assets = [
@@ -173,7 +178,7 @@ jobs:
                       raise ValueError(f"{repo}: expected downloaded asset missing")
                   if downloaded.stat().st_size != expected_size or sha256(downloaded) != expected_sha:
                       raise ValueError(f"{repo}: release size/SHA-256 mismatch: {filename}")
-                  validate_zip(downloaded, expected_pkg, label)
+                  validate_zip(downloaded, expected_pkg, label, selected_apk)
                   old_name = old.name
                   old.unlink()
                   shutil.copyfile(downloaded, DEST / filename)
@@ -195,7 +200,7 @@ jobs:
           Path(os.environ["RUNNER_TEMP"], "kashi-summary.md").write_text(content, encoding="utf-8")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
               stream.write(f"changed={'true' if changed else 'false'}\n")
-          print(f"Kashi update: {'changes ready for PR' if changed else 'all releases up to date'}")
+          print(f"Kashi update: {'changes ready to commit' if changed else 'all releases up to date'}")
           PY
 
       - name: Commit verified Kashi snapshots to main
