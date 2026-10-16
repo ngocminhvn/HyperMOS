@@ -26,7 +26,7 @@ elif [[ $AndroidVER == "16" ]];then
         --disable-signature-verification \
         --cn-notification-fix \
         --tnm-notification-policy \
-        --tnm-low-power-doze \
+        --tnm-zk-power-parity \
         "${tnm_framework_options[@]}" \
         --disable-secure-flag || exit 1
 elif [[ $AndroidVER == "17" ]];then
