@@ -26,6 +26,16 @@ def run(*args):
     subprocess.run(command, check=True)
 
 
+def disassemble(dex, output):
+    # Use the same pinned local Android smali toolchain as production;
+    # GitHub's runner does not guarantee an external 'baksmali' executable.
+    jar = REPO / "bin/apktool/baksmaliv2.jar"
+    if not jar.is_file():
+        raise FileNotFoundError(f"Pinned baksmali compiler not found: {jar}")
+    run("java", "-jar", jar, "d", "--api", "36", "--use-locals",
+        "--jobs", "2", dex, "-o", output)
+
+
 def files(root):
     return {
         p.relative_to(root).as_posix(): p
@@ -49,8 +59,8 @@ def validate(zk_dex, ryu_dex, output):
         r = root / "ryu" / "smali" / "classes"
         z.mkdir(parents=True)
         r.mkdir(parents=True)
-        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", zk_dex, "-o", z)
-        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", ryu_dex, "-o", r)
+        disassemble(zk_dex, z)
+        disassemble(ryu_dex, r)
 
         names = ("KillProcessController", "GmsObserver", "ActiveStateController")
         originals = {}
@@ -131,7 +141,7 @@ def validate(zk_dex, ryu_dex, output):
             raise ValueError("Recompiled DEX is missing or suspiciously small")
         compiled = root / "compiled"
         compiled.mkdir()
-        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", dex_out, "-o", compiled)
+        disassemble(dex_out, compiled)
         compiled_files = files(compiled)
         if set(compiled_files) != set(staged):
             raise ValueError(
