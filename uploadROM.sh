@@ -83,26 +83,26 @@ fi
 if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
     root_dir="$work_dir/out/${os_type}_${device_code}_${base_rom_code}"
     test -s "$work_dir/build/baserom/root-stock-init_boot.img" || {
-        echo "[ERROR] KernelSU Next stock init_boot backup missing"
+        echo "[ERROR] SukiSU Ultra v4.2.1 stock init_boot backup missing"
         exit 1
     }
     test -s "$work_dir/build/baserom/root-package/RootManager.apk" || {
-        echo "[ERROR] KernelSU Next manager APK missing"
+        echo "[ERROR] SukiSU Ultra v4.2.1 manager APK missing"
         exit 1
     }
     test -s "$work_dir/build/baserom/root-package/ROOT-INFO.txt" || {
-        echo "[ERROR] KernelSU Next metadata missing"
+        echo "[ERROR] SukiSU Ultra v4.2.1 metadata missing"
         exit 1
     }
     test -s "$root_dir/images/init_boot.img" || {
-        echo "[ERROR] KernelSU Next patched init_boot.img missing from ROM output"
+        echo "[ERROR] SukiSU Ultra v4.2.1 patched init_boot.img missing from ROM output"
         exit 1
     }
     mkdir -p "$root_dir/RootBackup"
     cp -f "$work_dir/build/baserom/root-stock-init_boot.img" "$root_dir/RootBackup/init_boot.stock.img"
     cp -f "$work_dir/build/baserom/root-package/RootManager.apk" "$root_dir/RootManager.apk"
     cp -f "$work_dir/build/baserom/root-package/ROOT-INFO.txt" "$root_dir/ROOT-INFO.txt"
-    echo "[ROOT] KernelSU Next image, stock image backup, and manager APK ready for packaging"
+    echo "[ROOT] SukiSU Ultra v4.2.1 image, stock image backup, and manager APK ready for packaging"
 fi
 
 cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/" 2>/dev/null || true
@@ -161,7 +161,7 @@ fi
 
 # Label rooted builds; keep stock build naming unchanged.
 if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
-    final_name="${final_name%.zip}_KSUN.zip"
+    final_name="${final_name%.zip}_SUKISU.zip"
 fi
 mv "out/${os_type}_${device_code}_${base_rom_code}.zip" "out/${final_name}"
 
@@ -171,6 +171,9 @@ phase "Upload ROM"
 upload "Preparing selected upload method"
 output_file="out/${final_name}"
 echo "${final_name}" > "$work_dir/bin/ddevice/output_zip.txt"
+# Persist the local ZIP for either a direct Pixeldrain upload or a Drive-link fallback.
+echo "$output_file" > "$work_dir/bin/ddevice/output_file.txt"
+rm -f "$work_dir/bin/ddevice/download_url.txt"
 
 if [[ $rom_os == "MIUI" ]]; then
     uploaddir="MIUI"
@@ -183,7 +186,6 @@ echo "[UPLOAD] Method: $UPLOAD_METHOD"
 
 if [ "$UPLOAD_METHOD" = "pixeldrain" ]; then
     upload "ROM package is ready for Pixeldrain upload"
-    echo "$output_file" > "$work_dir/bin/ddevice/output_file.txt"
     upload "Build ${os_type}_${polyxver} for ${device_code} packaged successfully!"
     exit 0
 fi
@@ -247,14 +249,18 @@ if ! rclone copyto "$output_file" "${remote_path}${final_name}" \
 fi
 
 download_url=""
-if download_url="$(rclone link "${remote_path}${final_name}" --config="$RCLONE_CONFIG_GDRIVE" 2>/dev/null)" && [ -n "$download_url" ]; then
+# A successful Drive upload is not enough: Telegram needs a valid public URL.
+# On link failure, leave the ZIP in place for the Actions Pixeldrain fallback.
+download_url="$(rclone link "${remote_path}${final_name}" --config="$RCLONE_CONFIG_GDRIVE" 2>/dev/null || true)"
+download_url="$(printf '%s' "$download_url" | tr -d '\r\n')"
+if [[ "$download_url" =~ ^https?://[^[:space:]]+$ ]]; then
     echo "$download_url" > "$work_dir/bin/ddevice/download_url.txt"
     echo "[RCLONE] Download URL: $download_url"
     if [ -n "${GITHUB_ENV:-}" ]; then
         echo "RCLONE_DOWNLOAD_URL=$download_url" >> "$GITHUB_ENV"
     fi
 else
-    echo "[RCLONE] Remote does not provide a public link; Telegram will use the workflow fallback link."
+    echo "[WARN] rclone did not produce a valid public Drive URL; switching to Pixeldrain in the workflow."
 fi
 
 upload "Upload to Google Drive completed"

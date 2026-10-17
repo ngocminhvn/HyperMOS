@@ -14,6 +14,7 @@ import traceback
 
 from powerkeeper import adapt as adapt_ryu
 from ryu_killprocess_a16 import get_methods, SET_UID, RULE_CHECK
+from guard_gms_uid_kill_a16 import patch_method, WRAPPER
 
 REPO = Path(__file__).resolve().parents[4]
 CONTROLLER = "com/miui/powerkeeper/controller"
@@ -23,6 +24,16 @@ def run(*args):
     command = [str(a) for a in args]
     print("[PREFLIGHT CMD]", " ".join(command), flush=True)
     subprocess.run(command, check=True)
+
+
+def disassemble(dex, output):
+    # Use the same pinned local Android smali toolchain as production;
+    # GitHub's runner does not guarantee an external 'baksmali' executable.
+    jar = REPO / "bin/apktool/baksmaliv2.jar"
+    if not jar.is_file():
+        raise FileNotFoundError(f"Pinned baksmali compiler not found: {jar}")
+    run("java", "-jar", jar, "d", "--api", "36", "--use-locals",
+        "--jobs", "2", dex, "-o", output)
 
 
 def files(root):
@@ -48,8 +59,8 @@ def validate(zk_dex, ryu_dex, output):
         r = root / "ryu" / "smali" / "classes"
         z.mkdir(parents=True)
         r.mkdir(parents=True)
-        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", zk_dex, "-o", z)
-        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", ryu_dex, "-o", r)
+        disassemble(zk_dex, z)
+        disassemble(ryu_dex, r)
 
         names = ("KillProcessController", "GmsObserver", "ActiveStateController")
         originals = {}
@@ -80,13 +91,23 @@ def validate(zk_dex, ryu_dex, output):
         actual_methods = get_methods((z / CONTROLLER / "KillProcessController.smali").read_text())
         expected_uid = adapt_ryu(ryu_methods[SET_UID])[0]
         expected_checker = adapt_ryu(ryu_methods[RULE_CHECK])[0]
-        if actual_methods[SET_UID] != expected_uid or actual_methods[RULE_CHECK] != expected_checker:
-            raise ValueError("Ported UID-kill methods do not match the original RYU source")
+        if actual_methods[SET_UID] != patch_method(expected_uid):
+            raise ValueError("Ported UID-kill method differs beyond the scoped GMS check")
+        checker = actual_methods[RULE_CHECK]
+        if checker != expected_checker:
+            raise ValueError("Conditional UID policy checker unexpectedly modified")
+        helper = actual_methods.get("tnmIsGmsOrLocked(Ljava/lang/String;I)Z")
+        if not helper or '"com.google.android.gms"' not in helper or "->isLockedApplication(" not in helper:
+            raise ValueError("Single-lookup GMS locked-app guard missing")
+        if "tnmIsGmsUid(I)Z" in actual_methods:
+            raise ValueError("Old duplicate-lookup GMS helper remains")
         if any(actual_methods.get(m) != body for m, body in source_methods.items() if m != SET_UID):
             raise ValueError("Unrelated ZKOS KillProcessController method changed")
-        if "com.google.android.gms" in actual_methods[SET_UID]:
-            raise ValueError("Unexpected custom GMS exception in RYU policy")
-        for token in ("->isLockedApplication(", "->checkAppOnWindowsStatus(I)Z",
+        if WRAPPER not in actual_methods[SET_UID]:
+            raise ValueError("GMS locked-app guard not wired into UID decision")
+        if actual_methods[SET_UID].count("->getPackageNameByUid(") != expected_uid.count("->getPackageNameByUid("):
+            raise ValueError("Extra UID-to-package lookup inserted")
+        for token in ("->checkAppOnWindowsStatus(I)Z",
                       "Lmiui/process/ProcessManager;->kill(", "->shouldKillByCheckerPolicy(I)Z"):
             if token not in actual_methods[SET_UID]:
                 raise ValueError(f"Missing RYU UID policy operation: {token}")
@@ -104,11 +125,12 @@ def validate(zk_dex, ryu_dex, output):
         application = (z / "com/miui/powerkeeper/PowerKeeperApplication.smali").read_text()
         if "Lcom/android/tnm/perf/PerfHook;->init()V" not in application:
             raise ValueError("PerfHook initialization call missing")
-        results["ryu_uid_and_checker_methods_exact_after_adaptation"] = True
+        results["ryu_uid_reused_existing_package_lookup"] = True
+        results["gms_guard_extra_uid_lookup"] = 0
         results["unchanged_zkos_controller_methods"] = len(source_methods) - 1
         results["tnm_perfhook_class_count"] = len(perf_classes)
         results["staged_class_count"] = len(staged)
-        results["custom_gms_exception"] = False
+        results["custom_gms_exception"] = True
 
         jar = REPO / "bin/apktool/smaliv2.jar"
         if not jar.is_file():
@@ -119,7 +141,7 @@ def validate(zk_dex, ryu_dex, output):
             raise ValueError("Recompiled DEX is missing or suspiciously small")
         compiled = root / "compiled"
         compiled.mkdir()
-        run("baksmali", "disassemble", "--api", "36", "--use-locals", "--jobs", "2", dex_out, "-o", compiled)
+        disassemble(dex_out, compiled)
         compiled_files = files(compiled)
         if set(compiled_files) != set(staged):
             raise ValueError(
@@ -128,12 +150,28 @@ def validate(zk_dex, ryu_dex, output):
                 f"unexpected={sorted(set(compiled_files)-set(staged))[:15]}"
             )
         compiled_kill = (compiled / CONTROLLER / "KillProcessController.smali").read_text()
-        for token in ("shouldKillByCheckerPolicy(I)Z", "->isLockedApplication(",
+        for token in ("shouldKillByCheckerPolicy(I)Z",
                       "->checkAppOnWindowsStatus(I)Z", "Lmiui/process/ProcessManager;->kill("):
             if token not in compiled_kill:
                 raise ValueError(f"Reassembled DEX lost RYU policy: {token}")
-        if "com.google.android.gms" in compiled_kill:
-            raise ValueError("Compiled controller contains unwanted GMS exemption")
+        if "com.google.android.gms" not in compiled_kill or WRAPPER not in compiled_kill:
+            raise ValueError("Compiled controller missing scoped GMS guard")
+        compiled_methods = get_methods(compiled_kill)
+        compiled_helper = compiled_methods.get("tnmIsGmsOrLocked(Ljava/lang/String;I)Z", "")
+        if ("->isLockedApplication(" not in compiled_helper
+                or WRAPPER not in compiled_methods[SET_UID]
+                or "->isLockedApplication(" in compiled_methods[SET_UID]):
+            raise ValueError("Compiled UID decision does not delegate locked-app check to GMS guard")
+        if "tnmIsGmsUid" in compiled_kill or "tnmIsGmsOrLocked(Ljava/lang/String;I)Z" not in compiled_kill:
+            raise ValueError("Compiled controller has unexpected GMS guard layout")
+        for filename, marker in (
+            ("com/miui/powerkeeper/PowerKeeperInterface$l.smali", "getUidPolicy(I)Landroid/os/Bundle;"),
+            ("com/miui/powerkeeper/AppRuleChecker.smali", "getUidPolicy(I)Landroid/os/Bundle;"),
+            ("com/miui/powerkeeper/AppRuleChecker$j.smali", "tnmReadKillPolicy()I"),
+        ):
+            actual = compiled / filename
+            if not actual.is_file() or marker not in actual.read_text():
+                raise ValueError(f"Compiled DEX lost required UID-policy ABI: {filename}")
         if not (compiled / "com/android/tnm/perf/PerfHook.smali").is_file():
             raise ValueError("Compiled DEX missing relocated PerfHook")
         if not (compiled / "com/android/tnm/TNMFramework.smali").is_file():

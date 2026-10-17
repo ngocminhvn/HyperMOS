@@ -120,10 +120,17 @@ def transform(text, entry, verify=False):
 def apply(root, jar, verify=False, entries=None, profile='full'):
     if not root.is_dir():
         raise ValueError(f'Missing decoded directory: {root}')
+    # A compatibility profile may intentionally have no gates for a JAR.
+    # Only skip when entries came from the selected manifest profile; callers
+    # that supplied explicit entries and the full audit remain fail-closed.
+    selected_profile = entries is None
     if entries is None:
         entries = load_entries(profile)
     entries = [e for e in entries if e['jar'] == jar]
     if not entries:
+        if selected_profile and profile != 'full':
+            print(f'[TNM-TNM] {jar}: no gates in profile {profile}; skipped')
+            return
         raise ValueError(f'No manifest entries for {jar}')
     pending = {}
     # apk_ops.sh may expose both copies (classes + smali, classesN +

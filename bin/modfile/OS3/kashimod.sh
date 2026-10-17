@@ -5,7 +5,7 @@ source "$work_dir/bin/modfile/OS3/_common.sh"
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
 [[ "$rom_os" == "OS3" ]] || exit 0
 
-mods "Kashi mods: App Vault + Control Center + Theme Manager + Launcher + Security Center"
+mods "Kashi mods: App Vault + FreeStyle CC + Screenshot + Theme Manager + Launcher + Security Center"
 
 modscenter_apply_native_module \
     "HyperOS App Vault" \
@@ -26,13 +26,19 @@ modscenter_apply_native_module \
     "MIUIPersonalAssistantOS3" \
     "MIUIPersonalAssistantPadOS3" || exit 1
 
-modscenter_apply_native_module \
-    "ColorOS Control Center" \
-    "Mods-Center/ColorOS_Control_Center" \
+modscenter_apply_fixed_archive_apk \
+    "FreeStyle Control Center (OS3)" \
+    "Mods-Center/FreeStyle-Control-Center" \
+    "files/OS3/MIUISystemUIPlugin.apk" \
     "miui.systemui.plugin" \
-    "*MIUISystemUIPlugin*.apk" \
-    "-" \
     "MIUISystemUIPlugin" || exit 1
+
+modscenter_apply_fixed_archive_apk \
+    "HyperOS Screenshot" \
+    "Mods-Center/HyperOS-Screenshot-mod" \
+    "files/MIUIScreenshot.apk" \
+    "com.miui.screenshot" \
+    "MIUIScreenshot" || exit 1
 
 modscenter_apply_native_module \
     "HyperOS Theme Manager" \

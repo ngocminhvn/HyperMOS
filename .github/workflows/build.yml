@@ -16,7 +16,7 @@ on:
         default: false
         type: boolean
       root_mode:
-        description: 'KernelSU Next root mode (latest stable; auto-detect KMI)'
+        description: 'SukiSU Ultra v4.2.1 root (stock KMI, manager preinstalled)'
         required: true
         type: choice
         default: 'root'
@@ -84,6 +84,59 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # Validate local Python patchers before apt/pip and ROM download.
+      # Persist diagnostics so Telegram does not mistake a pip warning for an error.
+      - name: Python and PowerKeeper source preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > build_action.log
+          {
+            echo "[PHASE] - Python and PowerKeeper source preflight"
+            python3 -m py_compile \
+              bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
+              bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
+              bin/package/NOTIFICATION_FIX/A16/restore_uid_policy_abi_a16.py \
+              bin/package/NOTIFICATION_FIX/A16/guard_gms_uid_kill_a16.py \
+              bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
+              bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
+              bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
+              bin/package/NOTIFICATION_FIX/A16/test_restore_uid_policy_abi_a16.py \
+              bin/package/NOTIFICATION_FIX/A16/test_guard_gms_uid_kill_a16.py \
+              bin/package/NOTIFICATION_FIX/A16/test_actual_dex_a16.py \
+              bin/package/COREPATCH/tnm_zk_power_a16.py
+            python3 bin/package/NOTIFICATION_FIX/A16/test_restore_uid_policy_abi_a16.py
+            python3 bin/package/NOTIFICATION_FIX/A16/test_guard_gms_uid_kill_a16.py
+            echo "[OK] - PowerKeeper source syntax and synthetic tests passed"
+          } 2>&1 | tee -a build_action.log
+
+      # Compile the actual pinned ZKOS + RYU PowerKeeper DEX before installing
+      # dependencies or downloading a multi-GB ROM. Synthetic tests alone
+      # missed the #148 adjacency mismatch in KillProcessController.
+      - name: Pinned PowerKeeper DEX preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/powerkeeper-dex-preflight.json"
+          log="$RUNNER_TEMP/powerkeeper-dex-preflight.log"
+          if ! python3 bin/package/NOTIFICATION_FIX/A16/test_actual_dex_a16.py \
+            --zk bin/package/NOTIFICATION_FIX/A16/classes.dex \
+            --ryu bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex \
+            --report "$report" > "$log" 2>&1; then
+            echo "[ERROR] - Real PowerKeeper DEX preflight failed" | tee -a build_action.log
+            tail -n 100 "$log" | tee -a build_action.log
+            exit 1
+          fi
+          echo "[OK] - Actual PowerKeeper DEX compiled with GMS policy guard" | tee -a build_action.log
+          python3 - "$report" <<'PYDEXREPORT'
+          import json
+          import sys
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("[POWERKEEPER DEX]", "classes=" + str(record.get("compiled_class_count")),
+                "bytes=" + str(record.get("compiled_dex_bytes")),
+                "new_lookup=" + str(record.get("gms_guard_extra_uid_lookup")))
+          PYDEXREPORT
+
       - name: Prepare build environment
         shell: bash
         run: |
@@ -115,10 +168,50 @@ jobs:
 
           # Check the LOCK entrypoint before downloading ROM.
           bash -n bin/package/LOCK/update.sh
-          # Fast fail original pinned ZKOS PowerKeeper and the scoped ZK JAR port.
+          # Fast fail pinned PowerKeeper sources, guarded UID port and scoped JAR port.
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
+          # Check fixed OS3 app snapshots before downloading/extracting the ROM.
+          bash -n bin/modfile/OS3/_common.sh
+          bash -n bin/modfile/OS3/kashimod.sh
+          bash -n bin/modfile/OS3/system/update.sh
+          bash -n bin/modfile/OS3/insmod.sh
+          python3 - <<'PYOS3'
+          import re
+          import subprocess
+          import tempfile
+          import zipfile
+          from pathlib import Path
+
+          base = Path("bin/modfile/OS3")
+          snapshots = [
+              ("FreeStyle_CC_mod_", "files/OS3/MIUISystemUIPlugin.apk", "miui.systemui.plugin"),
+              ("HyperOS_Screenshot", "files/MIUIScreenshot.apk", "com.miui.screenshot"),
+          ]
+          with tempfile.TemporaryDirectory(prefix="os3-mod-preflight-") as tmp:
+              for prefix, member, expected_package in snapshots:
+                  matches = list((base / "kashi").glob(prefix + "*.zip"))
+                  if len(matches) != 1:
+                      raise SystemExit(f"[OS3] Need exactly one {prefix}*.zip; got {len(matches)}")
+                  with zipfile.ZipFile(matches[0]) as archive:
+                      if archive.namelist().count(member) != 1:
+                          raise SystemExit(f"[OS3] Missing/duplicate member {member} in {matches[0]}")
+                      apk = Path(tmp) / (prefix + ".apk")
+                      apk.write_bytes(archive.read(member))
+                  if not apk.stat().st_size:
+                      raise SystemExit(f"[OS3] Empty APK: {member}")
+                  result = subprocess.run(["aapt", "dump", "badging", str(apk)],
+                                          capture_output=True, text=True, check=True).stdout
+                  match = re.search(r"^package: name='([^']+)'", result, re.MULTILINE)
+                  if match is None or match.group(1) != expected_package:
+                      raise SystemExit(f"[OS3] Wrong APK package in {member}")
+                  print(f"[OS3] OK: {matches[0].name} -> {member} ({expected_package})")
+          gallery = base / "system/MIUIGallery.apk"
+          if not gallery.is_file() or gallery.stat().st_size < 1024:
+              raise SystemExit("[OS3] Gallery APK is absent or Git LFS pointer was not hydrated")
+          print("[OS3] Kashi and Gallery snapshot preflight passed")
+          PYOS3
           sh -n bin/modfile/UpdateFile/TNM/tnm-cpuctl
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           python3 bin/modfile/UpdateFile/TNM/test_cpu_percent.py
@@ -138,15 +231,21 @@ jobs:
               blob = subprocess.check_output(["git", "hash-object", str(rel)], text=True).strip()
               if blob != expected:
                   raise SystemExit(f"Pinned donor DEX hash mismatch: {rel}")
-          print("PASS: original ZKOS DEX + RYU PerfHook source")
+          print("PASS: pinned ZKOS DEX + RYU conditional UID/PerfHook source")
           PYDEX
           python3 -m py_compile \
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/ryu_killprocess_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/restore_uid_policy_abi_a16.py \
+            bin/package/NOTIFICATION_FIX/A16/guard_gms_uid_kill_a16.py \
             bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
             bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
             bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
             bin/package/COREPATCH/tnm_zk_power_a16.py
           python3 bin/package/COREPATCH/test_tnm_zk_power_a16.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_killprocess_a16.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_restore_uid_policy_abi_a16.py
+          python3 bin/package/NOTIFICATION_FIX/A16/test_guard_gms_uid_kill_a16.py
           python3 bin/package/NOTIFICATION_FIX/A16/test_perfhook_passive_init.py
 
           # ZKOS-parity main retains the base Xiaomi thermal/CPU/powerhint XML.
@@ -191,18 +290,17 @@ jobs:
           grep -Fq 'install -m 0755 "$src_bridge" "$bridge_dst"' bin/modfile/UpdateFile/TNM/update.sh
           grep -Fq 'exec "$BACKEND" "$@"' bin/modfile/UpdateFile/TNM/tnm-bridge
           echo "[OK] - Font catalog, shared emoji and TNM bridge preflight passed"
-          # KernelSU Next integration: verify scripts and auto-KMI logic
-          # before downloading a large stock ROM.
+          # SukiSU Ultra v4.2.1 integration: validate prep, patch and stock-KMI logic.
+          bash -n bin/root/prepare_sukisu.sh
           bash -n bin/root/patch_init_boot.sh
-          sh -n bin/root/stage_root_manager.sh
           bash -n bin/modfile/Universal/downloadapp/update.sh
           python3 -m py_compile bin/root/detect_kernel_kmi.py
           python3 bin/root/detect_kernel_kmi.py --self-test
-          grep -Fq 'KernelSU-Next/KernelSU-Next' bin/root/patch_init_boot.sh
+          grep -Fq 'SukiSU-Ultra/SukiSU-Ultra.git' bin/root/prepare_sukisu.sh
+          grep -Fq 'SukiSU_v4.2.1_40994-release.apk' bin/root/patch_init_boot.sh
+          grep -Fq 'product/app/SukiSUUltra' bin/root/patch_init_boot.sh
           grep -Fq 'skip competing/preinstalled root manager' bin/modfile/Universal/downloadapp/update.sh
-          grep -Fq 'KernelSU-Next_v' bin/root/stage_root_manager.sh
-          test -s bin/root/stage_root_manager.rc
-          echo "[ROOT] KernelSU Next patch and manager staging preflight passed"
+          echo "[ROOT] SukiSU Ultra v4.2.1 source and manager preload preflight passed"
 
 
 
@@ -249,16 +347,32 @@ jobs:
               echo "- ⏳ 4/4 Repack is handled by the separate Pack ROM step"
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error title=Build ROM failed::Check the grouped download, extraction and modification logs."
+            echo "::error title=Build ROM failed::Check the grouped build logs and the failure diagnostics."
             {
               echo "### Build ROM"
-              echo "**Failed.** Inspect the Build ROM groups and the last log lines."
+              echo "**Failed.** Inspect the grouped Build ROM logs and failure diagnostics."
             } >> "$GITHUB_STEP_SUMMARY"
-            tail -n 35 build_action.log || true
+            tail -n 25 build_action.log || true
             exit 1
           fi
 
-      - name: Patch KernelSU Next into init_boot
+      - name: Set up SukiSU Android NDK
+        if: ${{ inputs.root_mode == 'root' }}
+        id: sukisu_ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+
+      - name: Prepare SukiSU Ultra v4.2.1
+        if: ${{ inputs.root_mode == 'root' }}
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.sukisu_ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          bash bin/root/prepare_sukisu.sh 2>&1 | tee -a build_action.log
+
+      - name: Patch SukiSU Ultra into init_boot
         if: ${{ inputs.root_mode == 'root' }}
         shell: bash
         env:
@@ -266,12 +380,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Prevent an unintended preinstalled root-manager APK.
+          # Only the matching SukiSU manager may be preinstalled by root patch.
           target="build/baserom/images/product/data-app"
           if [ -d "$target" ] && find "$target" -type f \
               \( -iname 'SukiSU*.apk' -o -iname 'KernelSU*.apk' -o -iname 'KSU*.apk' \) \
               -print -quit | grep -q .; then
-            echo "::error::Root manager unexpectedly preinstalled in product/data-app"
+            echo "::error::Competing root manager already preinstalled in product/data-app"
             exit 1
           fi
           # build.sh extracts read-only partition trees with sudo.
@@ -310,8 +424,17 @@ jobs:
           echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
           sudo -E bash uploadROM.sh 2>&1 | tee -a build_action.log
 
-          if [ "$UPLOAD_METHOD" != "pixeldrain" ]; then
-            exit 0
+          # A Drive upload with no share URL must fall back to Pixeldrain.
+          if [ "$UPLOAD_METHOD" = "drive" ]; then
+            if [ -s bin/ddevice/download_url.txt ]; then
+              echo "[OK] - Google Drive share link generated"
+              exit 0
+            fi
+            echo "[WARN] - Google Drive link unavailable; retrying upload with Pixeldrain"
+          fi
+          if [ -z "${PD_API_KEY:-}" ]; then
+            echo "::error title=Pixeldrain API key missing::Configure PIXELDRAIN_API_KEY to enable direct upload or Drive-link fallback."
+            exit 1
           fi
 
           FILE=$(cat bin/ddevice/output_file.txt 2>/dev/null || true)
@@ -329,30 +452,51 @@ jobs:
             echo "[UPLOADING] - $(basename "$src")" >&2
             response=$(curl -fsS -u ":$PD_API_KEY" -F "file=@$src" https://pixeldrain.com/api/file)
             id=$(printf '%s' "$response" | jq -r '.id // empty')
-            [ -n "$id" ] || {
-              echo "[ERROR] - Pixeldrain response: $response" >&2
+            [[ "$id" =~ ^[A-Za-z0-9]+$ ]] || {
+              echo "[ERROR] - Pixeldrain did not return a valid file ID" >&2
               return 1
             }
             printf 'https://pixeldrain.com/u/%s\n' "$id"
           }
 
-          FIRST_URL=""
+          DOWNLOAD_URL=""
           if [ "$SIZE" -gt "$LIMIT" ]; then
             echo "[INFO] - ROM exceeds 9 GiB; splitting without recompression"
             7zz a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE" >/dev/null
+            manifest="${FILE}.parts.txt"
+            : > "$manifest"
+            file_ids='[]'
             for part in "${FILE}.7z".*; do
               [ -e "$part" ] || continue
               url=$(upload_one "$part")
-              [ -n "$FIRST_URL" ] || FIRST_URL="$url"
+              printf '%s %s\n' "$(basename "$part")" "$url" >> "$manifest"
+              file_ids=$(jq -cn --argjson ids "$file_ids" --arg id "${url##*/}" '$ids + [{id: $id}]')
             done
+            [ -s "$manifest" ] || { echo "[ERROR] - No ROM parts uploaded"; exit 1; }
+            # One album link gives access to every archive part, not only part 1.
+            payload=$(jq -cn --arg title "$(basename "$FILE")" --argjson files "$file_ids" \
+              '{title: $title, anonymous: false, files: $files}')
+            list_response=$(curl -fsS --retry 2 -u ":$PD_API_KEY" \
+              -H 'Content-Type: application/json' -d "$payload" \
+              https://pixeldrain.com/api/list 2>/dev/null || true)
+            list_id=$(printf '%s' "$list_response" | jq -r '.id // empty' 2>/dev/null || true)
+            if [[ "$list_id" =~ ^[A-Za-z0-9]+$ ]]; then
+              DOWNLOAD_URL="https://pixeldrain.com/l/$list_id"
+            else
+              echo "[WARN] - Pixeldrain album unavailable; sharing a manifest of all part links"
+              DOWNLOAD_URL=$(upload_one "$manifest")
+            fi
           else
-            FIRST_URL=$(upload_one "$FILE")
+            DOWNLOAD_URL=$(upload_one "$FILE")
           fi
 
-          if [ -n "$FIRST_URL" ]; then
-            echo "NOTIFY_DOWNLOAD_URL=$FIRST_URL" >> "$GITHUB_ENV"
-          fi
-          echo "[OK] - Pixeldrain upload completed"
+          [[ "$DOWNLOAD_URL" =~ ^https://pixeldrain.com/(u|l)/[A-Za-z0-9]+$ ]] || {
+            echo "[ERROR] - Pixeldrain did not produce a valid download URL"
+            exit 1
+          }
+          echo "$DOWNLOAD_URL" > bin/ddevice/download_url.txt
+          echo "NOTIFY_DOWNLOAD_URL=$DOWNLOAD_URL" >> "$GITHUB_ENV"
+          echo "[OK] - Pixeldrain upload completed: $DOWNLOAD_URL"
 
       - name: Notify result
         if: ${{ always() }}
@@ -383,3 +527,60 @@ jobs:
               ;;
           esac
           exit 0
+
+      # Avoid publishing an unredacted raw log artifact from this public repo:
+      # build_action.log may contain private URLs or other sensitive parameters.
+      - name: Failure diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          echo "::group::Recent build errors and context"
+          if [ -f build_action.log ]; then
+            tail -n 60 build_action.log
+            {
+              echo "### Failure diagnostics"
+              echo "Recent error context was printed in the Failure diagnostics step."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "[WARN] No build log was created before the failure."
+          fi
+          echo "::endgroup::"
+
+      # Full unfiltered line coverage on failure; redact credentials before
+      # publishing an artifact in this public repository.
+      - name: Prepare full failure log
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
+          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p failure-diagnostics
+          python3 - <<'PYLOG'
+          import os
+          import re
+          from pathlib import Path
+
+          source = Path("build_action.log")
+          content = source.read_text(encoding="utf-8", errors="replace") if source.is_file() else "Build log was not created before failure.\n"
+          for name in ("RCLONE_TOKEN_PATH", "PIXELDRAIN_API_KEY", "TELEGRAM_BOT_TOKEN"):
+              secret = os.environ.get(name, "")
+              if secret:
+                  content = content.replace(secret, "[REDACTED]")
+          content = re.sub(r"(?i)([?&](?:token|key|api_key|secret|password|sig|signature|auth|access_token|refresh_token)=)[^&#\s]+", r"\1[REDACTED]", content)
+          content = re.sub(r"(?i)(https?://)[^\s/@:]+:[^\s/@]+@", r"\1[REDACTED]@", content)
+          content = re.sub(r"(?i)(\b(?:Authorization|password|api_key|secret|access_token|refresh_token)\s*[:=]\s*)[^\s,;]+", r"\1[REDACTED]", content)
+          Path("failure-diagnostics/build_action.log").write_text(content, encoding="utf-8")
+          print(f"[OK] Full failure log prepared ({len(content.splitlines())} lines; sensitive values redacted)")
+          PYLOG
+
+      - name: Upload full failure log artifact
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypermos-build-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: failure-diagnostics/build_action.log
+          if-no-files-found: warn
+          retention-days: 7

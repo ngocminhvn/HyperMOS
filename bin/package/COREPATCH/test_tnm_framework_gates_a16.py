@@ -124,6 +124,24 @@ class Gates(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.transform(src.replace('    const/4 v0,', '    nop\n    const/4 v0,', 1), entry(signature=signature))
 
+    def test_empty_profile_jar_is_skipped_but_required_gates_remain_strict(self):
+        for profile in ('hypermos-app-compat', 'hypermos-zk-power'):
+            selected = m.load_entries(profile)
+            self.assertTrue(any(e['jar'] == 'miui-services' for e in selected))
+            self.assertFalse(any(e['jar'] == 'miui-framework' for e in selected))
+            with tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                # No miui-framework gates were selected: both phases are no-ops.
+                m.apply(root, 'miui-framework', profile=profile)
+                m.apply(root, 'miui-framework', verify=True, profile=profile)
+                # The same profile must still fail when an audited class is absent.
+                with self.assertRaisesRegex(ValueError, 'expected one class'):
+                    m.apply(root, 'miui-services', profile=profile)
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError, 'No manifest entries'):
+                m.apply(Path(folder), 'miui-framework', entries=[entry()])
+
+
     def test_manifest_and_patch_order(self):
         manifest = json.loads(m.MANIFEST.read_text())
         entries = manifest['entries']
