@@ -1,0 +1,6 @@
+# HyperMOS SukiSU Ultra v4.2.1: stage ordinary user-app Manager installer.
+# The APK itself is never on a PackageManager-scanned system-app path.
+# Copy the one-shot hook during post-fs-data so SukiSU's boot-completed.d
+# runner can install through PackageManager after Android is ready.
+on post-fs-data
+    exec - root root -- /system/bin/sh /system_ext/bin/hypermos-root-manager-stage

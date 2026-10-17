@@ -112,9 +112,10 @@ mods "Installing downloadapp APKs"
 for apk in "${apks[@]}"; do
   file="$(basename "$apk")"
 
-  # Do not preload root managers from the generic downloadapp directory.
-  # Root mode installs ONLY the pinned official SukiSU v4.2.1 manager in
-  # product/app, after verification. Stock mode must not add a manager.
+  # Do not preload root managers through generic product/data-app staging.
+  # Root mode stages ONLY the checksum-pinned official SukiSU v4.2.1 APK
+  # outside system app paths, then PackageManager installs it once as a
+  # normal user app under /data/app after first boot. Stock mode skips it.
   case "$file" in
     SukiSU*.apk|KernelSU*.apk|KSU*.apk)
       mods "downloadapp: skip competing/preinstalled root manager: $file"
