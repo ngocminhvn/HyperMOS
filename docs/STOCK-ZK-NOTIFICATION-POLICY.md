@@ -57,17 +57,20 @@ Traced local-config path in ZK/EU:
 The conditional UID kill, however, checks \`POLICY\` (values 1 and 2), not
 \`HOT_DELAY_MINUTE\`. These config entries alone **do not prove** that
 \`com.google.android.gms\` is immune to \`ProcessManager.kill()\`. HyperMOS
-now performs the GMS check **inline** in
-\`KillProcessController.setUidState(IZ)V\`, immediately after the existing
-\`PackageUtil.getPackageNameByUid\` and \`isLockedApplication\` calls.
-It compares the **already resolved package name** with
-\`com.google.android.gms\`, ORs that result with the existing locked-app
-exemption, and reuses the same branch around the conditional kill.
-There is **no additional UID/package lookup**, helper method, polling,
-daemon, broad Doze bypass, or unrestricted wakelock policy. Other
-PowerKeeper kill routes are untouched. If the existing package lookup
-fails or an Android UID represents multiple packages, this scoped check
-cannot guarantee absolute GMS protection.
+now performs the GMS check through one small static
+\`KillProcessController.tnmIsGmsOrLocked(String, int)\` helper. HyperMOS
+replaces only the existing \`ProcessManager.isLockedApplication\` call
+in the imported \`setUidState\` method with that helper, passing the
+*same already resolved package name*. GMS returns \`true\` as a
+locked-app exemption, while every other package delegates to the
+original \`ProcessManager.isLockedApplication\`. This avoids fragile
+assumptions about which smali instructions occur between the lookup
+and locked-app check. There is **no additional UID/package lookup**,
+polling, daemon, broad Doze bypass, or unrestricted wakelock policy.
+The helper introduces one extra method call on this event-driven
+decision path; it does not run periodically. Other PowerKeeper kill
+routes are untouched. If UID-to-package resolution fails or an Android
+UID represents multiple packages, this is not a universal GMS guarantee.
 
 ## Difference from original ZKOS PowerKeeper (A16)
 
@@ -77,7 +80,7 @@ cannot guarantee absolute GMS protection.
   **plus one inline GMS comparison reusing the donor's package lookup**.
 - \`KillProcessController.shouldKillByCheckerPolicy\`: the RYU POLICY 1/2
   checker, not present in the ZKOS donor, is restored unchanged. The
-  previous \`tnmIsGmsUid\` helper and second package lookup were removed.
+  previous duplicate-lookup \`tnmIsGmsUid\` helper was removed.
 - \`PowerKeeperInterface$l\`, \`AppRuleChecker\`, \`AppRuleChecker$j\`: the
   \`getUidPolicy\` ABI and concrete non-hot \`POLICY\` reader are added
   to support the conditional kill method. This is *not* a copy of the
@@ -86,7 +89,7 @@ cannot guarantee absolute GMS protection.
   PerfHook is initialized (20 imported per-app classes); its initial
   thermal/performance writes are suppressed.
 - \`GmsObserver\`, Doze, Millet, freeze, and stock HAOTIAN thermal/FPS
-  asset configuration are not changed by the inline GMS optimization.
+  asset configuration are not changed by this scoped GMS optimization.
   Separate build-ID/SettingsHelper/FPS/thermal-node compatibility rewrites
   described above still apply to the ZK-derived DEX.
 
