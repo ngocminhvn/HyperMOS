@@ -49,10 +49,10 @@ def patch(root: Path) -> dict:
         raise ValueError('ZK AppRuleChecker lock or UID record layout changed')
     if RECORD not in c or '.class ' not in c:
         raise ValueError('Unexpected per-UID policy record descriptor')
-    if not re.search(r'(?m)^\.field(?:[ \t]+[\w-]+)*[ \t]+e:' + re.escape(STATE), c):
+    if not any(line.strip().startswith('.field ') and line.strip().split()[-1] == 'e:' + STATE for line in c.splitlines()):
         raise ValueError('Missing per-UID standard policy state')
     state = one(root, 'AppRuleChecker$i').read_text(encoding='utf-8')
-    if not re.search(r'(?m)^\.field(?:[ \t]+[\w-]+)*[ \t]+a:I[ \t]*, state):
+    if not any(line.strip().startswith('.field ') and line.strip().split()[-1] == 'a:I' for line in state.splitlines()):
         raise ValueError('Missing per-UID integer policy')
 
     interface_method = f'''
