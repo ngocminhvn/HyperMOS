@@ -14,7 +14,7 @@ import traceback
 
 from powerkeeper import adapt as adapt_ryu
 from ryu_killprocess_a16 import get_methods, SET_UID, RULE_CHECK
-from guard_gms_uid_kill_a16 import patch_method
+from guard_gms_uid_kill_a16 import patch_method, WRAPPER
 
 REPO = Path(__file__).resolve().parents[4]
 CONTROLLER = "com/miui/powerkeeper/controller"
@@ -86,12 +86,15 @@ def validate(zk_dex, ryu_dex, output):
         checker = actual_methods[RULE_CHECK]
         if checker != expected_checker:
             raise ValueError("Conditional UID policy checker unexpectedly modified")
+        helper = actual_methods.get("tnmIsGmsOrLocked(Ljava/lang/String;I)Z")
+        if not helper or '"com.google.android.gms"' not in helper or "->isLockedApplication(" not in helper:
+            raise ValueError("Single-lookup GMS locked-app guard missing")
         if "tnmIsGmsUid(I)Z" in actual_methods:
-            raise ValueError("Redundant GMS UID lookup helper remains")
+            raise ValueError("Old duplicate-lookup GMS helper remains")
         if any(actual_methods.get(m) != body for m, body in source_methods.items() if m != SET_UID):
             raise ValueError("Unrelated ZKOS KillProcessController method changed")
-        if "com.google.android.gms" not in actual_methods[SET_UID] or "or-int/2addr" not in actual_methods[SET_UID]:
-            raise ValueError("Inline GMS skip-kill check missing")
+        if WRAPPER not in actual_methods[SET_UID]:
+            raise ValueError("GMS locked-app guard not wired into UID decision")
         if actual_methods[SET_UID].count("->getPackageNameByUid(") != expected_uid.count("->getPackageNameByUid("):
             raise ValueError("Extra UID-to-package lookup inserted")
         for token in ("->isLockedApplication(", "->checkAppOnWindowsStatus(I)Z",
@@ -113,6 +116,7 @@ def validate(zk_dex, ryu_dex, output):
         if "Lcom/android/tnm/perf/PerfHook;->init()V" not in application:
             raise ValueError("PerfHook initialization call missing")
         results["ryu_uid_reused_existing_package_lookup"] = True
+        results["gms_guard_extra_uid_lookup"] = 0
         results["unchanged_zkos_controller_methods"] = len(source_methods) - 1
         results["tnm_perfhook_class_count"] = len(perf_classes)
         results["staged_class_count"] = len(staged)
@@ -140,10 +144,10 @@ def validate(zk_dex, ryu_dex, output):
                       "->checkAppOnWindowsStatus(I)Z", "Lmiui/process/ProcessManager;->kill("):
             if token not in compiled_kill:
                 raise ValueError(f"Reassembled DEX lost RYU policy: {token}")
-        if "com.google.android.gms" not in compiled_kill or "or-int/2addr" not in compiled_kill:
-            raise ValueError("Compiled controller missing inline GMS exemption")
-        if "tnmIsGmsUid" in compiled_kill:
-            raise ValueError("Compiled controller retains redundant UID lookup helper")
+        if "com.google.android.gms" not in compiled_kill or WRAPPER not in compiled_kill:
+            raise ValueError("Compiled controller missing scoped GMS guard")
+        if "tnmIsGmsUid" in compiled_kill or "tnmIsGmsOrLocked(Ljava/lang/String;I)Z" not in compiled_kill:
+            raise ValueError("Compiled controller has unexpected GMS guard layout")
         for filename, marker in (
             ("com/miui/powerkeeper/PowerKeeperInterface$l.smali", "getUidPolicy(I)Landroid/os/Bundle;"),
             ("com/miui/powerkeeper/AppRuleChecker.smali", "getUidPolicy(I)Landroid/os/Bundle;"),
