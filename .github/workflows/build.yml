@@ -185,8 +185,11 @@ jobs:
           from pathlib import Path
 
           base = Path("bin/modfile/OS3")
+          # ColorOS V3 includes a modded plugin with a source-dependent ZIP path.
+          # Identify its single APK by Android package; do not assume a ZIP layout.
+          # Screenshot continues to use its exact upstream member.
           snapshots = [
-              ("FreeStyle_CC_mod_", "files/OS3/MIUISystemUIPlugin.apk", "miui.systemui.plugin"),
+              ("ColorOS_plugin_mod_", None, "miui.systemui.plugin"),
               ("HyperOS_Screenshot", "files/MIUIScreenshot.apk", "com.miui.screenshot"),
           ]
           with tempfile.TemporaryDirectory(prefix="os3-mod-preflight-") as tmp:
@@ -195,18 +198,35 @@ jobs:
                   if len(matches) != 1:
                       raise SystemExit(f"[OS3] Need exactly one {prefix}*.zip; got {len(matches)}")
                   with zipfile.ZipFile(matches[0]) as archive:
-                      if archive.namelist().count(member) != 1:
+                      if archive.testzip() is not None:
+                          raise SystemExit(f"[OS3] Corrupt ZIP: {matches[0]}")
+                      names = archive.namelist()
+                      if member is not None and names.count(member) != 1:
                           raise SystemExit(f"[OS3] Missing/duplicate member {member} in {matches[0]}")
-                      apk = Path(tmp) / (prefix + ".apk")
-                      apk.write_bytes(archive.read(member))
-                  if not apk.stat().st_size:
-                      raise SystemExit(f"[OS3] Empty APK: {member}")
-                  result = subprocess.run(["aapt", "dump", "badging", str(apk)],
-                                          capture_output=True, text=True, check=True).stdout
-                  match = re.search(r"^package: name='([^']+)'", result, re.MULTILINE)
-                  if match is None or match.group(1) != expected_package:
-                      raise SystemExit(f"[OS3] Wrong APK package in {member}")
-                  print(f"[OS3] OK: {matches[0].name} -> {member} ({expected_package})")
+                      entries = [member] if member else [
+                          name for name in names if name.lower().endswith(".apk")
+                      ]
+                      if not entries or len(entries) > 50:
+                          raise SystemExit(f"[OS3] Invalid APK inventory in {matches[0]}")
+                      matched = []
+                      for index, entry in enumerate(entries):
+                          apk = Path(tmp) / f"{prefix}-{index}.apk"
+                          apk.write_bytes(archive.read(entry))
+                          if apk.stat().st_size < 1024:
+                              raise SystemExit(f"[OS3] Empty/invalid APK: {entry}")
+                          result = subprocess.run(["aapt", "dump", "badging", str(apk)],
+                                                  capture_output=True, text=True)
+                          match = re.search(r"^package: name='([^']+)'", result.stdout,
+                                            re.MULTILINE)
+                          if result.returncode != 0 or match is None:
+                              raise SystemExit(f"[OS3] Unreadable APK package: {entry}")
+                          if match.group(1) == expected_package:
+                              matched.append(entry)
+                      if len(matched) != 1:
+                          raise SystemExit(
+                              f"[OS3] Expected one {expected_package} APK in {matches[0]}, "
+                              f"found {len(matched)}")
+                      print(f"[OS3] OK: {matches[0].name} -> {matched[0]} ({expected_package})")
           gallery = base / "system/MIUIGallery.apk"
           if not gallery.is_file() or gallery.stat().st_size < 1024:
               raise SystemExit("[OS3] Gallery APK is absent or Git LFS pointer was not hydrated")
