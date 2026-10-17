@@ -112,9 +112,9 @@ mods "Installing downloadapp APKs"
 for apk in "${apks[@]}"; do
   file="$(basename "$apk")"
 
-  # Root managers must never be preinstalled by downloadapp, even when
-  # building stock. KernelSU Next's matching APK is provided separately in
-  # Download after first unlock in root builds.
+  # Do not preload root managers from the generic downloadapp directory.
+  # Root mode installs ONLY the pinned official SukiSU v4.2.1 manager in
+  # product/app, after verification. Stock mode must not add a manager.
   case "$file" in
     SukiSU*.apk|KernelSU*.apk|KSU*.apk)
       mods "downloadapp: skip competing/preinstalled root manager: $file"
