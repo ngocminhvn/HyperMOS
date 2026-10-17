@@ -59,7 +59,8 @@ jobs:
           
           SOURCES = [
               ("App Vault", "Mods-Center/HyperOS-App-Vault", "HyperOS_AppVault", "com.miui.personalassistant", None),
-              ("FreeStyle Control Center", "Mods-Center/FreeStyle-Control-Center", "FreeStyle_CC_mod_", "miui.systemui.plugin", "files/OS3/MIUISystemUIPlugin.apk"),
+              # ColorOS V3 Control Center is deliberately pinned to the local ZIP;
+              # do not replace it or reactivate FreeStyle through the updater.
               ("Screenshot", "Mods-Center/HyperOS-Screenshot-mod", "HyperOS_Screenshot", "com.miui.screenshot", "files/MIUIScreenshot.apk"),
               ("Launcher", "Mods-Center/HyperOS-Launcher", "HyperOS_Launcher", "com.miui.home", None),
               ("Security Center", "Mods-Center/HyperOS-Security-Center", "HyperOS_Security", "com.miui.securitycenter", None),
