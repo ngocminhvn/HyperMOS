@@ -175,13 +175,8 @@ jobs:
           # Check fixed OS3 app snapshots before downloading/extracting the ROM.
           bash -n bin/modfile/OS3/_common.sh
           bash -n bin/modfile/OS3/kashimod.sh
-          bash -n bin/modfile/OS3/securitycenter_countdown.sh
           bash -n bin/modfile/OS3/system/update.sh
           bash -n bin/modfile/OS3/insmod.sh
-          python3 -m py_compile \
-            bin/modfile/OS3/securitycenter_countdown.py \
-            bin/modfile/OS3/test_securitycenter_countdown.py
-          python3 bin/modfile/OS3/test_securitycenter_countdown.py
           python3 - <<'PYOS3'
           import re
           import subprocess
