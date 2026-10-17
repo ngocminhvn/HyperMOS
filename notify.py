@@ -80,6 +80,7 @@ UNKNOWN_VALUES = {
     "khong ro",
     "chưa rõ",
     "chua ro",
+    "devicecode",  # Placeholder before ROM metadata has been detected.
 }
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -327,12 +328,21 @@ def extract_reason_from_log(log_tail: str) -> str:
         "cannot",
         "unable",
     )
-    lines = [line.strip() for line in log_tail.splitlines() if line.strip()]
+    # A warning (e.g. pip's root-install advisory) isn't a build failure.
+    # On failed early steps build_action.log may contain only apt/pip warnings;
+    # never invent a failure reason by reporting the last warning as an error.
+    lines = [
+        line.strip() for line in log_tail.splitlines()
+        if line.strip() and not line.lstrip().lower().startswith((
+            "warning:", "warning ", "[warning]", "##[warning]",
+            "deprecationwarning:",
+        ))
+    ]
     for line in reversed(lines):
         lower = line.lower()
         if any(pattern in lower for pattern in patterns):
             return compact_one_line(line)
-    return compact_one_line(lines[-1]) if lines else ""
+    return ""
 
 
 def collect_diagnostics(status: str):
