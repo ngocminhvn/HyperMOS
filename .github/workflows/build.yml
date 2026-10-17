@@ -189,7 +189,7 @@ jobs:
           # Identify its single APK by Android package; do not assume a ZIP layout.
           # Screenshot continues to use its exact upstream member.
           snapshots = [
-              ("ColorOS_plugin_mod_", None, "miui.systemui.plugin"),
+              ("ColorOS_plugin_mod_V3_@kashis_cringey_stuffs", None, "miui.systemui.plugin"),
               ("HyperOS_Screenshot", "files/MIUIScreenshot.apk", "com.miui.screenshot"),
           ]
           with tempfile.TemporaryDirectory(prefix="os3-mod-preflight-") as tmp:
