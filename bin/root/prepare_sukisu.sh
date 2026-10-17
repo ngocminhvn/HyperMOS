@@ -60,7 +60,10 @@ rustup target add aarch64-linux-android >/dev/null ||
   BUILTINS="$("$CLANG_PATH" --print-resource-dir)/lib/linux/libclang_rt.builtins-aarch64-android.a"
   test -s "$BUILTINS"
   export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wno-unused-command-line-argument -C link-arg=$BUILTINS"
-  cargo build --locked --package ksuinit --target aarch64-linux-android --release
+  # Upstream v4.2.1 Cargo.lock is not fully synchronized with its manifests.
+  # Resolve it once during the first build; keep --locked for the host ksud build
+  # so both tools share the same dependency graph from this pinned source checkout.
+  cargo build --package ksuinit --target aarch64-linux-android --release
 ) || die "SukiSU v4.2.1 ksuinit build failed"
 (
   cd "$source_dir"
