@@ -5,7 +5,7 @@ source "$work_dir/bin/modfile/OS3/_common.sh"
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
 [[ "$rom_os" == "OS3" ]] || exit 0
 
-mods "Kashi mods: App Vault + ColorOS CC V3 + Screenshot + Theme Manager + Launcher + Security Center"
+mods "Kashi mods: App Vault + ColorOS CC V3 + Screenshot + Theme Manager + Launcher; stock Security Center patched"
 
 modscenter_apply_native_module \
     "HyperOS App Vault" \
@@ -55,17 +55,10 @@ modscenter_apply_native_module \
     "MIUIThemeManagerPad" \
     "ThemeManager" || exit 1
 
-modscenter_apply_native_module \
-    "HyperOS Security Center" \
-    "Mods-Center/HyperOS-Security-Center" \
-    "com.miui.securitycenter" \
-    "*SecurityCenter*.apk" \
-    "product/priv-app/MIUISecurityCenter" \
-    "MIUISecurityCenter" \
-    "MIUISecurityCenterT" \
-    "MIUISecurityCenterGlobal" \
-    "MIUISecurityCenterPad" \
-    "SecurityCenter" || exit 1
+# Keep the SecurityCenter that came from the downloaded Xiaomi ROM.  Patch its
+# DEX in place so the permission, ADB input, and ADB install confirmations have
+# no visible countdown; do not import the Kashi SecurityCenter APK.
+bash "$work_dir/bin/modfile/OS3/securitycenter_countdown.sh" || exit 1
 
 apply_kashi_launcher() {
     local label="HyperOS Launcher"

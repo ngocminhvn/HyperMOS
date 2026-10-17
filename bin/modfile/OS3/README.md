@@ -1,6 +1,9 @@
 # OS3 fixed system-app snapshots
 
-HyperMOS builds use system-app payloads committed directly in this repository. Normal ROM builds do not resolve GitHub releases and do not download these apps at build time.
+HyperMOS builds use system-app payloads committed directly in this repository,
+except for SecurityCenter, which is taken from the downloaded Xiaomi base ROM
+and patched during the build. Normal ROM builds do not resolve GitHub releases
+for these apps.
 
 ## Local ZIP naming
 
@@ -11,7 +14,6 @@ take place in the normal ROM build. Keep exactly one ZIP per active prefix:
 - ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip (active Control Center)
 - HyperOS_Screenshot*.zip (Screenshot)
 - HyperOS_Launcher*.zip
-- HyperOS_Security*.zip
 - HyperOS_ThemeManager*.zip
 
 The older FreeStyle_CC_mod_*.zip is retained only as an inactive archive.
@@ -20,7 +22,13 @@ Normal builds use the existing local ColorOS V3 ZIP and do not fetch updates.
 ## Kashi mods
 
 bin/modfile/OS3/kashimod.sh installs App Vault, ColorOS Control Center V3,
-Screenshot, Theme Manager, and Launcher. Stock Xiaomi SecurityCenter is retained.
+Screenshot, Theme Manager, and Launcher. The Xiaomi SecurityCenter extracted
+from the downloaded base ROM is retained and patched in place: the
+InterceptPermission confirmation count becomes 0 and the ADB input/install
+handler delays become 0 ms.
+
+The old HyperOS_Security*.zip remains only as an inactive reference archive.
+It is not read by normal ROM builds.
 
 - ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip: find the unique APK
   with Android package miui.systemui.plugin, keeping its app-local libs and
@@ -45,7 +53,8 @@ ColorOS V3 remains pinned to the named local ZIP and will not be auto-updated.
 
 ## Integration flow
 
-1. Read the fixed local ZIP/APK from the repository.
+1. Read the fixed local ZIP/APK from the repository (except SecurityCenter,
+   which always comes from the downloaded base ROM).
 2. Check ZIP readability and the required APK's presence.
 3. Extract the selected APK.
 4. Identify its expected Android package with `aapt dump badging`.
