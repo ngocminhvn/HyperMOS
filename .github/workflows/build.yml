@@ -293,14 +293,21 @@ jobs:
           # SukiSU Ultra v4.2.1 integration: validate prep, patch and stock-KMI logic.
           bash -n bin/root/prepare_sukisu.sh
           bash -n bin/root/patch_init_boot.sh
+          sh -n bin/root/stage_user_manager.sh
+          sh -n bin/root/install_user_manager.sh
+          test -s bin/root/stage_user_manager.rc
           bash -n bin/modfile/Universal/downloadapp/update.sh
           python3 -m py_compile bin/root/detect_kernel_kmi.py
           python3 bin/root/detect_kernel_kmi.py --self-test
           grep -Fq 'SukiSU-Ultra/SukiSU-Ultra.git' bin/root/prepare_sukisu.sh
           grep -Fq 'SukiSU_v4.2.1_40994-release.apk' bin/root/patch_init_boot.sh
-          grep -Fq 'product/app/SukiSUUltra' bin/root/patch_init_boot.sh
+          grep -Fq 'payload="$system_ext/etc/hypermos-root"' bin/root/patch_init_boot.sh
+          grep -Fq 'test ! -e "$images/product/app/SukiSUUltra"' bin/root/patch_init_boot.sh
+          grep -Fq 'on post-fs-data' bin/root/stage_user_manager.rc
+          grep -Fq 'boot-completed.d' bin/root/stage_user_manager.sh
+          grep -Fq 'cmd package install --user 0 -r' bin/root/install_user_manager.sh
           grep -Fq 'skip competing/preinstalled root manager' bin/modfile/Universal/downloadapp/update.sh
-          echo "[ROOT] SukiSU Ultra v4.2.1 source and manager preload preflight passed"
+          echo "[ROOT] SukiSU Ultra v4.2.1 user-app installer preflight passed"
 
 
 
@@ -380,7 +387,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Only the matching SukiSU manager may be preinstalled by root patch.
+          # Reject competing APK preloads; SukiSU manager must be user-installed.
           target="build/baserom/images/product/data-app"
           if [ -d "$target" ] && find "$target" -type f \
               \( -iname 'SukiSU*.apk' -o -iname 'KernelSU*.apk' -o -iname 'KSU*.apk' \) \
