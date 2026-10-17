@@ -103,11 +103,39 @@ jobs:
               bin/package/NOTIFICATION_FIX/A16/rebuild_powerkeeper_dex.py \
               bin/package/NOTIFICATION_FIX/A16/test_restore_uid_policy_abi_a16.py \
               bin/package/NOTIFICATION_FIX/A16/test_guard_gms_uid_kill_a16.py \
+              bin/package/NOTIFICATION_FIX/A16/test_actual_dex_a16.py \
               bin/package/COREPATCH/tnm_zk_power_a16.py
             python3 bin/package/NOTIFICATION_FIX/A16/test_restore_uid_policy_abi_a16.py
             python3 bin/package/NOTIFICATION_FIX/A16/test_guard_gms_uid_kill_a16.py
             echo "[OK] - PowerKeeper source syntax and synthetic tests passed"
           } 2>&1 | tee -a build_action.log
+
+      # Compile the actual pinned ZKOS + RYU PowerKeeper DEX before installing
+      # dependencies or downloading a multi-GB ROM. Synthetic tests alone
+      # missed the #148 adjacency mismatch in KillProcessController.
+      - name: Pinned PowerKeeper DEX preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/powerkeeper-dex-preflight.json"
+          log="$RUNNER_TEMP/powerkeeper-dex-preflight.log"
+          if ! python3 bin/package/NOTIFICATION_FIX/A16/test_actual_dex_a16.py \
+            --zk bin/package/NOTIFICATION_FIX/A16/classes.dex \
+            --ryu bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex \
+            --report "$report" > "$log" 2>&1; then
+            echo "[ERROR] - Real PowerKeeper DEX preflight failed" | tee -a build_action.log
+            tail -n 100 "$log" | tee -a build_action.log
+            exit 1
+          fi
+          echo "[OK] - Actual PowerKeeper DEX compiled with GMS policy guard" | tee -a build_action.log
+          python3 - "$report" <<'PYDEXREPORT'
+          import json
+          import sys
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("[POWERKEEPER DEX]", "classes=" + str(record.get("compiled_class_count")),
+                "bytes=" + str(record.get("compiled_dex_bytes")),
+                "new_lookup=" + str(record.get("gms_guard_extra_uid_lookup")))
+          PYDEXREPORT
 
       - name: Prepare build environment
         shell: bash
