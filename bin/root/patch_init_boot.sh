@@ -74,15 +74,35 @@ test -s "$scratch/validate/ramdisk.cpio" ||
   die "Patched init_boot ramdisk missing SukiSU init"
 mv -f "$patched" "$input"
 
-# Install as an ordinary preloaded system app (NOT priv-app; no signature whitelist).
-# Android's package scanner installs this during its normal startup.
-product="$images/product"
-test -d "$product" || die "Missing product partition for manager installation"
-app_dir="$product/app/SukiSUUltra"
-[ ! -e "$app_dir" ] || die "SukiSUUltra app path already present; refusing to overwrite"
-mkdir -p "$app_dir"
-install -m 0644 "$manager" "$app_dir/SukiSUUltra.apk"
-test -s "$app_dir/SukiSUUltra.apk" || die "SukiSU manager preload failed"
+# Manager must be installed in /data/app by PackageManager, not scanned as
+# /product/app or /system_ext/app. Keep the authenticated release APK in a
+# read-only, non-app payload path for SukiSU's boot-completed.d installer.
+system_ext="$images/system_ext"
+test -d "$system_ext" || die "Missing system_ext for SukiSU user-manager payload"
+payload="$system_ext/etc/hypermos-root"
+stage_src="$workdir/bin/root/stage_user_manager.sh"
+stage_rc="$workdir/bin/root/stage_user_manager.rc"
+install_src="$workdir/bin/root/install_user_manager.sh"
+for src in "$stage_src" "$stage_rc" "$install_src"; do
+  test -s "$src" || die "Missing SukiSU user-manager installer: $src"
+done
+sh -n "$stage_src" && sh -n "$install_src" ||
+  die "SukiSU Manager boot scripts contain syntax errors"
+mkdir -p "$payload" "$system_ext/bin" "$system_ext/etc/init"
+install -m 0644 "$manager" "$payload/RootManager.apk"
+install -m 0644 "$install_src" "$payload/install-user-manager.sh"
+install -m 0755 "$stage_src" "$system_ext/bin/hypermos-root-manager-stage"
+install -m 0644 "$stage_rc" "$system_ext/etc/init/hypermos-root-manager.rc"
+test -s "$payload/RootManager.apk" &&
+test -s "$payload/install-user-manager.sh" &&
+test -s "$system_ext/bin/hypermos-root-manager-stage" &&
+test -s "$system_ext/etc/init/hypermos-root-manager.rc" ||
+  die "SukiSU user-manager installer payload incomplete"
+# Explicitly block duplicate system-app or data-app image preloads.
+test ! -e "$images/product/app/SukiSUUltra" ||
+  die "SukiSU manager must not be installed in product/app"
+test ! -e "$images/product/priv-app/SukiSUUltra" ||
+  die "SukiSU manager must not be installed in product/priv-app"
 
 mkdir -p "$workdir/build/baserom/root-package"
 install -m 0644 "$manager" "$workdir/build/baserom/root-package/RootManager.apk"
@@ -90,11 +110,11 @@ install -m 0644 "$manager" "$workdir/build/baserom/root-package/RootManager.apk"
   printf 'HyperMOS HAOTIAN ROOT_PROVIDER=SukiSU-Ultra\n'
   printf 'ROOT_KMI=%s\nROOT_VERSION=%s\n' "$kmi" "$tag"
   printf 'MANAGER_PACKAGE=com.sukisu.ultra\n'
-  printf 'MANAGER_PRELOAD=/product/app/SukiSUUltra/SukiSUUltra.apk\n'
+  printf 'MANAGER_INSTALL=user-app-after-boot-completed\n'
   printf 'MANAGER_RELEASE=%s\n' "$manager_name"
   printf 'ROOT_SOURCE_COMMIT=%s\n' "$(cat "$scratch/source-commit.txt")"
   printf 'Patched partition: init_boot (LKM); stock boot left unchanged\n'
   sha256sum "$workdir/build/baserom/root-stock-init_boot.img" "$input"
-  sha256sum "$app_dir/SukiSUUltra.apk"
+  sha256sum "$payload/RootManager.apk"
 } > "$workdir/build/baserom/root-package/ROOT-INFO.txt"
-echo "[ROOT] SukiSU v4.2.1 patched init_boot and preinstalled manager ready"
+echo "[ROOT] SukiSU v4.2.1 patched init_boot; signed manager staged for one-time /data/app install"
