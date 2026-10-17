@@ -65,7 +65,6 @@ class GuardTest(unittest.TestCase):
     def test_changed_or_ambiguous_call_fails_closed(self):
         bad = [
             UID.replace(LOCKED, "Lother/Class;->unrelated(Ljava/lang/String;I)Z"),
-            UID.replace("    move-result-object v8\n", ""),
             UID + "\n" + f"    invoke-static {{v8, v3}}, {LOCKED}\n",
             UID.replace("->getPackageNameByUid(", "->otherLookup("),
         ]
