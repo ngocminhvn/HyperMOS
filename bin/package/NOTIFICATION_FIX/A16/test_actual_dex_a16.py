@@ -107,7 +107,7 @@ def validate(zk_dex, ryu_dex, output):
             raise ValueError("GMS locked-app guard not wired into UID decision")
         if actual_methods[SET_UID].count("->getPackageNameByUid(") != expected_uid.count("->getPackageNameByUid("):
             raise ValueError("Extra UID-to-package lookup inserted")
-        for token in ("->isLockedApplication(", "->checkAppOnWindowsStatus(I)Z",
+        for token in ("->checkAppOnWindowsStatus(I)Z",
                       "Lmiui/process/ProcessManager;->kill(", "->shouldKillByCheckerPolicy(I)Z"):
             if token not in actual_methods[SET_UID]:
                 raise ValueError(f"Missing RYU UID policy operation: {token}")
@@ -150,12 +150,18 @@ def validate(zk_dex, ryu_dex, output):
                 f"unexpected={sorted(set(compiled_files)-set(staged))[:15]}"
             )
         compiled_kill = (compiled / CONTROLLER / "KillProcessController.smali").read_text()
-        for token in ("shouldKillByCheckerPolicy(I)Z", "->isLockedApplication(",
+        for token in ("shouldKillByCheckerPolicy(I)Z",
                       "->checkAppOnWindowsStatus(I)Z", "Lmiui/process/ProcessManager;->kill("):
             if token not in compiled_kill:
                 raise ValueError(f"Reassembled DEX lost RYU policy: {token}")
         if "com.google.android.gms" not in compiled_kill or WRAPPER not in compiled_kill:
             raise ValueError("Compiled controller missing scoped GMS guard")
+        compiled_methods = get_methods(compiled_kill)
+        compiled_helper = compiled_methods.get("tnmIsGmsOrLocked(Ljava/lang/String;I)Z", "")
+        if ("->isLockedApplication(" not in compiled_helper
+                or WRAPPER not in compiled_methods[SET_UID]
+                or "->isLockedApplication(" in compiled_methods[SET_UID]):
+            raise ValueError("Compiled UID decision does not delegate locked-app check to GMS guard")
         if "tnmIsGmsUid" in compiled_kill or "tnmIsGmsOrLocked(Ljava/lang/String;I)Z" not in compiled_kill:
             raise ValueError("Compiled controller has unexpected GMS guard layout")
         for filename, marker in (
