@@ -1,10 +1,7 @@
 work_dir=$(pwd)
 source $work_dir/functions.sh
 MAIN_FOLDER="$work_dir/build/baserom/images"
-repS="python3 $work_dir/bin/strRep.py"
-deviceTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
 APKEDITOR="java -jar $work_dir/bin/apktool/apke.jar"
-repS="python3 $work_dir/bin/strRep.py"
 
 
 patch "Patching PowerKeeper"

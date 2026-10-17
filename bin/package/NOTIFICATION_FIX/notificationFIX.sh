@@ -8,17 +8,21 @@ warn "No Support Global ROM!Skipping..."
 else
 patch "Start Notification FIX..."
 if [[ $AndroidVER == "13" ]];then
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A13/RUN.SH
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A13/patchMIUIFramework.sh
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A13/patchMIUIServices.sh
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A13/PowerKeeper.sh
 elif [[ $AndroidVER == "14" ]];then
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A14/RUN.SH
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A14/patchMIUIFramework.sh
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A14/patchMIUIServices.sh
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A14/PowerKeeper.sh
 elif [[ $AndroidVER == "15" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A15/SystemUI.sh
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A15/PowerKeeper.sh
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh
 elif [[ $AndroidVER == "16" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
     # Keep the stock Android 16 MiuiSystemUI.apk untouched.
 elif [[ $AndroidVER == "17" ]];then
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A17/PowerKeeper.sh
+    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A17/SystemUI.sh
 fi
 
