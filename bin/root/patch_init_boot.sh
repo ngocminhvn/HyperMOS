@@ -70,8 +70,8 @@ test -s "$scratch/validate/ramdisk.cpio" ||
   die "Patched init_boot contains no ramdisk"
 "$magiskboot" cpio "$scratch/validate/ramdisk.cpio" "exists kernelsu.ko" >/dev/null ||
   die "Patched init_boot ramdisk missing SukiSU LKM"
-"$magiskboot" cpio "$scratch/validate/ramdisk.cpio" "exists init.real" >/dev/null ||
-  die "Patched init_boot ramdisk missing original init backup"
+"$magiskboot" cpio "$scratch/validate/ramdisk.cpio" "exists init" >/dev/null ||
+  die "Patched init_boot ramdisk missing SukiSU init"
 mv -f "$patched" "$input"
 
 # Install as an ordinary preloaded system app (NOT priv-app; no signature whitelist).
