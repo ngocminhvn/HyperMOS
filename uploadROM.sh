@@ -83,26 +83,26 @@ fi
 if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
     root_dir="$work_dir/out/${os_type}_${device_code}_${base_rom_code}"
     test -s "$work_dir/build/baserom/root-stock-init_boot.img" || {
-        echo "[ERROR] KernelSU Next stock init_boot backup missing"
+        echo "[ERROR] SukiSU Ultra v4.2.1 stock init_boot backup missing"
         exit 1
     }
     test -s "$work_dir/build/baserom/root-package/RootManager.apk" || {
-        echo "[ERROR] KernelSU Next manager APK missing"
+        echo "[ERROR] SukiSU Ultra v4.2.1 manager APK missing"
         exit 1
     }
     test -s "$work_dir/build/baserom/root-package/ROOT-INFO.txt" || {
-        echo "[ERROR] KernelSU Next metadata missing"
+        echo "[ERROR] SukiSU Ultra v4.2.1 metadata missing"
         exit 1
     }
     test -s "$root_dir/images/init_boot.img" || {
-        echo "[ERROR] KernelSU Next patched init_boot.img missing from ROM output"
+        echo "[ERROR] SukiSU Ultra v4.2.1 patched init_boot.img missing from ROM output"
         exit 1
     }
     mkdir -p "$root_dir/RootBackup"
     cp -f "$work_dir/build/baserom/root-stock-init_boot.img" "$root_dir/RootBackup/init_boot.stock.img"
     cp -f "$work_dir/build/baserom/root-package/RootManager.apk" "$root_dir/RootManager.apk"
     cp -f "$work_dir/build/baserom/root-package/ROOT-INFO.txt" "$root_dir/ROOT-INFO.txt"
-    echo "[ROOT] KernelSU Next image, stock image backup, and manager APK ready for packaging"
+    echo "[ROOT] SukiSU Ultra v4.2.1 image, stock image backup, and manager APK ready for packaging"
 fi
 
 cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/" 2>/dev/null || true
@@ -161,7 +161,7 @@ fi
 
 # Label rooted builds; keep stock build naming unchanged.
 if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
-    final_name="${final_name%.zip}_KSUN.zip"
+    final_name="${final_name%.zip}_SUKISU.zip"
 fi
 mv "out/${os_type}_${device_code}_${base_rom_code}.zip" "out/${final_name}"
 
