@@ -5,7 +5,7 @@ source "$work_dir/bin/modfile/OS3/_common.sh"
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
 [[ "$rom_os" == "OS3" ]] || exit 0
 
-mods "Kashi mods: App Vault + FreeStyle CC + Screenshot + Theme Manager + Launcher + Security Center"
+mods "Kashi mods: App Vault + FreeStyle CC + Screenshot + Theme Manager + Launcher (stock SecurityCenter)"
 
 modscenter_apply_native_module \
     "HyperOS App Vault" \
@@ -52,17 +52,9 @@ modscenter_apply_native_module \
     "MIUIThemeManagerPad" \
     "ThemeManager" || exit 1
 
-modscenter_apply_native_module \
-    "HyperOS Security Center" \
-    "Mods-Center/HyperOS-Security-Center" \
-    "com.miui.securitycenter" \
-    "*SecurityCenter*.apk" \
-    "product/priv-app/MIUISecurityCenter" \
-    "MIUISecurityCenter" \
-    "MIUISecurityCenterT" \
-    "MIUISecurityCenterGlobal" \
-    "MIUISecurityCenterPad" \
-    "SecurityCenter" || exit 1
+# Keep stock Xiaomi SecurityCenter from the source ROM. The Kashi replacement
+# for this package is disabled; all other Kashi app modules remain enabled.
+mods "Security Center: stock ROM APK retained (Kashi replacement disabled)"
 
 apply_kashi_launcher() {
     local label="HyperOS Launcher"
