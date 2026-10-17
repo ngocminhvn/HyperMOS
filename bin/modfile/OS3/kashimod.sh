@@ -5,7 +5,7 @@ source "$work_dir/bin/modfile/OS3/_common.sh"
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
 [[ "$rom_os" == "OS3" ]] || exit 0
 
-mods "Kashi mods: App Vault + FreeStyle CC + Screenshot + Theme Manager + Launcher (stock SecurityCenter)"
+mods "Kashi mods: App Vault + ColorOS CC V3 + Screenshot + Theme Manager + Launcher (stock SecurityCenter)"
 
 modscenter_apply_native_module \
     "HyperOS App Vault" \
@@ -26,11 +26,14 @@ modscenter_apply_native_module \
     "MIUIPersonalAssistantOS3" \
     "MIUIPersonalAssistantPadOS3" || exit 1
 
-modscenter_apply_fixed_archive_apk \
-    "FreeStyle Control Center (OS3)" \
-    "Mods-Center/FreeStyle-Control-Center" \
-    "files/OS3/MIUISystemUIPlugin.apk" \
+# Reuse the pinned Kashi ColorOS V3 ZIP, including its app-local native libraries
+# and any system-tree overlays. This does not execute Magisk installation scripts.
+modscenter_apply_native_module \
+    "ColorOS Control Center V3 (OS3)" \
+    "Mods-Center/ColorOS_Control_Center" \
     "miui.systemui.plugin" \
+    "*MIUISystemUIPlugin*.apk" \
+    "-" \
     "MIUISystemUIPlugin" || exit 1
 
 modscenter_apply_fixed_archive_apk \
