@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Patch Xiaomi SecurityCenter confirmation countdowns in decoded smali.
+"""Apply the ZKOS-style permission countdown edit to stock SecurityCenter.
 
-The input is APKEditor raw output.  Only the named permission/install classes
-are touched; manifest, resources, native libraries, and every unrelated class
-remain stock from the downloaded ROM.
+Only InterceptPermissionFragment's 10-second constant is changed to zero.
+ADB input/install handler delays and all unrelated classes stay stock.
 """
 from __future__ import annotations
 
@@ -15,8 +14,6 @@ from pathlib import Path
 
 
 FRAGMENT = "com/miui/permcenter/privacymanager/InterceptPermissionFragment.smali"
-INPUT_ACTIVITY = "com/miui/permcenter/install/AdbInputApplyActivity"
-INSTALL_ACTIVITY = "com/miui/permcenter/install/AdbInstallActivity"
 
 RETURN_INT_RE = re.compile(
     r"(?ms)^\.method\s+protected\s+[^\n]*\(\)I\s*\n"
@@ -24,18 +21,11 @@ RETURN_INT_RE = re.compile(
 )
 CONST_INT_RE = re.compile(r"(?m)^\s*const(?:/4|/16)?\s+(?P<reg>[vp]\d+),\s*(?P<value>0x[a-fA-F0-9]+)\s*$")
 RETURN_RE = re.compile(r"(?m)^\s*return\s+(?P<reg>[vp]\d+)\s*$")
-WIDE_RE = re.compile(
-    r"^(?P<prefix>\s*const-wide(?:/16|/32)?\s+(?P<reg>[vp]\d+),\s*)"
-    r"(?P<value>-?0x[a-fA-F0-9]+)(?P<suffix>\s*)$"
-)
-DELAY_CALL = "Landroid/os/Handler;->sendEmptyMessageDelayed(IJ)Z"
 @dataclass
 class PatchReport:
     fragment_file: str
     fragment_old_seconds: int
     fragment_new_seconds: int
-    adb_input_delay_sites: int
-    adb_install_delay_sites: int
     changed_files: list[str]
 
 
@@ -49,21 +39,6 @@ def unique_suffix(files: list[Path], suffix: str) -> Path:
     if len(matches) != 1:
         raise ValueError(f"Expected one {suffix}, found {len(matches)}")
     return matches[0]
-
-
-def class_family(files: list[Path], class_path: str) -> list[Path]:
-    parent, stem = class_path.rsplit("/", 1)
-    result = []
-    for path in files:
-        posix = path.as_posix()
-        name = path.name
-        if f"/{parent}/" not in posix:
-            continue
-        if name == stem + ".smali" or (name.startswith(stem + "$") and name.endswith(".smali")):
-            result.append(path)
-    if not result:
-        raise ValueError(f"Class family not found: {class_path}")
-    return sorted(result)
 
 
 def meaningful_method_lines(body: str) -> list[str]:
@@ -105,40 +80,9 @@ def patch_fragment(text: str) -> tuple[str, int]:
     return text[:start] + "0x0" + text[end:], old
 
 
-def patch_delays(text: str) -> tuple[str, int]:
-    lines = text.splitlines(keepends=True)
-    sites = 0
-    for index, line in enumerate(lines):
-        if DELAY_CALL not in line:
-            continue
-        invoke_registers = set(re.findall(r"[vp]\d+", line.split("}", 1)[0]))
-        constant_index = None
-        constant_match = None
-        for previous in range(index - 1, max(-1, index - 25), -1):
-            candidate = WIDE_RE.match(lines[previous].rstrip("\r\n"))
-            if candidate and candidate.group("reg") in invoke_registers:
-                constant_index = previous
-                constant_match = candidate
-                break
-        if constant_index is None or constant_match is None:
-            raise ValueError("Countdown delay call has no nearby const-wide argument")
-        value = int(constant_match.group("value"), 16)
-        if value not in (0, 1000, 1600):
-            raise ValueError(f"Unsupported SecurityCenter countdown delay: {value} ms")
-        sites += 1
-        if value:
-            ending = "\r\n" if lines[constant_index].endswith("\r\n") else "\n" if lines[constant_index].endswith("\n") else ""
-            lines[constant_index] = (
-                constant_match.group("prefix") + "0x0" + constant_match.group("suffix") + ending
-            )
-    return "".join(lines), sites
-
-
 def patch(decoded: Path) -> PatchReport:
     files = smali_files(decoded)
     fragment = unique_suffix(files, FRAGMENT)
-    input_files = class_family(files, INPUT_ACTIVITY)
-    install_files = class_family(files, INSTALL_ACTIVITY)
     changed_files: list[str] = []
 
     fragment_text = fragment.read_text(encoding="utf-8")
@@ -147,28 +91,10 @@ def patch(decoded: Path) -> PatchReport:
         changed_files.append(str(fragment.relative_to(decoded)))
         fragment.write_text(fragment_patched, encoding="utf-8", newline="")
 
-    counts = {}
-    for label, family in (("adb_input", input_files), ("adb_install", install_files)):
-        total_sites = 0
-        for path in family:
-            original = path.read_text(encoding="utf-8")
-            patched, sites = patch_delays(original)
-            total_sites += sites
-            if patched != original:
-                changed_files.append(str(path.relative_to(decoded)))
-                path.write_text(patched, encoding="utf-8", newline="")
-        counts[label] = total_sites
-
-    if counts["adb_input"] < 2:
-        raise ValueError("AdbInputApplyActivity countdown coverage is incomplete")
-    if counts["adb_install"] < 2:
-        raise ValueError("AdbInstallActivity countdown coverage is incomplete")
     return PatchReport(
         fragment_file=str(fragment.relative_to(decoded)),
         fragment_old_seconds=fragment_old,
         fragment_new_seconds=0,
-        adb_input_delay_sites=counts["adb_input"],
-        adb_install_delay_sites=counts["adb_install"],
         changed_files=sorted(changed_files),
     )
 
