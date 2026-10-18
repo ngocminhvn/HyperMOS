@@ -99,8 +99,10 @@ def candidate_urls(original_url, canonical, project, relative, ranked):
         urls.append(("input-direct", original_url))
     for mirror in ranked:
         if mirror != "autoselect":
+            # Download through the same router that was benchmarked: it provides
+            # the mirror's current redirect/token instead of a bare CDN URL.
             urls.append((f"measured-{mirror}",
-                         direct_mirror_url(project, relative, mirror)))
+                         download_router_url(project, relative, mirror)))
     urls.append(("router-autoselect", download_router_url(project, relative)))
     for mirror in ("onboardcloud", "zenlayer", "twds", "psychz", "master"):
         urls.append((f"router-{mirror}",
@@ -142,16 +144,25 @@ def probe(item):
         ]
         try:
             done = subprocess.run(cmd, capture_output=True, text=True, timeout=14)
-            if done.returncode != 0:
-                return {"mirror": name, "status": "unavailable", "reason": "range probe failed"}
             fields = done.stdout.strip().split("\t", 3)
+            if done.returncode != 0:
+                http_code = fields[0] if fields else ""
+                reason = (f"http_{http_code}" if http_code.isdigit() and http_code != "000"
+                          else f"curl_exit_{done.returncode}")
+                return {"mirror": name, "status": "unavailable", "reason": reason}
             if len(fields) != 4:
-                return {"mirror": name, "status": "unavailable", "reason": "invalid probe response"}
+                return {"mirror": name, "status": "unavailable", "reason": "invalid_probe_response"}
             code, received, speed, effective = fields
+            if code != "206":
+                # A full 200 response cannot safely benchmark an 8+ GiB ROM.
+                return {"mirror": name, "status": "unavailable",
+                        "reason": f"http_{code}_no_partial_content"}
+            if int(float(received)) < MIN_SAMPLE_BYTES:
+                return {"mirror": name, "status": "unavailable", "reason": "short_range"}
             with sample.open("rb") as f:
                 header = f.read(4)
-            if code != "206" or int(float(received)) < MIN_SAMPLE_BYTES or header != b"PK\x03\x04":
-                return {"mirror": name, "status": "unavailable", "reason": "no verified ZIP range"}
+            if header != b"PK\x03\x04":
+                return {"mirror": name, "status": "unavailable", "reason": "not_zip_header"}
             host = urlsplit(effective).hostname or ""
             return {
                 "mirror": name, "status": "ok", "speed_bps": round(float(speed)),
@@ -167,9 +178,11 @@ def benchmark(canonical, mirrors=MIRRORS):
     if sf is None:
         raise ValueError("Benchmark requires a SourceForge URL")
     _, project, relative = sf
+    # SourceForge signs and routes real downloads. Probe that same endpoint,
+    # not unsigned direct CDN hosts that may reject otherwise usable mirrors.
     probe_targets = [
-        (m, download_router_url(project, relative)
-         if m == "autoselect" else direct_mirror_url(project, relative, m))
+        (m, download_router_url(project, relative,
+                                None if m == "autoselect" else m))
         for m in mirrors
     ]
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
@@ -233,6 +246,8 @@ def main():
         for item in probed:
             if item["status"] == "ok":
                 print(f"[MIRROR] {item['mirror']}: {item['speed_mib_s']} MiB/s via {item['serving_host']}", flush=True)
+            else:
+                print(f"[MIRROR] {item['mirror']}: {item.get('reason', 'unavailable')} (range probe only)", flush=True)
         urls = candidate_urls(args.url, canonical, project, file_path, ordered)
         if not any(item["status"] == "ok" for item in probed):
             print("[WARN] Range benchmarks blocked/unavailable; will still try input "
@@ -253,7 +268,8 @@ def main():
             report = {
                 "type": "SourceForge" if sf else "direct",
                 "project": project, "file": file_path,
-                "selected_mirror": name, "probes": probed,
+                "selected_mirror": name, "probe_method": "sourceforge_router_range" if sf else None,
+                "probes": probed,
                 "attempts": attempts, "elapsed_seconds": round(time.monotonic() - started, 1),
             }
             args.report.parent.mkdir(parents=True, exist_ok=True)
@@ -267,7 +283,9 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps({
         "type": "SourceForge" if sf else "direct", "project": project,
-        "file": file_path, "selected_mirror": None, "probes": probed,
+        "file": file_path, "selected_mirror": None,
+        "probe_method": "sourceforge_router_range" if sf else None,
+        "probes": probed,
         "attempts": attempts,
     }, indent=2) + "\n")
     raise SystemExit("[ERROR] Download failed for every mirror")
