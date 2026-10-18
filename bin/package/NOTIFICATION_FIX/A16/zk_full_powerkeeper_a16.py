@@ -7,22 +7,12 @@ from pathlib import Path
 from ryu_killprocess_a16 import port as port_conditional_uid_kill
 from restore_uid_policy_abi_a16 import patch as restore_uid_policy_abi
 from guard_gms_uid_kill_a16 import patch as guard_gms_uid_kill
-from powerkeeper import (
-    OLD_PERF_PREFIX,
-    TNM_PERF_PREFIX,
-    adapt as adapt_tnm_perf,
-    patch_perfhook_write_verify,
-    tnm_framework_smali,
-)
-
-
 TNM_BUILD = "Lcom/android/tnm/TNMBuild;"
 OLD_BUILD = "Lmiui/zk/Build;"
 TNM_SETTINGS = "Lcom/android/tnm/TNMSettingsHelper;"
 OLD_SETTINGS = "Lcom/zk/SettingsHelper;"
 OLD_SETTINGS_PATH = "com/zk/SettingsHelper.smali"
 TNM_SETTINGS_PATH = "com/android/tnm/TNMSettingsHelper.smali"
-PERF_HOOK = TNM_PERF_PREFIX + "PerfHook;"
 
 TNM_BUILD_SMALI = f""".class public final {TNM_BUILD}
 .super Ljava/lang/Object;
@@ -105,105 +95,17 @@ def adapt_zk_smali(root: Path):
 
 
 
-def make_perfhook_init_passive(source: str) -> str:
-    """Keep the observers, but avoid automatically writing thermal/performance.
-
-    init() used to call applyInitialZeroOnce() (forces sconfig=0) and
-    updateConfig() (can update GPU/CPU/governor). Explicit TNM settings
-    changes remain observable by the registered ContentObservers.
-    """
-    method_re = re.compile(
-        r"(?ms)^\.method[^\n]*[ \t]init\(\)V[ \t]*$.*?^\.end method[ \t]*$")
-    matches = list(method_re.finditer(source))
-    if len(matches) != 1:
-        raise ValueError("Expected one original RYU PerfHook.init()")
-    match = matches[0]
-    body = match.group()
-    for method in ("applyInitialZeroOnce", "updateConfig"):
-        invocation = re.compile(
-            rf"(?m)^[ \t]*invoke-(?:direct|virtual)(?:/range)?[ \t]+"
-            rf"\{{[^}}]+\}},[ \t]*{re.escape(TNM_PERF_PREFIX)}PerfHook;"
-            rf"->{method}\(\)V[ \t]*\n?")
-        if len(list(invocation.finditer(body))) != 1:
-            raise ValueError(f"Missing/ambiguous boot-only PerfHook.{method}() call")
-        body = invocation.sub("", body, count=1)
-    if "->startPerfWorker()V" not in body or "->registerContentObserver(" not in body:
-        raise ValueError("RYU PerfHook passive observer contract changed")
-    return source[:match.start()] + body + source[match.end():]
-
-
-def graft_tnm_per_app_perf(zk_root: Path, ryu_root: Path):
-    """Retain the existing TNM per-app percentage control, not RYU power policy."""
-    source_dir = ryu_root / "smali/classes/com/projectryu/perf"
-    sources = sorted(source_dir.glob("*.smali"))
-    if len(sources) != 20 or not any(path.name == "PerfHook.smali" for path in sources):
-        raise ValueError(f"Expected exactly 20 TNM per-app PerfHook classes, got {len(sources)}")
-    if (zk_root / "smali/classes/com/android/tnm/TNMFramework.smali").exists():
-        raise ValueError("ZK donor already contains TNMFramework")
-
-    copied = 0
-    for source in sources:
-        relative = source.relative_to(ryu_root / "smali/classes")
-        descriptor = "L" + relative.with_suffix("").as_posix() + ";"
-        body, _, gates = adapt_tnm_perf(source.read_text(encoding="utf-8"))
-        if gates:
-            raise ValueError(f"Unexpected RYU build gates inside TNM PerfHook: {descriptor}")
-        if descriptor == OLD_PERF_PREFIX + "PerfHook;":
-            body = patch_perfhook_write_verify(body)
-            body = make_perfhook_init_passive(body)
-        target_descriptor = TNM_PERF_PREFIX + descriptor[len(OLD_PERF_PREFIX):]
-        target = zk_root / "smali/classes" / (target_descriptor[1:-1] + ".smali")
-        if target.exists():
-            raise ValueError(f"TNM PerfHook class collides with ZK class: {target_descriptor}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body, encoding="utf-8")
-        copied += 1
-
-    framework = zk_root / "smali/classes/com/android/tnm/TNMFramework.smali"
-    if framework.exists():
-        raise ValueError("TNMFramework destination already exists")
-    framework.parent.mkdir(parents=True, exist_ok=True)
-    framework.write_text(tnm_framework_smali(), encoding="utf-8")
-
-    application = zk_root / "smali/classes/com/miui/powerkeeper/PowerKeeperApplication.smali"
-    source = application.read_text(encoding="utf-8")
-    pattern = re.compile(r"(?ms)^\.method public onCreate\(\)V\s*$.*?^\.end method$")
-    methods = list(pattern.finditer(source))
-    if len(methods) != 1 or PERF_HOOK in source:
-        raise ValueError("Unexpected ZK PowerKeeperApplication onCreate/PerfHook state")
-    method = methods[0].group()
-    anchor = "    return-void\n.end method"
-    if method.count(anchor) != 1 or ".locals 0" in method:
-        raise ValueError("Unexpected ZK PowerKeeperApplication onCreate layout")
-    init_hook = (
-        "    sget-object v0, Lcom/miui/powerkeeper/PowerKeeperApplication;->c:Landroid/content/Context;\n"
-        f"    invoke-static {{v0}}, {PERF_HOOK}->getInstance(Landroid/content/Context;){PERF_HOOK}\n"
-        "    move-result-object v0\n"
-        f"    invoke-virtual {{v0}}, {PERF_HOOK}->init()V\n"
-    )
-    method = method.replace(anchor, init_hook + anchor)
-    source = source[:methods[0].start()] + method + source[methods[0].end():]
-    application.write_text(source, encoding="utf-8")
-
-    output_dir = zk_root / "smali/classes/com/android/tnm/perf"
-    if len(list(output_dir.glob("*.smali"))) != len(sources) or not framework.is_file():
-        raise ValueError("TNM per-app PerfHook/Framework class set is incomplete")
-    return {"tnm_per_app_perf_classes": copied, "tnm_framework_api_embedded": True,
-            "application_init_hooked": True,
-            "perfhook_boot_config_writes_suppressed": True}
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--zk-raw", type=Path, required=True)
-    parser.add_argument("--tnm-raw", type=Path, required=True)
+    parser.add_argument("--ryu-raw", type=Path, required=True)
     args = parser.parse_args()
     report = adapt_zk_smali(args.zk_raw)
     # EU-style battery-conscious UID cleanup: retained-app/visible-window
     # guards and per-UID POLICY 1/2 checks precede ProcessManager.kill().
     # The pinned RYU donor provides the equivalent scoped methods. All other
-    # ZK controllers, GMS/Doze, thermal and TNM PerfHook code remain untouched.
-    report.update(port_conditional_uid_kill(args.zk_raw, args.tnm_raw))
+    # ZK controllers, GMS/Doze and thermal policy remain untouched.
+    report.update(port_conditional_uid_kill(args.zk_raw, args.ryu_raw))
     # RYU/EU setUidState uses an interface getter absent from ZKOS.
     # Restore both the abstract declaration and the concrete UID POLICY reader
     # before DEX assembly. This also checks the existing second implementor.
@@ -211,9 +113,8 @@ def main():
     # The two local.config entries do not unconditionally suppress UID kill.
     # Skip only the GMS UID in the existing decision path (no daemon/polling).
     report.update(guard_gms_uid_kill(args.zk_raw))
-    # Keep the ZKOS power/thermal policy without adding the RYU PerfHook
-    # worker, ContentObservers or PowerKeeperApplication.onCreate hook.
-    # RYU remains the donor exclusively for guarded UID cleanup above.
+    # The RYU donor is only used for two guarded UID decision methods.
+    # No RYU performance or thermal code is imported.
     report["tnm_per_app_perf_classes"] = 0
     report["tnm_framework_api_embedded"] = False
     report["application_init_hooked"] = False
