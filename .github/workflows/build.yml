@@ -16,7 +16,7 @@ on:
         default: false
         type: boolean
       root_mode:
-        description: 'SukiSU Ultra v4.2.1 root (stock KMI, manager preinstalled)'
+        description: 'SukiSU Ultra v4.2.1 root (stock KMI, manager APK bundled)'
         required: true
         type: choice
         default: 'root'
