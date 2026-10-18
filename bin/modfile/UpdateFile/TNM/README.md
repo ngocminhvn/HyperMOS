@@ -26,13 +26,13 @@ vì `insupdate.sh` quét các file `*.sh` trong thư mục UpdateFile.
 
 ## TNMFramework v1 - TNM experimental ROM
 
-An on-demand root-only adapter at `/system_ext/bin/tnm-frameworkctl` uses existing
-PowerKeeper PerfHook and Android services. It is NOT a new Binder framework
-service or a daemon. Read-only CPU/GPU max, PerfHook settings, PowerKeeper,
-FCM/deviceidle and refresh diagnostics; explicit safe TNM thermal and game
-profiles, Android battery saver, and display auto/60/120 if Android refresh
-keys exist. Display writes use backup and readback; effective panel FPS is NOT
-verified. No thermal safety bypass, GMS unrestricted whitelist or SELinux disable.
+An on-demand root-only adapter at `/system_ext/bin/tnm-frameworkctl` reads
+ZKOS PowerKeeper and Android services; it is not a daemon or Binder service.
+The independent `tnm-cpuctl` handles CPU limits only when requested.
+RYU PerfHook has been retired entirely, so its thermal/global/per-app game
+profile commands are unsupported and never execute even if an old helper
+remains on a dirty-flashed device. Xiaomi vendor/ODM thermal protection stays
+active; effective display FPS is not inferred from Settings alone.
 
 ## Android-first TNM permissions (Android 16)
 
@@ -41,9 +41,9 @@ The preinstalled `com.android.trinhngocminh` privileged APK receives
 `GET_APP_OPS_STATS` through its existing partition-local
 `privapp-permissions-tnm.xml` allowlist.
 
-- When Android grants `WRITE_SECURE_SETTINGS`, TNM updates the existing
-  `projectryu_thermal_*` Settings.System observer **without su**. Its
-  readback/rollback is local to TNM; kernel-enforced thermal safeguards remain.
+- Legacy `projectryu_thermal_*` Settings keys may remain in Android data,
+  but no RYU PerfHook observer is installed or serviced by PowerKeeper.
+  Independent supported Android settings can still use authorized permissions.
 - CPU/GPU sysfs readback, Private DNS, refresh controls, battery saver,
   normal/recovery reboot, and AppOps inspection use the app UID wherever
   granted/accessible, with truthful unavailable states.
