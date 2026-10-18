@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Android 16 EU PowerKeeper: boot-time-only GMS Millet exemption.
+"""Android 16 EU PowerKeeper: event-driven GMS Millet protection.
 
-Patch ONLY ActiveStateController.enable()'s successful-return path.
-Do not modify dealNoRestrictApp(), callbacks, observers, or periodic work.
-The original Xiaomi method retains its short-circuit/early-return paths.
+Patch only ActiveStateController.enable() and dealNoRestrictApp().
+The former ensures an initial GMS entry once the controller has initialized.
+The latter preserves GMS whenever PowerKeeper itself rewrites its policy list.
+No background observer, polling, timer, thread, or other APK method changes.
 """
 import argparse
 import hashlib
@@ -59,6 +60,7 @@ INJECTION = r"""
 
 TARGET = re.compile(r"(?ms)^\.method[^\n]*\senable\(\)V[ \t]*\n.*?^\.end method[ \t]*$")
 RETURN = re.compile(r"(?m)^[ \t]+return-void[ \t]*$")
+DEAL = re.compile(r"(?ms)^\.method[^\n]*\sdealNoRestrictApp\(\)V[ \t]*\n.*?^\.end method[ \t]*$")
 
 
 def patch(src: str) -> tuple[str, dict]:
@@ -75,7 +77,7 @@ def patch(src: str) -> tuple[str, dict]:
     if not re.search(r"(?m)^[ \t]+(?:\.locals 11|\.registers 12)[ \t]*$", old):
         raise ValueError("EU enable() register layout changed")
     returns = list(RETURN.finditer(old))
-    if len(returns) != 3 or "monitor-exit" not in old or ".catchall" not in old:
+    if len(returns) != 2 or "monitor-exit" not in old or ".catchall" not in old:
         raise ValueError("EU enable() exit / monitor layout changed")
     last = returns[-1]
     # The last return must follow the original monitor-exit. Patch only
@@ -86,7 +88,7 @@ def patch(src: str) -> tuple[str, dict]:
     if altered.replace(INJECTION + "    return-void", old[last.start():last.end()], 1) != old:
         raise ValueError("Patch modifies more than the final return path")
     new_src = src[:methods[0].start()] + altered + src[methods[0].end():]
-    # Ensure no other methods (including dealNoRestrictApp) were edited.
+    # No other methods edited in this first, boot-only step.
     if new_src.replace(altered, old, 1) != src:
         raise ValueError("Unexpected unrelated Smali edits")
     return new_src, {
@@ -102,23 +104,76 @@ def patch(src: str) -> tuple[str, dict]:
     }
 
 
+def patch_deal(src: str) -> tuple[str, dict]:
+    """Preserve GMS on BOTH the nonempty and empty policy-list paths.
+
+    The pinned EU method creates a HashSet, copies noRestrict packages,
+    serializes it via Set.toString()/substring(), or writes "" if empty.
+    Preserve every original entry and every original call, altering only
+    HashSet seeding and the previously-empty literal.
+    """
+    if "tnm_millet_policy_entry" in src:
+        raise ValueError("Millet policy regeneration patch already present")
+    methods = list(DEAL.finditer(src))
+    if len(methods) != 1:
+        raise ValueError(f"Expected one dealNoRestrictApp()V method, got {len(methods)}")
+    original = methods[0].group()
+    if not re.search(r"(?m)^[ \t]+(?:\.locals 7|\.registers 8)[ \t]*$", original):
+        raise ValueError("EU dealNoRestrictApp register layout changed")
+    if original.count("MILLET_NO_RESTRICT_APP") != 1:
+        raise ValueError("Expected one Millet Settings key in policy regeneration")
+    if original.count("getNoRestrictApps") != 1:
+        raise ValueError("Expected one PowerKeeper configuration query")
+    if len(re.findall(r"invoke-static[^\n]*Landroid/provider/Settings\$System;->putString\(", original)) != 2:
+        raise ValueError("EU policy method no longer has exactly two Settings writes")
+    init = "    invoke-direct {v0}, Ljava/util/HashSet;-><init>()V"
+    if original.count(init) != 1:
+        raise ValueError("EU noRestrict HashSet construction changed")
+    empty = '    const-string v0, ""'
+    if original.count(empty) != 1:
+        raise ValueError("EU empty-list write branch changed")
+    addition = (
+        "\n    # tnm_millet_policy_entry: GMS remains exempt when policy regenerates\n"
+        '    const-string v3, "com.google.android.gms"\n'
+        "    invoke-interface {v0, v3}, Ljava/util/Set;->add(Ljava/lang/Object;)Z"
+    )
+    edited = original.replace(init, init + addition, 1)
+    edited = edited.replace(empty, '    const-string v0, "com.google.android.gms"', 1)
+    out = src[:methods[0].start()] + edited + src[methods[0].end():]
+    if out.replace(edited, original, 1) != src:
+        raise ValueError("Unexpected Smali changes outside dealNoRestrictApp")
+    return out, {
+        "method": "dealNoRestrictApp()V",
+        "nonempty_policy_path": "seed_original_set_with_GMS",
+        "empty_policy_path": "write_GMS_instead_of_empty",
+        "preserves_original_entries": True,
+        "additional_background_scheduling": False,
+        "no_new_registers": True,
+        "settings_write_call_count_unchanged": True,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--smali", required=True, type=Path)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     old = args.smali.read_text(encoding="utf-8")
-    result, report = patch(old)
+    enabled, report = patch(old)
+    result, regenerated = patch_deal(enabled)
+    report["regeneration_policy"] = regenerated
+    report["modifies_dealNoRestrictApp"] = True
+    report["new_smali_sha256"] = hashlib.sha256(result.encode()).hexdigest()
     args.smali.write_text(result, encoding="utf-8")
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print("[POWERKEEPER GMS MILLET BOOT] " + json.dumps(report))
+    print("[POWERKEEPER GMS MILLET] " + json.dumps(report))
 
 
 if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError) as exc:
-        print("[POWERKEEPER GMS MILLET BOOT] FAIL: " + str(exc), file=sys.stderr)
+        print("[POWERKEEPER GMS MILLET] FAIL: " + str(exc), file=sys.stderr)
         raise SystemExit(1)
