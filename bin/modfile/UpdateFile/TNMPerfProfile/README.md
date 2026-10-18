@@ -1,19 +1,14 @@
-# TNM historical performance profile import
+# Retired RYU/TNM thermal and performance profiles
 
-On the Android 16 HAOTIAN \`main\` build, this module now **exits without
-modifying the ROM**. PowerKeeper follows the pinned original ZKOS DEX
-(adapted for TNM build identifiers), and the Xiaomi ROM's CPU/powerhint,
-vendor/ODM thermal XML, KGSL permissions, and thermal protection nodes stay
-as originally supplied.
+For HAOTIAN Android 16, PowerKeeper uses the pinned adapted ZKOS DEX and
+Xiaomi base CPU/powerhint/vendor/ODM thermal profiles without RYU PerfHook.
+`update.sh` is intentionally a no-op aside from build logging.
+No RYU per-app thermal import, KGSL permission overlay, PerfHook initializer,
+worker, observer or root control service is staged.
 
-The earlier RYU/TNM archive was an independent, build-time profile overlay
-that changed thermal behavior beyond ZKOS. It is no longer installed on
-HAOTIAN Android 16 main. The related \`TNM_REF_DIR\`, \`tnm-perfhook-access.rc\`,
-and \`tnm-thermalctl\` support remains as historical source but is not activated
-by this module for that target. The old cross-partition profile verification
-is deliberately skipped for the same target. Other update modules are unchanged.
+The standalone TNM CPU percentage control remains independent of RYU PerfHook.
+The RYU pinned donor DEX is still used solely for the guarded UID kill method
+and policy checker; its performance classes are **never** copied into the APK.
 
-**Scope limitation:** Original ZKOS vendor/ODM thermal XML files were not
-provided; retaining stock Xiaomi XML prevents adding unverified RYU/TNM thermal
-profiles but does not prove bit-for-bit identity with ZKOS thermal partitions.
-There is no runtime thermal or battery test yet.
+This code-level change does not establish lower real-device temperatures:
+compare equivalent usage conditions with the previous ROM.
