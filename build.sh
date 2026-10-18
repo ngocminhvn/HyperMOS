@@ -140,28 +140,9 @@ bash $work_dir/bin/modfile/Universal/insfile.sh || exit 1
 bash $work_dir/bin/modfile/UpdateFile/insupdate.sh || exit 1
 bash $work_dir/bin/package/patchpackage.sh || exit 1
 
-# The original ZKOS DEX owns power/thermal policy. On HAOTIAN Android 16
-# do not demand the now-disabled RYU/TNM thermal XML and PerfHook access overlay.
-# Keep unrelated branch/device verification behavior unchanged.
-if [[ "${GITHUB_REF_NAME:-}" == "main" ]]; then
-  if [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/androidver.txt")" == "16" &&
-        "$(tr '[:upper:]' '[:lower:]' < "$work_dir/bin/ddevice/device_f.txt" | tr -d '\r\n')" == "haotian" ]]; then
-    info "ZKOS A16 power/thermal: Xiaomi base profiles retained; RYU/TNM overlay audit skipped"
-  else
-    python3 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/verify_tnm_perf_final.py" \
-      --images "$work_dir/build/baserom/images" \
-      --report "$work_dir/build/reports/performance/tnm-cpu-thermal-final.json" || {
-        error "TNM CPU/thermal config audit failed"
-        exit 1
-      }
-    python3 "$work_dir/bin/modfile/UpdateFile/TNMPerfProfile/verify_perfhook_access.py" \
-      --images "$work_dir/build/baserom/images" \
-      --report "$work_dir/build/reports/performance/tnm-perfhook-access.json" || {
-        error "TNM PerfHook access verification failed"
-        exit 1
-      }
-  fi
-fi
+# Preserve the Xiaomi vendor/ODM thermal and performance configuration.
+# No RYU PerfHook/GPU-permission overlay or legacy profile verifier is run.
+info "ZKOS PowerKeeper: Xiaomi thermal/perf profiles retained; no RYU PerfHook"
 
 find "$work_dir/build/baserom/images/" -exec touch -t 200901010000.00 {} + 2> /dev/null || true
 ok "ROM modification stage completed"
