@@ -19,7 +19,9 @@ elif [[ $AndroidVER == "15" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A15/SystemUI.sh
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh
 elif [[ $AndroidVER == "16" ]];then
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
+    # FrameworkPatcher A16 CN notification gates are kept separate from COREPATCH.
+    bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/FrameworkPatcher.sh" || exit 1
+    bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh" || exit 1
     # Keep the stock Android 16 MiuiSystemUI.apk untouched.
 elif [[ $AndroidVER == "17" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh

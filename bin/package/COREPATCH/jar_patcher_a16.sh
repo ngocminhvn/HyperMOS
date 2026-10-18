@@ -17,7 +17,6 @@ API_LEVEL=36
 # Feature Flags (set by command-line arguments)
 # ============================================
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
-FEATURE_CN_NOTIFICATION_FIX=0
 FEATURE_DISABLE_SECURE_FLAG=0
 
 parse_feature_flags() {
@@ -25,9 +24,6 @@ parse_feature_flags() {
     case "$1" in
       --disable-signature-verification)
         FEATURE_DISABLE_SIGNATURE_VERIFICATION=1
-        ;;
-      --cn-notification-fix)
-        FEATURE_CN_NOTIFICATION_FIX=1
         ;;
       --disable-secure-flag)
         FEATURE_DISABLE_SECURE_FLAG=1
@@ -42,11 +38,9 @@ parse_feature_flags() {
 
   log "Android 16 COREPATCH features:"
   [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
-  [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ] && log "  [PATCH] CN Notification Fix"
   [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 1 ] && log "  [PATCH] Disable Secure Flag"
 
   if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ] &&
-     [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 0 ] &&
      [ "$FEATURE_DISABLE_SECURE_FLAG" -eq 0 ]; then
     warn "No Android 16 COREPATCH feature selected"
   fi
@@ -696,125 +690,6 @@ apply_framework_signature_patches() {
   log "Signature verification patches applied to framework.jar (Android 16)"
 }
 
-# Apply CN notification fix patches to miui-services.jar
-apply_miui_services_cn_notification_fix() {
-  local decompile_dir="$1"
-  local class="
-$decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali
-$decompile_dir/smali*/com/android/server/am/BroadcastQueueModernStubImpl.smali
-$decompile_dir/smali*/com/android/server/am/MiProcessTracker.smali
-$decompile_dir/smali*/com/android/server/am/MutableActivityManagerShellCommandStubImpl.smali
-$decompile_dir/smali*/com/android/server/am/PreStartFeedbackImpl.smali
-$decompile_dir/smali*/com/android/server/am/ProcessManagerService.smali
-$decompile_dir/smali*/com/android/server/am/ProcessPolicy.smali
-$decompile_dir/smali*/com/android/server/am/ProcessSceneCleaner.smali
-$decompile_dir/smali*/com/android/server/alarm/AlarmManagerServiceStubImpl.smali
-$decompile_dir/smali*/com/android/server/audio/AudioServiceStubImpl.smali
-$decompile_dir/smali*/com/android/server/clipboard/ClipboardChecker.smali
-$decompile_dir/smali*/com/android/server/clipboard/ClipboardServiceStubImpl.smali
-$decompile_dir/smali*/com/android/server/devicepolicy/DevicePolicyManagerServiceStubImpl.smali
-$decompile_dir/smali*/com/android/server/input/InputManagerServiceStubImpl.smali
-$decompile_dir/smali*/com/android/server/inputmethod/InputMethodManagerServiceImpl.smali
-$decompile_dir/smali*/com/android/server/inputmethod/SogouInputMethodSwitcher.smali
-$decompile_dir/smali*/com/android/server/job/JobServiceContextImpl.smali
-$decompile_dir/smali*/com/android/server/location/gnss/datacollect/GnssEventTrackingImpl.smali
-$decompile_dir/smali*/com/android/server/location/gnss/enhance/EnhanceUtils.smali
-$decompile_dir/smali*/com/android/server/location/gnss/gnssSelfRecovery/Utils.smali
-$decompile_dir/smali*/com/android/server/location/gnss/operators/GnssForKtCustomImpl.smali
-$decompile_dir/smali*/com/android/server/location/gnss/GnssLocationProviderImpl.smali
-$decompile_dir/smali*/com/android/server/location/util/GnssCustFeatureHelper.smali
-$decompile_dir/smali*/com/android/server/location/GnssCollectDataImpl.smali
-$decompile_dir/smali*/com/android/server/location/MiuiBlurLocationManagerImpl.smali
-$decompile_dir/smali*/com/android/server/notification/NotificationManagerServiceImpl.smali
-$decompile_dir/smali*/com/android/server/pm/PackageManagerServiceImpl.smali
-$decompile_dir/smali*/com/android/server/policy/MiuiShortcutTriggerHelper\$ShortcutSettingsObserver.smali
-$decompile_dir/smali*/com/android/server/wm/ActivityTaskSupervisorImpl.smali
-$decompile_dir/smali*/com/android/server/wm/MiuiSplitInputMethodImpl.smali
-$decompile_dir/smali*/com/android/server/wm/WindowManagerServiceImpl.smali
-$decompile_dir/smali*/com/android/server/DeviceIdleControllerStubImpl.smali
-$decompile_dir/smali*/com/android/server/ForceDarkAppListManager.smali
-$decompile_dir/smali*/com/android/server/AppOpsServiceStubImpl.smali
-$decompile_dir/smali*/com/miui/server/greeze/PolicyManager.smali
-$decompile_dir/smali*/com/miui/server/security/AppBehaviorService.smali
-$decompile_dir/smali*/com/miui/server/smartpower/policy/SmartArtRuntimePolicy.smali
-$decompile_dir/smali*/com/miui/server/smartpower/FlingOptimizeManager.smali
-$decompile_dir/smali*/com/miui/server/turbosched/TurboSchedManagerService.smali
-$decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/GameLatencyPredict.smali
-$decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/SLAAppLib.smali
-$decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/SLAAppLib\$2.smali
-$decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
-"
-  for i in $class; do
-    [ -f "$i" ] || continue
-    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
-    sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/Build;->IS_MIUI:Z|g' "$i"
-  done
-  # PenguinOS A16 behavior uses the MIUI path for CN background policy.
-  # HyperMOS additionally forces Greeze PolicyManager.CN_MODEL=false without
-  # changing ro.miui.region, so the rest of Xiaomi regional behavior stays CN.
-  local policy_file
-  policy_file=$(find "$decompile_dir" -type f -path '*/com/miui/server/greeze/PolicyManager.smali' -print -quit)
-  if [ -z "$policy_file" ] || [ ! -f "$policy_file" ]; then
-    err "CN Notification Fix: PolicyManager.smali not found"
-    return 1
-  fi
-
-  POLICY_FILE="$policy_file" python3 <<'PY'
-from pathlib import Path
-import os
-import re
-import sys
-
-path = Path(os.environ["POLICY_FILE"])
-lines = path.read_text(encoding="utf-8").splitlines()
-
-pat = re.compile(
-    r"^(\s*)sput-boolean\s+([vp]\d+),\s+"
-    r"Lcom/miui/server/greeze/PolicyManager;->CN_MODEL:Z\s*$"
-)
-matches = []
-for idx, line in enumerate(lines):
-    m = pat.match(line)
-    if m:
-        matches.append((idx, m.group(1), m.group(2)))
-
-# Fail closed on an unknown Xiaomi layout instead of patching the wrong field.
-if len(matches) != 1:
-    print(f"unexpected CN_MODEL assignment count: {len(matches)}", file=sys.stderr)
-    sys.exit(3)
-
-idx, indent, reg = matches[0]
-force = f"{indent}const/4 {reg}, 0x0"
-
-if idx == 0 or lines[idx - 1].strip() != f"const/4 {reg}, 0x0":
-    lines.insert(idx, force)
-
-out = "\n".join(lines) + "\n"
-
-# Verify the exact CN_MODEL write is now immediately preceded by false.
-verify = re.compile(
-    rf"(?m)^\s*const/4\s+{re.escape(reg)},\s+0x0\s*$\n"
-    rf"^\s*sput-boolean\s+{re.escape(reg)},\s+"
-    rf"Lcom/miui/server/greeze/PolicyManager;->CN_MODEL:Z\s*$"
-)
-if not verify.search(out):
-    print("CN_MODEL=false verification failed", file=sys.stderr)
-    sys.exit(4)
-
-path.write_text(out, encoding="utf-8")
-PY
-  if [ $? -ne 0 ]; then
-    err "CN Notification Fix: failed to force PolicyManager.CN_MODEL=false"
-    return 1
-  fi
-  log "[PATCH] PolicyManager.CN_MODEL=false -> Done"
-
-  for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
-    [ -f "$i" ] || continue
-    sed -i '/Lmiui\/drm\/DrmBroadcast;->getInstance/{N;N;N;N;d}' "$i"
-  done
-}
-
 apply_miui_services_global_patch() {
   local decompile_dir="$1"
   local class="
@@ -832,26 +707,6 @@ $decompile_dir/smali*/com/miui/server/security/AppBehaviorService.smali
     [ -f "$i" ] || continue
     sed -i '/Lmiui\/drm\/DrmBroadcast;->getInstance/{N;N;N;N;d}' "$i"
   done
-}
-
-apply_miui_framework_cn_notification_fix() {
-  local decompile_dir="$1"
-  local class="
-$decompile_dir/smali*/android/app/AppOpsManagerInjector.smali
-$decompile_dir/smali*/android/inputmethodservice/InputMethodServiceInjector.smali
-$decompile_dir/smali*/android/view/inputmethod/InputMethodManagerStubImpl.smali
-$decompile_dir/smali*/com/android/internal/os/AnrEnhanceImpl.smali
-$decompile_dir/smali*/com/miui/mishare/app/NearbyUtils.smali
-$decompile_dir/smali*/miui/hardware/input/shortcut/ShortcutFunctionManager.smali
-$decompile_dir/smali*/miui/util/font/SymlinkUtils.smali
-$decompile_dir/smali*/miui/util/font/MultiLangHelper.smali
-"
-  for i in $class; do
-    [ -f "$i" ] || continue
-    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
-    sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
-  done
-  cp -rf "$SCRIPT_DIR/miui" "$decompile_dir/smali"
 }
 
 # Apply disable secure flag patches to framework.jar (Android 16)
@@ -1181,9 +1036,6 @@ patch_miui_services() {
   if [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
-    if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
-      apply_miui_services_cn_notification_fix "$decompile_dir" || return 1
-    fi
     apply_miui_services_gboard "$decompile_dir"
   fi
 
@@ -1253,11 +1105,7 @@ patch_miui_framework() {
   # Existing HyperMOS Gboard patch
   apply_miui_framework_gboard "$decompile_dir"
 
-  # CN notification related xBuild substitutions are only enabled by the feature flag.
-  if [ "$FEATURE_CN_NOTIFICATION_FIX" -eq 1 ]; then
-    apply_miui_framework_cn_notification_fix "$decompile_dir"
-  fi
-
+  # The independent, audited EU NotificationFilterHelper port remains enabled.
   # Port ONLY the two audited EU NotificationFilterHelper methods.
   # Leave PowerInsightPolicy and every other CN power/thermal API unchanged.
   python3 "$SCRIPT_DIR/port_eu_notification_filter_a16.py" "$decompile_dir" \

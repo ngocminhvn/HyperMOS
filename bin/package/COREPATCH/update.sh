@@ -12,12 +12,10 @@ elif [[ $AndroidVER == "14" ]];then
 elif [[ $AndroidVER == "15" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a15.sh
 elif [[ $AndroidVER == "16" ]];then
-    # CN notification fix: restore the complete pre-ZK policy (no class exclusions).
-    # Do NOT apply ZKOS miui-services power/Doze parity or RYU app/background gates.
-    # Keep the pre-existing CorePatch signature and FLAG_SECURE integration.
+    # CN notifications are patched separately in NOTIFICATION_FIX/A16.
+    # CorePatch retains signature and FLAG_SECURE only.
     bash "$work_dir/bin/package/COREPATCH/jar_patcher_a16.sh" \
         --disable-signature-verification \
-        --cn-notification-fix \
         --disable-secure-flag || exit 1
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh
