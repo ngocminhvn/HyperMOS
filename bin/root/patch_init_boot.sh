@@ -80,22 +80,21 @@ mv -f "$patched" "$input"
 system_ext="$images/system_ext"
 test -d "$system_ext" || die "Missing system_ext for SukiSU user-manager payload"
 payload="$system_ext/etc/hypermos-root"
-stage_src="$workdir/bin/root/stage_user_manager.sh"
 stage_rc="$workdir/bin/root/stage_user_manager.rc"
 install_src="$workdir/bin/root/install_user_manager.sh"
-for src in "$stage_src" "$stage_rc" "$install_src"; do
+for src in "$stage_rc" "$install_src"; do
   test -s "$src" || die "Missing SukiSU user-manager installer: $src"
 done
-sh -n "$stage_src" && sh -n "$install_src" ||
-  die "SukiSU Manager boot scripts contain syntax errors"
-mkdir -p "$payload" "$system_ext/bin" "$system_ext/etc/init"
+sh -n "$install_src" || die "SukiSU Manager install script has syntax errors"
+grep -Fq "on property:sys.boot_completed=1" "$stage_rc" &&
+grep -Fq "exec_background - shell shell -- /system/bin/sh" "$stage_rc" ||
+  die "SukiSU Manager post-boot trigger is missing"
+mkdir -p "$payload" "$system_ext/etc/init"
 install -m 0644 "$manager" "$payload/RootManager.apk"
 install -m 0644 "$install_src" "$payload/install-user-manager.sh"
-install -m 0755 "$stage_src" "$system_ext/bin/hypermos-root-manager-stage"
 install -m 0644 "$stage_rc" "$system_ext/etc/init/hypermos-root-manager.rc"
 test -s "$payload/RootManager.apk" &&
 test -s "$payload/install-user-manager.sh" &&
-test -s "$system_ext/bin/hypermos-root-manager-stage" &&
 test -s "$system_ext/etc/init/hypermos-root-manager.rc" ||
   die "SukiSU user-manager installer payload incomplete"
 # Explicitly block duplicate system-app or data-app image preloads.
