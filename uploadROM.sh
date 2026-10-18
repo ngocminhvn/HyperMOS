@@ -79,9 +79,11 @@ elif [[ ${baserom_type} == 'br' ]]; then
     mv -f "$work_dir/build/baserom/images/super.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/super/"
 fi
 
-# Bundle the matching manager and pristine init_boot for rooted HAOTIAN builds.
+# Bundle the SukiSU manager, root metadata and pristine init_boot together
+# in Root/ (not as loose top-level files or a separate RootBackup/).
 if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
-    root_dir="$work_dir/out/${os_type}_${device_code}_${base_rom_code}"
+    package_dir="$work_dir/out/${os_type}_${device_code}_${base_rom_code}"
+    root_dir="$package_dir/Root"
     test -s "$work_dir/build/baserom/root-stock-init_boot.img" || {
         echo "[ERROR] SukiSU Ultra v4.2.1 stock init_boot backup missing"
         exit 1
@@ -94,19 +96,29 @@ if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
         echo "[ERROR] SukiSU Ultra v4.2.1 metadata missing"
         exit 1
     }
-    test -s "$root_dir/images/init_boot.img" || {
+    test -s "$package_dir/images/init_boot.img" || {
         echo "[ERROR] SukiSU Ultra v4.2.1 patched init_boot.img missing from ROM output"
         exit 1
     }
-    mkdir -p "$root_dir/RootBackup"
-    cp -f "$work_dir/build/baserom/root-stock-init_boot.img" "$root_dir/RootBackup/init_boot.stock.img"
+    mkdir -p "$root_dir"
+    cp -f "$work_dir/build/baserom/root-stock-init_boot.img" "$root_dir/init_boot.stock.img"
     cp -f "$work_dir/build/baserom/root-package/RootManager.apk" "$root_dir/RootManager.apk"
     cp -f "$work_dir/build/baserom/root-package/ROOT-INFO.txt" "$root_dir/ROOT-INFO.txt"
-    echo "[ROOT] SukiSU Ultra v4.2.1 image, stock image backup, and manager APK ready for packaging"
+    for root_file in init_boot.stock.img RootManager.apk ROOT-INFO.txt; do
+        test -s "$root_dir/$root_file" || {
+            echo "[ERROR] Missing packaged Root/$root_file"
+            exit 1
+        }
+    done
+    # Remove obsolete layout from any previously reused staging directory.
+    rm -rf "$package_dir/RootBackup"
+    rm -f "$package_dir/RootManager.apk" "$package_dir/ROOT-INFO.txt"
+    echo "[ROOT] SukiSU v4.2.1 assets packaged under Root/ (manager remains manual-install only)"
 fi
-
 cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/" 2>/dev/null || true
-cp -rf "$work_dir/bin/script2flash/"*.install "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/"
+# Legacy *.install is only a metadata file; FLASH.bat does not use it.
+# Do not include HAOTIAN.install (or other device .install files) in the ROM ZIP.
+find "$work_dir/out/${os_type}_${device_code}_${base_rom_code}" -maxdepth 1 -type f -name '*.install' -delete
 cp -f "$work_dir/bin/script2flash/FLASH.bat" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/FLASH.bat"
 
 # Bundle Windows fastboot runtime so the extracted ROM can be flashed immediately.
