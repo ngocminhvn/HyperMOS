@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Decode-only DEX wrapper and scoped RYU conditional UID method adapter.
+"""Build an ephemeral PowerKeeper donor with the scoped Xiaomi.eu DEX.
 
-The shipped PowerKeeper executes the pinned adapted ZKOS implementation.
-RYU is a method donor only for guarded UID cleanup, not performance hooks.
-No full RYU PowerKeeper import or PerfHook translation is supported.
+Stock Xiaomi supplies its unchanged non-DEX files. The temporary wrapper
+omits META-INF and must not be installed on a device. No retired ZKOS or
+RYU conditional UID methods are imported by this module.
 """
 import argparse
 import re
@@ -11,29 +11,6 @@ import zipfile
 from pathlib import Path
 
 DEX = re.compile(r"classes(?:[2-9]\d*)?\.dex")
-BUILD_GATE = re.compile(
-    r"(?m)^([ \t]*)sget-boolean ([vp]\d+), "
-    r"Lcom/projectryu/Build;->IS_RYU_BUILD:Z[ \t]*$")
-
-
-def adapt(body: str):
-    """Resolve a source RYU build guard on imported UID methods only."""
-    count = 0
-
-    def gate(match):
-        nonlocal count
-        register = match[2]
-        index = int(register[1:])
-        if index > 255:
-            raise ValueError("RYU UID build gate register out of range")
-        count += 1
-        insn = "const/4" if register.startswith("v") and index < 16 else "const/16"
-        return match[1] + insn + " " + register + ", 0x1"
-
-    adapted = BUILD_GATE.sub(gate, body)
-    if "Lcom/projectryu/" in adapted or "com.projectryu." in adapted:
-        raise ValueError("Imported RYU UID decision has unsupported private dependency")
-    return adapted, 0, count
 
 
 def prepare_donor(stock_apk: Path, dex_file: Path, output: Path):

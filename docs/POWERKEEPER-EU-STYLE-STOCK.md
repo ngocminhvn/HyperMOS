@@ -64,6 +64,19 @@ exception is applied inside this class. A negative test modified a byte in
 EU `setUidState()` and correctly caused the integrity guard to fail.
 The check does not modify DEX output: scoped EU DEX SHA-256 remains unchanged.
 
+### A16 source cleanup
+
+The old ZKOS/RYU DEX-editing helpers are no longer part of active builds and
+have been deleted from the current A16 directory: `zk_full_powerkeeper_a16.py`,
+`ryu_killprocess_a16.py`, `restore_uid_policy_abi_a16.py`,
+`guard_gms_uid_kill_a16.py`, and `rebuild_powerkeeper_dex.py`.
+They remain available through historical Git commits for retrospective audits.
+
+The active A16 directory retains only the notification patch entrypoints,
+their Python helpers, the seven-gate audit JSON, and the EU binary delta plus
+the RYU compression dictionary needed to reconstruct the pinned EU DEX.
+No retired source code is imported into PowerKeeper's installed classes.dex.
+
 ### What the ROM ships
 
 - Real EU PowerKeeper DEX, including EU `KillProcessController`,
