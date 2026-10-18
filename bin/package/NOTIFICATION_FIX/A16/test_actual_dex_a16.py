@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preflight the actual pinned HAOTIAN ZKOS and RYU DEX sources, without a ROM.
+"""Preflight ZKOS PowerKeeper with guarded RYU UID cleanup but no RYU PerfHook.
 
 This stages exactly the same Python DEX adaptations and smali compiler used
 by the production port. It cannot prove that the Android APK loads or boots.
@@ -74,17 +74,6 @@ def validate(zk_dex, ryu_dex, output):
         results["source_zkos_controller_method_count"] = len(source_methods)
         results["source_ryu_controller_method_count"] = len(ryu_methods)
 
-        # Capture the real RYU PerfHook verifier for safe patch drift diagnosis.
-        perf_source = r / "com/projectryu/perf/PerfHook.smali"
-        raw_methods = get_methods(perf_source.read_text(encoding="utf-8"))
-        raw_verifier = raw_methods.get("writeRawAndVerify(Ljava/lang/String;Ljava/lang/String;)Z")
-        if not raw_verifier:
-            raise ValueError("Donor RYU PerfHook writeRawAndVerify signature missing")
-        diagnostic = output.parent / "ryu-verifier-original.smali"
-        diagnostic.write_text(raw_verifier + "\n", encoding="utf-8")
-        print("[PREFLIGHT RYU PERFHOOK VERIFIER]", flush=True)
-        print(raw_verifier[:15000], flush=True)
-
         run(sys.executable, REPO / "bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py",
             "--zk-raw", root / "zk", "--tnm-raw", root / "ryu")
         staged = files(z)
@@ -118,17 +107,18 @@ def validate(zk_dex, ryu_dex, output):
                 raise ValueError(f"{name} method inventory changed")
         perf_dir = z / "com/android/tnm/perf"
         perf_classes = list(perf_dir.glob("*.smali"))
-        if len(perf_classes) != 20:
-            raise ValueError(f"Expected 20 TNM PerfHook classes, got {len(perf_classes)}")
-        if not (z / "com/android/tnm/TNMFramework.smali").is_file():
-            raise ValueError("Missing TNMFramework")
+        if perf_classes:
+            raise ValueError(f"Unexpected TNM PerfHook runtime classes: {len(perf_classes)}")
+        if (z / "com/android/tnm/TNMFramework.smali").exists():
+            raise ValueError("Unused TNMFramework embedded without PerfHook")
         application = (z / "com/miui/powerkeeper/PowerKeeperApplication.smali").read_text()
-        if "Lcom/android/tnm/perf/PerfHook;->init()V" not in application:
-            raise ValueError("PerfHook initialization call missing")
+        if "Lcom/android/tnm/perf/PerfHook;" in application:
+            raise ValueError("PowerKeeper still initializes RYU PerfHook")
         results["ryu_uid_reused_existing_package_lookup"] = True
         results["gms_guard_extra_uid_lookup"] = 0
         results["unchanged_zkos_controller_methods"] = len(source_methods) - 1
-        results["tnm_perfhook_class_count"] = len(perf_classes)
+        results["tnm_perfhook_class_count"] = 0
+        results["runtime_perfhook_removed"] = True
         results["staged_class_count"] = len(staged)
         results["custom_gms_exception"] = True
 
@@ -172,10 +162,13 @@ def validate(zk_dex, ryu_dex, output):
             actual = compiled / filename
             if not actual.is_file() or marker not in actual.read_text():
                 raise ValueError(f"Compiled DEX lost required UID-policy ABI: {filename}")
-        if not (compiled / "com/android/tnm/perf/PerfHook.smali").is_file():
-            raise ValueError("Compiled DEX missing relocated PerfHook")
-        if not (compiled / "com/android/tnm/TNMFramework.smali").is_file():
-            raise ValueError("Compiled DEX missing TNMFramework")
+        if list((compiled / "com/android/tnm/perf").rglob("*.smali")):
+            raise ValueError("Compiled DEX unexpectedly retains RYU PerfHook classes")
+        if (compiled / "com/android/tnm/TNMFramework.smali").exists():
+            raise ValueError("Compiled DEX unexpectedly retains TNMFramework")
+        if "Lcom/android/tnm/perf/PerfHook;" in (
+                compiled / "com/miui/powerkeeper/PowerKeeperApplication.smali").read_text():
+            raise ValueError("Compiled PowerKeeperApplication still starts RYU PerfHook")
         results["compiled_dex_bytes"] = dex_out.stat().st_size
         results["compiled_class_count"] = len(compiled_files)
         results["compiled_classes_match_staged_classes"] = True
