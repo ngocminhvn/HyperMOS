@@ -126,6 +126,43 @@ class Dex:
         return offsets
 
 
+EU_KILL_CLASS = 'Lcom/miui/powerkeeper/controller/KillProcessController;'
+EU_KILL_REQUIRED = {
+    ('setUidState', '(IZ)V'),
+    ('shouldKillByCheckerPolicy', '(I)Z'),
+}
+
+
+def verify_eu_killprocess_unchanged(source: Dex, patched: Dex) -> dict:
+    """Fail closed unless every executable EU KillProcessController method is identical.
+
+    Checks every declared method's signature and instruction array, not just
+    the two main UID kill methods. No ZK, RYU, or GMS-specific kill grafts.
+    """
+    original = {key: source.codes[key] for key in source.codes if key[0] == EU_KILL_CLASS}
+    current = {key: patched.codes[key] for key in patched.codes if key[0] == EU_KILL_CLASS}
+    if set(original) != set(current) or len(original) != 23:
+        raise ValueError('EU KillProcessController method inventory changed')
+    if not EU_KILL_REQUIRED <= {(k[1], k[2]) for k in original}:
+        raise ValueError('EU KillProcessController UID policy methods missing')
+    fingerprint = hashlib.sha256()
+    for key in sorted(original):
+        old_off, old_units = original[key]
+        new_off, new_units = current[key]
+        old_code = source.raw[old_off:old_off + old_units * 2]
+        new_code = patched.raw[new_off:new_off + new_units * 2]
+        if old_units != new_units or old_code != new_code:
+            raise ValueError('EU KillProcessController bytecode was modified: ' + repr(key))
+        fingerprint.update(repr(key).encode('utf-8'))
+        fingerprint.update(old_code)
+    return {
+        'eu_killprocess_controller_unchanged': True,
+        'eu_killprocess_method_count': len(original),
+        'eu_killprocess_instructions_sha256': fingerprint.hexdigest(),
+        'eu_uid_kill_policy': 'exact_original_EU_no_RYU_or_ZK_overrides',
+    }
+
+
 def port(eu, zk):
     if sha(eu) != EU_SHA:
         raise ValueError('EU DEX SHA-256 mismatch; donor not previously audited')
@@ -150,6 +187,7 @@ def port(eu, zk):
     struct.pack_into('<I', dest, 8, zlib.adler32(dest[12:]) & 0xffffffff)
     final = bytes(dest)
     check = Dex(final)
+    kill_parity = verify_eu_killprocess_unchanged(a, check)
     for key, count in ALLOW.items():
         if check.gate_hits(key, EU_FIELD):
             raise ValueError('An allowed EU gate was not patched: ' + repr(key))
@@ -166,6 +204,7 @@ def port(eu, zk):
         'perfhook_or_RYU_methods_imported': False,
         'unchanged_thermal_resources_GPU_governor': True,
         'device_property_rewritten': False,
+        **kill_parity,
     }
 
 

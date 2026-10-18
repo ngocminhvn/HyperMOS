@@ -43,6 +43,20 @@ The ZK DEX is a **comparison-only** reference, never copied into the APK.
 The patch keeps instruction sizes constant and updates DEX header checksums;
 all other EU method instructions are preserved. Runtime behavior needs testing.
 
+### EU KillProcessController integrity check
+
+All **23** executable `Lcom/miui/powerkeeper/controller/KillProcessController;`
+methods (including `setUidState(IZ)V` and
+`shouldKillByCheckerPolicy(I)Z`) must retain their exact EU instruction
+sequences. The scoped port fails if any such method changes or disappears.
+Instruction fingerprint for this original EU class:
+`e4a1804e1e715fa9ab07e1d5cd5916c041a58d2e71b5677c4d85358027515f1f`.
+
+No RYU conditional-UID import, no ZKOS kill bypass, and no additional GMS
+exception is applied inside this class. A negative test modified a byte in
+EU `setUidState()` and correctly caused the integrity guard to fail.
+The check does not modify DEX output: scoped EU DEX SHA-256 remains unchanged.
+
 ### What the ROM ships
 
 - Real EU PowerKeeper DEX, including EU `KillProcessController`,
