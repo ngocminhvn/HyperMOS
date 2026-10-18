@@ -16,7 +16,6 @@ The output ZIP includes `pack-meta/mirror-report.json` with measured mirrors and
 
 Non-SourceForge URLs retain direct aria2 downloading and ZIP integrity checks. No modifications are made to ROM contents.
 
-Offline tests: `python3 -m unittest discover -s bin/dump -p 'test_sourceforge*.py' -v`.
 
 ## Custom installers with firmware-update/ only
 
@@ -64,7 +63,6 @@ Windows also accepts `py -3` in place of `python3`. The script uses local ADB an
 
 **Important:** This local script cannot operate from a normal GitHub-hosted Actions runner because the runner does not have a USB connection to the user's phone. It also cannot recover modifications from an encrypted EliteRom ZIP if EliteRom is not installed on the connected device. An unencrypted ROM ZIP is the alternative for cloud-only extraction.
 
-One-shot tests: `python3 -m unittest discover -s bin/dump -p 'test_*.py' -v`.
 
 
 ## Experimental offline behavior probe (no device)

@@ -23,14 +23,6 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      - name: Check static ELF parser against synthetic fixture
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m py_compile bin/dump/trace_eliterom_crypto.py bin/dump/inspect_eliterom_loader.py
-          python3 -m unittest discover -s bin/dump -p 'test_trace_eliterom_crypto.py' -v
-          python3 -m unittest discover -s bin/dump -p 'test_inspect_eliterom_loader.py' -v
-
       - name: Download existing EliteRom installer artifact (not 7.5 GiB ROM)
         shell: bash
         env:

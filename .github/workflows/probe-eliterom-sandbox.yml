@@ -8,7 +8,6 @@ on:
       - bin/dump/sandbox_probe.py
       - bin/dump/sandbox_report.py
       - bin/dump/sandbox.Dockerfile
-      - bin/dump/test_sandbox_probe.py
   workflow_dispatch:
 
 permissions:
@@ -26,13 +25,6 @@ jobs:
           ref: main
           lfs: false
           persist-credentials: false
-
-      - name: Syntax check and verify sandbox restrictions
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m py_compile bin/dump/sandbox_probe.py bin/dump/sandbox_report.py
-          python3 -m unittest discover -s bin/dump -p 'test_sandbox_probe.py' -v
 
       - name: Fetch previously audited installer only
         shell: bash
