@@ -75,7 +75,7 @@ def validate(zk_dex, ryu_dex, output):
         results["source_ryu_controller_method_count"] = len(ryu_methods)
 
         run(sys.executable, REPO / "bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py",
-            "--zk-raw", root / "zk", "--tnm-raw", root / "ryu")
+            "--zk-raw", root / "zk", "--ryu-raw", root / "ryu")
         staged = files(z)
         actual_methods = get_methods((z / CONTROLLER / "KillProcessController.smali").read_text())
         expected_uid = adapt_ryu(ryu_methods[SET_UID])[0]
@@ -105,10 +105,12 @@ def validate(zk_dex, ryu_dex, output):
             new = get_methods(unique_class(z, name).read_text())
             if old.keys() != new.keys():
                 raise ValueError(f"{name} method inventory changed")
-        perf_dir = z / "com/android/tnm/perf"
-        perf_classes = list(perf_dir.glob("*.smali"))
+        perf_classes = [
+            name for name in staged
+            if name.startswith(("com/android/tnm/perf/", "com/projectryu/perf/"))
+        ]
         if perf_classes:
-            raise ValueError(f"Unexpected TNM PerfHook runtime classes: {len(perf_classes)}")
+            raise ValueError(f"Unexpected imported RYU performance classes: {perf_classes[:5]}")
         if (z / "com/android/tnm/TNMFramework.smali").exists():
             raise ValueError("Unused TNMFramework embedded without PerfHook")
         application = (z / "com/miui/powerkeeper/PowerKeeperApplication.smali").read_text()
@@ -162,8 +164,9 @@ def validate(zk_dex, ryu_dex, output):
             actual = compiled / filename
             if not actual.is_file() or marker not in actual.read_text():
                 raise ValueError(f"Compiled DEX lost required UID-policy ABI: {filename}")
-        if list((compiled / "com/android/tnm/perf").rglob("*.smali")):
-            raise ValueError("Compiled DEX unexpectedly retains RYU PerfHook classes")
+        if any(name.startswith(("com/android/tnm/perf/", "com/projectryu/perf/"))
+               for name in compiled_files):
+            raise ValueError("Compiled DEX unexpectedly retains RYU performance classes")
         if (compiled / "com/android/tnm/TNMFramework.smali").exists():
             raise ValueError("Compiled DEX unexpectedly retains TNMFramework")
         if "Lcom/android/tnm/perf/PerfHook;" in (
