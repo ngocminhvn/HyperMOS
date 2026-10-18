@@ -1,7 +1,7 @@
 # HyperMOS HAOTIAN — SukiSU Ultra v4.2.1 (LKM)
 
 The HyperMOS ROM builder supports two modes, selected in `.github/workflows/build.yml`:
-- `root_mode=root` (default): use SukiSU Ultra **v4.2.1** from pinned upstream source, patch stock `init_boot.img`, and **install the matching SukiSU manager as a normal user app after first boot**.
+- `root_mode=root` (default): use SukiSU Ultra **v4.2.1** from pinned upstream source, patch stock `init_boot.img`, and **bundle the matching SukiSU manager APK for manual installation**.
 - `root_mode=stock`: preserve stock `init_boot.img` and do not insert the SukiSU manager.
 
 ## Root source, KMI and integrity
@@ -35,68 +35,31 @@ The builder preserves stock `boot.img` and patches **only** `init_boot.img`,
 using upstream `ksud boot-patch --module --init`. It unpacks the result and
 refuses to package an empty, unchanged, or unreadable image.
 
-## Manager installation — ordinary user app (NOT system app)
+## Manager APK — no automatic installation or boot-time checks
 
-**Why:** SukiSU v4.2.1's `kernel/manager/throne_tracker.c` scans
-`/data/app` to recognize the built-in manager UID/signature. Placing
-`SukiSUUltra.apk` directly in `/product/app` causes the manager to be seen
-by Android as a system app while SukiSU may not grant it Manager privileges.
-Clearing the app data does not change this path. Reinstalling a user APK works
-because its actual installed APK resides in `/data/app`.
+The manager is pinned to the official SukiSU Ultra v4.2.1 release and
+packaged as `RootManager.apk` at the root of the ROM ZIP.
+The installer deliberately does **not** run at startup. There is no
+`sys.boot_completed` trigger, `/data/adb` hook, package query, APK install
+attempt, background service, or automatic reinstall after removal.
 
-In `root_mode=root`, the ROM carries a **verified, read-only payload**, NOT
-a system-scanned app, under:
-
-`/system_ext/etc/hypermos-root/RootManager.apk`
-
-The ROM additionally includes:
-- `/system_ext/etc/hypermos-root/install-user-manager.sh` — checksum-verified installer.
-- `/system_ext/etc/init/hypermos-root-manager.rc` — post-boot init trigger.
-
-When Android reports `sys.boot_completed=1`, init starts the installer in the
-stock `shell` user/SELinux domain. Once PackageManager is available, the
-installer checks whether `com.sukisu.ultra` is already installed under
-`/data/app`, and otherwise verifies the pinned APK hash before asking
-PackageManager to install it for user 0. The Manager is **not a system app**.
-
-No script is staged in `/data/adb`, no persistent installer marker is created,
-and no long-running service is added. This avoids the early-boot SELinux
-restriction that could prevent the previous `post-fs-data` staging step.
-An existing user-installed Manager, including a newer version, is left intact.
-
-On any PackageManager failure the helper logs the error under `HyperMOSRoot`
-without affecting Android boot. Each subsequent boot can retry, but only
-while the Manager is not installed.
-**Dirty flash caveat:** The previous ROM included SukiSU in `/product/app`.
-The new root ROM no longer contains that system app. PackageManager may require
-a reboot before it stops treating the old package as a system app. The installer
-will refuse to silently update a non-user APK path. If an installed APK has a
-conflicting signature, uninstalling it manually may be necessary; the installer
-never deletes user app data without consent.
-
-### Runtime checks
+To install it as an ordinary user app after flashing the rooted ROM,
+extract `RootManager.apk` from the ROM ZIP and run:
 
 ```sh
+adb install -r RootManager.apk
 adb shell pm path --user 0 com.sukisu.ultra
-adb shell dumpsys package com.sukisu.ultra | grep -E 'codePath|pkgFlags|PRIVATE_FLAG'
-adb shell su -c id
-adb shell logcat -d -s HyperMOSRoot
 ```
 
-Expected manager APK path: `package:/data/app/...`, not `/product/app/...`.
-The SukiSU manager should report that its version matches the running kernel.
-
-This mechanism is **code-reviewed but not yet validated on a booted HAOTIAN**;
-a ROM-specific PackageManager or SELinux restriction may still require a
-runtime adjustment. The ROM ZIP also retains `RootManager.apk`
-for manual install if the one-time automatic installer cannot run.
-
+The installed path must start with `/data/app/` (not `/product/app/`);
+the SukiSU kernel/root provider remains integrated in patched `init_boot.img`
+independently of the APK's installation status.
 ## ZIP output and recovery
 
 Root ZIPs end in `_SUKISU.zip`; stock ZIP names are unchanged. A root ZIP contains:
 - `images/init_boot.img` — SukiSU-patched init_boot;
 - `RootBackup/init_boot.stock.img` — original firmware init_boot;
-- `RootManager.apk` — official SukiSU v4.2.1 APK as an additional manual fallback;
+- `RootManager.apk` — official SukiSU v4.2.1 APK for manual user-app installation;
 - `ROOT-INFO.txt` — KMI, upstream commit, manager name and hashes.
 
 This integration does **not** include SUSFS, a custom GKI kernel replacement,
