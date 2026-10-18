@@ -14,8 +14,9 @@
   locked-app / visible-window / current-IME checks and allowing the
   policy-gated `ProcessManager.kill()` path. This recreates the relevant
   EU-style behavior; it is **not** a claim of byte-identical EU methods.
-- The 20 isolated RYU PerfHook classes and their passive onCreate initializer
-  remain independently grafted under the TNM namespace.
+- For thermal diagnosis, the rebuilt PowerKeeper deliberately omits all 20
+  RYU PerfHook runtime classes, its worker/observer and onCreate initializer.
+  The RYU DEX remains a source for guarded UID-cleanup methods only.
 - Original ZKOS `GmsObserver`, `ActiveStateController`, Millet, freeze/UID,
   and thermal policy execution is retained. In `KillProcessController`, only
   `setUidState` and the conditional policy checker are taken from the RYU
@@ -85,9 +86,8 @@ UID represents multiple packages, this is not a universal GMS guarantee.
   \`getUidPolicy\` ABI and concrete non-hot \`POLICY\` reader are added
   to support the conditional kill method. This is *not* a copy of the
   complete EU policy Bundle.
-- \`PowerKeeperApplication.onCreate\`: a relocated, passive TNM
-  PerfHook is initialized (20 imported per-app classes); its initial
-  thermal/performance writes are suppressed.
+- PowerKeeperApplication.onCreate keeps the adapted ZKOS method without a
+  RYU PerfHook init call; no worker or ContentObserver is imported.
 - \`GmsObserver\`, Doze, Millet, freeze, and stock HAOTIAN thermal/FPS
   asset configuration are not changed by this scoped GMS optimization.
   Separate build-ID/SettingsHelper/FPS/thermal-node compatibility rewrites
@@ -149,39 +149,26 @@ full flash/boot, notification-latency comparison or standby drain/thermal
 safety result is established by source changes alone.
 Verify a completed ROM build and runtime on HAOTIAN before judging parity.
 
-## RYU-style PerfHook and CPU percentage control (80–100%)
+## PowerKeeper without RYU PerfHook; independent CPU percentage control
 
-The RYU PerfHook is an isolated addition to the underlying ZK power controls,
-independent of the now-restored EU-style conditional UID kill. It adds its
-original per-app Settings.System observer and application initialization.
+For the HAOTIAN Android 16 thermal A/B comparison, the ZKOS-derived PowerKeeper
+keeps its background, Doze, GMS and thermal policies, guarded RYU conditional
+UID cleanup methods and the scoped GMS exemption. It does not import the 20 RYU
+PerfHook classes, their ContentObservers, worker or PowerKeeperApplication
+onCreate initializer. The other ZKOS controllers remain unchanged.
 
-The donor PerfHook `init()` formerly invoked `applyInitialZeroOnce()`
-(`sconfig=0`) and `updateConfig()` at boot. HyperMOS strips **only those
-two boot-time calls**, retaining observer and foreground callbacks so that
-explicit TNM settings changes can activate per-app logic. Frequency discovery
-is read-only. Other, explicitly enabled RYU PerfHook profiles may still adjust
-governors/GPU; the separate CPU 80–100% slider never uses those profile paths.
-Kernel thermal mechanisms remain stock. This is source-audited, not yet
-validated by a flashed device.
+The independent root-only `/system_ext/bin/tnm-cpuctl` is still on-demand:
+it caps CPU max frequency within its saved original ceiling, without touching
+GPU, thermal XML, governors or Xiaomi thermal limits. Its 100% choice restores
+the previous per-boot ceiling rather than the hardware maximum. TNM thermal
+and per-app features that depend on the removed PerfHook cannot work in this
+variant. The ROM status command reports that the RYU PerfHook is unavailable.
 
-
-The new ROM-provided `/system_ext/bin/tnm-cpuctl` is root-only and executes
-**only when TNM requests it**. It caps CPU `scaling_max_freq` for the real
-cpufreq policy clusters to 80–100% of each cluster's `cpuinfo_max_freq`,
-rounding down to supported operating points where available. It never edits
-thermal/ODM XML, GPU policy, governors, boost XML, `scaling_min_freq`,
-charging profiles, thermal services or sysfs permissions. It records the
-pre-existing max as a per-boot restore ceiling and refuses to raise a cap
-that another owner lowered. 100% requests restoring that saved ceiling,
-**not overriding kernel thermal throttling**. Results require sysfs readback;
-hardware effective clocks remain under kernel/vendor control.
-
-The CPU % limit is on-demand and is **not automatically re-applied after a
-reboot**. There is no resident monitor, init service or boot root escalation.
-TNM's app/Rust backend exposes `rom.cpu.percent` and `rom.cpu.status`.
-
-Historical TNM thermal XML import on HAOTIAN A16 remains disabled, so CPU
-percent is not implemented as an ODM or powerhint config rewrite.
+Real pinned DEX preflight recompiles PowerKeeper and fails if RYU PerfHook
+classes or its onCreate call survive; the build preserves the Xiaomi stock
+manifest/resources/assets. Compilation does NOT prove that the ROM boots or
+that the device runs cooler; compare with the prior ROM under the same display
+and workload conditions.
 
 ## Google FCM permissions: supplied ZK overlay
 
