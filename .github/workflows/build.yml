@@ -96,10 +96,7 @@ jobs:
             python3 -m py_compile \
               bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
               bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
-              bin/package/NOTIFICATION_FIX/A16/eu_zk_scoped_gates.py \
-              bin/package/COREPATCH/tnm_zk_power_a16.py \
-              bin/package/COREPATCH/cn_zk_compatible_a16.py \
-              bin/package/COREPATCH/test_cn_zk_compatible_a16.py
+              bin/package/NOTIFICATION_FIX/A16/eu_zk_scoped_gates.py
             test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/eu-powerkeeper-from-ryu.zst)" = "8176d0aa5bf72c1437d42f70a34e0f412933e846"
             test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex)" = "1b5a46ea3f9ead44a5467584e15dddd7ba4b0555"
             test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/classes.dex)" = "f229fb0a5c67d41a55310a119ef64b18a86d6c04"
@@ -221,10 +218,6 @@ jobs:
           echo "[OK] - EU DEX verified; seven ZK-matched build gates patched"
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/powerkeeper.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py
-          python3 -m py_compile bin/package/COREPATCH/tnm_zk_power_a16.py
-          python3 bin/package/COREPATCH/test_tnm_zk_power_a16.py
-          # Restore original CN notification scope while protecting only ZK-specific method gates.
-          python3 bin/package/COREPATCH/test_cn_zk_compatible_a16.py
           # EU PowerKeeper DEX port; base Xiaomi thermal/CPU/powerhint XML unchanged.
           # The old TNM/RYU thermal archive is deliberately not imported.
 

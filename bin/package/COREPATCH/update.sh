@@ -12,19 +12,12 @@ elif [[ $AndroidVER == "14" ]];then
 elif [[ $AndroidVER == "15" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a15.sh
 elif [[ $AndroidVER == "16" ]];then
-    # Port only RYU-derived app/background compatibility behavior on main. The full
-    # 44-gate audit profile remains available for explicit offline testing.
-    # Signature verification is an existing independent HyperMOS feature and
-    # is not part of this compatibility profile.
-    tnm_framework_options=(--tnm-app-compat-gates)
-    # Preserve other existing A16 features. Reproduce ZK's twelve exact
-    # power/notification JAR method deltas; adapt only ZK build identity to TNM.
-    # No RYU FCM/FGS/first-boot overrides are stacked on top of the ZK methods.
-    bash $work_dir/bin/package/COREPATCH/jar_patcher_a16.sh \
+    # CN notification fix: restore the complete pre-ZK policy (no class exclusions).
+    # Do NOT apply ZKOS miui-services power/Doze parity or RYU app/background gates.
+    # Keep the pre-existing CorePatch signature and FLAG_SECURE integration.
+    bash "$work_dir/bin/package/COREPATCH/jar_patcher_a16.sh" \
         --disable-signature-verification \
         --cn-notification-fix \
-        --tnm-zk-power-parity \
-        "${tnm_framework_options[@]}" \
         --disable-secure-flag || exit 1
 elif [[ $AndroidVER == "17" ]];then
     bash $work_dir/bin/package/COREPATCH/jar_patcher_a17.sh

@@ -778,20 +778,12 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
 "
   for i in $class; do
     [ -f "$i" ] || continue
-    # Restore the pre-ZK CN notification substitution on ALL original classes.
-    # Protect only the ten exact ZK methods and two initializers, not whole
-    # classes. A blanket CN substitution destroys ZK's audited gate references.
-    if [ "$FEATURE_ZK_POWER_PARITY" -eq 1 ]; then
-      python3 "$SCRIPT_DIR/cn_zk_compatible_a16.py" "$i" || return 1
-    else
-      sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
+    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/Build;->IS_MIUI:Z|g' "$i"
-    fi
   done
   # PenguinOS A16 behavior uses the MIUI path for CN background policy.
   # HyperMOS additionally forces Greeze PolicyManager.CN_MODEL=false without
   # changing ro.miui.region, so the rest of Xiaomi regional behavior stays CN.
-  if [ "$FEATURE_ZK_POWER_PARITY" -eq 0 ]; then
   local policy_file
   policy_file=$(find "$decompile_dir" -type f -path '*/com/miui/server/greeze/PolicyManager.smali' -print -quit)
   if [ -z "$policy_file" ] || [ ! -f "$policy_file" ]; then
@@ -848,7 +840,6 @@ PY
     return 1
   fi
   log "[PATCH] PolicyManager.CN_MODEL=false -> Done"
-  fi
 
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
     [ -f "$i" ] || continue
@@ -889,7 +880,6 @@ $decompile_dir/smali*/miui/util/font/MultiLangHelper.smali
 "
   for i in $class; do
     [ -f "$i" ] || continue
-    # Restore the original CN AppOps/autostart gate together with IME/font.
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
   done
