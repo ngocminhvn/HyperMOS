@@ -1,64 +1,17 @@
-#chinh-sua-genInstall.sh
 #!/bin/bash
+# Generate only FLASH.bat. The legacy HAOTIAN.install metadata is unused
+# by the Windows flasher and must not be generated or packaged.
 work_dir=$(pwd)
-
-# Load device information
-device_code=$(cat $work_dir/bin/ddevice/device_code.txt 2>/dev/null)
-
+device_code=$(cat "$work_dir/bin/ddevice/device_code.txt" 2>/dev/null)
 codename="$device_code"
-for s in EEAGlobal EEAGLOBAL Global GLOBAL EEA IN RU TR TW ID JP KR; do
-    codename="${codename%$s}"
+for suffix in EEAGlobal EEAGLOBAL Global GLOBAL EEA IN RU TR TW ID JP KR; do
+    codename="${codename%$suffix}"
 done
-name=$(cat $work_dir/bin/ddevice/name_devices.txt 2>/dev/null)
-rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt 2>/dev/null)
-base_rom_code=$(cat $work_dir/bin/ddevice/base_rom_code.txt 2>/dev/null)
-regionTYPE=$(cat $work_dir/bin/ddevice/device_type.txt 2>/dev/null)
-AndroidVer=$(cat $work_dir/bin/ddevice/androidver.txt 2>/dev/null)
-starxVER=$(cat $work_dir/Version 2>/dev/null)
-build_date=$(date +"%Y-%m-%d")
-
-# If device_code is empty, fallback to unknown
+base_rom_code=$(cat "$work_dir/bin/ddevice/base_rom_code.txt" 2>/dev/null)
 if [ -z "$device_code" ]; then
     device_code="unknown"
+    codename="unknown"
 fi
-
-# Define output file
-OUTPUT_FILE="$work_dir/bin/script2flash/${device_code}.install"
-
-# Format ROM Type (e.g. OS3 -> HyperOS)
-if [[ "$rom_os" == *"OS"* ]]; then
-    rom_type="HyperOS"
-else
-    rom_type="MIUI"
-fi
-
-cat <<EOF > "$OUTPUT_FILE"
-{
-    "Devices": {
-        "Name": "${name:-Unknown}",
-        "Brand": "Xiaomi",
-        "Codename": "${codename}"
-    },
-    "ROM": {
-        "Type": "${rom_type}",
-        "Version": "${base_rom_code:-Unknown}",
-        "Region": "${regionTYPE:-Unknown}",
-        "Android": "${AndroidVer:-Unknown}"
-    },
-    "ToolBuild": {
-        "Version": "${starxVER:-1.0}",
-        "BuildDate": "${build_date}",
-        "BuildType": "PureStock-Release"
-    },
-    "Directory": {
-        "Firmware": "images",
-        "System": "super"
-    }
-}
-EOF
-
-echo "Generated $OUTPUT_FILE"
-
 # Generate a Windows fastboot flash script next to the ROM contents.
 # Keep the PenguinOS/HalcyonOS flow: flash firmware and the complete super.img
 # directly from bootloader fastboot, without rebooting into fastbootd.
