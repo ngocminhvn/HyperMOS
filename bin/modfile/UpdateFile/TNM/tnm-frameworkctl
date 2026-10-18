@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# TNMFramework v1: on-demand adapter to existing PowerKeeper/PerfHook and Android services.
+# TNMFramework v1: on-demand Xiaomi/ZKOS power status and independent CPU control.
 # Root-only; never starts a daemon or disables hardware thermal protection.
 set -eu
 umask 077
@@ -12,7 +12,7 @@ BACKUP="$STATE/refresh.original"
 sys() { "$S" --user 0 get system "$1" 2>/dev/null || echo null; }
 global() { "$S" --user 0 get global "$1" 2>/dev/null || echo null; }
 empty() { [ "$#" -eq 0 ] || exit 2; }
-tnm() { [ -x "$TNM" ]; }
+tnm() { return 1; } # Retired RYU PerfHook thermal control is always unavailable.
 fps_supported() {
     printf '%s:%s\n' "$(sys peak_refresh_rate)" "$(sys min_refresh_rate)" |
       /system/bin/grep -Eq '^[0-9]+([.][0-9]+)?:[0-9]+([.][0-9]+)?$'
