@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Integrate pinned ZKOS DEX with EU-style conditional UID cleanup from the
-# pinned RYU method donor. All non-DEX content remains Xiaomi stock.
+# Rebuild PowerKeeper from pinned ZKOS DEX and EU-style conditional RYU UID
+# cleanup only (no RYU PerfHook runtime). All non-DEX content is Xiaomi stock.
 set -euo pipefail
 
 work_dir="$(pwd)"
@@ -44,8 +44,8 @@ python3 "$base_dir/powerkeeper.py" prepare-donor \
 "${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/zk-source.apk" -o "$tmp/zk-raw" >/dev/null
 "${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/tnm-perf-source.apk" -o "$tmp/tnm-raw" >/dev/null
 
-# Restore EU-like guarded UID cleanup (RYU source methods) before adding the
-# isolated passive TNM PerfHook. Other ZKOS GMS/Doze/thermal logic remains intact.
+# Restore EU-style guarded UID cleanup from RYU's donor methods.
+# Do not graft RYU PerfHook classes or onCreate hooks; retain ZKOS power policy.
 python3 "$base_dir/zk_full_powerkeeper_a16.py" \
   --zk-raw "$tmp/zk-raw" --tnm-raw "$tmp/tnm-raw"
 
@@ -77,5 +77,5 @@ cp "$tmp/final-identity.json" "$report_dir/final-identity.json"
 sha256sum "$tmp/final/PowerKeeper.aligned.apk" | awk '{print $1}' > "$report_dir/patched-sha256.txt"
 cp -f "$tmp/final/PowerKeeper.aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "PowerKeeper: EU-style guarded UID kill + existing GMS/Doze/thermal + passive TNM PerfHook; stock APK metadata"
+mods "PowerKeeper: ZKOS GMS/Doze/thermal + guarded RYU UID kill; no RYU PerfHook; stock APK metadata"
 patch "PowerKeeper: no ZKOS donor APK/artifact download required"
