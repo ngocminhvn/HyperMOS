@@ -39,6 +39,11 @@ cleanStuff() {
 
 if [[ $regionTYPE == *"Global"* ]]; then
 
+# Only A15 and A16 have matching replacement APKs. Preserve stock on A17.
+if [[ "$androidVER" != "15" && "$androidVER" != "16" ]]; then
+    mods "MIUI Dialer: no payload for Android $androidVER; skipping without cleanup"
+    exit 0
+fi
 mods "Apply MIUI Dialer to Global ROM..."
 cleanStuff
 
@@ -51,17 +56,7 @@ else
     mods "MIUI Service not found. Continue..."
 fi
 
-if [[ $androidVER == "13" ]];then
-    mods "Copying MIUI Dialer..."
-    cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/A13/* $work_dir/build/baserom/images/product/priv-app/
-    cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/overlay/* $work_dir/build/baserom/images/product/overlay/
-    cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/permissions/* $work_dir/build/baserom/images/product/etc/permissions/
-elif [[ $androidVER == "14" ]];then
-    mods "Copying MIUI Dialer..."
-    cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/A14/* $work_dir/build/baserom/images/product/priv-app/
-    cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/overlay/* $work_dir/build/baserom/images/product/overlay/
-    cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/permissions/* $work_dir/build/baserom/images/product/etc/permissions/
-elif [[ $androidVER == "15" ]];then
+if [[ $androidVER == "15" ]];then
     mods "Copying MIUI Dialer..."
     cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/A15/* $work_dir/build/baserom/images/product/priv-app/
     cp -rf $work_dir/bin/modfile/UpdateFile/Global_MultiverConvert2MiDialer/overlay/* $work_dir/build/baserom/images/product/overlay/

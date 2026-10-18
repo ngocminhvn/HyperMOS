@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Shared emoji installer used by HyperOS and classic MIUI.
+# Emoji-only installer. Keep all text fonts and fonts.xml unchanged.
 # Replace existing extracted ROM emoji, never ThemeManager text fonts.
-source_font="${1:?usage: install-emoji.sh /path/to/Shared/NotoColorEmoji.ttf /path/to/rom/images}"
+source_font="${1:?usage: install-emoji.sh /path/to/NotoColorEmoji.ttf /path/to/rom/images}"
 images_root="${2:?missing extracted ROM images root}"
 
 if [[ ! -s "$source_font" ]]; then

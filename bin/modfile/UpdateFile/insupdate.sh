@@ -8,7 +8,7 @@ mods "Starting Update File..."
 TARGET_DIR="$work_dir/bin/modfile/UpdateFile"
 
 # Only module entrypoints are executed here. Helpers such as
-# Fonts/install-emoji.sh and TNM/tnm-hostsctl.sh must never be run
+# Emoji/install-emoji.sh and TNM/tnm-hostsctl.sh must never be run
 # standalone: their owning update.sh supplies the required arguments
 # and stages them in the correct ROM location.
 mapfile -t scripts < <(find "$TARGET_DIR" -mindepth 2 -type f -name "update.sh" | LC_ALL=C sort)
