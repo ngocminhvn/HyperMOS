@@ -56,12 +56,15 @@ def patch_notification(text: str) -> tuple[str, dict]:
     def clinit(block: str) -> str:
         # CN initializes this unused-by-EU list, EU skips it. Maintain all other
         # collections, dropping only the three-instruction set allocation.
+        # Baksmali separates instructions with blank lines, including around
+        # debug directives. Skip only those lines, never other instructions.
+        spacing = r'(?:[ \t]*\n|[ \t]*\.(?:line|local)\b[^\n]*\n)*'
         allocation = re.compile(
             r'(?m)^[ \t]*new-instance[ \t]+([vp]\d+),[ \t]+Ljava/util/HashSet;[ \t]*\n'
-            r'(?:[ \t]*\.(?:line|local)\b[^\n]*\n)*'
+            + spacing +
             r'[ \t]*invoke-direct[ \t]+\{\1\},[ \t]+'
             r'Ljava/util/HashSet;-><init>\(\)V[ \t]*\n'
-            r'(?:[ \t]*\.(?:line|local)\b[^\n]*\n)*'
+            + spacing +
             r'[ \t]*sput-object[ \t]+\1,[ \t]+'
             r'Lmiui/util/NotificationFilterHelper;->sNotificationCanBeBlockedList:Ljava/util/HashSet;[ \t]*\n'
         )
