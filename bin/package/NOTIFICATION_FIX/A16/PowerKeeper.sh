@@ -9,17 +9,18 @@ image_root="$work_dir/build/baserom/images"
 base_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16"
 apkeditor=(java -jar "$work_dir/bin/apktool/apke.jar")
 zk_dex="$base_dir/classes.dex"
-tnm_dex="$base_dir/tnm-perfhook-source.dex"
+ryu_uid_dex="$base_dir/tnm-perfhook-source.dex"
+# Historical filename is retained solely for its pinned RYU UID method donor.
 tmp="$work_dir/apk_temp/notification-zk-local-dex"
 
-[[ -s "$zk_dex" && -s "$tnm_dex" ]] || {
-  error "PowerKeeper: pinned ZKOS or RYU PerfHook DEX missing"; exit 1;
+[[ -s "$zk_dex" && -s "$ryu_uid_dex" ]] || {
+  error "PowerKeeper: pinned ZKOS or RYU UID-method donor DEX missing"; exit 1;
 }
 [[ "$(git -C "$work_dir" hash-object "$zk_dex")" == f229fb0a5c67d41a55310a119ef64b18a86d6c04 ]] || {
   error "PowerKeeper: ZKOS DEX differs from uploaded pinned source"; exit 1;
 }
-[[ "$(git -C "$work_dir" hash-object "$tnm_dex")" == 1b5a46ea3f9ead44a5467584e15dddd7ba4b0555 ]] || {
-  error "PowerKeeper: RYU PerfHook DEX changed unexpectedly"; exit 1;
+[[ "$(git -C "$work_dir" hash-object "$ryu_uid_dex")" == 1b5a46ea3f9ead44a5467584e15dddd7ba4b0555 ]] || {
+  error "PowerKeeper: pinned RYU UID donor changed unexpectedly"; exit 1;
 }
 
 mapfile -d '' apks < <(find "$image_root" -type f -name PowerKeeper.apk -print0)
@@ -40,14 +41,14 @@ trap 'rm -rf "$tmp"' EXIT
 python3 "$base_dir/powerkeeper.py" prepare-donor \
   --stock-apk "$apk" --dex-file "$zk_dex" --output "$tmp/zk-source.apk"
 python3 "$base_dir/powerkeeper.py" prepare-donor \
-  --stock-apk "$apk" --dex-file "$tnm_dex" --output "$tmp/tnm-perf-source.apk"
+  --stock-apk "$apk" --dex-file "$ryu_uid_dex" --output "$tmp/ryu-uid-source.apk"
 "${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/zk-source.apk" -o "$tmp/zk-raw" >/dev/null
-"${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/tnm-perf-source.apk" -o "$tmp/tnm-raw" >/dev/null
+"${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/ryu-uid-source.apk" -o "$tmp/ryu-uid-raw" >/dev/null
 
 # Restore EU-style guarded UID cleanup from RYU's donor methods.
 # Do not graft RYU PerfHook classes or onCreate hooks; retain ZKOS power policy.
 python3 "$base_dir/zk_full_powerkeeper_a16.py" \
-  --zk-raw "$tmp/zk-raw" --tnm-raw "$tmp/tnm-raw"
+  --zk-raw "$tmp/zk-raw" --ryu-raw "$tmp/ryu-uid-raw"
 
 # APKEditor raw-build can silently preserve old DEX; explicit smali rebuild
 # is required before copying compiled DEX into the verified stock APK.
