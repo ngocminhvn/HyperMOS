@@ -25,9 +25,9 @@ including `DeviceIdleControllerStubImpl`, `BroadcastQueueModernStubImpl`,
 The classic `PolicyManager.CN_MODEL=false` and framework `xBuild`
 substitutions are retained, as originally authored.
 
-Neither `tnm_zk_power_a16.py` nor `tnm_framework_gates_a16.py` is called
-in the active Android 16 build path. Their old source/audit manifests may
-remain in the repository but do not patch the built ROM.
+The obsolete ZKOS/RYU JAR parity, TNM Doze, FCM policy and audited
+compatibility scripts have been deleted from COREPATCH. Their retired flags
+are rejected; the active A16 build only runs the three options above.
 
 ### Explicitly unchanged
 
