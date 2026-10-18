@@ -23,9 +23,11 @@ Normal builds use the existing local ColorOS V3 ZIP and do not fetch updates.
 
 bin/modfile/OS3/kashimod.sh installs App Vault, ColorOS Control Center V3,
 Screenshot, Theme Manager, and Launcher. The Xiaomi SecurityCenter extracted
-from the downloaded base ROM is retained and patched in place: the
-InterceptPermission confirmation count becomes 0 and the ADB input/install
-handler delays become 0 ms.
+from the downloaded base ROM is retained and patched in place: only the
+InterceptPermission confirmation count becomes 0. The ADB input/install
+handler delays stay unchanged from the base ROM, following the observed ZKOS
+behavior. The patch is deliberately limited to the InterceptPermissionFragment
+smali file.
 
 The old HyperOS_Security*.zip remains only as an inactive reference archive.
 It is not read by normal ROM builds.
