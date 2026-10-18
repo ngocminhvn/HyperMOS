@@ -3,7 +3,7 @@
 ## Active build
 
 This build replaces the base ROM's PowerKeeper **classes.dex only** with the
-EXACT classes.dex extracted from the user's uploaded `PowerKeeperEU.apk`
+classes.dex extracted from the user's uploaded `PowerKeeperEU.apk`
 (v4.2.00, versionCode 40200, Android 16). The normal Android package
 `com.miui.powerkeeper`, APK path, manifest, resources, assets, native
 libraries and v1 signature metadata come from the Xiaomi base ROM.
@@ -17,6 +17,31 @@ used only as a **zstd compression dictionary**. Neither RYU runtime classes
 nor RYU performance hook methods are imported. This avoids a second donor
 ROM download. The delta and dictionary Git blobs and resulting EU DEX SHA
 are enforced at build time.
+
+### Selected previous ZKOS adaptations
+
+Exactly seven build flag reads in six **already-ZKOS-patched** methods are
+adjusted in-place, after verifying the exact EU and ZK DEX sources:
+
+- `GmsObserver.<init>` and `updateGoogleSync`: one read each.
+- `DeviceIdleController$1.<init>` and `$2.<init>`: one read each.
+- `DisplayFrameSetting.getValidLocalConfigPath`: two reads.
+- `DisplayFrameSetting.isSupportDevice`: one read.
+
+These correspond to `IS_ZK_BUILD` branches in the supplied ZKOS DEX, which
+were mapped to an enabled TNM build flag in the earlier implementation.
+The EU `IS_INTERNATIONAL_BUILD` reads in these *specific* methods now act
+as true. Other international, cloud, privacy, payment, temperature or device
+property gates remain unmodified, as do RYU UID methods and PerfHook.
+No new DEX classes, hooks, fields, resource overlays or persistent workers.
+
+EU source SHA-256: `ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae`
+
+Scoped EU output SHA-256: `64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1`
+
+The ZK DEX is a **comparison-only** reference, never copied into the APK.
+The patch keeps instruction sizes constant and updates DEX header checksums;
+all other EU method instructions are preserved. Runtime behavior needs testing.
 
 ### What the ROM ships
 
@@ -42,8 +67,8 @@ minSdkVersion 36. Mismatches fail the build instead of blindly importing a
 foreign DEX. The installed non-DEX ZIP members are byte-comparable to the
 Xiaomi base; the final DEX SHA is tested after zipalign.
 
-This is genuine **EU donor DEX**, not “stock-first EU-like policy” and not
-a rebadged ZKOS/RYU DEX. Byte-identical EU PowerKeeper bytecode does NOT
+This is the original **EU donor DEX with seven verified scoped ZK build-gate
+adaptations**, not “stock-first EU-like policy” and not a rebadged ZKOS/RYU DEX. Byte-identical EU PowerKeeper bytecode does NOT
 prove that all ROM framework services are identical to EU or that thermal
 or notification results will improve. Device boot and runtime tests are
 still necessary.

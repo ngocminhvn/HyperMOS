@@ -96,10 +96,12 @@ jobs:
             python3 -m py_compile \
               bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
               bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
+              bin/package/NOTIFICATION_FIX/A16/eu_zk_scoped_gates.py \
               bin/package/COREPATCH/tnm_zk_power_a16.py
             test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/eu-powerkeeper-from-ryu.zst)" = "8176d0aa5bf72c1437d42f70a34e0f412933e846"
             test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex)" = "1b5a46ea3f9ead44a5467584e15dddd7ba4b0555"
-            echo "[OK] - Exact EU donor and dictionary pin checks passed"
+            test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/classes.dex)" = "f229fb0a5c67d41a55310a119ef64b18a86d6c04"
+            echo "[OK] - Exact EU donor and ZK method reference pinned"
           } 2>&1 | tee -a build_action.log
 
       - name: Prepare build environment
@@ -207,8 +209,14 @@ jobs:
             bin/package/NOTIFICATION_FIX/A16/eu-powerkeeper-from-ryu.zst \
             -o "$RUNNER_TEMP/verified-eu-powerkeeper.dex"
           test "$(sha256sum "$RUNNER_TEMP/verified-eu-powerkeeper.dex" | cut -d ' ' -f1)" = "ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae"
-          rm -f "$RUNNER_TEMP/verified-eu-powerkeeper.dex"
-          echo "[OK] - Byte-for-byte EU PowerKeeper DEX verified"
+          python3 bin/package/NOTIFICATION_FIX/A16/eu_zk_scoped_gates.py \
+            --eu "$RUNNER_TEMP/verified-eu-powerkeeper.dex" \
+            --zk-reference bin/package/NOTIFICATION_FIX/A16/classes.dex \
+            --output "$RUNNER_TEMP/verified-eu-scoped.dex" \
+            --report "$RUNNER_TEMP/eu-scoped-gates.json"
+          test "$(sha256sum "$RUNNER_TEMP/verified-eu-scoped.dex" | cut -d ' ' -f1)" = "64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1"
+          rm -f "$RUNNER_TEMP/verified-eu-powerkeeper.dex" "$RUNNER_TEMP/verified-eu-scoped.dex"
+          echo "[OK] - EU DEX verified; seven ZK-matched build gates patched"
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/powerkeeper.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py
           python3 -m py_compile bin/package/COREPATCH/tnm_zk_power_a16.py

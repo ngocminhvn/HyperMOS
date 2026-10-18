@@ -142,7 +142,7 @@ bash $work_dir/bin/package/patchpackage.sh || exit 1
 
 # Preserve the Xiaomi vendor/ODM thermal and performance configuration.
 # No RYU PerfHook/GPU-permission overlay or legacy profile verifier is run.
-info "EU PowerKeeper: exact uploaded EU DEX on verified Xiaomi APK; no RYU PerfHook"
+info "EU PowerKeeper: exact EU donor plus seven ZK-proven build gates; no RYU PerfHook"
 
 find "$work_dir/build/baserom/images/" -exec touch -t 200901010000.00 {} + 2> /dev/null || true
 ok "ROM modification stage completed"

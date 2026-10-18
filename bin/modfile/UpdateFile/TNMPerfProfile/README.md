@@ -1,7 +1,10 @@
 # Retired RYU/TNM thermal and performance profiles
 
-For HAOTIAN Android 16 the PowerKeeper.apk is built by inserting the exact
-uploaded xiaomi.eu PowerKeeper classes.dex into the verified Xiaomi base APK.
+For HAOTIAN Android 16 the PowerKeeper.apk uses the uploaded xiaomi.eu
+PowerKeeper classes.dex as its sole DEX base. Only seven build flag reads
+across GmsObserver, DeviceIdleController and DisplayFrameSetting are rewritten,
+matching methods previously adapted from the ZKOS donor. All other EU
+method bodies remain unchanged.
 No ZKOS PowerKeeper DEX or RYU PerfHook code is imported. The RYU DEX in the
 repo is used *only* as a zstd compression reference to reconstruct EU DEX,
 whose final SHA-256 is independently pinned.
