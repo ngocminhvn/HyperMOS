@@ -50,6 +50,33 @@ Builds now verify the frozen comparison record, not the removed ZK binary.
 The patch keeps instruction sizes constant and updates DEX header checksums;
 all other EU method instructions are preserved. Runtime behavior needs testing.
 
+### GMS Millet protection on Android 16
+
+The build now adds an event-driven exemption for `com.google.android.gms` in
+`Settings.System.MILLET_NO_RESTRICT_APP`. This is **separate from** the seven
+previously audited EU/ZK build-flag gates.
+
+Only two existing `ActiveStateController` methods are adjusted:
+
+- `enable()`: once the controller's successful initialization path completes,
+  append GMS to the existing list only if absent. A failed Settings operation
+  does not prevent the original controller from finishing initialization.
+- `dealNoRestrictApp()`: preserve GMS whenever PowerKeeper already regenerates
+  the list from Xiaomi's no-restrictions policy database. Both the populated-list
+  and empty-list output branches are covered, retaining all other entries.
+
+The build does **not** add a background service, loop, timer, wake lock,
+`ContentObserver`, or an extra trigger for policy changes. This avoids new
+steady-state PowerKeeper CPU work; keeping GMS exempt may still change GMS's
+own background activity.
+
+The previous pinned seven-gate output DEX remains the audited **input** to
+this additional Smali patch, not the final installed DEX hash. Build reports
+record the installed patched DEX SHA separately. The validation requires both
+specified methods to change and checks that original EU
+`KillProcessController` instructions remain unchanged. Final behavior and
+power impact require on-device testing; no runtime verification is implied.
+
 ### EU KillProcessController integrity check
 
 All **23** executable `Lcom/miui/powerkeeper/controller/KillProcessController;`
