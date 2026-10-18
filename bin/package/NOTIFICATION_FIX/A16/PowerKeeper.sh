@@ -1,82 +1,66 @@
 #!/usr/bin/env bash
-# Rebuild PowerKeeper from pinned ZKOS DEX and EU-style conditional RYU UID
-# cleanup only (no RYU PerfHook runtime). All non-DEX content is Xiaomi stock.
+# HAOTIAN Android 16: preserve the signed Xiaomi PowerKeeper from the base ROM.
+# EU-like conservative policy: no ZKOS DEX, RYU UID-method or PerfHook injection.
+# Modifications to framework notification behavior remain separate from this APK.
 set -euo pipefail
 
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
 image_root="$work_dir/build/baserom/images"
 base_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16"
-apkeditor=(java -jar "$work_dir/bin/apktool/apke.jar")
-zk_dex="$base_dir/classes.dex"
-ryu_uid_dex="$base_dir/tnm-perfhook-source.dex"
-# Historical filename is retained solely for its pinned RYU UID method donor.
-tmp="$work_dir/apk_temp/notification-zk-local-dex"
-
-[[ -s "$zk_dex" && -s "$ryu_uid_dex" ]] || {
-  error "PowerKeeper: pinned ZKOS or RYU UID-method donor DEX missing"; exit 1;
-}
-[[ "$(git -C "$work_dir" hash-object "$zk_dex")" == f229fb0a5c67d41a55310a119ef64b18a86d6c04 ]] || {
-  error "PowerKeeper: ZKOS DEX differs from uploaded pinned source"; exit 1;
-}
-[[ "$(git -C "$work_dir" hash-object "$ryu_uid_dex")" == 1b5a46ea3f9ead44a5467584e15dddd7ba4b0555 ]] || {
-  error "PowerKeeper: pinned RYU UID donor changed unexpectedly"; exit 1;
-}
+report_dir="$work_dir/build/reports/powerkeeper-a16"
 
 mapfile -d '' apks < <(find "$image_root" -type f -name PowerKeeper.apk -print0)
 (( ${#apks[@]} == 1 )) || {
-  error "PowerKeeper: exactly one Xiaomi stock PowerKeeper.apk required"; exit 1;
+  error "PowerKeeper: expected exactly one stock Xiaomi PowerKeeper.apk"; exit 1;
 }
 apk="${apks[0]}"
+[[ -s "$apk" ]] || { error "PowerKeeper: base APK is empty"; exit 1; }
+mkdir -p "$report_dir"
+
+before="$(sha256sum "$apk" | cut -d ' ' -f1)"
+# Require a cryptographically valid, original Xiaomi-signed APK. The previous
+# DEX replacement preserved certificate *files* but invalidated the signature.
 python3 "$base_dir/preserve_powerkeeper_identity.py" \
   --check-base --apk "$apk" --reference "$apk" \
-  --apksigner "$work_dir/bin/apktool/apksigner.jar"
+  --apksigner "$work_dir/bin/apktool/apksigner.jar" \
+  --report "$report_dir/stock-identity.json"
+after="$(sha256sum "$apk" | cut -d ' ' -f1)"
+[[ "$before" == "$after" ]] || {
+  error "PowerKeeper: APK changed during stock verification"; exit 1;
+}
 
-rm -rf "$tmp"
-mkdir -p "$tmp/final"
-trap 'rm -rf "$tmp"' EXIT
+python3 - "$apk" "$report_dir/stock-identity.json" <<'PYSTOCK'
+import json
+import re
+import sys
+import zipfile
+from pathlib import Path
 
-# Wrap each checked-in DEX with stock manifest/resources solely for decoding.
-# Neither temporary wrapper is installed into the final ROM.
-python3 "$base_dir/powerkeeper.py" prepare-donor \
-  --stock-apk "$apk" --dex-file "$zk_dex" --output "$tmp/zk-source.apk"
-python3 "$base_dir/powerkeeper.py" prepare-donor \
-  --stock-apk "$apk" --dex-file "$ryu_uid_dex" --output "$tmp/ryu-uid-source.apk"
-"${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/zk-source.apk" -o "$tmp/zk-raw" >/dev/null
-"${apkeditor[@]}" d -t raw -f -no-dex-debug -i "$tmp/ryu-uid-source.apk" -o "$tmp/ryu-uid-raw" >/dev/null
+apk = Path(sys.argv[1])
+report = Path(sys.argv[2])
+with zipfile.ZipFile(apk) as src:
+    if len(src.namelist()) != len(set(src.namelist())) or src.testzip():
+        raise SystemExit("PowerKeeper: invalid stock APK ZIP")
+    dex = [name for name in src.namelist()
+           if re.fullmatch(r"classes(?:[2-9]|[1-9]\d+)?\.dex", name)]
+    if not dex:
+        raise SystemExit("PowerKeeper: stock APK has no DEX")
+data = json.loads(report.read_text(encoding="utf-8"))
+data.update({
+    "policy": "xiaomi_stock_eu_like",
+    "dex_replaced": False,
+    "apk_modified": False,
+    "ryu_perfhook_imported": False,
+    "zkos_dex_imported": False,
+    "conditional_uid_policy": "unaltered_base_rom",
+    "dex_entries": dex,
+    "note": "EU-inspired stock-first integration, not verified byte-for-byte EU parity",
+})
+report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print("[POWERKEEPER] Verified original Xiaomi APK; no DEX replacement")
+PYSTOCK
 
-# Restore EU-style guarded UID cleanup from RYU's donor methods.
-# Do not graft RYU PerfHook classes or onCreate hooks; retain ZKOS power policy.
-python3 "$base_dir/zk_full_powerkeeper_a16.py" \
-  --zk-raw "$tmp/zk-raw" --ryu-raw "$tmp/ryu-uid-raw"
-
-# APKEditor raw-build can silently preserve old DEX; explicit smali rebuild
-# is required before copying compiled DEX into the verified stock APK.
-"${apkeditor[@]}" b -t raw -f -i "$tmp/zk-raw" -o "$tmp/final/PowerKeeper.dex.apk" >/dev/null
-python3 "$base_dir/rebuild_powerkeeper_dex.py" \
-  --decoded "$tmp/zk-raw" --apk "$tmp/final/PowerKeeper.dex.apk" \
-  --smali-jar "$work_dir/bin/apktool/smaliv2.jar" --api 36
-
-# Preserve Xiaomi's exact manifest/resources/assets/JNI and original META-INF.
-# The modified DEX has no authentic Xiaomi cryptographic signature; the
-# existing ROM signature-policy path remains independent of this port.
-python3 "$base_dir/preserve_powerkeeper_identity.py" \
-  --base "$apk" --patched "$tmp/final/PowerKeeper.dex.apk" \
-  --reference "$apk" --apksigner "$work_dir/bin/apktool/apksigner.jar" \
-  --apk "$tmp/final/PowerKeeper.preserved.apk" --report "$tmp/certificate-identity.json"
-command -v zipalign >/dev/null || { error "PowerKeeper: zipalign missing"; exit 1; }
-zipalign -p -f 4 "$tmp/final/PowerKeeper.preserved.apk" "$tmp/final/PowerKeeper.aligned.apk"
-zipalign -c -p 4 "$tmp/final/PowerKeeper.aligned.apk"
-python3 "$base_dir/preserve_powerkeeper_identity.py" \
-  --apk "$tmp/final/PowerKeeper.aligned.apk" --reference "$apk" \
-  --report "$tmp/final-identity.json"
-
-report_dir="$work_dir/build/reports/powerkeeper-a16"
-mkdir -p "$report_dir"
-cp "$tmp/certificate-identity.json" "$report_dir/certificate-identity.json"
-cp "$tmp/final-identity.json" "$report_dir/final-identity.json"
-sha256sum "$tmp/final/PowerKeeper.aligned.apk" | awk '{print $1}' > "$report_dir/patched-sha256.txt"
-cp -f "$tmp/final/PowerKeeper.aligned.apk" "$apk"
-rm -rf "$(dirname "$apk")/oat"
-mods "PowerKeeper: ZKOS GMS/Doze/thermal + guarded RYU UID kill; no RYU PerfHook; stock APK metadata"
-patch "PowerKeeper: no ZKOS donor APK/artifact download required"
+printf '%s\n' "$after" > "$report_dir/stock-sha256.txt"
+mods "PowerKeeper: verified Xiaomi stock APK (EU-like stock policy); no ZKOS/RYU DEX or PerfHook"
+patch "PowerKeeper: original signature and ROM thermal/Doze/kill policy preserved"

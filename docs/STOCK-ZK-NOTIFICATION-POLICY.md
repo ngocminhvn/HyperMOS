@@ -1,3 +1,11 @@
+> **Historical reference (superseded on main).** The ZKOS+RYU mixed
+> PowerKeeper DEX workflow described below is retired. Android 16 builds now
+> keep the verified Xiaomi-signed PowerKeeper.apk unchanged, with no DEX
+> transplant or fake-preserved signature. See
+> [POWERKEEPER-EU-STYLE-STOCK.md](POWERKEEPER-EU-STYLE-STOCK.md).
+>
+> The details below describe the previous implementation, not the active build.
+
 # HAOTIAN mixed PowerKeeper policy: guarded UID cleanup + preserved GMS / thermal (Android 16)
 
 ## Actual donor evidence

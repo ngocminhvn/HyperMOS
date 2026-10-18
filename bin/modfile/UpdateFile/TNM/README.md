@@ -27,7 +27,7 @@ vì `insupdate.sh` quét các file `*.sh` trong thư mục UpdateFile.
 ## TNMFramework v1 - TNM experimental ROM
 
 An on-demand root-only adapter at `/system_ext/bin/tnm-frameworkctl` reads
-ZKOS PowerKeeper and Android services; it is not a daemon or Binder service.
+stock Xiaomi PowerKeeper and Android services; it is not a daemon or Binder service.
 The independent `tnm-cpuctl` handles CPU limits only when requested.
 RYU PerfHook has been retired entirely, so its thermal/global/per-app game
 profile commands are unsupported and never execute even if an old helper

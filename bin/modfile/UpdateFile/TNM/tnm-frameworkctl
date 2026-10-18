@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# TNMFramework v1: on-demand Xiaomi/ZKOS power status and independent CPU control.
+# TNMFramework v1: on-demand Xiaomi stock PowerKeeper status and independent CPU control.
 # Root-only; never starts a daemon or disables hardware thermal protection.
 set -eu
 umask 077
@@ -43,7 +43,7 @@ display() {
 status() {
     echo tnm_framework=1
     echo protocol=1
-    echo backend=zkos_powerkeeper_no_ryu_perfhook
+    echo backend=xiaomi_stock_powerkeeper_no_perfhook
     if [ -x "$CPU_CTL" ]; then "$CPU_CTL" status; else echo cpu_percent=unsupported; fi
     echo daemon=none
     if tnm; then echo thermal_control=available; else echo thermal_control=unsupported; fi

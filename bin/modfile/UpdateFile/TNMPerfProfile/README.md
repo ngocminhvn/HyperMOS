@@ -1,14 +1,15 @@
 # Retired RYU/TNM thermal and performance profiles
 
-For HAOTIAN Android 16, PowerKeeper uses the pinned adapted ZKOS DEX and
-Xiaomi base CPU/powerhint/vendor/ODM thermal profiles without RYU PerfHook.
-`update.sh` is intentionally a no-op aside from build logging.
-No RYU per-app thermal import, KGSL permission overlay, PerfHook initializer,
-worker, observer or root control service is staged.
+For HAOTIAN Android 16, the build retains the **original Xiaomi-signed
+PowerKeeper.apk from the base ROM**. Its DEX, manifest, assets, signature,
+thermal and battery controls are not replaced with ZKOS, RYU or EU donor APKs.
+This is stock-first and EU-like in policy intent, **not** exact EU DEX parity.
 
-The standalone TNM CPU percentage control remains independent of RYU PerfHook.
-The RYU pinned donor DEX is still used solely for the guarded UID kill method
-and policy checker; its performance classes are **never** copied into the APK.
+`update.sh` is intentionally a no-op aside from build logging. No RYU
+per-app thermal profile, KGSL permission overlay, PerfHook initializer,
+observer, daemon or root control service is staged.
 
-This code-level change does not establish lower real-device temperatures:
-compare equivalent usage conditions with the previous ROM.
+The independent TNM CPU-percentage control remains on-demand and separate.
+GMS/notification framework modifications outside PowerKeeper are not changed
+by this migration. Runtime notification and standby-drain tests are required
+before claiming any battery or thermal improvement.
