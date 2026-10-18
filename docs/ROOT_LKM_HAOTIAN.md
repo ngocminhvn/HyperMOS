@@ -38,13 +38,13 @@ refuses to package an empty, unchanged, or unreadable image.
 ## Manager APK — no automatic installation or boot-time checks
 
 The manager is pinned to the official SukiSU Ultra v4.2.1 release and
-packaged as `RootManager.apk` at the root of the ROM ZIP.
+packaged as `Root/RootManager.apk` inside the ROM ZIP.
 The installer deliberately does **not** run at startup. There is no
 `sys.boot_completed` trigger, `/data/adb` hook, package query, APK install
 attempt, background service, or automatic reinstall after removal.
 
 To install it as an ordinary user app after flashing the rooted ROM,
-extract `RootManager.apk` from the ROM ZIP and run:
+extract `Root/RootManager.apk` from the ROM ZIP to your current directory and run:
 
 ```sh
 adb install -r RootManager.apk
@@ -56,11 +56,19 @@ the SukiSU kernel/root provider remains integrated in patched `init_boot.img`
 independently of the APK's installation status.
 ## ZIP output and recovery
 
-Root ZIPs end in `_SUKISU.zip`; stock ZIP names are unchanged. A root ZIP contains:
-- `images/init_boot.img` — SukiSU-patched init_boot;
-- `RootBackup/init_boot.stock.img` — original firmware init_boot;
-- `RootManager.apk` — official SukiSU v4.2.1 APK for manual user-app installation;
-- `ROOT-INFO.txt` — KMI, upstream commit, manager name and hashes.
+Root ZIPs end in `_SUKISU.zip`; stock ZIP names are unchanged. A rooted
+ROM ZIP has these top-level entries:
+- `FLASH.bat` — Windows fastboot script (does not use legacy `.install` metadata);
+- `Root/` — contains `init_boot.stock.img` (original firmware backup),
+  `ROOT-INFO.txt` (root build metadata), and `RootManager.apk` (official SukiSU
+  v4.2.1 manager for manual installation as a user app);
+- `images/` — includes SukiSU-patched `init_boot.img` and other firmware images;
+- `META-INF/` — bundled flash tools/metadata;
+- `super/` — contains `super.img`.
+
+The legacy `HAOTIAN.install` file is not generated or included. The old
+`RootBackup/` directory and loose `RootManager.apk` / `ROOT-INFO.txt`
+at the ZIP root are not included.
 
 This integration does **not** include SUSFS, a custom GKI kernel replacement,
 KPM, changed bootloader state, or app/identity spoofing.
