@@ -1,6 +1,0 @@
-# HyperMOS SukiSU Ultra v4.2.1 manager: user-app installation.
-# Invoke PackageManager only when Android reports boot complete.
-# Running as the stock shell UID/SELinux domain avoids early /data/adb access.
-# This is a one-shot action per boot, not a persistent background service.
-on property:sys.boot_completed=1
-    exec_background - shell shell -- /system/bin/sh /system_ext/etc/hypermos-root/install-user-manager.sh
