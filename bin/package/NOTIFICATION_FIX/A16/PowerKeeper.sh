@@ -52,14 +52,13 @@ eu_hash="$(sha256sum "$tmp/classes.dex" | cut -d ' ' -f1)"
   error "PowerKeeper: restored EU DEX checksum mismatch"; exit 1;
 }
 
-# Port only seven original ZKOS-matched build flag decisions into EU DEX.
-# No RYU methods, ZK classes, thermal changes or broad international spoof.
-zk_source="$base_dir/classes.dex"
-[[ "$(git -C "$work_dir" hash-object "$zk_source")" == "f229fb0a5c67d41a55310a119ef64b18a86d6c04" ]] || {
-  error "PowerKeeper: ZK reference DEX changed unexpectedly"; exit 1;
-}
+# Apply the same seven previously audited gates without carrying ZKOS DEX.
+# Six method identities, EU/ZK gate counts and SHA pins live in a small JSON
+# manifest. Exact EU input and resulting DEX hashes are both verified.
+gate_manifest="$base_dir/zk_gate_reference_a16.json"
+[[ -s "$gate_manifest" ]] || { error "PowerKeeper: gate audit manifest missing"; exit 1; }
 python3 "$base_dir/eu_zk_scoped_gates.py" \
-  --eu "$tmp/classes.dex" --zk-reference "$zk_source" \
+  --eu "$tmp/classes.dex" --gate-manifest "$gate_manifest" \
   --output "$tmp/eu-scoped.dex" --report "$report_dir/eu-scoped-gates.json"
 scoped_hash="$(sha256sum "$tmp/eu-scoped.dex" | cut -d ' ' -f1)"
 [[ "$scoped_hash" == "64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1" ]] || {
@@ -97,7 +96,8 @@ report = {
     "base_apk_sha256": base_sha,
     "eu_source_dex_sha256": eu_source_sha,
     "eu_scoped_dex_sha256": expected_dex_sha,
-    "zk_verified_gate_changes_only": 7,
+    "historically_zk_verified_gate_changes_only": 7,
+    "zk_reference_dex_required_at_build": False,
     "other_eu_methods_untouched": True,
     "device_properties_or_thermal_rewritten": False,
     "final_apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
@@ -115,5 +115,5 @@ PYEU
 
 cp -f "$tmp/PowerKeeper.aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "PowerKeeper: EU DEX + seven ZK-referenced gates, no RYU PerfHook"
+mods "PowerKeeper: EU DEX + seven audited scoped gates (manifest, no ZK binary), no RYU PerfHook"
 patch "PowerKeeper: stock non-DEX + v1 metadata preserved; changed DEX has invalid original cryptographic signature"

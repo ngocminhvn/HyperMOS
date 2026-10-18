@@ -46,3 +46,18 @@ miui-services.jar notification classes. PowerInsightPolicy is not changed.
 The current EU PowerKeeper DEX, scoped gates, thermal configuration and
 TNM CPU controller are left untouched. A full ROM build and physical
 HAOTIAN idle/notificaton tests are still required to establish runtime parity.
+
+## Compact ZKOS gate evidence (PowerKeeper)
+
+The PowerKeeper EU build no longer requires an uploaded ZKOS `classes.dex`.
+Its six originally compared methods and seven gate counts, the removed
+ZK Git blob ID, EU source/output SHA-256 and KillProcessController fingerprint
+are pinned in `bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
+`eu_zk_scoped_gates.py` now verifies this manifest, patches EU source only,
+then checks exact output bytes with the audited SHA-256. The older donor
+remains recoverable from Git history, not from the current checkout.
+
+The independent `tnm-perfhook-source.dex` is still required as a **compression
+reference** for reconstructing EU PowerKeeper from `eu-powerkeeper-from-ryu.zst`;
+it is not a runtime PerfHook import and must not be deleted as part of this
+cleanup.

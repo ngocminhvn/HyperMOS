@@ -2,8 +2,9 @@
 """Port ONLY selected, previously-identified ZK build-boolean gates into EU DEX.
 
 No class/method/resource injection; never touches thermal, perf, UID kill or
-private build labels. Explicit input pin + exact method signatures + ZK parity
-check; replace sget-boolean vA, IS_INTERNATIONAL_BUILD with const/4 vA, 1; nop.
+private build labels. Frozen original-ZK audit manifest + exact EU input/output
+SHA-256 pins replace the runtime ZK DEX dependency. Gate bytecode remains
+identical: sget-boolean vA, IS_INTERNATIONAL_BUILD -> const/4 vA, 1; nop.
 A DEX code-unit size is preserved; branch/try offsets remain unchanged.
 """
 import argparse
@@ -16,7 +17,7 @@ from pathlib import Path
 
 EU_SHA = 'ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae'
 EU_FIELD = ('Lmiui/os/Build;', 'IS_INTERNATIONAL_BUILD', 'Z')
-ZK_FIELD = ('Lmiui/zk/Build;', 'IS_ZK_BUILD', 'Z')
+ZK_AUDIT_BLOB_SHA = 'f229fb0a5c67d41a55310a119ef64b18a86d6c04'
 # Only the gates ZK previously changed that directly affect Google sync,
 # Doze callbacks or the display local config. DO NOT apply other 38+ EU reads.
 ALLOW = {
@@ -163,16 +164,37 @@ def verify_eu_killprocess_unchanged(source: Dex, patched: Dex) -> dict:
     }
 
 
-def port(eu, zk):
-    if sha(eu) != EU_SHA:
+def load_gate_reference(path: Path) -> dict:
+    """Validate the frozen audit record; do not need the 4 MB donor DEX."""
+    reference = json.loads(path.read_text(encoding='utf-8'))
+    expected_methods = [
+        {'class': key[0], 'method': key[1], 'prototype': key[2],
+         'eu_reads': count, 'previously_verified_zk_reads': count}
+        for key, count in ALLOW.items()
+    ]
+    provenance = reference.get('zk_dex_reference', {})
+    if (reference.get('schema_version') != 1
+            or provenance.get('git_blob_sha1') != ZK_AUDIT_BLOB_SHA
+            or provenance.get('source_field') != 'Lmiui/zk/Build;->IS_ZK_BUILD:Z'
+            or reference.get('eu_dex_sha256') != EU_SHA
+            or reference.get('scoped_eu_dex_sha256') != '64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1'
+            or reference.get('unchanged_eu_killprocess_sha256') != 'e4a1804e1e715fa9ab07e1d5cd5916c041a58d2e71b5677c4d85358027515f1f'
+            or reference.get('gate_method_total') != len(ALLOW)
+            or reference.get('gate_read_total') != sum(ALLOW.values())
+            or reference.get('gate_methods') != expected_methods):
+        raise ValueError('Frozen ZKOS gate audit manifest changed or is incomplete')
+    return reference
+
+
+def port(eu, reference: dict):
+    if sha(eu) != EU_SHA or sha(eu) != reference['eu_dex_sha256']:
         raise ValueError('EU DEX SHA-256 mismatch; donor not previously audited')
-    a, b = Dex(eu), Dex(zk)
+    a = Dex(eu)
     edits = []
     for key, count in ALLOW.items():
         hits = a.gate_hits(key, EU_FIELD)
-        zk_hits = b.gate_hits(key, ZK_FIELD)
-        if len(hits) != count or len(zk_hits) != count:
-            raise ValueError(f'{key}: expected {count} EU/ZK matching gates, got EU={len(hits)} ZK={len(zk_hits)}')
+        if len(hits) != count:
+            raise ValueError(f'{key}: expected {count} audited EU gates, got EU={len(hits)}')
         if any(reg > 15 for _, reg in hits):
             raise ValueError(f'{key}: gate register exceeds const/4 range')
         edits.extend((key, off, reg) for off, reg in hits)
@@ -188,6 +210,8 @@ def port(eu, zk):
     final = bytes(dest)
     check = Dex(final)
     kill_parity = verify_eu_killprocess_unchanged(a, check)
+    if kill_parity['eu_killprocess_instructions_sha256'] != reference['unchanged_eu_killprocess_sha256']:
+        raise ValueError('Original EU KillProcessController fingerprint differs from frozen audit')
     for key, count in ALLOW.items():
         if check.gate_hits(key, EU_FIELD):
             raise ValueError('An allowed EU gate was not patched: ' + repr(key))
@@ -195,9 +219,13 @@ def port(eu, zk):
     actual = {i for i, (x, y) in enumerate(zip(eu, final)) if x != y}
     if not actual <= expected:
         raise ValueError('EU DEX changed outside whitelist and DEX header')
+    if sha(final) != reference['scoped_eu_dex_sha256']:
+        raise ValueError('Scoped EU DEX no longer matches audited output SHA-256')
     return final, {
         'source': 'exact_EU_DEX', 'source_sha256': sha(eu),
-        'output_sha256': sha(final), 'gate_policy': 'ZKOS_proven_selected_GMS_Doze_Display_only',
+        'output_sha256': sha(final), 'gate_policy': 'frozen_ZKOS_audit_GMS_Doze_Display_only',
+        'zk_gate_audit_git_blob_sha1': ZK_AUDIT_BLOB_SHA,
+        'zk_dex_required_at_build': False,
         'changed_methods': [{ 'class':k[0], 'name':k[1], 'prototype':k[2], 'count':sum(t[0] == k for t in edits)} for k in ALLOW],
         'changed_gates': len(edits), 'total_EU_methods_preserved': len(a.codes),
         'unrelated_EU_methods_untouched': True,
@@ -211,21 +239,22 @@ def port(eu, zk):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--eu', required=True, type=Path)
-    p.add_argument('--zk-reference', required=True, type=Path)
+    p.add_argument('--gate-manifest', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
     p.add_argument('--report', type=Path)
     args = p.parse_args()
-    output, report = port(args.eu.read_bytes(), args.zk_reference.read_bytes())
+    reference = load_gate_reference(args.gate_manifest)
+    output, report = port(args.eu.read_bytes(), reference)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(output)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + '\n')
-    print('[POWERKEEPER EU/ZK SCOPED] ' + json.dumps(report))
+    print('[POWERKEEPER EU/SCOPED GATES] ' + json.dumps(report))
 
 if __name__ == '__main__':
     try:
         main()
-    except (OSError, ValueError, struct.error, IndexError) as exc:
-        print('[POWERKEEPER EU/ZK SCOPED] FAIL: ' + str(exc), file=sys.stderr)
+    except (OSError, ValueError, json.JSONDecodeError, KeyError, TypeError, struct.error, IndexError) as exc:
+        print('[POWERKEEPER EU/SCOPED GATES] FAIL: ' + str(exc), file=sys.stderr)
         raise SystemExit(1)
