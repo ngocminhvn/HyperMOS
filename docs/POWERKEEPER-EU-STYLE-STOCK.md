@@ -1,49 +1,49 @@
-# HAOTIAN Android 16 PowerKeeper: EU-like, stock-first integration
+# HAOTIAN Android 16 PowerKeeper: real EU DEX on Xiaomi original APK
 
-## Active build policy
+## Active build
 
-The base ROM's PowerKeeper.apk is retained byte-for-byte after Android
-apksigner verification against the original Xiaomi certificate. No DEX donor
-is injected. This is the conservative way to approach the original Xiaomi/EU
-behavior without silently grafting an APK built for a different ROM release.
+This build replaces the base ROM's PowerKeeper **classes.dex only** with the
+EXACT classes.dex extracted from the user's uploaded `PowerKeeperEU.apk`
+(v4.2.00, versionCode 40200, Android 16). The normal Android package
+`com.miui.powerkeeper`, APK path, manifest, resources, assets, native
+libraries and v1 signature metadata come from the Xiaomi base ROM.
 
-The previous pipeline reconstructed ZKOS DEX, grafted two conditional UID
-methods from RYU, restored an interface ABI and added a GMS-specific helper.
-That could diverge from EU and invalidated the authentic APK signature even
-when original v1 certificate metadata was copied. It is now disabled.
+EU classes.dex SHA-256:
+`ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae`
 
-## Preserved or removed
+EU DEX is reconstructed byte-for-byte offline from the pinned
+`eu-powerkeeper-from-ryu.zst` binary delta. The existing pinned RYU DEX is
+used only as a **zstd compression dictionary**. Neither RYU runtime classes
+nor RYU performance hook methods are imported. This avoids a second donor
+ROM download. The delta and dictionary Git blobs and resulting EU DEX SHA
+are enforced at build time.
 
-| Area | Active policy |
-| --- | --- |
-| KillProcessController, GmsObserver, ActiveStateController | Base Xiaomi bytecode untouched |
-| DeviceIdle / AppStandby / background rules | Base Xiaomi bytecode untouched |
-| ThermalManager, temp_state, performance | Base Xiaomi bytecode and vendor/ODM configs untouched |
-| DisplayFrameSetting / FPS | Base Xiaomi bytecode untouched |
-| RYU/TNM PerfHook | Not imported |
-| ZKOS SettingsHelper / build gate | Not imported |
-| RYU policy methods and GMS-only kill helper | Not imported |
-| Xiaomi APK cryptographic signature | Verified and retained; no APK rebuild |
-| Separate framework notification patches/GMS sysconfig | Unchanged by this PowerKeeper migration |
-| TNM on-demand CPU percent control | Remains independent of PowerKeeper |
+### What the ROM ships
 
-## EU comparison and limitations
+- Real EU PowerKeeper DEX, including EU `KillProcessController`,
+  `GmsObserver`, `ActiveStateController`, DeviceIdle and thermal controllers.
+- Xiaomi original non-DEX APK entries and corresponding resources/configs.
+- No `PerfHook`, extra RYU workers, or ZKOS `SettingsHelper`.
+- Independent TNM CPU-percent functionality unchanged.
+- Separate HyperMOS framework/JAR notification patches unchanged.
 
-In the supplied EU/RYU reference APKs, 18,281 common DEX methods had
-equivalent normalized instructions and 51 differed; the selected
-KillProcessController/ActiveStateController/DeviceIdleController methods
-were equivalent. The EU and ZKOS APKs differ much more across versions.
-That evidence supports using conservative Xiaomi behavior, but does not
-establish byte-for-byte EU parity for the base OS3.0.308.0 ROM.
+### Signature and compatibility
 
-Since the base APK is not modified, no Xiaomi signature bypass is required
-for the PowerKeeper APK itself. Separate signature-policy changes elsewhere
-in HyperMOS are not affected by this migration.
+Replacing DEX **invalidates the Xiaomi cryptographic APK signature**.
+The build preserves Xiaomi's existing certificate files (`META-INF`),
+which is NOT equivalent to a valid Xiaomi cryptographic signature.
+Installation depends on the ROM's existing compatible signature policy.
+The signature preservation report deliberately records
+`cryptographic_signature_valid: false`. An original APK's authentic
+signature is verified *before* modification.
 
-At build time the script requires exactly one PowerKeeper.apk, checks its
-Xiaomi certificate and valid APK signature using apksigner, confirms a
-nonempty DEX inventory, writes a stock-identity JSON report, and verifies
-the APK SHA-256 has not changed. It intentionally makes no smali edits.
+The source must be `com.miui.powerkeeper`, versionCode 40200,
+minSdkVersion 36. Mismatches fail the build instead of blindly importing a
+foreign DEX. The installed non-DEX ZIP members are byte-comparable to the
+Xiaomi base; the final DEX SHA is tested after zipalign.
 
-The change requires a complete ROM build and device tests before drawing
-conclusions about standby drain, temperature or notification latency.
+This is genuine **EU donor DEX**, not “stock-first EU-like policy” and not
+a rebadged ZKOS/RYU DEX. Byte-identical EU PowerKeeper bytecode does NOT
+prove that all ROM framework services are identical to EU or that thermal
+or notification results will improve. Device boot and runtime tests are
+still necessary.

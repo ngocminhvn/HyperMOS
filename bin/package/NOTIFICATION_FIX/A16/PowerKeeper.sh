@@ -1,66 +1,101 @@
 #!/usr/bin/env bash
-# HAOTIAN Android 16: preserve the signed Xiaomi PowerKeeper from the base ROM.
-# EU-like conservative policy: no ZKOS DEX, RYU UID-method or PerfHook injection.
-# Modifications to framework notification behavior remain separate from this APK.
+# HAOTIAN Android 16: install the exact uploaded EU DEX on Xiaomi's stock APK.
+# Original manifest/resources/assets/JNI and META-INF are preserved.
+# NOTE: changing DEX invalidates the Xiaomi cryptographic APK signature.
 set -euo pipefail
-
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
 image_root="$work_dir/build/baserom/images"
 base_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16"
 report_dir="$work_dir/build/reports/powerkeeper-a16"
+tmp="$work_dir/apk_temp/powerkeeper-eu-dex"
+delta="$base_dir/eu-powerkeeper-from-ryu.zst"
+reference="$base_dir/tnm-perfhook-source.dex"
+
+[[ -s "$delta" && -s "$reference" ]] || { error "PowerKeeper: EU patch/reference missing"; exit 1; }
+[[ "$(git -C "$work_dir" hash-object "$delta")" == "8176d0aa5bf72c1437d42f70a34e0f412933e846" ]] || {
+  error "PowerKeeper: EU delta source mismatch"; exit 1;
+}
+[[ "$(git -C "$work_dir" hash-object "$reference")" == "1b5a46ea3f9ead44a5467584e15dddd7ba4b0555" ]] || {
+  error "PowerKeeper: compressed-EU reference source mismatch"; exit 1;
+}
+command -v zstd >/dev/null || { error "PowerKeeper: missing zstd"; exit 1; }
+command -v zipalign >/dev/null || { error "PowerKeeper: missing zipalign"; exit 1; }
+command -v aapt >/dev/null || { error "PowerKeeper: missing aapt"; exit 1; }
 
 mapfile -d '' apks < <(find "$image_root" -type f -name PowerKeeper.apk -print0)
-(( ${#apks[@]} == 1 )) || {
-  error "PowerKeeper: expected exactly one stock Xiaomi PowerKeeper.apk"; exit 1;
-}
+(( ${#apks[@]} == 1 )) || { error "PowerKeeper: exactly one stock Xiaomi APK required"; exit 1; }
 apk="${apks[0]}"
-[[ -s "$apk" ]] || { error "PowerKeeper: base APK is empty"; exit 1; }
-mkdir -p "$report_dir"
+[[ -s "$apk" ]] || { error "PowerKeeper: empty base APK"; exit 1; }
+badging="$(aapt dump badging "$apk")"
+grep -Fq "package: name='com.miui.powerkeeper' versionCode='40200'" <<< "$badging" || {
+  error "PowerKeeper: base APK must match EU v4.2.00 package and versionCode"; exit 1;
+}
+grep -Fq "sdkVersion:'36'" <<< "$badging" || {
+  error "PowerKeeper: base APK is not Android 16"; exit 1;
+}
 
-before="$(sha256sum "$apk" | cut -d ' ' -f1)"
-# Require a cryptographically valid, original Xiaomi-signed APK. The previous
-# DEX replacement preserved certificate *files* but invalidated the signature.
+rm -rf "$tmp"
+mkdir -p "$tmp" "$report_dir"
+trap 'rm -rf "$tmp"' EXIT
+base_hash="$(sha256sum "$apk" | cut -d ' ' -f1)"
 python3 "$base_dir/preserve_powerkeeper_identity.py" \
   --check-base --apk "$apk" --reference "$apk" \
   --apksigner "$work_dir/bin/apktool/apksigner.jar" \
   --report "$report_dir/stock-identity.json"
-after="$(sha256sum "$apk" | cut -d ' ' -f1)"
-[[ "$before" == "$after" ]] || {
-  error "PowerKeeper: APK changed during stock verification"; exit 1;
+
+# Compression reference is the historical RYU source DEX, used ONLY as a
+# zstd dictionary. Restored output is exactly the uploaded EU DEX, not RYU.
+zstd -d -f -q --patch-from="$reference" "$delta" -o "$tmp/classes.dex"
+eu_hash="$(sha256sum "$tmp/classes.dex" | cut -d ' ' -f1)"
+[[ "$eu_hash" == "ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae" ]] || {
+  error "PowerKeeper: restored EU DEX checksum mismatch"; exit 1;
 }
 
-python3 - "$apk" "$report_dir/stock-identity.json" <<'PYSTOCK'
-import json
-import re
-import sys
-import zipfile
-from pathlib import Path
+# Build a temporary source wrapper, then transplant only classes.dex.
+python3 "$base_dir/powerkeeper.py" prepare-donor \
+  --stock-apk "$apk" --dex-file "$tmp/classes.dex" --output "$tmp/eu-wrapper.apk"
+python3 "$base_dir/preserve_powerkeeper_identity.py" \
+  --base "$apk" --patched "$tmp/eu-wrapper.apk" \
+  --reference "$apk" --apksigner "$work_dir/bin/apktool/apksigner.jar" \
+  --apk "$tmp/PowerKeeper.preserved.apk" \
+  --report "$report_dir/eu-preserved-metadata.json"
 
+zipalign -p -f 4 "$tmp/PowerKeeper.preserved.apk" "$tmp/PowerKeeper.aligned.apk"
+zipalign -c -p 4 "$tmp/PowerKeeper.aligned.apk"
+python3 "$base_dir/preserve_powerkeeper_identity.py" \
+  --apk "$tmp/PowerKeeper.aligned.apk" --reference "$apk" \
+  --report "$report_dir/eu-final-metadata.json"
+
+python3 - "$tmp/PowerKeeper.aligned.apk" "$eu_hash" "$report_dir" "$base_hash" <<'PYEU'
+import hashlib, json, sys, zipfile
+from pathlib import Path
 apk = Path(sys.argv[1])
-report = Path(sys.argv[2])
-with zipfile.ZipFile(apk) as src:
-    if len(src.namelist()) != len(set(src.namelist())) or src.testzip():
-        raise SystemExit("PowerKeeper: invalid stock APK ZIP")
-    dex = [name for name in src.namelist()
-           if re.fullmatch(r"classes(?:[2-9]|[1-9]\d+)?\.dex", name)]
-    if not dex:
-        raise SystemExit("PowerKeeper: stock APK has no DEX")
-data = json.loads(report.read_text(encoding="utf-8"))
-data.update({
-    "policy": "xiaomi_stock_eu_like",
-    "dex_replaced": False,
-    "apk_modified": False,
+expected_dex_sha, report_dir, base_sha = sys.argv[2], Path(sys.argv[3]), sys.argv[4]
+with zipfile.ZipFile(apk) as archive:
+    if archive.testzip():
+        raise SystemExit("PowerKeeper: invalid final ZIP")
+    dex = archive.read("classes.dex")
+    if hashlib.sha256(dex).hexdigest() != expected_dex_sha:
+        raise SystemExit("PowerKeeper: final APK does not contain EU DEX")
+report = {
+    "donor": "original_uploaded_eu_powerkeeper_v4.2.00",
+    "base_apk_sha256": base_sha,
+    "eu_dex_sha256": expected_dex_sha,
+    "final_apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+    "source_ryu_used_as_compression_reference_only": True,
     "ryu_perfhook_imported": False,
     "zkos_dex_imported": False,
-    "conditional_uid_policy": "unaltered_base_rom",
-    "dex_entries": dex,
-    "note": "EU-inspired stock-first integration, not verified byte-for-byte EU parity",
-})
-report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("[POWERKEEPER] Verified original Xiaomi APK; no DEX replacement")
-PYSTOCK
+    "non_dex_members_from_xiaomi_base": True,
+    "cryptographic_xiaomi_signature_valid": False,
+    "requires_existing_rom_signature_policy": True,
+    "runtime_tested": False
+}
+(report_dir / "eu-dex-report.json").write_text(json.dumps(report, indent=2) + "\n")
+print("[POWERKEEPER EU] " + json.dumps(report))
+PYEU
 
-printf '%s\n' "$after" > "$report_dir/stock-sha256.txt"
-mods "PowerKeeper: verified Xiaomi stock APK (EU-like stock policy); no ZKOS/RYU DEX or PerfHook"
-patch "PowerKeeper: original signature and ROM thermal/Doze/kill policy preserved"
+cp -f "$tmp/PowerKeeper.aligned.apk" "$apk"
+rm -rf "$(dirname "$apk")/oat"
+mods "PowerKeeper: genuine EU classes.dex on verified Xiaomi base APK"
+patch "PowerKeeper: stock non-DEX + v1 metadata preserved; changed DEX has invalid original cryptographic signature"

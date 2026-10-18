@@ -43,7 +43,7 @@ display() {
 status() {
     echo tnm_framework=1
     echo protocol=1
-    echo backend=xiaomi_stock_powerkeeper_no_perfhook
+    echo backend=eu_dex_powerkeeper_no_perfhook
     if [ -x "$CPU_CTL" ]; then "$CPU_CTL" status; else echo cpu_percent=unsupported; fi
     echo daemon=none
     if tnm; then echo thermal_control=available; else echo thermal_control=unsupported; fi

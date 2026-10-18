@@ -84,19 +84,22 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # PowerKeeper keeps the original signed Xiaomi APK; no donor DEX build.
-      - name: Stock PowerKeeper integration preflight
+      # Exact uploaded EU PowerKeeper DEX, locally pinned (no EU ROM download).
+      - name: EU PowerKeeper donor preflight
         shell: bash
         run: |
           set -euo pipefail
           : > build_action.log
           {
-            echo "[PHASE] - Stock PowerKeeper source preflight"
+            echo "[PHASE] - EU PowerKeeper source preflight"
             bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
             python3 -m py_compile \
+              bin/package/NOTIFICATION_FIX/A16/powerkeeper.py \
               bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py \
               bin/package/COREPATCH/tnm_zk_power_a16.py
-            echo "[OK] - Stock PowerKeeper source preflight passed"
+            test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/eu-powerkeeper-from-ryu.zst)" = "8176d0aa5bf72c1437d42f70a34e0f412933e846"
+            test "$(git hash-object bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex)" = "1b5a46ea3f9ead44a5467584e15dddd7ba4b0555"
+            echo "[OK] - Exact EU donor and dictionary pin checks passed"
           } 2>&1 | tee -a build_action.log
 
       - name: Prepare build environment
@@ -130,7 +133,7 @@ jobs:
 
           # Check the LOCK entrypoint before downloading ROM.
           bash -n bin/package/LOCK/update.sh
-          # Fast fail the stock-PowerKeeper verifier and scoped framework JAR port.
+          # Fast fail the EU-DEX-on-stock PowerKeeper verifier and framework JAR port.
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
@@ -198,11 +201,19 @@ jobs:
           bash -n bin/modfile/UpdateFile/TNM/update.sh
           python3 bin/modfile/UpdateFile/TNM/test_cpu_percent.py
           bash -n bin/modfile/UpdateFile/TNMPerfProfile/update.sh
-          # No pinned PowerKeeper DEX or RYU cleanup preflight: the APK is not rebuilt.
+          # Verify exact reconstructed EU DEX before downloading the base ROM.
+          zstd -d -f -q \
+            --patch-from=bin/package/NOTIFICATION_FIX/A16/tnm-perfhook-source.dex \
+            bin/package/NOTIFICATION_FIX/A16/eu-powerkeeper-from-ryu.zst \
+            -o "$RUNNER_TEMP/verified-eu-powerkeeper.dex"
+          test "$(sha256sum "$RUNNER_TEMP/verified-eu-powerkeeper.dex" | cut -d ' ' -f1)" = "ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae"
+          rm -f "$RUNNER_TEMP/verified-eu-powerkeeper.dex"
+          echo "[OK] - Byte-for-byte EU PowerKeeper DEX verified"
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/powerkeeper.py
           python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/preserve_powerkeeper_identity.py
           python3 -m py_compile bin/package/COREPATCH/tnm_zk_power_a16.py
           python3 bin/package/COREPATCH/test_tnm_zk_power_a16.py
-          # Base Xiaomi PowerKeeper and thermal/CPU/powerhint XML stay untouched.
+          # EU PowerKeeper DEX port; base Xiaomi thermal/CPU/powerhint XML unchanged.
           # The old TNM/RYU thermal archive is deliberately not imported.
 
           # Validate Android 16 GMS XML and protect existing FCM exemptions.
