@@ -62,7 +62,7 @@ RETURN = re.compile(r"(?m)^[ \t]+return-void[ \t]*$")
 
 
 def patch(src: str) -> tuple[str, dict]:
-    if f".class public {CLASS}" not in src and f".class {CLASS}" not in src:
+    if not re.search(r"(?m)^\.class[^\n]*\s" + re.escape(CLASS) + r"[ \t]*$", src):
         raise ValueError("Unexpected ActiveStateController class identity")
     if "tnm_millet_boot_try_start" in src:
         raise ValueError("Boot-only Millet patch already present")
@@ -72,7 +72,7 @@ def patch(src: str) -> tuple[str, dict]:
     old = methods[0].group()
     # Pinned EU Android 16 enable(): 12 registers, 1 parameter,
     # three returns: two early exits and the completed enable() path.
-    if not re.search(r"(?m)^[ \t]+\.locals 11[ \t]*$", old):
+    if not re.search(r"(?m)^[ \t]+(?:\.locals 11|\.registers 12)[ \t]*$", old):
         raise ValueError("EU enable() register layout changed")
     returns = list(RETURN.finditer(old))
     if len(returns) != 3 or "monitor-exit" not in old or ".catchall" not in old:
