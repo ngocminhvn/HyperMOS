@@ -43,7 +43,7 @@ display() {
 status() {
     echo tnm_framework=1
     echo protocol=1
-    echo backend=existing_powerkeeper_perfhook
+    echo backend=zkos_powerkeeper_no_ryu_perfhook
     if [ -x "$CPU_CTL" ]; then "$CPU_CTL" status; else echo cpu_percent=unsupported; fi
     echo daemon=none
     if tnm; then echo thermal_control=available; else echo thermal_control=unsupported; fi
@@ -53,7 +53,10 @@ status() {
     echo "thermal_per_app=$mode"
     echo "thermal_sconfig=$config"
     echo "thermal_profiles=$profiles"
-    if ! /system/bin/pidof com.miui.powerkeeper >/dev/null 2>&1; then
+    if ! tnm; then
+        echo thermal_effect=not_applied
+        echo thermal_reason=ryu_perfhook_not_installed
+    elif ! /system/bin/pidof com.miui.powerkeeper >/dev/null 2>&1; then
         echo thermal_effect=not_applied
         echo thermal_reason=powerkeeper_not_running
     elif [ "$mode" = 1 ]; then
