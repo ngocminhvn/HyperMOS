@@ -89,7 +89,7 @@ patch_stock_securitycenter() (
         exit 1
     }
 
-    mods "Security Center: decoding stock ROM APK for zero-countdown patch"
+    mods "Security Center: decoding stock ROM APK for ZKOS-style countdown patch; preserving ADB timing"
     "${apkeditor[@]}" d -t raw -f -no-dex-debug \
         -i "$stock_apk" -o "$tmp/raw" >/dev/null
     find "$tmp/raw/signatures" -type f -name '*.signature.info.bin' -print -quit | grep -q . || {
@@ -111,7 +111,7 @@ patch_stock_securitycenter() (
     cp -f "$tmp/SecurityCenter.apk" "$stock_apk"
     rm -rf "$(dirname "$stock_apk")/oat"
     chmod 0644 "$stock_apk" 2>/dev/null || true
-    mods "Security Center: stock ROM APK patched to 0-second confirmations -> Done"
+    mods "Security Center: permission countdown = 0; stock ADB handler timings preserved -> Done"
     patch "Security Center: Xiaomi signer block preserved in ZKOS-style invalid-integrity mode"
 )
 
