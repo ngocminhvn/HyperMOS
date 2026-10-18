@@ -211,8 +211,14 @@ def main():
     # The two local.config entries do not unconditionally suppress UID kill.
     # Skip only the GMS UID in the existing decision path (no daemon/polling).
     report.update(guard_gms_uid_kill(args.zk_raw))
-    report.update(graft_tnm_per_app_perf(args.zk_raw, args.tnm_raw))
-    report["powerkeeper_policy"] = "EU-style conditional UID kill + event-only GMS exemption, ZK background services, passive TNM PerfHook"
+    # Keep the ZKOS power/thermal policy without adding the RYU PerfHook
+    # worker, ContentObservers or PowerKeeperApplication.onCreate hook.
+    # RYU remains the donor exclusively for guarded UID cleanup above.
+    report["tnm_per_app_perf_classes"] = 0
+    report["tnm_framework_api_embedded"] = False
+    report["application_init_hooked"] = False
+    report["perfhook_runtime_included"] = False
+    report["powerkeeper_policy"] = "ZKOS power/thermal + RYU guarded UID cleanup + GMS exemption; no RYU PerfHook"
     report["non_dex_content"] = "Xiaomi stock original"
     print("[TNM ZK LOCAL DEX PORT] " + ", ".join(f"{k}={v}" for k, v in report.items()))
 
