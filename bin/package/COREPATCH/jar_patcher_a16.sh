@@ -1324,6 +1324,11 @@ patch_miui_framework() {
     apply_miui_framework_cn_notification_fix "$decompile_dir"
   fi
 
+  # Port ONLY the two audited EU NotificationFilterHelper methods.
+  # Leave PowerInsightPolicy and every other CN power/thermal API unchanged.
+  python3 "$SCRIPT_DIR/port_eu_notification_filter_a16.py" "$decompile_dir" \
+    --report "$WORK_DIR/build/reports/eu-framework-a16/notification-filter.json" || return 1
+
   if [ "$FEATURE_TNM_FRAMEWORK_GATES" -eq 1 ]; then
     python3 "$SCRIPT_DIR/tnm_framework_gates_a16.py" "$decompile_dir" miui-framework --verify || return 1
   elif [ "$FEATURE_TNM_APP_COMPAT_GATES" -eq 1 ]; then

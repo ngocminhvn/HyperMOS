@@ -138,6 +138,10 @@ jobs:
           bash -n bin/package/NOTIFICATION_FIX/A16/PowerKeeper.sh
           bash -n bin/package/COREPATCH/jar_patcher_a16.sh
           bash -n bin/package/COREPATCH/update.sh
+          python3 -m py_compile \
+            bin/package/COREPATCH/port_eu_notification_filter_a16.py \
+            bin/package/COREPATCH/test_port_eu_notification_filter_a16.py
+          python3 bin/package/COREPATCH/test_port_eu_notification_filter_a16.py
           # Check fixed OS3 app snapshots before downloading/extracting the ROM.
           bash -n bin/modfile/OS3/_common.sh
           bash -n bin/modfile/OS3/kashimod.sh

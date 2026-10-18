@@ -55,3 +55,26 @@ method compatibility.
 
 Runtime notification delivery and idle power require a new full build
 and physical HAOTIAN tests; static parity is not a boot test.
+
+### Selected EU NotificationFilterHelper port
+
+HyperMOS retains the wide, pre-ZK CN notification fix, then ports ONLY the
+user-supplied xiaomi.eu `miui-framework.jar` behavior in
+`miui/util/NotificationFilterHelper.smali`:
+
+- `<clinit>()V`: remove the CN-only initialization of
+  `sNotificationCanBeBlockedList` and hard-coded default forced-on and
+  locked-importance notification package/channel entries. Keep the other
+  original collections.
+- `canSystemNotificationBeBlocked(Ljava/lang/String;)Z`: return true
+  (matching EU), allowing system notification blocking in that helper.
+
+These are the only two altered methods in this class. The patch is validated
+against the expected CN method layout; unknown layouts fail the ROM build.
+It is applied during the normal A16 `miui-framework.jar` rebuild, following
+the existing CN notification adjustments.
+
+**PowerInsightPolicy is deliberately not ported** per user request.
+No `com.powerinsight.permission.PROVIDER_ACCESS` checks or helper methods
+are injected. No changes are made to GMS sysconfig, PowerKeeper EU,
+other framework methods, vendor thermal protections, or TNM CPU control.
