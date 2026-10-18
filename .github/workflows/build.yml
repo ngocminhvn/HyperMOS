@@ -127,7 +127,7 @@ jobs:
             tail -n 100 "$log" | tee -a build_action.log
             exit 1
           fi
-          echo "[OK] - Actual PowerKeeper DEX compiled with GMS policy guard" | tee -a build_action.log
+          echo "[OK] - PowerKeeper DEX compiled: GMS guard, no RYU PerfHook" | tee -a build_action.log
           python3 - "$report" <<'PYDEXREPORT'
           import json
           import sys
@@ -251,7 +251,7 @@ jobs:
               blob = subprocess.check_output(["git", "hash-object", str(rel)], text=True).strip()
               if blob != expected:
                   raise SystemExit(f"Pinned donor DEX hash mismatch: {rel}")
-          print("PASS: pinned ZKOS DEX + RYU conditional UID/PerfHook source")
+          print("PASS: pinned ZKOS DEX + RYU conditional UID donor (no PerfHook graft)")
           PYDEX
           python3 -m py_compile \
             bin/package/NOTIFICATION_FIX/A16/zk_full_powerkeeper_a16.py \
@@ -266,7 +266,7 @@ jobs:
           python3 bin/package/NOTIFICATION_FIX/A16/test_ryu_killprocess_a16.py
           python3 bin/package/NOTIFICATION_FIX/A16/test_restore_uid_policy_abi_a16.py
           python3 bin/package/NOTIFICATION_FIX/A16/test_guard_gms_uid_kill_a16.py
-          python3 bin/package/NOTIFICATION_FIX/A16/test_perfhook_passive_init.py
+          # Real DEX preflight rejects any RYU PerfHook worker/class/init call.
 
           # ZKOS-parity main retains the base Xiaomi thermal/CPU/powerhint XML.
           # The old TNM/RYU thermal archive is deliberately not imported.
