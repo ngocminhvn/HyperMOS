@@ -156,28 +156,80 @@ jobs:
                           raise ValueError("Launcher: privapp whitelist absent")
           
           
+          # The ROM consumes the pinned ColorOS V3 ZIP. FreeStyle is an
+          # inactive archive. If their upstream release has no compatible
+          # asset, validate and retain the existing local ZIP rather than
+          # failing the update check or installing an unrelated version.
+          OPTIONAL_PINNED = {
+              "ColorOS Control Center V3",
+              "FreeStyle Control Center (inactive)",
+          }
+
           with tempfile.TemporaryDirectory(prefix="kashi-downloads-") as tmp:
               for label, repo, prefix, expected_pkg, selected_apk in SOURCES:
-                  release = json.loads(command("gh", "api", f"repos/{repo}/releases/latest"))
-                  tag = release.get("tag_name", "")
-                  assets = [
-                      asset for asset in release.get("assets", [])
-                      if asset["name"].startswith(prefix) and asset["name"].lower().endswith(".zip")
-                  ]
-                  if release.get("draft") or release.get("prerelease") or not tag or len(assets) != 1:
-                      raise ValueError(f"{repo}: latest stable release must have exactly one {prefix}*.zip")
-                  asset = assets[0]
-                  filename = asset["name"]
-                  if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\.zip", filename):
-                      raise ValueError(f"{repo}: unsafe release filename: {filename}")
-                  expected_size = int(asset.get("size", 0))
-                  if not 1024 <= expected_size <= 100 * 1024 * 1024:
-                      raise ValueError(f"{repo}: suspicious release size: {expected_size}")
-          
                   old_files = sorted(DEST.glob(prefix + "*.zip"))
                   if len(old_files) != 1:
                       raise ValueError(f"{repo}: expected one existing {prefix}*.zip; found {len(old_files)}")
                   old = old_files[0]
+
+                  try:
+                      release = json.loads(command("gh", "api", f"repos/{repo}/releases/latest"))
+                  except subprocess.CalledProcessError:
+                      if label not in OPTIONAL_PINNED:
+                          raise
+                      validate_zip(old, expected_pkg, label, selected_apk)
+                      rows.append((label, old.name, "Upstream release unavailable", "Pinned / verified"))
+                      print(f"[PINNED] {label}: upstream unavailable; verified {old.name}", flush=True)
+                      continue
+
+                  tag = release.get("tag_name", "")
+                  all_zip_assets = [
+                      asset for asset in release.get("assets", [])
+                      if asset["name"].lower().endswith(".zip")
+                  ]
+                  assets = [
+                      asset for asset in all_zip_assets
+                      if asset["name"].startswith(prefix)
+                  ]
+
+                  # The ColorOS source uses different ZIP naming conventions.
+                  # Only accept the V3 release; if exactly one ZIP is offered,
+                  # verify its APK identity before retaining our local filename.
+                  if label == "ColorOS Control Center V3":
+                      if tag.upper() != "V3":
+                          assets = []
+                      elif len(assets) != 1 and len(all_zip_assets) == 1:
+                          assets = all_zip_assets
+
+                  if len(assets) > 1:
+                      exact = [asset for asset in assets if asset["name"] == old.name]
+                      if len(exact) == 1:
+                          assets = exact
+
+                  if release.get("draft") or release.get("prerelease") or not tag or len(assets) != 1:
+                      if label not in OPTIONAL_PINNED:
+                          raise ValueError(
+                              f"{repo}: expected one {prefix}*.zip in latest stable release; "
+                              f"assets: {[asset['name'] for asset in all_zip_assets]}"
+                          )
+                      validate_zip(old, expected_pkg, label, selected_apk)
+                      rows.append((label, old.name, f"{tag or 'No stable tag'} / no compatible ZIP", "Pinned / verified"))
+                      print(
+                          f"[PINNED] {label}: no unique compatible upstream asset; "
+                          f"verified {old.name}; upstream ZIPs = "
+                          f"{[asset['name'] for asset in all_zip_assets]}",
+                          flush=True,
+                      )
+                      continue
+
+                  asset = assets[0]
+                  filename = asset["name"]
+                  if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\\.zip", filename):
+                      raise ValueError(f"{repo}: unsafe release filename: {filename}")
+                  expected_size = int(asset.get("size", 0))
+                  if not 1024 <= expected_size <= 100 * 1024 * 1024:
+                      raise ValueError(f"{repo}: suspicious release size: {expected_size}")
+
                   workdir = Path(tmp, prefix)
                   workdir.mkdir()
                   command("gh", "release", "download", tag, "--repo", repo,
@@ -188,20 +240,24 @@ jobs:
                   if downloaded.stat().st_size != expected_size:
                       raise ValueError(f"{repo}: release size mismatch: {filename}")
                   validate_zip(downloaded, expected_pkg, label, selected_apk)
-                  if old.name == filename and filecmp.cmp(old, downloaded, shallow=False):
+
+                  # Preserve the ROM's explicitly pinned V3 filename even if the
+                  # upstream release asset has a different safe filename.
+                  destination_name = old.name if label == "ColorOS Control Center V3" else filename
+                  if old.name == destination_name and filecmp.cmp(old, downloaded, shallow=False):
                       rows.append((label, old.name, f"{tag} / {filename}", "Unchanged"))
                       print(f"[UNCHANGED] {label}: {tag} ({filename})", flush=True)
                       continue
                   old_name = old.name
                   old.unlink()
-                  shutil.copyfile(downloaded, DEST / filename)
+                  shutil.copyfile(downloaded, DEST / destination_name)
                   rows.append((label, old_name, f"{tag} / {filename}", "Updated"))
                   changed = True
-                  print(f"[UPDATED] {label}: {filename}", flush=True)
-          
+                  print(f"[UPDATED] {label}: {filename} -> {destination_name}", flush=True)
+
           summary = ["## Kashi app release check", "",
-                     f"Coverage: {len(local_zips)} local ZIPs / {len(SOURCES)} configured releases (no omissions).",
-                     "ColorOS is restricted to the V3 file family; FreeStyle and Security Center remain inactive in ROM builds.",
+                     f"Coverage: {len(local_zips)} local ZIPs / {len(SOURCES)} configured sources (no omissions).",
+                     "ColorOS accepts only V3 releases; incompatible assets leave the verified local ZIP pinned. FreeStyle and Security Center remain inactive in ROM builds.",
                      "",
                      "| App | Existing snapshot | Latest release | Result |",
                      "|---|---|---|---|"]
