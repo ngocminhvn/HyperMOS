@@ -17,13 +17,37 @@ FrameworkPatcher A16 port:
 
 Reference: https://github.com/FrameworksForge/FrameworkPatcher/blob/master/scripts/patcher_a16.sh
 
-Port only the upstream notification behavior in miui-services.jar:
-- Force IS_INTERNATIONAL_BUILD reads to true in the eight upstream classes:
+The existing FrameworkPatcher entrypoint applies these scoped miui-services rules:
+- Force IS_INTERNATIONAL_BUILD reads to true in six upstream classes:
   BroadcastQueueModernStubImpl, ActivityManagerServiceImpl,
-  ProcessSceneCleaner, JobServiceContextImpl, AlarmManagerServiceStubImpl,
-  NotificationManagerServiceImpl, AppOpsServiceStubImpl,
+  ProcessSceneCleaner, JobServiceContextImpl, NotificationManagerServiceImpl,
   and ActivitySecurityHelper.
+- Match the inspected RYU donor by preserving the original international-build
+  reads in AlarmManagerServiceStubImpl (1) and AppOpsServiceStubImpl (4).
+  Neither true nor false is forced in those two classes.
+- Select the enabled RYU-style branches in PreStartFeedbackImpl (1 read) and
+  ProcessPolicy (4 reads), using local const true instead of adding a dependency
+  on com.projectryu.Build.IS_RYU_BUILD. These are the audited donor callsites;
+  the RYU Build field definition was not available, so this explicitly selects
+  its enabled branch rather than claiming measured runtime parity.
 - Force Greeze PolicyManager.CN_MODEL=false.
+
+The four RYU-adjusted classes are handled inside the existing
+frameworkpatcher_cn_a16.py, not a separate patch or workflow. The build fails
+if their original read counts differ from the inspected Android 16 layout.
+On the supplied China baseline the replacement count remains 20 (plus the
+separate EU force-stop gate): five former Alarm/AppOps replacements are removed
+and five PreStartFeedback/ProcessPolicy replacements are added.
+
+PreStartFeedback's build gate is only the fallback when
+ro.mi.os.custfeatureresolve is false; otherwise config_td_prestart_intercept
+still controls it. ProcessPolicy retains the China resource IDs and all other
+instructions, including its conditional cust-feature whitelist loading. The
+RYU systemReady resource ID difference is not transplanted into China resources.
+No whole RYU classes, extra global build flags or resources are imported.
+OneKeyClean/SwipeUpClean, the separate EU force-stop method and PowerKeeper's
+seven-gate DEX are unchanged. This change is not proof of an FCM reconnect fix;
+device/network-transition validation is still required.
 
 Compared with the retired --cn-notification-fix, this no longer rewrites
 DeviceIdleControllerStubImpl or extra SmartPower/location/input classes.
@@ -97,3 +121,4 @@ The independent `tnm-perfhook-source.dex` is still required as a **compression
 reference** for reconstructing EU PowerKeeper from `eu-powerkeeper-from-ryu.zst`;
 it is not a runtime PerfHook import and must not be deleted as part of this
 cleanup.
+

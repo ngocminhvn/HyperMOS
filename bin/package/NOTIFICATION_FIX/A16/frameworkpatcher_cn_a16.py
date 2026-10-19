@@ -2,8 +2,10 @@
 """Scoped Android 16 CN notification port from FrameworksForge/FrameworkPatcher.
 
 Upstream: https://github.com/FrameworksForge/FrameworkPatcher/blob/master/scripts/patcher_a16.sh
-Ports the eight miui-services international-gate targets, Greeze CN_MODEL=false,
-and EU-style ProcessManagerService.isForceStopEnable() ONLY. Never copy the
+Ports six upstream miui-services gate targets plus scoped RYU PreStartFeedback/
+ProcessPolicy branches. AlarmManagerServiceStubImpl and AppOpsServiceStubImpl
+keep their original international reads, matching the inspected RYU donor.
+Retains Greeze CN_MODEL=false and EU-style isForceStopEnable(). Never copy the
 whole EU class (constructor and dependencies differ from HAOTIAN China).
 No signature, secure flag, Gboard or module-generation changes.
 """
@@ -17,11 +19,24 @@ TARGETS = (
     "com/android/server/am/ActivityManagerServiceImpl.smali",
     "com/android/server/am/ProcessSceneCleaner.smali",
     "com/android/server/job/JobServiceContextImpl.smali",
-    "com/android/server/alarm/AlarmManagerServiceStubImpl.smali",
     "com/android/server/notification/NotificationManagerServiceImpl.smali",
-    "com/android/server/AppOpsServiceStubImpl.smali",
     "miui/app/ActivitySecurityHelper.smali",
+    "com/android/server/am/PreStartFeedbackImpl.smali",
+    "com/android/server/am/ProcessPolicy.smali",
 )
+# Inspected RYU miui-services methods select IS_RYU_BUILD at these five reads.
+# Select that enabled branch locally, without importing a RYU Build dependency
+# or its resource IDs. All China method bodies/resources otherwise stay intact.
+RYU_ENABLED_READS = {
+    "com/android/server/am/PreStartFeedbackImpl.smali": 1,
+    "com/android/server/am/ProcessPolicy.smali": 4,
+}
+# RYU leaves these exact international-build reads untouched. They must remain
+# in the clean decoded input; do not replace them with either true or false.
+RYU_PRESERVED_READS = {
+    "com/android/server/alarm/AlarmManagerServiceStubImpl.smali": 1,
+    "com/android/server/AppOpsServiceStubImpl.smali": 4,
+}
 GREEZE = "com/miui/server/greeze/PolicyManager.smali"
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
 # Confirmed by DEX-level EU vs CN OS3 A16 comparison: 28 instructions,
@@ -128,6 +143,17 @@ def patch(root: Path):
         raise ValueError(f"Missing decompiled miui-services: {root}")
     details = {}
     total = 0
+    preserved = {}
+    for cls, expected in {**RYU_ENABLED_READS, **RYU_PRESERVED_READS}.items():
+        file = locate(root, cls)
+        if file is None:
+            raise ValueError(f"RYU gate target missing: {cls}")
+        count = len(REGION_READ.findall(file.read_text(encoding="utf-8")))
+        if count != expected:
+            raise ValueError(f"{cls}: expected {expected} original region reads, got {count}")
+        if cls in RYU_PRESERVED_READS:
+            preserved[cls] = {"present": True, "original_region_reads": count,
+                              "replaced": 0, "policy": "original_international_flag_like_RYU"}
     for cls in TARGETS:
         file = locate(root, cls)
         if file is None:
@@ -157,10 +183,14 @@ def patch(root: Path):
     if did_write:
         policy.write_text(changed, encoding="utf-8")
     return {
-        "source": "FrameworksForge/FrameworkPatcher scripts/patcher_a16.sh",
+        "source": "FrameworksForge/FrameworkPatcher + scoped RYU A16 gate selection",
         "target_jar": "miui-services.jar",
         "gates_replaced": total,
         "target_classes": details,
+        "ryu_enabled_region_reads": RYU_ENABLED_READS,
+        "ryu_preserved_region_reads": preserved,
+        "ryu_build_dependency_injected": False,
+        "ryu_resource_ids_imported": False,
         "greeze_cn_model_false": True,
         "scoped_eu_force_stop": eu_force_stop,
         "greeze_changed": did_write,
@@ -185,3 +215,4 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError) as exc:
         raise SystemExit("[FRAMEWORKPATCHER A16] FAIL: " + str(exc))
+
