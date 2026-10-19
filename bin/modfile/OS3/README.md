@@ -16,7 +16,8 @@ take place in the normal ROM build. Keep exactly one ZIP per active prefix:
 - HyperOS_Launcher*.zip
 - HyperOS_ThemeManager*.zip
 
-The older FreeStyle_CC_mod_*.zip is retained only as an inactive archive.
+The older FreeStyle_CC_mod_*.zip is retained only as an inactive archive;
+the manual updater can refresh it without enabling FreeStyle in ROM builds.
 Normal builds use the existing local ColorOS V3 ZIP and do not fetch updates.
 
 ## Kashi mods
@@ -49,8 +50,15 @@ optional external libraries in MIUIGallery/lib/. Deleted LLions APKs are no
 longer mandatory. The Gallery APK is stored in Git LFS, so CI must fetch LFS
 objects before the build.
 
-The manual Update Kashi Apps workflow checks the other Mods-Center releases.
-ColorOS V3 remains pinned to the named local ZIP and will not be auto-updated.
+The manual Update Kashi Apps workflow checks all seven local Kashi ZIP families:
+App Vault, ColorOS Control Center V3, FreeStyle Control Center, Screenshot,
+Launcher, Security Center and Theme Manager. It fails if a ZIP has no configured
+source instead of silently reporting that all snapshots are current.
+
+The updater can refresh ColorOS only within the pinned V3 filename family,
+without switching the ROM to FreeStyle. The FreeStyle and Security Center ZIPs
+are reference archives and are not installed by the ROM build. Running the
+updater is a separate manual action; normal ROM builds never fetch releases.
 
 
 ## Integration flow
