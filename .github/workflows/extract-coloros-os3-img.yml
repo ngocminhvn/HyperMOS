@@ -1,12 +1,17 @@
 name: Extract ColorOS OS3 partition images (Fastbootd)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/extract-coloros-os3-img.yml'
   workflow_dispatch:
     inputs:
       rom_drive_url:
-        description: 'Google Drive link/ID of a HAOTIAN ROM BUILT AFTER the latest ColorOS update'
+        description: 'Google Drive link/ID of HAOTIAN #159 or a newer ROM with ColorOS V4'
         required: true
         type: string
+        default: 'https://drive.google.com/open?id=1VKzt4QV3ijvhg5K3xHb3IiQD97flQN_q'
       upload_method:
         description: 'Where to deliver verified partition .img files'
         required: true
@@ -30,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
-      WORK: ${{ runner.temp }}/hypermos-coloros
-      ROM_URL: ${{ inputs.rom_drive_url }}
-      UPLOAD_METHOD: ${{ inputs.upload_method }}
+      WORK: /tmp/hypermos-coloros-os3
+      ROM_URL: ${{ inputs.rom_drive_url || 'https://drive.google.com/open?id=1VKzt4QV3ijvhg5K3xHb3IiQD97flQN_q' }}
+      UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
     steps:
       - name: Free runner disk space
         shell: bash
@@ -250,7 +255,7 @@ jobs:
           ls -lh "$WORK/output"
 
       - name: Upload verified images to Google Drive
-        if: ${{ inputs.upload_method == 'drive' }}
+        if: ${{ env.UPLOAD_METHOD == 'drive' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -272,11 +277,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verified images as GitHub artifact
-        if: ${{ inputs.upload_method == 'artifact' }}
+        if: ${{ env.UPLOAD_METHOD == 'artifact' }}
         uses: actions/upload-artifact@v4
         with:
           name: coloros-os3-full-partition-images-${{ github.run_number }}
-          path: ${{ runner.temp }}/hypermos-coloros/output/
+          path: /tmp/hypermos-coloros-os3/output/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
