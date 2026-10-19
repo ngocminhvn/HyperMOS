@@ -29,10 +29,13 @@ vì `insupdate.sh` quét các file `*.sh` trong thư mục UpdateFile.
 An on-demand root-only adapter at `/system_ext/bin/tnm-frameworkctl` reads
 EU-DEX PowerKeeper on Xiaomi APK base and Android services; it is not a daemon or Binder service.
 The independent `tnm-cpuctl` handles CPU limits only when requested.
-RYU PerfHook has been retired entirely, so its thermal/global/per-app game
-profile commands are unsupported and never execute even if an old helper
-remains on a dirty-flashed device. Xiaomi vendor/ODM thermal protection stays
-active; effective display FPS is not inferred from Settings alone.
+Legacy thermal/global/per-app game profile and PerfHook diagnostic commands
+have been removed from this adapter. CPU percentage, display controls,
+battery saver and status remain. Xiaomi vendor/ODM thermal protection stays
+active; display Settings are not measurements of actual rendering FPS.
+
+For read-only display/layer evidence use `bin/audit/collect-haotian-fps.py`
+on a computer with adb while the measured app remains in the foreground.
 
 ## Android-first TNM permissions (Android 16)
 
@@ -57,3 +60,4 @@ The preinstalled `com.android.trinhngocminh` privileged APK receives
   SELinux policy is introduced.
 - An APK update cannot grant new system permissions by itself. Rebuild/flash
   a compatible HyperMOS image to enable rootless third-party AppOps inspection.
+

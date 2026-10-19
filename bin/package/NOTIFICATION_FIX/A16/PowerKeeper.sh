@@ -9,15 +9,11 @@ image_root="$work_dir/build/baserom/images"
 base_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16"
 report_dir="$work_dir/build/reports/powerkeeper-a16"
 tmp="$work_dir/apk_temp/powerkeeper-eu-dex"
-delta="$base_dir/eu-powerkeeper-from-ryu.zst"
-reference="$base_dir/tnm-perfhook-source.dex"
+archive="$base_dir/eu-powerkeeper.dex.zst"
 
-[[ -s "$delta" && -s "$reference" ]] || { error "PowerKeeper: EU patch/reference missing"; exit 1; }
-[[ "$(git -C "$work_dir" hash-object "$delta")" == "8176d0aa5bf72c1437d42f70a34e0f412933e846" ]] || {
-  error "PowerKeeper: EU delta source mismatch"; exit 1;
-}
-[[ "$(git -C "$work_dir" hash-object "$reference")" == "1b5a46ea3f9ead44a5467584e15dddd7ba4b0555" ]] || {
-  error "PowerKeeper: compressed-EU reference source mismatch"; exit 1;
+[[ -s "$archive" ]] || { error "PowerKeeper: EU archive missing"; exit 1; }
+[[ "$(git -C "$work_dir" hash-object "$archive")" == "1d62e3b62b2df640d095b67e929039d35905bf17" ]] || {
+  error "PowerKeeper: EU archive source mismatch"; exit 1;
 }
 command -v zstd >/dev/null || { error "PowerKeeper: missing zstd"; exit 1; }
 command -v zipalign >/dev/null || { error "PowerKeeper: missing zipalign"; exit 1; }
@@ -44,9 +40,8 @@ python3 "$base_dir/preserve_powerkeeper_identity.py" \
   --apksigner "$work_dir/bin/apktool/apksigner.jar" \
   --report "$report_dir/stock-identity.json"
 
-# Compression reference is the historical RYU source DEX, used ONLY as a
-# zstd dictionary. Restored output is exactly the uploaded EU DEX, not RYU.
-zstd -d -f -q --patch-from="$reference" "$delta" -o "$tmp/classes.dex"
+# Standalone EU DEX archive: no RYU DEX or external compression dictionary.
+zstd -d -f -q "$archive" -o "$tmp/classes.dex"
 eu_hash="$(sha256sum "$tmp/classes.dex" | cut -d ' ' -f1)"
 [[ "$eu_hash" == "ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae" ]] || {
   error "PowerKeeper: restored EU DEX checksum mismatch"; exit 1;
@@ -111,7 +106,7 @@ report = {
     "other_eu_methods_untouched_outside_seven_gates": True,
     "device_properties_or_thermal_rewritten": False,
     "final_apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
-    "source_ryu_used_as_compression_reference_only": True,
+    "eu_source_standalone_zstd": True,
     "ryu_perfhook_imported": False,
     "zkos_dex_imported": False,
     "non_dex_members_from_xiaomi_base": True,
@@ -127,3 +122,4 @@ cp -f "$tmp/PowerKeeper.aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
 mods "PowerKeeper: EU DEX + seven audited gates; no injected GMS Millet exemption"
 patch "PowerKeeper: stock non-DEX + v1 metadata preserved; changed DEX has invalid original cryptographic signature"
+

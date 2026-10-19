@@ -9,14 +9,14 @@ info "PATCH 1/5: CorePatch / signature"
 bash $target_dir/COREPATCH/update.sh || exit 1
 info "PATCH 2/5: AVB"
 bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
-info "PATCH 3/6: LOCK TNM post-fs integration"
+info "PATCH 3/5: LOCK TNM post-fs integration"
 bash "$target_dir/LOCK/update.sh" || exit 1
-info "PATCH 4/6: Notification"
+info "PATCH 4/5: Notification"
 bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh || exit 1
 
 # Kaorios must see the final framework/services state from the patches above.
 # It only adds Kaorios hooks; it does not duplicate FLAG_SECURE/CorePatch.
-info "PATCH 5/6: Kaorios Toolbox"
+info "PATCH 5/5: Kaorios Toolbox"
 if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   error "KAORIOS: patch failed; aborting package stage"
   exit 1
@@ -26,6 +26,5 @@ fi
 # MiCTS works on the tested #63 base without CTS_NATIVE framework/launcher patching.
 # Keep stock framework/MiuiHome behavior here to avoid unnecessary CTS hooks.
 
-info "PATCH 6/6: Refresh rate"
-bash $target_dir/RefreshRate/1hz.sh
 ok "System patch stage completed"
+

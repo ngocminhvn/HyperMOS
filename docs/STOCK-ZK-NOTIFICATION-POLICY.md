@@ -175,10 +175,11 @@ it caps CPU max frequency within its saved original ceiling, without touching
 GPU, thermal XML, governors or Xiaomi thermal limits. Its 100% choice restores
 the previous per-boot ceiling rather than the hardware maximum. TNM thermal
 and per-app features that depend on the removed PerfHook cannot work in this
-variant. The ROM status command reports that the RYU PerfHook is unavailable.
+variant. Legacy thermal/profile and PerfHook diagnostic commands have been removed
+from the ROM adapter; status reports stock vendor thermal control.
 
-Real pinned DEX preflight recompiles PowerKeeper and fails if RYU PerfHook
-classes or its onCreate call survive; the build preserves the Xiaomi stock
+The standalone EU archive and seven-gate DEX output are hash-pinned; no
+RYU donor DEX is required. The build preserves Xiaomi stock
 manifest/resources/assets. Compilation does NOT prove that the ROM boots or
 that the device runs cooler; compare with the prior ROM under the same display
 and workload conditions.
@@ -203,4 +204,5 @@ replacing newer configuration with a potentially older Google reference.
 Privapp permissions and GMS sysconfig are fundamentally different inputs;
 installing the ZK-named permissions is **not** proof of FCM runtime parity.
 Actual permission grants depend on APK partition/location and Android version.
+
 

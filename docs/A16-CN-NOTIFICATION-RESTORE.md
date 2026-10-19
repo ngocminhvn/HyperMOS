@@ -118,11 +118,10 @@ are pinned in `bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
 then checks exact output bytes with the audited SHA-256. The older donor
 remains recoverable from Git history, not from the current checkout.
 
-The independent `tnm-perfhook-source.dex` is still required as a **compression
-reference** for reconstructing EU PowerKeeper from `eu-powerkeeper-from-ryu.zst`;
-it is not a runtime PerfHook import and must not be deleted as part of this
-cleanup.
-
+EU PowerKeeper is now stored in a standalone `eu-powerkeeper.dex.zst`
+archive. The historical RYU dictionary DEX and dictionary-based delta are
+removed from the active tree. Decompression preserves the exact EU source
+and seven-gate runtime output hashes; no PerfHook code is installed.
 
 ## GMS control follows the inspected RYU policy
 
@@ -156,3 +155,4 @@ Wi-Fi/mobile handovers, actual notifications and idle drain. The expected
 observer state now follows persisted/cloud policy; disabled is not an
 unconditional PASS criterion. EU cleaner/force-stop logic and thermal remain
 unchanged.
+

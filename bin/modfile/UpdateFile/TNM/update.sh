@@ -250,7 +250,7 @@ if [[ "${GITHUB_REF_NAME:-}" == "main" ]]; then
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as apk:
     backend = apk.read('assets/tnm-backend/bin/tnmctl').decode('utf-8')
-    for capability in ('rom.thermal.profiles', 'rom.thermal.global', 'rom.thermal.perapp', 'rom.notifications.status'):
+    for capability in ('rom.notifications.status',):
         if capability not in backend:
             sys.exit('TNM App: framework client missing: ' + capability)
 PYCONTRACT
@@ -309,4 +309,5 @@ fi
 }
 
 mods "TNM privileged app -> Installed at ${tnm_runtime_partition}/priv-app/TNM"
+
 

@@ -11,12 +11,10 @@ libraries and v1 signature metadata come from the Xiaomi base ROM.
 EU classes.dex SHA-256:
 `ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae`
 
-EU DEX is reconstructed byte-for-byte offline from the pinned
-`eu-powerkeeper-from-ryu.zst` binary delta. The existing pinned RYU DEX is
-used only as a **zstd compression dictionary**. Neither RYU runtime classes
-nor RYU performance hook methods are imported. This avoids a second donor
-ROM download. The delta and dictionary Git blobs and resulting EU DEX SHA
-are enforced at build time.
+EU DEX is reconstructed byte-for-byte offline from the standalone
+`eu-powerkeeper.dex.zst` archive. No RYU DEX or compression dictionary is
+required. The archive Git blob and decompressed EU DEX SHA are enforced
+at build time. The runtime DEX is unchanged by this packaging cleanup.
 
 ### Selected previous ZKOS adaptations
 
@@ -36,7 +34,7 @@ These correspond to `IS_ZK_BUILD` branches in the supplied ZKOS DEX, which
 were mapped to an enabled TNM build flag in the earlier implementation.
 The EU `IS_INTERNATIONAL_BUILD` reads in these *specific* methods now act
 as true. Other international, cloud, privacy, payment, temperature or device
-property gates remain unmodified, as do RYU UID methods and PerfHook.
+property gates remain unmodified. No RYU UID methods or PerfHook are imported.
 No new DEX classes, hooks, fields, resource overlays or persistent workers.
 
 EU source SHA-256: `ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae`
@@ -116,3 +114,4 @@ adaptations**, not “stock-first EU-like policy” and not a rebadged ZKOS/RYU 
 prove that all ROM framework services are identical to EU or that thermal
 or notification results will improve. Device boot and runtime tests are
 still necessary.
+

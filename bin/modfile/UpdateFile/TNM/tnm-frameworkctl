@@ -4,7 +4,6 @@
 set -eu
 umask 077
 [ "$(id -u)" = 0 ] || { echo 'Root required' >&2; exit 10; }
-TNM=/system_ext/bin/tnm-thermalctl
 CPU_CTL=/system_ext/bin/tnm-cpuctl
 S=/system/bin/settings
 STATE=/data/adb/tnm/state
@@ -12,7 +11,6 @@ BACKUP="$STATE/refresh.original"
 sys() { "$S" --user 0 get system "$1" 2>/dev/null || echo null; }
 global() { "$S" --user 0 get global "$1" 2>/dev/null || echo null; }
 empty() { [ "$#" -eq 0 ] || exit 2; }
-tnm() { return 1; } # Retired RYU PerfHook thermal control is always unavailable.
 fps_supported() {
     printf '%s:%s\n' "$(sys peak_refresh_rate)" "$(sys min_refresh_rate)" |
       /system/bin/grep -Eq '^[0-9]+([.][0-9]+)?:[0-9]+([.][0-9]+)?$'
@@ -43,34 +41,11 @@ display() {
 status() {
     echo tnm_framework=1
     echo protocol=1
-    echo backend=eu_dex_powerkeeper_no_perfhook
+    echo backend=eu_dex_powerkeeper
     if [ -x "$CPU_CTL" ]; then "$CPU_CTL" status; else echo cpu_percent=unsupported; fi
     echo daemon=none
-    if tnm; then echo thermal_control=available; else echo thermal_control=unsupported; fi
-    mode=$(sys projectryu_thermal_per_app)
-    config=$(sys projectryu_thermal_sconfig)
-    profiles=$(sys projectryu_thermal_profiles)
-    echo "thermal_per_app=$mode"
-    echo "thermal_sconfig=$config"
-    echo "thermal_profiles=$profiles"
-    if ! tnm; then
-        echo thermal_effect=not_applied
-        echo thermal_reason=ryu_perfhook_not_installed
-    elif ! /system/bin/pidof com.miui.powerkeeper >/dev/null 2>&1; then
-        echo thermal_effect=not_applied
-        echo thermal_reason=powerkeeper_not_running
-    elif [ "$mode" = 1 ]; then
-        case "$profiles" in
-            ''|null) echo thermal_effect=not_applied; echo thermal_reason=per_app_profiles_missing ;;
-            *) echo thermal_effect=not_verified; echo thermal_reason=per_app_needs_runtime_readback ;;
-        esac
-    else
-        case "$config" in
-            0) echo thermal_effect=idle; echo thermal_reason=global_sconfig_zero ;;
-            ''|null|*[!0-9]*) echo thermal_effect=not_applied; echo thermal_reason=global_sconfig_invalid ;;
-            *) echo thermal_effect=not_verified; echo thermal_reason=vendor_limits_may_override ;;
-        esac
-    fi
+    echo thermal_control=unsupported
+    echo thermal_policy=stock_vendor
     for n in 0 6; do
         file="/sys/devices/system/cpu/cpufreq/policy$n/scaling_max_freq"
         if [ -r "$file" ]; then value=$(cat "$file"); else value=unavailable; fi
@@ -96,106 +71,6 @@ status() {
     power
     notify
     display
-}
-
-# Observe the actual kernel limits twice without writing a frequency, profile,
-# sysfs permission, or disabling any Xiaomi thermal protections. A lower
-# scaling_max_freq does not identify which kernel/vendor component set it.
-read_node() {
-    if [ -r "$1" ]; then /system/bin/cat "$1" 2>/dev/null || echo unavailable
-    else echo unavailable
-    fi
-}
-thermal_readback() {
-    echo "thermal_per_app=$(sys projectryu_thermal_per_app)"
-    echo "thermal_sconfig=$(sys projectryu_thermal_sconfig)"
-    echo "thermal_profiles=$(sys projectryu_thermal_profiles)"
-    if /system/bin/pidof com.miui.powerkeeper >/dev/null 2>&1; then
-        echo powerkeeper=running
-    else
-        echo powerkeeper=not_running
-    fi
-    for sample in 1 2; do
-        echo "sample=$sample"
-        for policy in /sys/devices/system/cpu/cpufreq/policy*; do
-            [ -d "$policy" ] || continue
-            name="${policy##*/}"
-            echo "$name current=$(read_node "$policy/scaling_cur_freq") max=$(read_node "$policy/scaling_max_freq") hw=$(read_node "$policy/cpuinfo_max_freq")"
-        done
-        echo "gpu_max=$(read_node /sys/class/kgsl/kgsl-3d0/devfreq/max_freq)"
-        [ "$sample" = 2 ] || /system/bin/sleep 1
-    done
-    echo persisted_settings_do_not_prove_perfhook_effect=yes
-    echo frequency_limit_owner=not_verified
-    # Evidence from the TNM logger, if Android retained any recent entries.
-    if [ -x /system/bin/logcat ]; then
-        echo ===perfhook_recent_log===
-        /system/bin/logcat -d -t 120 -s ProjectRYU-Perf:V '*:S' 2>/dev/null |
-            /system/bin/tail -n 12 || true
-    fi
-}
-
-# Read-only investigation of "Write did not stick"; never force frequencies,
-# alter permissions, or disable Xiaomi/Qualcomm thermal safeguards.
-inspect_sysfs_node() {
-    node="$1"
-    if [ -e "$node" ]; then
-        /system/bin/ls -ldZ "$node" 2>/dev/null || echo "node_metadata_unavailable=$node"
-        echo "node_value $node=$(read_node "$node")"
-    else
-        echo "node_missing=$node"
-    fi
-}
-perfhook_diagnose() {
-    empty "$@"
-    echo diagnostics=read_only
-    echo "selinux_enforcing=$(read_node /sys/fs/selinux/enforce)"
-    pids=$(/system/bin/pidof com.miui.powerkeeper 2>/dev/null || true)
-    if [ -n "$pids" ]; then
-        pid=$(printf '%s\n' "$pids" | /system/bin/cut -d ' ' -f 1)
-        echo "powerkeeper_pid=$pid"
-        echo "powerkeeper_context=$(read_node "/proc/$pid/attr/current")"
-        if [ -r "/proc/$pid/status" ]; then
-            /system/bin/grep -E '^(Uid|Gid|Groups):' "/proc/$pid/status" || true
-        fi
-    else
-        echo powerkeeper_pid=not_running
-    fi
-    echo "projectryu_thermal_per_app=$(sys projectryu_thermal_per_app)"
-    echo "projectryu_thermal_sconfig=$(sys projectryu_thermal_sconfig)"
-    echo "projectryu_thermal_profiles=$(sys projectryu_thermal_profiles)"
-    echo "--- thermal message (TNM PerfHook sconfig target) ---"
-    inspect_sysfs_node /sys/class/thermal/thermal_message/sconfig
-    echo "--- GPU bounds (KGSL) ---"
-    for node in /sys/class/kgsl/kgsl-3d0/devfreq/min_freq /sys/class/kgsl/kgsl-3d0/devfreq/max_freq /sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies; do
-        inspect_sysfs_node "$node"
-    done
-    echo "--- CPU policy bounds ---"
-    for policy in /sys/devices/system/cpu/cpufreq/policy*; do
-        [ -d "$policy" ] || continue
-        for leaf in scaling_min_freq scaling_max_freq cpuinfo_min_freq cpuinfo_max_freq scaling_available_frequencies; do
-            inspect_sysfs_node "$policy/$leaf"
-        done
-        min=$(read_node "$policy/scaling_min_freq")
-        max=$(read_node "$policy/scaling_max_freq")
-        case "$min:$max" in
-            *[!0-9:]*|:*|*:) ;;
-            *) if [ "$min" -gt "$max" ]; then
-                echo "invalid_cpu_range=$policy min=$min max=$max"
-               fi ;;
-        esac
-    done
-    if [ -x /system/bin/logcat ]; then
-        echo "--- TNM PerfHook recent log ---"
-        /system/bin/logcat -d -t 1500 -s 'ProjectRYU-Perf:V' '*:S' 2>/dev/null |
-            /system/bin/tail -n 60 || true
-        echo "--- filtered SELinux denials (if retained) ---"
-        /system/bin/logcat -d -b kernel -t 2000 2>/dev/null |
-            /system/bin/grep -iE 'avc: denied.*(powerkeeper|sysfs|thermal|kgsl|cpufreq)' |
-            /system/bin/tail -n 25 || true
-    fi
-    echo readback_cannot_identify_vendor_writer=yes
-    echo remediation=classify_dac_selinux_invalid_range_or_vendor_override_before_changes
 }
 
 change_display() {
@@ -246,7 +121,6 @@ case "$cmd" in
         echo status.read; echo power.status; echo power.saver
         echo notifications.status; echo display.status
         if [ -x "$CPU_CTL" ]; then echo cpu.percent; echo cpu.status; fi
-        if tnm; then echo thermal.status; echo thermal.profiles; echo thermal.global; echo thermal.perapp; echo game.profile; echo thermal.readback echo perfhook.diagnose; fi
         if fps_supported; then echo display.mode; fi
         ;;
     status) empty "$@"; status ;;
@@ -263,34 +137,6 @@ case "$cmd" in
         [ "$(global low_power)" = "$desired" ] || { echo 'Battery saver not confirmed' >&2; exit 4; }
         echo "battery_saver=$desired"
         ;;
-    thermal.profiles)
-        empty "$@"
-        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
-        exec "$TNM" profiles
-        ;;
-    thermal.readback) empty "$@"; thermal_readback ;;
-    perfhook.diagnose) perfhook_diagnose "$@" ;;
-    thermal.status)
-        empty "$@"
-        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
-        exec "$TNM" status
-        ;;
-    thermal.global|game.profile)
-        [ "$#" -eq 1 ] || exit 2
-        case "$1" in normal|performance|hp|game|huanji|phone|class0|arvr|navigation|video|videochat|camera|4k|mgame|per-class0|per-video|hp-mgame|cclassvideo) ;; *) exit 2 ;; esac
-        if [ "$cmd" = game.profile ]; then case "$1" in game|normal) ;; *) exit 2 ;; esac; fi
-        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
-        "$TNM" global "$1"
-        echo "requested_profile=$1"
-        ;;
-    thermal.perapp)
-        [ "$#" -gt 0 ] && [ "$#" -le 32 ] || exit 2
-        for e in "$@"; do
-            printf '%s\n' "$e" | /system/bin/grep -Eq '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+:(normal|performance|hp|game|huanji|phone|class0|arvr|navigation|video|videochat|camera|4k|mgame|per-class0|per-video|hp-mgame|cclassvideo)$' || exit 2
-        done
-        tnm || { echo 'PerfHook unavailable' >&2; exit 3; }
-        "$TNM" perapp "$@"
-        echo requested_profile=perapp
-        ;;
     *) echo 'TNMFramework capability unavailable' >&2; exit 3 ;;
 esac
+
