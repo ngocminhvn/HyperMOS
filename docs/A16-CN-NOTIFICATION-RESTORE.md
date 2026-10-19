@@ -103,8 +103,9 @@ The two-method EU NotificationFilterHelper port in miui-framework.jar remains
 enabled through CorePatch; it does not overlap FrameworkPatcher's
 miui-services.jar notification classes. PowerInsightPolicy is not changed.
 
-The current EU PowerKeeper DEX, scoped gates, thermal configuration and
-TNM CPU controller are left untouched. A full ROM build and physical
+The historical seven PowerKeeper gates, thermal configuration and
+TNM CPU controller are retained. See the additional GMS policy fix below.
+A full ROM build and physical
 HAOTIAN idle/notificaton tests are still required to establish runtime parity.
 
 ## Compact ZKOS gate evidence (PowerKeeper)
@@ -121,4 +122,47 @@ The independent `tnm-perfhook-source.dex` is still required as a **compression
 reference** for reconstructing EU PowerKeeper from `eu-powerkeeper-from-ryu.zst`;
 it is not a runtime PerfHook import and must not be deleted as part of this
 cleanup.
+
+## GMS reachability control — #157 runtime finding
+
+The uploaded #157 PowerKeeper classes.dex exactly matched EU + seven gates
+(SHA-256 64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1).
+Device evidence showed persisted gms_control=true, newChina cloud sync, and
+both Gms observer/application control enabled. GMS was UID 10203. Reachability
+turned false at 16:39:37 and 16:58:18; the retained wakelock history records
+UID 10203 blocked at 16:58:18 and unblocked at 17:10:47. This confirms that
+selecting defaultState=false alone did not disable the runtime controller.
+
+GmsObserver.init() and onCloudUpdated() read the persisted flag in preference
+to that default. onGoogleReachabilityChanged(false) requests wakelock blocking
+and queues updateGmsState(true), whose guarded path requests gms_wall, a DNS
+UID rule and alarm policy. The device history confirms the wakelock manager
+call returned without RemoteException; it does not prove backend firewall/DNS
+success or identify the exact MCS socket failure. Diagnostics causality and
+an end-to-end reconnect fix remain unverified.
+
+The existing eu_zk_scoped_gates.py now first verifies the original seven-gate
+output against the frozen manifest, then changes only the move-result v0 after
+Misc.getBoolean(Context,String,boolean) in those two methods to const/4 v0, 0.
+Both are one code unit; instruction lengths, branches, try ranges and DEX size
+stay unchanged. The original read executes but its result is ignored.
+Existing disableGms() cleanup remains intact. Exact input/output hashes and
+the two method-scoped invocation patterns are checked before writing output.
+Final DEX SHA-256: c5f3d2d47c9c49e1fdb2715b93ee04f2407f2848f599717561ccb692ce09e3f1.
+
+This is an additional HyperMOS policy fix based on device evidence, not a
+claim of exact RYU parity. Cloud endpoint selection, Sleep Mode, thermal,
+PerfHook, EU KillProcessController, Android Doze/standby/network policy and
+the existing EU OneKeyClean/SwipeUpClean behavior are not modified.
+No daemon, polling, global build flag, settings/database deletion or blanket
+application whitelist is introduced. The stored gms_control may still read
+true; the runtime observer must report disabled after flashing and rebooting.
+
+Validation on the new build: verify observer disabled after boot and after a
+normal cloud update; repeat Wi-Fi/mobile transitions with screen off and send
+timestamped messages without opening Diagnostics. There must be no new
+GmsObserver wakelock-block history. Confirm idle drain and normal app cleanup.
+Full ROM/ART/device tests remain required; disabling this OEM control can
+change GMS network retry/idle drain where Google endpoints are unreachable.
+
 

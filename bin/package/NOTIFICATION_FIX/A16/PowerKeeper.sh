@@ -52,7 +52,8 @@ eu_hash="$(sha256sum "$tmp/classes.dex" | cut -d ' ' -f1)"
   error "PowerKeeper: restored EU DEX checksum mismatch"; exit 1;
 }
 
-# Apply the same seven previously audited gates without carrying ZKOS DEX.
+# Apply seven audited gates, then suppress two GmsObserver policy read results
+# so persisted/cloud gms_control=true cannot reactivate reachability blocks.
 # Six method identities, EU/ZK gate counts and SHA pins live in a small JSON
 # manifest. Exact EU input and resulting DEX hashes are both verified.
 gate_manifest="$base_dir/zk_gate_reference_a16.json"
@@ -61,11 +62,11 @@ python3 "$base_dir/eu_zk_scoped_gates.py" \
   --eu "$tmp/classes.dex" --gate-manifest "$gate_manifest" \
   --output "$tmp/eu-scoped.dex" --report "$report_dir/eu-scoped-gates.json"
 scoped_hash="$(sha256sum "$tmp/eu-scoped.dex" | cut -d ' ' -f1)"
-[[ "$scoped_hash" == "64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1" ]] || {
+[[ "$scoped_hash" == "c5f3d2d47c9c49e1fdb2715b93ee04f2407f2848f599717561ccb692ce09e3f1" ]] || {
   error "PowerKeeper: scoped EU DEX output is not the verified reference"; exit 1;
 }
 
-# Install the verified seven-gate EU DEX directly, with no additional
+# Install the verified EU + seven gates + two GMS policy reads, with no
 # ActiveStateController Smali rewrite or injected GMS Millet allowlist.
 installed_dex="$tmp/eu-scoped.dex"
 installed_hash="$scoped_hash"
@@ -107,8 +108,12 @@ report = {
     "ActiveStateController_enable_untouched": True,
     "new_background_worker": False,
     "historically_zk_verified_gate_changes_only": 7,
+    "gms_control_setting_results_forced_false": 2,
+    "gms_control_cloud_override_suppressed": True,
+    "gms_disable_cleanup_untouched": True,
+    "gms_fix_is_additional_hypermos_policy_not_ryu_parity": True,
     "zk_reference_dex_required_at_build": False,
-    "other_eu_methods_untouched_outside_seven_gates": True,
+    "other_eu_methods_untouched_outside_seven_gates_and_two_gms_reads": True,
     "device_properties_or_thermal_rewritten": False,
     "final_apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
     "source_ryu_used_as_compression_reference_only": True,
@@ -125,5 +130,6 @@ PYEU
 
 cp -f "$tmp/PowerKeeper.aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "PowerKeeper: EU DEX + seven audited gates; no injected GMS Millet exemption"
+mods "PowerKeeper: EU + seven gates; GMS reachability control disabled at two policy reads"
 patch "PowerKeeper: stock non-DEX + v1 metadata preserved; changed DEX has invalid original cryptographic signature"
+
