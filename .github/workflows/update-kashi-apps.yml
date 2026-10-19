@@ -224,7 +224,7 @@ jobs:
 
                   asset = assets[0]
                   filename = asset["name"]
-                  if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\\.zip", filename):
+                  if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\.zip", filename):
                       raise ValueError(f"{repo}: unsafe release filename: {filename}")
                   expected_size = int(asset.get("size", 0))
                   if not 1024 <= expected_size <= 100 * 1024 * 1024:
