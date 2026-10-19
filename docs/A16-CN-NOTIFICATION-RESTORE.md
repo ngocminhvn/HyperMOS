@@ -30,8 +30,11 @@ DeviceIdleControllerStubImpl or extra SmartPower/location/input classes.
 
 ### Scoped Xiaomi.eu force-stop decision (Messenger OneKeyClean fix)
 
-Source comparison: user-supplied A16 Xiaomi.eu `miui-servicesEU.jar` vs the
-China A16 `miui-services.jar`. Both have a 48-code-unit (28-instruction)
+Source comparison: user-supplied A16 Xiaomi.eu `miui-servicesEU.jar`
+(SHA-256 `a1b7aeba7347d7722d7c293111537d17d68f8792d58fe176fd2bc48fb0a78b94`)
+vs the China A16 `miui-services.jar`
+(SHA-256 `00561c82eccd541a1935a4ed608283afdba712234aa5f884f4ba276c17104144`).
+Both have a 48-code-unit (28-instruction)
 `ProcessManagerService.isForceStopEnable(ProcessRecord,int)` with identical
 logic and a single `Build.IS_INTERNATIONAL_BUILD` read; the runtime value
 selects EU vs China behavior. EU and China differ in other
