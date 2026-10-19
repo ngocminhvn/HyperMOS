@@ -25,9 +25,41 @@ Port only the upstream notification behavior in miui-services.jar:
   and ActivitySecurityHelper.
 - Force Greeze PolicyManager.CN_MODEL=false.
 
-Compared to previous HyperMOS --cn-notification-fix, this **does not**
-rewrite DeviceIdleControllerStubImpl, ProcessManagerService or other extra
-SmartPower / location / input classes.
+Compared with the retired --cn-notification-fix, this no longer rewrites
+DeviceIdleControllerStubImpl or extra SmartPower/location/input classes.
+
+### Scoped Xiaomi.eu force-stop decision (Messenger OneKeyClean fix)
+
+Source comparison: user-supplied A16 Xiaomi.eu `miui-servicesEU.jar` vs the
+China A16 `miui-services.jar`. Both have a 48-code-unit (28-instruction)
+`ProcessManagerService.isForceStopEnable(ProcessRecord,int)` with identical
+logic and a single `Build.IS_INTERNATIONAL_BUILD` read; the runtime value
+selects EU vs China behavior. EU and China differ in other
+`ProcessManagerService` methods (including its constructor), so copying the
+whole EU class would risk an incompatible ProcessStarter/PowerManager ABI.
+
+The HyperMOS port changes **only that one read** inside the matching
+`isForceStopEnable` method to `const/4 v0, 0x1` (EU international branch),
+leaving the remainder of the CN method and class intact. For the observed
+`OneKeyClean` and `SwipeUpClean` policies (1 and 7), this chooses the EU
+decision not to force-stop packages just to clean recents. It does **not**
+disable task/process cleanup itself. The pre-existing policy 13 early return
+remains unchanged.
+
+Safety gates fail the build if the method/signature, the unique build-field
+read, register v0 or the policy-13 guard/early return differ unexpectedly.
+A report is written to `build/reports/frameworkpatcher-a16/notification-gates.json`
+under `scoped_eu_force_stop`. Existing FrameworkPatcher
+`ProcessSceneCleaner.handleSwipeKill` / `killAppForHasOtherTask` gates,
+`OneKeyClean` invocation, PowerKeeper EU, GMS Millet and other policies
+are unmodified. No daemon, timer, process pinning or blanket auto-start
+permission is added.
+
+**Runtime verification still needed:** on a fresh ROM build, launch Messenger,
+clean all recents, verify `stopped=false` and examine
+`dumpsys activity exit-info com.facebook.orca`. Then repeat a direct
+user-requested Force stop through Settings to make sure that feature remains
+functional. Compare notification receipt and idle drain before declaring fixed.
 
 This is a self-contained, pinned-in-repository port; ROM builds do not
 download the upstream project. Integration adds fail-closed checks when no
