@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Port ONLY selected, previously-identified ZK build-boolean gates into EU DEX.
+"""Keep Xiaomi.eu GmsObserver and DeviceIdleController method bytes unchanged.
 
-No class/method/resource injection; never touches thermal, perf, UID kill or
-private build labels. Frozen original-ZK audit manifest + exact EU input/output
-SHA-256 pins replace the runtime ZK DEX dependency. Gate bytecode remains
-identical: sget-boolean vA, IS_INTERNATIONAL_BUILD -> const/4 vA, 1; nop.
-A DEX code-unit size is preserved; branch/try offsets remain unchanged.
+The frozen seven-gate audit stays as historical evidence. Only the three
+DisplayFrameSetting flag reads are adapted. Exact EU DEX source checksum,
+the seven-read audit, KillProcessController and the byte-level three-edit
+allowlist are all verified before installation. No new classes or ABI changes.
 """
 import argparse
 import hashlib
@@ -28,6 +27,17 @@ ALLOW = {
     ('Lcom/miui/powerkeeper/statemachine/DisplayFrameSetting;', 'getValidLocalConfigPath', '(Landroid/content/Context;)Ljava/lang/String;'): 2,
     ('Lcom/miui/powerkeeper/statemachine/DisplayFrameSetting;', 'isSupportDevice', '()Z'): 1,
 }
+
+# Four Google/DeviceIdle methods remain original EU; only DisplayFrameSetting
+# may be adjusted for the China-base ROM.
+EU_NATIVE = {
+    key for key in ALLOW
+    if key[0].startswith(('Lcom/miui/powerkeeper/utils/GmsObserver;',
+                          'Lcom/miui/powerkeeper/controller/DeviceIdleController$'))
+}
+DISPLAY_ONLY = {key: count for key, count in ALLOW.items() if key not in EU_NATIVE}
+if len(EU_NATIVE) != 4 or len(DISPLAY_ONLY) != 2 or sum(DISPLAY_ONLY.values()) != 3:
+    raise RuntimeError('Unexpected EU native / DisplayFrameSetting method inventory')
 
 
 def sha(data):
@@ -197,9 +207,10 @@ def port(eu, reference: dict):
             raise ValueError(f'{key}: expected {count} audited EU gates, got EU={len(hits)}')
         if any(reg > 15 for _, reg in hits):
             raise ValueError(f'{key}: gate register exceeds const/4 range')
-        edits.extend((key, off, reg) for off, reg in hits)
-    if len(edits) != 7:
-        raise ValueError(f'Expected exactly seven scoped gates, got {len(edits)}')
+        if key in DISPLAY_ONLY:
+            edits.extend((key, off, reg) for off, reg in hits)
+    if len(edits) != 3:
+        raise ValueError(f'Expected exactly three DisplayFrameSetting gates, got {len(edits)}')
     dest = bytearray(eu)
     for key, off, reg in edits:
         # const/4 vA, #+1 followed by nop, same size as the sget-boolean.
@@ -212,22 +223,30 @@ def port(eu, reference: dict):
     kill_parity = verify_eu_killprocess_unchanged(a, check)
     if kill_parity['eu_killprocess_instructions_sha256'] != reference['unchanged_eu_killprocess_sha256']:
         raise ValueError('Original EU KillProcessController fingerprint differs from frozen audit')
-    for key, count in ALLOW.items():
+    for key, count in DISPLAY_ONLY.items():
         if check.gate_hits(key, EU_FIELD):
-            raise ValueError('An allowed EU gate was not patched: ' + repr(key))
+            raise ValueError('An expected DisplayFrameSetting gate was not patched: ' + repr(key))
+    for key in EU_NATIVE:
+        old_off, old_units = a.codes[key]
+        new_off, new_units = check.codes[key]
+        if (old_units != new_units
+                or a.raw[old_off:old_off + old_units * 2] !=
+                   check.raw[new_off:new_off + new_units * 2]
+                or len(check.gate_hits(key, EU_FIELD)) != ALLOW[key]):
+            raise ValueError('EU GmsObserver / DeviceIdleController method was changed: ' + repr(key))
     expected = {i for _, off, _ in edits for i in range(off, off + 4)} | set(range(8, 32))
     actual = {i for i, (x, y) in enumerate(zip(eu, final)) if x != y}
     if not actual <= expected:
         raise ValueError('EU DEX changed outside whitelist and DEX header')
-    if sha(final) != reference['scoped_eu_dex_sha256']:
-        raise ValueError('Scoped EU DEX no longer matches audited output SHA-256')
+    if sha(final) in (EU_SHA, reference['scoped_eu_dex_sha256']):
+        raise ValueError('New output cannot equal the EU input or the retired seven-gate output')
     return final, {
         'source': 'exact_EU_DEX', 'source_sha256': sha(eu),
-        'output_sha256': sha(final), 'gate_policy': 'frozen_ZKOS_audit_GMS_Doze_Display_only',
+        'output_sha256': sha(final), 'gate_policy': 'original_EU_GmsObserver_DeviceIdleController_plus_three_DisplayFrameSetting_reads',
         'zk_gate_audit_git_blob_sha1': ZK_AUDIT_BLOB_SHA,
         'zk_dex_required_at_build': False,
-        'changed_methods': [{ 'class':k[0], 'name':k[1], 'prototype':k[2], 'count':sum(t[0] == k for t in edits)} for k in ALLOW],
-        'changed_gates': len(edits), 'total_EU_methods_preserved': len(a.codes),
+        'changed_methods': [{ 'class':k[0], 'name':k[1], 'prototype':k[2], 'count':sum(t[0] == k for t in edits)} for k in DISPLAY_ONLY],
+        'changed_gates': len(edits), 'eu_native_gms_doze_methods_unchanged': True, 'total_EU_methods_preserved': len(a.codes),
         'unrelated_EU_methods_untouched': True,
         'perfhook_or_RYU_methods_imported': False,
         'unchanged_thermal_resources_GPU_governor': True,

@@ -55,7 +55,8 @@ A report is written to `build/reports/frameworkpatcher-a16/notification-gates.js
 under `scoped_eu_force_stop`. Existing FrameworkPatcher
 `ProcessSceneCleaner.handleSwipeKill` / `killAppForHasOtherTask` gates
 and the `OneKeyClean` invocation are unmodified by this force-stop edit.
-PowerKeeper uses the seven-gate EU DEX without the former extra GMS Millet
+PowerKeeper uses three DisplayFrameSetting-only gates and EU-native GMS/Doze
+bytecode without the former extra GMS Millet
 allowlist injection. No daemon, timer, process pinning or blanket auto-start
 permission is added.
 
@@ -86,11 +87,14 @@ HAOTIAN idle/notificaton tests are still required to establish runtime parity.
 ## Compact ZKOS gate evidence (PowerKeeper)
 
 The PowerKeeper EU build no longer requires an uploaded ZKOS `classes.dex`.
-Its six originally compared methods and seven gate counts, the removed
-ZK Git blob ID, EU source/output SHA-256 and KillProcessController fingerprint
-are pinned in `bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
-`eu_zk_scoped_gates.py` now verifies this manifest, patches EU source only,
-then checks exact output bytes with the audited SHA-256. The older donor
+Its six originally compared methods and seven *historical* gate counts, the
+removed ZK Git blob ID, original EU source SHA-256, retired seven-gate output
+SHA-256 and KillProcessController fingerprint are pinned in
+`bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
+`eu_zk_scoped_gates.py` verifies the exact EU source, retains native EU
+GmsObserver/DeviceIdleController bytes, and checks that only three
+DisplayFrameSetting gates (plus DEX header) changed. The new output SHA-256
+is reported by the build but is not yet pinned. The older donor
 remains recoverable from Git history, not from the current checkout.
 
 The independent `tnm-perfhook-source.dex` is still required as a **compression
