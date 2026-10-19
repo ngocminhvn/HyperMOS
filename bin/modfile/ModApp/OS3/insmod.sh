@@ -11,7 +11,7 @@ fi
 
 mods "Starting Apply OS3 Mods Center packages..."
 
-TARGET_DIR="$work_dir/bin/modfile/OS3"
+TARGET_DIR="$work_dir/bin/modfile/ModApp/OS3"
 KASHI_SCRIPT="$TARGET_DIR/kashimod.sh"
 
 if [[ ! -f "$KASHI_SCRIPT" ]]; then

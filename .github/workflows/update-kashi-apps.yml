@@ -68,7 +68,7 @@ jobs:
               ("Security Center", "Mods-Center/HyperOS-Security-Center", "HyperOS_Security", "com.miui.securitycenter", None),
               ("Theme Manager", "Mods-Center/HyperOS-Theme-Manager", "HyperOS_ThemeManager", "com.android.thememanager", None),
           ]
-          DEST = Path("bin/modfile/OS3/kashi")
+          DEST = Path("bin/modfile/ModApp/Kashi")
           DEST.mkdir(parents=True, exist_ok=True)
           # An upstream module must never be silently omitted from the report.
           # Every checked-in ZIP has to belong to exactly one configured source.
@@ -262,7 +262,7 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A bin/modfile/OS3/kashi
+          git add -A bin/modfile/ModApp/Kashi
           if git diff --cached --quiet; then
             echo "No ZIP files changed." >> "$GITHUB_STEP_SUMMARY"
             exit 0

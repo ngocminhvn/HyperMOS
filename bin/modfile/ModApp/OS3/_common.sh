@@ -7,7 +7,7 @@ source "$work_dir/functions.sh"
 # Normal builds continue to use the default paths.
 OS3_MOD_CACHE="${OS3_MOD_CACHE:-$work_dir/build/os3_modscenter}"
 OS3_IMAGES="${OS3_IMAGES:-$work_dir/build/baserom/images}"
-OS3_KASHI_DIR="${OS3_KASHI_DIR:-$work_dir/bin/modfile/OS3/kashi}"
+OS3_KASHI_DIR="${OS3_KASHI_DIR:-$work_dir/bin/modfile/ModApp/Kashi}"
 MODSCENTER_ARCHIVE=""
 MODSCENTER_TAG=""
 

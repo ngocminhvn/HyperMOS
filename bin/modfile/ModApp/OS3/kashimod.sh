@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 work_dir=$(pwd)
-source "$work_dir/bin/modfile/OS3/_common.sh"
+source "$work_dir/bin/modfile/ModApp/OS3/_common.sh"
 
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
 [[ "$rom_os" == "OS3" ]] || exit 0
@@ -98,7 +98,7 @@ patch_stock_securitycenter() (
         exit 1
     }
 
-    python3 "$work_dir/bin/modfile/OS3/securitycenter_countdown.py" "$tmp/raw"
+    python3 "$work_dir/bin/modfile/ModApp/OS3/securitycenter_countdown.py" "$tmp/raw"
     "${apkeditor[@]}" b -t raw -f -i "$tmp/raw" -o "$tmp/SecurityCenter.apk" >/dev/null
 
     rebuilt_package=$(modscenter_apk_package "$tmp/SecurityCenter.apk" || true)

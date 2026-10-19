@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 work_dir=$(pwd)
-source "$work_dir/bin/modfile/OS3/_common.sh"
+source "$work_dir/bin/modfile/ModApp/OS3/_common.sh"
 
-SYSTEM_DIR="$work_dir/bin/modfile/OS3/system"
+SYSTEM_DIR="$work_dir/bin/modfile/ModApp/OS3/system"
 CACHE_DIR="$work_dir/build/os3_system"
 
 rm -rf "$CACHE_DIR"

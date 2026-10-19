@@ -7,7 +7,7 @@ Normal ROM builds do not fetch GitHub releases on their own.
 
 ## Local ZIP naming
 
-ROM builds use locally staged snapshots from bin/modfile/OS3/kashi/; the updater
+ROM builds use locally staged snapshots from bin/modfile/ModApp/Kashi/; the updater
 refreshes each ZIP from its own newest stable upstream release. Keep exactly one
 ZIP per family prefix, regardless of version suffix:
 
@@ -25,7 +25,7 @@ removes the previous release ZIP when committing its replacement.
 
 ## Kashi mods
 
-bin/modfile/OS3/kashimod.sh installs App Vault, the latest staged ColorOS
+bin/modfile/ModApp/Kashimod.sh installs App Vault, the latest staged ColorOS
 Control Center, Screenshot, Theme Manager, and Launcher. The Xiaomi SecurityCenter extracted
 from the downloaded base ROM is retained and patched in place: only the
 InterceptPermission confirmation count becomes 0. The ADB input/install
@@ -50,7 +50,7 @@ expected package, or stock target is missing.
 
 ## System APKs
 
-bin/modfile/OS3/system/update.sh now installs only MIUIGallery.apk and the
+bin/modfile/ModApp/OS3/system/update.sh now installs only MIUIGallery.apk and the
 optional external libraries in MIUIGallery/lib/. Deleted LLions APKs are no
 longer mandatory. The Gallery APK is stored in Git LFS, so CI must fetch LFS
 objects before the build.
