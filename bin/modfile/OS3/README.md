@@ -1,39 +1,42 @@
-# OS3 fixed system-app snapshots
+# OS3 locally staged system-app releases
 
-HyperMOS builds use system-app payloads committed directly in this repository,
-except for SecurityCenter, which is taken from the downloaded Xiaomi base ROM
-and patched during the build. Normal ROM builds do not resolve GitHub releases
-for these apps.
+HyperMOS builds use the latest validated system-app release ZIPs committed to
+this repository by the Update Kashi Apps workflow. SecurityCenter installed in
+the ROM is taken from the downloaded Xiaomi base ROM and patched during build.
+Normal ROM builds do not fetch GitHub releases on their own.
 
 ## Local ZIP naming
 
-ROM builds use local snapshots from bin/modfile/OS3/kashi/; no release downloads
-take place in the normal ROM build. Keep exactly one ZIP per active prefix:
+ROM builds use locally staged snapshots from bin/modfile/OS3/kashi/; the updater
+refreshes each ZIP from its own newest stable upstream release. Keep exactly one
+ZIP per family prefix, regardless of version suffix:
 
 - HyperOS_AppVault*.zip
-- ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip (active Control Center)
-- HyperOS_Screenshot*.zip (Screenshot)
+- ColorOS_plugin_mod_*.zip (Control Center selected by ROM)
+- FreeStyle_CC_mod_*.zip (updated reference ZIP; not installed in ROM)
+- HyperOS_Screenshot*.zip
 - HyperOS_Launcher*.zip
+- HyperOS_Security*.zip (updated reference ZIP; not installed in ROM)
 - HyperOS_ThemeManager*.zip
 
-The older FreeStyle_CC_mod_*.zip is retained only as an inactive archive;
-the manual updater can refresh it without enabling FreeStyle in ROM builds.
-Normal builds use the existing local ColorOS V3 ZIP and do not fetch updates.
+There are no pinned app versions. ColorOS V3, V4 and subsequent valid versions
+are selected using the same `ColorOS_plugin_mod_` prefix; the updater also
+removes the previous release ZIP when committing its replacement.
 
 ## Kashi mods
 
-bin/modfile/OS3/kashimod.sh installs App Vault, ColorOS Control Center V3,
-Screenshot, Theme Manager, and Launcher. The Xiaomi SecurityCenter extracted
+bin/modfile/OS3/kashimod.sh installs App Vault, the latest staged ColorOS
+Control Center, Screenshot, Theme Manager, and Launcher. The Xiaomi SecurityCenter extracted
 from the downloaded base ROM is retained and patched in place: only the
 InterceptPermission confirmation count becomes 0. The ADB input/install
 handler delays stay unchanged from the base ROM, following the observed ZKOS
 behavior. The patch is deliberately limited to the InterceptPermissionFragment
 smali file.
 
-The old HyperOS_Security*.zip remains only as an inactive reference archive.
-It is not read by normal ROM builds.
+The HyperOS_Security*.zip snapshot is updated from upstream like the other
+ZIPs but remains an inactive reference: it is not read by the ROM build.
 
-- ColorOS_plugin_mod_V3_@kashis_cringey_stuffs.zip: find the unique APK
+- ColorOS_plugin_mod_*.zip: find the unique APK
   with Android package miui.systemui.plugin, keeping its app-local libs and
   supported system-tree overlays as in the original ColorOS module.
 - HyperOS_Screenshot*.zip: install only files/MIUIScreenshot.apk
@@ -50,24 +53,23 @@ optional external libraries in MIUIGallery/lib/. Deleted LLions APKs are no
 longer mandatory. The Gallery APK is stored in Git LFS, so CI must fetch LFS
 objects before the build.
 
-The manual Update Kashi Apps workflow checks all seven local Kashi ZIP families:
-App Vault, ColorOS Control Center V3, FreeStyle Control Center, Screenshot,
-Launcher, Security Center and Theme Manager. It fails if a ZIP has no configured
-source instead of silently reporting that all snapshots are current.
+The manual Update Kashi Apps workflow checks all seven upstream sources:
+App Vault, ColorOS Control Center, FreeStyle Control Center, Screenshot,
+Launcher, Security Center and Theme Manager. The job retrieves the newest
+stable release for every source, validates its ZIP and expected APK package
+(and Launcher overlay), then replaces the old ZIP if the filename or bytes
+have changed. It fails rather than silently skipping an unavailable,
+ambiguous or invalid release. Changes are committed directly to main unless
+the user selected dry-run.
 
-The updater accepts only the V3 release for ColorOS and preserves the
-known-good local filename. If upstream assets do not uniquely identify a
-compatible ZIP, ColorOS and inactive FreeStyle keep their local snapshots after
-ZIP CRC and package-identity validation; the job reports `Pinned / verified`
-instead of failing or silently replacing them with incompatible versions.
-The FreeStyle and Security Center ZIPs are reference archives and are not
-installed by the ROM build. Running the updater is a separate manual action;
-normal ROM builds never fetch releases.
+The FreeStyle and Security Center ZIPs are also updated, but remain reference
+archives and are not installed by the ROM build. Running the updater is a
+separate manual action; normal ROM builds never fetch releases.
 
 
 ## Integration flow
 
-1. Read the fixed local ZIP/APK from the repository (except SecurityCenter,
+1. Read the latest staged local ZIP/APK from the repository (except SecurityCenter,
    which always comes from the downloaded base ROM).
 2. Check ZIP readability and the required APK's presence.
 3. Extract the selected APK.
