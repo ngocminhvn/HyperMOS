@@ -52,20 +52,20 @@ eu_hash="$(sha256sum "$tmp/classes.dex" | cut -d ' ' -f1)"
   error "PowerKeeper: restored EU DEX checksum mismatch"; exit 1;
 }
 
-# Preserve original EU GmsObserver + DeviceIdleController; patch only three
-# DisplayFrameSetting reads. Check the historical seven-read audit, exact
-# source SHA and the byte-level three-gate diff. The old output hash is retired.
+# Apply the same seven previously audited gates without carrying ZKOS DEX.
+# Six method identities, EU/ZK gate counts and SHA pins live in a small JSON
+# manifest. Exact EU input and resulting DEX hashes are both verified.
 gate_manifest="$base_dir/zk_gate_reference_a16.json"
 [[ -s "$gate_manifest" ]] || { error "PowerKeeper: gate audit manifest missing"; exit 1; }
 python3 "$base_dir/eu_zk_scoped_gates.py" \
   --eu "$tmp/classes.dex" --gate-manifest "$gate_manifest" \
   --output "$tmp/eu-scoped.dex" --report "$report_dir/eu-scoped-gates.json"
 scoped_hash="$(sha256sum "$tmp/eu-scoped.dex" | cut -d ' ' -f1)"
-[[ "$scoped_hash" != "$eu_hash" && "$scoped_hash" != "64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1" ]] || {
-  error "PowerKeeper: output equals unmodified EU or retired seven-gate output"; exit 1;
+[[ "$scoped_hash" == "64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1" ]] || {
+  error "PowerKeeper: scoped EU DEX output is not the verified reference"; exit 1;
 }
 
-# Install the verified three-gate EU DEX directly, with no additional
+# Install the verified seven-gate EU DEX directly, with no additional
 # ActiveStateController Smali rewrite or injected GMS Millet allowlist.
 installed_dex="$tmp/eu-scoped.dex"
 installed_hash="$scoped_hash"
@@ -106,8 +106,7 @@ report = {
     "dealNoRestrictApp_untouched": True,
     "ActiveStateController_enable_untouched": True,
     "new_background_worker": False,
-    "historically_zk_verified_gate_changes_only": 3,
-    "gms_observer_device_idle_original_eu_bytecode": True,
+    "historically_zk_verified_gate_changes_only": 7,
     "zk_reference_dex_required_at_build": False,
     "other_eu_methods_untouched_outside_seven_gates": True,
     "device_properties_or_thermal_rewritten": False,
@@ -126,5 +125,5 @@ PYEU
 
 cp -f "$tmp/PowerKeeper.aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "PowerKeeper: native EU GmsObserver/DeviceIdleController + 3 DisplayFrame gates; no GMS Millet injection"
+mods "PowerKeeper: EU DEX + seven audited gates; no injected GMS Millet exemption"
 patch "PowerKeeper: stock non-DEX + v1 metadata preserved; changed DEX has invalid original cryptographic signature"

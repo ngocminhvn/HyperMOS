@@ -20,33 +20,28 @@ are enforced at build time.
 
 ### Selected previous ZKOS adaptations
 
-Only three `DisplayFrameSetting` flag reads are adjusted. The prior
-seven-read / six-method historical ZKOS audit remains frozen in
+Exactly seven build flag reads in six **previously audited against ZKOS**
+methods are adjusted in-place. The previous comparison results are frozen in
 `bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
-At build time the exact EU DEX source hash, seven-read inventory, three-edit
-byte allowlist, original EU GMS/Doze methods, and original EU
-KillProcessController fingerprint are verified. The old
+At build time the exact EU DEX, method inventory, counts, EU output checksum
+and original EU KillProcessController fingerprint are verified. The old
 4,074,428-byte ZKOS `classes.dex` is no longer required:
 
-- `GmsObserver.<init>` and `updateGoogleSync`: EU-original, unchanged.
-- `DeviceIdleController$1.<init>` and `$2.<init>`: EU-original, unchanged.
-- `DisplayFrameSetting.getValidLocalConfigPath`: two adapted reads.
-- `DisplayFrameSetting.isSupportDevice`: one adapted read.
+- `GmsObserver.<init>` and `updateGoogleSync`: one read each.
+- `DeviceIdleController$1.<init>` and `$2.<init>`: one read each.
+- `DisplayFrameSetting.getValidLocalConfigPath`: two reads.
+- `DisplayFrameSetting.isSupportDevice`: one read.
 
 These correspond to `IS_ZK_BUILD` branches in the supplied ZKOS DEX, which
 were mapped to an enabled TNM build flag in the earlier implementation.
-Only the three DisplayFrameSetting reads are forced true. The GMS/Doze
-methods keep their original EU `IS_INTERNATIONAL_BUILD` field reads.
-Note: the original EU bytes on a China ROM may follow a different runtime
-branch because the international flag can be false. Other gates, UID kill
-methods and PerfHook are unmodified.
+The EU `IS_INTERNATIONAL_BUILD` reads in these *specific* methods now act
+as true. Other international, cloud, privacy, payment, temperature or device
+property gates remain unmodified, as do RYU UID methods and PerfHook.
 No new DEX classes, hooks, fields, resource overlays or persistent workers.
 
 EU source SHA-256: `ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae`
 
-Retired seven-gate output SHA-256: `64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1`.
-The new three-gate output hash is recorded at build time (not yet pinned);
-the original EU source SHA and exact byte-difference allowlist are enforced.
+Scoped EU output SHA-256: `64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1`
 
 The former ZK DEX was a **comparison-only** reference, never copied into the
 APK. It has been removed from the current Git tree, with its original Git blob
@@ -59,7 +54,7 @@ all other EU method instructions are preserved. Runtime behavior needs testing.
 
 The former HyperMOS-specific injection that appended
 `com.google.android.gms` to `Settings.System.MILLET_NO_RESTRICT_APP`
-has been removed. The build installs the verified three-gate EU DEX
+has been removed. The build installs the verified seven-gate EU DEX
 directly; it does not modify `ActiveStateController.enable()` or
 `dealNoRestrictApp()` after applying the seven audited gates.
 The original EU/Xiaomi Millet policy still operates normally; this
@@ -88,7 +83,7 @@ have been deleted from the current A16 directory: `zk_full_powerkeeper_a16.py`,
 They remain available through historical Git commits for retrospective audits.
 
 The active A16 directory retains only the notification patch entrypoints,
-their Python helpers, the historical seven-gate audit JSON, and the EU binary delta plus
+their Python helpers, the seven-gate audit JSON, and the EU binary delta plus
 the RYU compression dictionary needed to reconstruct the pinned EU DEX.
 No retired source code is imported into PowerKeeper's installed classes.dex.
 
@@ -116,9 +111,8 @@ minSdkVersion 36. Mismatches fail the build instead of blindly importing a
 foreign DEX. The installed non-DEX ZIP members are byte-comparable to the
 Xiaomi base; the final DEX SHA is tested after zipalign.
 
-This is the original **EU donor DEX with only three DisplayFrameSetting
-build-gate adaptations**, retaining original EU GMS/Doze bytecode. It is
-not a rebadged ZKOS/RYU DEX. Byte-identical EU PowerKeeper bytecode does NOT
+This is the original **EU donor DEX with seven verified scoped ZK build-gate
+adaptations**, not “stock-first EU-like policy” and not a rebadged ZKOS/RYU DEX. Byte-identical EU PowerKeeper bytecode does NOT
 prove that all ROM framework services are identical to EU or that thermal
 or notification results will improve. Device boot and runtime tests are
 still necessary.
