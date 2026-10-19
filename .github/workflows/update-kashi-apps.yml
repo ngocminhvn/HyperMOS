@@ -59,8 +59,10 @@ jobs:
           
           SOURCES = [
               ("App Vault", "Mods-Center/HyperOS-App-Vault", "HyperOS_AppVault", "com.miui.personalassistant", None),
-              # ColorOS V3 Control Center is deliberately pinned to the local ZIP;
-              # do not replace it or reactivate FreeStyle through the updater.
+              # Keep the active control center on the V3 asset family. FreeStyle is
+              # refreshed as an inactive archive; this never enables it in ROM builds.
+              ("ColorOS Control Center V3", "Mods-Center/ColorOS_Control_Center", "ColorOS_plugin_mod_V3_@kashis_cringey_stuffs", "miui.systemui.plugin", None),
+              ("FreeStyle Control Center (inactive)", "Mods-Center/FreeStyle-Control-Center", "FreeStyle_CC_mod_", "miui.systemui.plugin", None),
               ("Screenshot", "Mods-Center/HyperOS-Screenshot-mod", "HyperOS_Screenshot", "com.miui.screenshot", "files/MIUIScreenshot.apk"),
               ("Launcher", "Mods-Center/HyperOS-Launcher", "HyperOS_Launcher", "com.miui.home", None),
               ("Security Center", "Mods-Center/HyperOS-Security-Center", "HyperOS_Security", "com.miui.securitycenter", None),
@@ -68,6 +70,29 @@ jobs:
           ]
           DEST = Path("bin/modfile/OS3/kashi")
           DEST.mkdir(parents=True, exist_ok=True)
+          # An upstream module must never be silently omitted from the report.
+          # Every checked-in ZIP has to belong to exactly one configured source.
+          prefixes = [source[2] for source in SOURCES]
+          if len(prefixes) != len(set(prefixes)):
+              raise ValueError("Kashi updater: duplicate release prefix")
+          local_zips = sorted(
+              item.name for item in DEST.iterdir()
+              if item.is_file() and item.suffix.lower() == ".zip"
+          )
+          unmapped = [
+              name for name in local_zips
+              if sum(name.startswith(prefix) for prefix in prefixes) != 1
+          ]
+          if not local_zips or unmapped:
+              raise ValueError(
+                  f"Kashi updater: no ZIPs or unmapped local ZIPs: {unmapped}; "
+                  "configure all Kashi ZIP prefixes before updating"
+              )
+          print(
+              f"[COVERAGE] {len(local_zips)} Kashi ZIPs mapped to "
+              f"{len(SOURCES)} upstream releases",
+              flush=True,
+          )
           rows = []
           changed = False
           
@@ -175,6 +200,9 @@ jobs:
                   print(f"[UPDATED] {label}: {filename}", flush=True)
           
           summary = ["## Kashi app release check", "",
+                     f"Coverage: {len(local_zips)} local ZIPs / {len(SOURCES)} configured releases (no omissions).",
+                     "ColorOS is restricted to the V3 file family; FreeStyle and Security Center remain inactive in ROM builds.",
+                     "",
                      "| App | Existing snapshot | Latest release | Result |",
                      "|---|---|---|---|"]
           summary.extend(f"| {label} | {before} | {latest} | {action} |"
