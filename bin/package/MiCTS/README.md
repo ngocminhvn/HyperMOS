@@ -3,8 +3,8 @@
 Upstream reference: https://github.com/parallelcc/MiCTS
 
 This package implements the **VIMSHooker/CSHelper routing behavior in the
-existing Android framework**, using a static smali/DEX patch to
-`/system/framework/services.jar`. It does **not** install a framework
+existing Android framework**, using static smali/DEX patches to services.jar and, only if needed,
+the Xiaomi miui-services.jar. It does **not** install a framework
 resource overlay. It does **not** patch MiuiHome.apk or any Google APK.
 
 Precisely two resource-derived String values are replaced, inside the
@@ -33,9 +33,16 @@ match it **uniquely**. Replacement is atomic and only after JAR ZIP validation.
 MiCTS application launch and its Quick Settings tile can use this **native
 CSHelper path without LSPosed**, provided the Google app supports CTS.
 
-This does **not** port the *separate* MiCTS Xposed hook for Xiaomi gesture
-handle/Home long-press. Those gestures need a compatible existing Xiaomi
-Launcher implementation or another separately reviewed patch. The upstream
+**Home long-press:** native MiCTS long-press hook now patches the owning
+MiuiSingleKeyRule in services.jar or miui-services.jar, whichever contains it.
+Only KEYCODE_HOME=3 is redirected; failures fall back to Xiaomi stock code.
+This is event-driven with no persistent process.
+
+**Gesture-handle long-press:** no APK patch. Inspection of the supplied
+HyperOS 3 MiuiHome.apk confirms a native NavStubGestureEventManager.onLongPress
+and launchInvoke -> CircleToSearchHelper.invokeCircleToSearch chain.
+Launcher-specific gesture mapping and eligibility still control activation:
+this integration does not guarantee every Launcher build enables it. The upstream
 MiCTS APK continues to be staged by the existing downloadapp installer; its
 APK is not modified by this package.
 

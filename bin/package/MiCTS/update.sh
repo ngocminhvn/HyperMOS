@@ -37,10 +37,36 @@ fi
 init_env
 ensure_tools
 [[ -s "$patch" ]] || { error "MiCTS: Python patcher missing"; exit 1; }
-trap 'rm -rf "$decoded" "$output"' EXIT
+trap 'rm -rf "$decoded" "$output" "$work_dir/miui-services_decompile" "$work_dir/miui-services_patched.jar"' EXIT
 
 decompile_jar "$jar" >/dev/null
 python3 "$patch" "$decoded" --report "$report"
+
+# Static Xiaomi Home-key hook. Xiaomi may keep MiuiSingleKeyRule in either JAR.
+home_patch="$work_dir/bin/package/MiCTS/patch_home.py"
+home_report="$work_dir/build/reports/micts-home.txt"
+[[ -s "$home_patch" ]] || { error "MiCTS: Home patcher missing"; exit 1; }
+if find "$decoded" -type f -name 'MiuiSingleKeyRule.smali' -print -quit | grep -q .; then
+  python3 "$home_patch" "$decoded" --report "$home_report"
+  home_jar="$jar"
+else
+  home_jar="$images/system_ext/framework/miui-services.jar"
+  [[ -s "$home_jar" ]] || {
+    error "MiCTS: Home key owner missing from services and miui-services unavailable"
+    exit 1
+  }
+  home_decoded="$work_dir/miui-services_decompile"
+  home_output="$work_dir/miui-services_patched.jar"
+  decompile_jar "$home_jar" >/dev/null
+  python3 "$home_patch" "$home_decoded" --report "$home_report"
+  recompile_jar "$home_jar" >/dev/null
+  if [[ ! -s "$home_output" ]] || ! unzip -t "$home_output" >/dev/null 2>&1; then
+    error "MiCTS: Home JAR rebuild failed"
+    exit 1
+  fi
+  mv -f "$home_output" "$home_jar"
+fi
+
 recompile_jar "$jar" >/dev/null
 
 if [[ ! -s "$output" ]] || ! unzip -t "$output" >/dev/null 2>&1; then
@@ -55,4 +81,4 @@ mv -f "$output" "$jar"
 # Remove the old package's own overlay; no framework-res or APK is modified.
 rm -f "$images/product/overlay/HyperMOSMiCTSOverlay.apk"
 rm -f "$images/product/overlay/HyperMOSContextualSearchOverlay.apk"
-mods "MiCTS: services.jar CSHelper DEX patched, no APK changes, no background runtime"
+mods "MiCTS: services.jar CSHelper + Xiaomi Home long-press; Launcher gesture remains native"
