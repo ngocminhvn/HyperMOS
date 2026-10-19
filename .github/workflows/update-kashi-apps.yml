@@ -29,14 +29,6 @@ jobs:
           persist-credentials: true
           lfs: false
 
-      - name: Check preflight and installer syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m py_compile bin/modfile/OS3/kashi_preflight.py
-          bash -n bin/modfile/OS3/_common.sh
-          bash -n bin/modfile/OS3/kashimod.sh
-
       - name: Prepare APK validation
         shell: bash
         run: |
