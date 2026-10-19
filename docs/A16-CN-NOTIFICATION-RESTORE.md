@@ -65,6 +65,56 @@ clean all recents, verify `stopped=false` and examine
 user-requested Force stop through Settings to make sure that feature remains
 functional. Compare notification receipt and idle drain before declaring fixed.
 
+### EU background cleanup verification on HAOTIAN (read-only)
+
+The desired policy is EU-style notification delivery + conditional process
+cleanup + normal Xiaomi/Android background limits. These are already the
+active mechanisms on main:
+
+- **miui-services.jar:** EU `isForceStopEnable()` branch on OneKeyClean
+  (policy 1) and SwipeUpClean (policy 7); cleaner methods still run.
+- **PowerKeeper.apk:** unchanged EU `KillProcessController` including all
+  23 audited methods and `shouldKillByCheckerPolicy()`. No global UID-kill
+  bypass or injected GMS/Millet allowlist.
+- **Normal Android restrictions:** do not add persistent keepalive services,
+  wakelock exceptions, blanket auto-start, unrestricted standby buckets
+  or a polling loop merely because `stopped=false` is expected.
+
+`stopped=false` does not imply a process is resident in RAM, and a process
+staying resident after cleaning recents alone does not prove that the ROM
+bypassed conditional cleanup.
+
+Use this on-demand tool **without root and without rebuilding the ROM**.
+From a Windows CMD in a checked-out HyperMOS repository:
+
+```bat
+adb push bin\audit\eu_background_runtime_a16.sh /data/local/tmp/eu_background_runtime_a16.sh
+adb shell sh /data/local/tmp/eu_background_runtime_a16.sh com.facebook.orca before > before.txt
+```
+
+Open Messenger, make sure it appears in Recents, press **Clear all**, then:
+
+```bat
+adb shell sh /data/local/tmp/eu_background_runtime_a16.sh com.facebook.orca after-clean > after-clean.txt
+```
+
+Repeat a direct swipe with phase `after-swipe`; after a period at rest use
+`idle`. For Facebook use package `com.facebook.katana`.
+
+Interpretation: `stopped=false` plus a received push notification is good;
+no PID is compatible with normal cleanup. `stopped=true` after recents, a
+recent `FORCE STOP` exit, or persistently high CPU usage when idle warrants
+focused investigation. Android battery temperature is in tenths of a
+degree Celsius. Control for charging, brightness, radios and workload
+when comparing #156 and #157. This tool never kills apps, changes CPU
+limits or modifies settings.
+
+Do not change PowerKeeper or blanket-exempt apps in response to warmth
+without a reproducible idle/CPU regression. Flashing #157 `system_ext.img`
+changes the entire logical partition, not only the EU force-stop gate;
+establish a narrower A/B before assigning causality.
+
+
 This is a self-contained, pinned-in-repository port; ROM builds do not
 download the upstream project. Integration adds fail-closed checks when no
 gates or Greeze assignment are found, supports differing Greeze registers,
