@@ -1,0 +1,131 @@
+name: Migrate ModApp layout (one time)
+
+on:
+  push:
+    paths:
+      - '.github/workflows/migrate-modapp-layout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: migrate-modapp-layout
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout main with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          lfs: false
+
+      - name: Move binary snapshots, scripts and every tracked path reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import subprocess
+
+          old = Path("bin/modfile/OS3")
+          base = Path("bin/modfile/ModApp")
+          new_os3 = base / "OS3"
+          new_kashi = base / "Kashi"
+          one_time = Path(".github/workflows/migrate-modapp-layout.yml")
+
+          def cmd(*args):
+              subprocess.run(args, check=True)
+
+          if not old.is_dir() or not (old / "kashi").is_dir():
+              raise SystemExit("Old OS3/Kashi folder missing; no partial migration allowed")
+          if new_os3.exists() or new_kashi.exists():
+              raise SystemExit("ModApp destination already exists; refusing to overwrite")
+          files_before = sorted(p.relative_to(old) for p in old.rglob("*") if p.is_file())
+          zips_before = {
+              p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in (old / "kashi").glob("*.zip")
+          }
+          if len(zips_before) != 7:
+              raise SystemExit(f"Expected seven Kashi ZIP archives, found {len(zips_before)}")
+
+          base.mkdir(parents=True, exist_ok=True)
+          cmd("git", "mv", str(old), str(new_os3))
+          cmd("git", "mv", str(new_os3 / "kashi"), str(new_kashi))
+
+          # Rewrite paths in every tracked text file, including CI and docs.
+          # Order is important: handle the Kashi subfolder before its parent.
+          old_paths = (
+              ("bin/modfile/OS3/kashi", "bin/modfile/ModApp/Kashi"),
+              ("bin/modfile/OS3", "bin/modfile/ModApp/OS3"),
+              ("bin/modfile/ModApp/OS3/kashi", "bin/modfile/ModApp/Kashi"),
+          )
+          result = subprocess.run(
+              ["git", "grep", "-I", "-l", "-z", "-e", "bin/modfile/OS3",
+               "-e", "bin/modfile/ModApp/OS3/kashi"],
+              stdout=subprocess.PIPE, check=False,
+          )
+          if result.returncode not in (0, 1):
+              raise SystemExit("Cannot list old path references")
+          updated = []
+          for raw in filter(None, result.stdout.split(b"\0")):
+              file = Path(raw.decode("utf-8"))
+              if file == one_time:
+                  continue
+              content = file.read_text(encoding="utf-8")
+              revised = content
+              for source, target in old_paths:
+                  revised = revised.replace(source, target)
+              if revised != content:
+                  file.write_text(revised, encoding="utf-8")
+                  updated.append(str(file))
+
+          zips_after = {
+              p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in new_kashi.glob("*.zip")
+          }
+          if zips_before != zips_after:
+              raise SystemExit("ZIP names or binary SHA-256 changed during move")
+          remaining = sorted(p.relative_to(new_os3) for p in new_os3.rglob("*") if p.is_file())
+          expected = sorted(p for p in files_before if p.parts[0] != "kashi")
+          if remaining != expected:
+              raise SystemExit(f"OS3 file inventory changed: expected {expected}, got {remaining}")
+          required = [
+              new_os3 / "insmod.sh",
+              new_os3 / "kashimod.sh",
+              new_os3 / "_common.sh",
+              new_os3 / "system/update.sh",
+              new_kashi,
+          ]
+          if not all(p.exists() for p in required):
+              raise SystemExit("Required OS3 scripts or new Kashi directory missing")
+          workflow = Path(".github/workflows/update-kashi-apps.yml").read_text()
+          if "bin/modfile/ModApp/Kashi" not in workflow or "bin/modfile/OS3" in workflow:
+              raise SystemExit("Kashi updater workflow still points at obsolete directory")
+          build = Path("build.sh").read_text()
+          if "bin/modfile/ModApp/OS3/insmod.sh" not in build:
+              raise SystemExit("build.sh is missing its new OS3 entrypoint")
+          print(f"[MIGRATION] {len(files_before)} original files preserved; "
+                f"{len(zips_after)} Kashi ZIP SHA-256 checks passed")
+          print("[UPDATED REFERENCES]", *updated, sep="\n  ")
+
+          # Remove this one-time workflow from the resulting main commit.
+          # On failure it is retained for review/manual rerun.
+          cmd("git", "rm", "--", str(one_time))
+          PY
+
+          bash -n bin/modfile/ModApp/OS3/_common.sh
+          bash -n bin/modfile/ModApp/OS3/kashimod.sh
+          bash -n bin/modfile/ModApp/OS3/insmod.sh
+          bash -n bin/modfile/ModApp/OS3/system/update.sh
+          git add -A
+          git diff --cached --check
+          git commit -m "refactor(modapp): move Kashi ZIPs and OS3 scripts into ModApp"
+          git push origin HEAD:main
