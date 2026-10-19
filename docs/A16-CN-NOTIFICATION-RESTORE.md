@@ -1,3 +1,5 @@
+> **Current A16 PowerKeeper status (2026-10-20):** China stock `classes.dex` is now patched in place using four audited GMS/Doze gates from `powerkeeper_stock_patches.json`. The seven-gate whole-EU PowerKeeper transplant described in the historical sections below is retired. DisplayFrameSetting and KillProcessController remain China stock. See [POWERKEEPER-CHINA-STOCK-A16.md](POWERKEEPER-CHINA-STOCK-A16.md).
+
 # Android 16 CN notification policy — HyperMOS HAOTIAN
 
 ## Build execution
