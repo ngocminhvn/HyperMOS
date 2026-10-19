@@ -55,10 +55,14 @@ App Vault, ColorOS Control Center V3, FreeStyle Control Center, Screenshot,
 Launcher, Security Center and Theme Manager. It fails if a ZIP has no configured
 source instead of silently reporting that all snapshots are current.
 
-The updater can refresh ColorOS only within the pinned V3 filename family,
-without switching the ROM to FreeStyle. The FreeStyle and Security Center ZIPs
-are reference archives and are not installed by the ROM build. Running the
-updater is a separate manual action; normal ROM builds never fetch releases.
+The updater accepts only the V3 release for ColorOS and preserves the
+known-good local filename. If upstream assets do not uniquely identify a
+compatible ZIP, ColorOS and inactive FreeStyle keep their local snapshots after
+ZIP CRC and package-identity validation; the job reports `Pinned / verified`
+instead of failing or silently replacing them with incompatible versions.
+The FreeStyle and Security Center ZIPs are reference archives and are not
+installed by the ROM build. Running the updater is a separate manual action;
+normal ROM builds never fetch releases.
 
 
 ## Integration flow
