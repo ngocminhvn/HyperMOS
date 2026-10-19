@@ -196,8 +196,13 @@ jobs:
                   if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\.zip", filename):
                       raise ValueError(f"{repo}: unsafe release filename: {filename}")
                   expected_size = int(asset.get("size", 0))
-                  if not 1024 <= expected_size <= 350 * 1024 * 1024:
-                      raise ValueError(f"{repo}: suspicious release size: {expected_size}")
+                  # Direct Git commits cannot contain files over GitHub's 100 MB
+                  # limit. Keep a small margin until Kashi ZIPs are migrated to LFS.
+                  if not 1024 <= expected_size <= 95 * 1024 * 1024:
+                      raise ValueError(
+                          f"{repo}: release ZIP {filename} has size {expected_size}; "
+                          "too large for direct Git storage (Git LFS required)"
+                      )
 
                   workdir = Path(tmp, prefix)
                   workdir.mkdir()
