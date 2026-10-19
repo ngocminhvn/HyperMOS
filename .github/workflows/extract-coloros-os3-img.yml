@@ -1,0 +1,290 @@
+name: Extract ColorOS OS3 partition images (Fastbootd)
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_drive_url:
+        description: 'Google Drive link/ID of a HAOTIAN ROM BUILT AFTER the latest ColorOS update'
+        required: true
+        type: string
+      upload_method:
+        description: 'Where to deliver verified partition .img files'
+        required: true
+        type: choice
+        default: drive
+        options:
+          - drive
+          - artifact
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extract-coloros-os3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    name: Verify ColorOS OS3 and extract its full logical partitions
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      WORK: ${{ runner.temp }}/hypermos-coloros
+      ROM_URL: ${{ inputs.rom_drive_url }}
+      UPLOAD_METHOD: ${{ inputs.upload_method }}
+    steps:
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h .
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          df -h .
+
+      - name: Checkout current ColorOS release and extraction verifier
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: false
+          persist-credentials: false
+
+      - name: Install read-only image and APK utilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone android-sdk-libsparse-utils erofs-utils aapt unzip
+          command -v simg2img
+          command -v fsck.erofs
+          command -v rclone
+          command -v aapt
+          python3 -m py_compile bin/lpunpack.py bin/audit/extract_coloros_os3.py
+          mkdir -p "$WORK/output" "$WORK/extracted"
+
+      - name: Determine exact ColorOS OS3 payload and affected partitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          files = sorted(Path("bin/modfile/ModApp/Kashi").glob("ColorOS_plugin_mod_*.zip"))
+          if len(files) != 1:
+              raise SystemExit("Exactly one staged ColorOS release is required: " + repr([p.name for p in files]))
+          Path("/tmp/coloros-modzip-path").write_text(str(files[0]), encoding="utf-8")
+          print("Current ColorOS snapshot:", files[0])
+          PY
+          python3 bin/audit/extract_coloros_os3.py plan \
+            --modzip "$(cat /tmp/coloros-modzip-path)" \
+            --output "$WORK/plan.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=json.loads((Path(os.environ["WORK"]) / "plan.json").read_text())
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("## ColorOS OS3 image extraction\n\n")
+              f.write("Snapshot: `" + p["mod_zip"] + "`\n\n")
+              f.write("Selected APK: `" + p["selected_os3_apk"] + "`\n\n")
+              f.write("Partitions touched by the module: **" + ", ".join(p["partitions"]) + "**\n\n")
+              f.write("Extraction produces FULL partition images, not a single-APK patch.\n\n")
+          PY
+
+      - name: Validate the supplied Drive ROM ZIP identifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re
+          from urllib.parse import urlparse, parse_qs
+          value = os.environ["ROM_URL"].strip()
+          if re.fullmatch("[A-Za-z0-9_-]{15,}", value):
+              file_id = value
+          else:
+              url = urlparse(value)
+              if url.scheme != "https" or url.hostname not in ("drive.google.com", "www.drive.google.com"):
+                  raise SystemExit("ROM input must be a Google Drive HTTPS link or file ID")
+              matched = re.fullmatch("/file/d/([A-Za-z0-9_-]{15,})(?:/view)?/?", url.path)
+              if matched:
+                  file_id = matched.group(1)
+              elif url.path in ("/open", "/uc"):
+                  file_id = parse_qs(url.query).get("id", [""])[0]
+              else:
+                  raise SystemExit("Unsupported Drive link form")
+              if not re.fullmatch("[A-Za-z0-9_-]{15,}", file_id):
+                  raise SystemExit("Invalid Drive file ID")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write("DRIVE_FILE_ID=" + file_id + "\n")
+          print("Validated Drive file ID:", file_id)
+          PY
+
+      - name: Load existing Drive OAuth rclone configuration
+        shell: bash
+        env:
+          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$RCLONE_TOKEN_PATH" || { echo "::error::Missing existing RCLONE_TOKEN_PATH secret"; exit 1; }
+          config_url="$RCLONE_TOKEN_PATH"
+          case "$config_url" in
+            https://*) ;;
+            //*) config_url="https:$config_url" ;;
+            *) config_url="https://$config_url" ;;
+          esac
+          config="$WORK/rclone.conf"
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 4 "$config_url" -o "$config"
+          chmod 600 "$config"
+          remote="$(rclone listremotes --config "$config" | head -n 1)"
+          test -n "$remote" || { echo "::error::No Drive rclone remote"; exit 1; }
+          type="$(rclone config show "${remote%:}" --config "$config" | awk -F ' = ' '/^type = / {print $2; exit}')"
+          test "$type" = "drive" || { echo "::error::First rclone remote must be Drive"; exit 1; }
+          echo "RCLONE_CONFIG_PATH=$config" >> "$GITHUB_ENV"
+          echo "RCLONE_REMOTE=$remote" >> "$GITHUB_ENV"
+
+      - name: Download only the chosen new HAOTIAN ROM
+        shell: bash
+        run: |
+          set -euo pipefail
+          rclone backend copyid "$RCLONE_REMOTE" "$DRIVE_FILE_ID" "$WORK/source.zip" \
+            --config "$RCLONE_CONFIG_PATH" --transfers=1 --retries=5 \
+            --low-level-retries=10 --stats=60s --stats-one-line
+          test -s "$WORK/source.zip"
+          echo "Source ROM bytes: $(stat -c%s "$WORK/source.zip")"
+          df -h "$WORK"
+
+      - name: Stream super.img only from ROM ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, shutil, zipfile
+          from pathlib import Path
+          work = Path(os.environ["WORK"])
+          with zipfile.ZipFile(work / "source.zip") as z:
+              candidates = [i for i in z.infolist()
+                            if i.filename in ("super/super.img", "super.img", "images/super.img")]
+              if len(candidates) != 1:
+                  raise SystemExit("Exactly one super.img required in ROM ZIP")
+              item = candidates[0]
+              if item.flag_bits & 1 or item.file_size < 100 * 1024**2:
+                  raise SystemExit("Encrypted or implausibly small super.img")
+              if shutil.disk_usage(work).free < item.file_size + 1024**3:
+                  raise SystemExit("Insufficient disk for the extracted super.img")
+              print("Extracting:", item.filename, item.file_size, "bytes")
+              with z.open(item) as source, (work / "super.img").open("wb") as dest:
+                  shutil.copyfileobj(source, dest, 8 * 1024**2)
+              if (work / "super.img").stat().st_size != item.file_size:
+                  raise SystemExit("super.img incomplete")
+          PY
+          rm -f "$WORK/source.zip"
+
+      - name: Convert Android sparse super to raw when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, shutil, struct, subprocess
+          from pathlib import Path
+          work=Path(os.environ["WORK"])
+          source=work/"super.img"
+          with source.open("rb") as f:
+              hdr=f.read(28)
+          if len(hdr) < 28:
+              raise SystemExit("Truncated super.img")
+          if hdr[:4] == bytes.fromhex("3aff26ed"):
+              fields=struct.unpack("<I4H4I", hdr)
+              blocksize=fields[5]
+              blocks=fields[6]
+              if fields[1] != 1 or blocksize < 4096 or blocksize % 4096 or blocks == 0:
+                  raise SystemExit("Unexpected sparse image header")
+              required=blocksize*blocks
+              if shutil.disk_usage(work).free < required + 1024**3:
+                  raise SystemExit("Not enough disk to expand super.img")
+              subprocess.run(["simg2img", str(source), str(work/"super.raw.img")], check=True)
+              if (work/"super.raw.img").stat().st_size != required:
+                  raise SystemExit("Raw super size mismatch")
+              source.unlink()
+          else:
+              source.rename(work/"super.raw.img")
+          PY
+
+      - name: Extract only ColorOS-touched logical partitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          filter="$(python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          plan=json.loads((Path(os.environ["WORK"]) / "plan.json").read_text())
+          print(",".join(n for part in plan["partitions"] for n in (part, part + "_a")))
+          PY
+          )"
+          echo "lpunpack filter: $filter"
+          python3 bin/lpunpack.py -p "$filter" "$WORK/super.raw.img" "$WORK/extracted"
+          rm -f "$WORK/super.raw.img"
+          ls -lh "$WORK/extracted"
+
+      - name: Verify all ColorOS APK and overlays against current V4 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/extract_coloros_os3.py verify \
+            --plan "$WORK/plan.json" \
+            --images "$WORK/extracted" \
+            --output "$WORK/output"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          work=Path(os.environ["WORK"])
+          out=work/"output"/"coloros-extract-manifest.json"
+          obj=json.loads(out.read_text())
+          obj["drive_source_id"]=os.environ["DRIVE_FILE_ID"]
+          obj["github_run_id"]=os.environ["GITHUB_RUN_ID"]
+          out.write_text(json.dumps(obj,indent=2) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("### Verified image outputs\n\n")
+              for part, m in obj["output_images"].items():
+                  f.write("- `" + m["image"] + "`: " + str(m["bytes"]) + " bytes; sha256 `" + m["sha256"] + "`\n")
+              f.write("\n**CAUTION:** Flashing a full partition onto #156 also overwrites unrelated system files. Save #156 rollback images first. No phone was flashed by this workflow.\n\n")
+          PY
+          ls -lh "$WORK/output"
+
+      - name: Upload verified images to Google Drive
+        if: ${{ inputs.upload_method == 'drive' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="${RCLONE_REMOTE}HyperMOS/extracted/coloros-os3/run-${GITHUB_RUN_ID}"
+          rclone copy "$WORK/output" "$dest" --config "$RCLONE_CONFIG_PATH" \
+            --transfers=1 --retries=5 --low-level-retries=10 \
+            --drive-chunk-size=128M --stats=60s --stats-one-line
+          {
+            echo "### Download verified images"
+            for file in "$WORK/output"/*.img; do
+              name="$(basename "$file")"
+              url="$(rclone link "$dest/$name" --config "$RCLONE_CONFIG_PATH" 2>/dev/null || true)"
+              if [[ "$url" == https://* ]]; then
+                echo "- [$name]($url)"
+              else
+                echo "- $name uploaded to $dest (Drive link unavailable)"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verified images as GitHub artifact
+        if: ${{ inputs.upload_method == 'artifact' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coloros-os3-full-partition-images-${{ github.run_number }}
+          path: ${{ runner.temp }}/hypermos-coloros/output/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Failure diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          echo "::error::Extraction or verification failed. No unverified images were uploaded."
+          df -h "$WORK" || true
+          du -sh "$WORK"/* 2>/dev/null || true
