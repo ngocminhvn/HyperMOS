@@ -28,8 +28,9 @@ The existing FrameworkPatcher entrypoint applies these scoped miui-services rule
 - Select the enabled RYU-style branches in PreStartFeedbackImpl (1 read) and
   ProcessPolicy (4 reads), using local const true instead of adding a dependency
   on com.projectryu.Build.IS_RYU_BUILD. These are the audited donor callsites;
-  the RYU Build field definition was not available, so this explicitly selects
-  its enabled branch rather than claiming measured runtime parity.
+  the supplied miui-frameworkRYU.jar defines IS_RYU_BUILD=true. Local const
+  true therefore matches that donor's selected branch without importing its
+  Build class; this is code-branch parity, not measured runtime parity.
 - Force Greeze PolicyManager.CN_MODEL=false.
 
 The four RYU-adjusted classes are handled inside the existing
@@ -103,9 +104,8 @@ The two-method EU NotificationFilterHelper port in miui-framework.jar remains
 enabled through CorePatch; it does not overlap FrameworkPatcher's
 miui-services.jar notification classes. PowerInsightPolicy is not changed.
 
-The historical seven PowerKeeper gates, thermal configuration and
-TNM CPU controller are retained. See the additional GMS policy fix below.
-A full ROM build and physical
+The current EU PowerKeeper DEX, scoped gates, thermal configuration and
+TNM CPU controller are left untouched. A full ROM build and physical
 HAOTIAN idle/notificaton tests are still required to establish runtime parity.
 
 ## Compact ZKOS gate evidence (PowerKeeper)
@@ -123,46 +123,36 @@ reference** for reconstructing EU PowerKeeper from `eu-powerkeeper-from-ryu.zst`
 it is not a runtime PerfHook import and must not be deleted as part of this
 cleanup.
 
-## GMS reachability control — #157 runtime finding
 
-The uploaded #157 PowerKeeper classes.dex exactly matched EU + seven gates
-(SHA-256 64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1).
-Device evidence showed persisted gms_control=true, newChina cloud sync, and
-both Gms observer/application control enabled. GMS was UID 10203. Reachability
-turned false at 16:39:37 and 16:58:18; the retained wakelock history records
-UID 10203 blocked at 16:58:18 and unblocked at 17:10:47. This confirms that
-selecting defaultState=false alone did not disable the runtime controller.
+## GMS control follows the inspected RYU policy
 
-GmsObserver.init() and onCloudUpdated() read the persisted flag in preference
-to that default. onGoogleReachabilityChanged(false) requests wakelock blocking
-and queues updateGmsState(true), whose guarded path requests gms_wall, a DNS
-UID rule and alarm policy. The device history confirms the wakelock manager
-call returned without RemoteException; it does not prove backend firewall/DNS
-success or identify the exact MCS socket failure. Diagnostics causality and
-an end-to-end reconnect fix remain unverified.
+The temporary HyperMOS override from b575b10 is removed at the user's request.
+PowerKeeper again installs the exact EU + seven-gate DEX:
+64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1.
+GmsObserver's constructor selects defaultState=false locally, equivalent to
+!IS_RYU_BUILD with the inspected RYU Build field set to true. init() and
+onCloudUpdated() retain the original Misc.getBoolean("gms_control", default)
+result. Persisted/cloud true can enable the observer; false can disable it
+through the original cleanup path. No forced-false setting read is retained.
 
-The existing eu_zk_scoped_gates.py now first verifies the original seven-gate
-output against the frozen manifest, then changes only the move-result v0 after
-Misc.getBoolean(Context,String,boolean) in those two methods to const/4 v0, 0.
-Both are one code unit; instruction lengths, branches, try ranges and DEX size
-stay unchanged. The original read executes but its result is ignored.
-Existing disableGms() cleanup remains intact. Exact input/output hashes and
-the two method-scoped invocation patterns are checked before writing output.
-Final DEX SHA-256: c5f3d2d47c9c49e1fdb2715b93ee04f2407f2848f599717561ccb692ce09e3f1.
+This matches the inspected RYU GmsObserver policy, not the entire RYU ROM.
+Cloud endpoint selection, local feature XML, Sleep Mode and other RYU
+customizations are not ported by this change. Data is not deleted or rewritten.
+In particular, #157's persisted gms_control=true remains effective after a
+dirty flash; selecting a false default does not reset it.
 
-This is an additional HyperMOS policy fix based on device evidence, not a
-claim of exact RYU parity. Cloud endpoint selection, Sleep Mode, thermal,
-PerfHook, EU KillProcessController, Android Doze/standby/network policy and
-the existing EU OneKeyClean/SwipeUpClean behavior are not modified.
-No daemon, polling, global build flag, settings/database deletion or blanket
-application whitelist is introduced. The stored gms_control may still read
-true; the runtime observer must report disabled after flashing and rebooting.
+#157 evidence remains relevant: observer and application control were enabled,
+and the wakelock history shows GMS UID 10203 blocked at 16:58:18 and unblocked
+at 17:10:47. Restoring donor behavior is not a demonstrated fix for that event.
+The newly supplied miui-frameworkRYU.jar (SHA-256
+2b5394d7c5a0a3fcc7bcecb6743fa8bec34de480af82345f19d7c14d420c4696)
+contains the same disassembled PowerKeeperPolicy family as #157 (5 classes,
+112 methods), including the HTTP network-check backend. RYU runtime cloud
+payload and resulting observer state are still unknown.
 
-Validation on the new build: verify observer disabled after boot and after a
-normal cloud update; repeat Wi-Fi/mobile transitions with screen off and send
-timestamped messages without opening Diagnostics. There must be no new
-GmsObserver wakelock-block history. Confirm idle drain and normal app cleanup.
-Full ROM/ART/device tests remain required; disabling this OEM control can
-change GMS network retry/idle drain where Google endpoints are unreachable.
-
-
+Validate on device after building/flashing: record persisted flag, observer
+and application-control state, reachability/block history during screen-off
+Wi-Fi/mobile handovers, actual notifications and idle drain. The expected
+observer state now follows persisted/cloud policy; disabled is not an
+unconditional PASS criterion. EU cleaner/force-stop logic and thermal remain
+unchanged.

@@ -6,9 +6,6 @@ private build labels. Frozen original-ZK audit manifest + exact EU input/output
 SHA-256 pins replace the runtime ZK DEX dependency. Gate bytecode remains
 identical: sget-boolean vA, IS_INTERNATIONAL_BUILD -> const/4 vA, 1; nop.
 A DEX code-unit size is preserved; branch/try offsets remain unchanged.
-After the seven historical gates, suppress the two GmsObserver policy reads
-that let persisted/cloud gms_control=true reactivate Google reachability blocks.
-This additional HyperMOS fix is based on #157 device logs, not donor parity.
 """
 import argparse
 import hashlib
@@ -189,57 +186,6 @@ def load_gate_reference(path: Path) -> dict:
     return reference
 
 
-def suppress_cloud_gms_control(scoped):
-    """Keep Android background policy; disable only PowerKeeper GMS control.
-
-    Keep the existing setting read for ABI/layout stability but replace its
-    move-result v0 with const/4 v0, 0. Both are one code unit. The invocation
-    result can legally be ignored. init and onCloudUpdated then consume false;
-    the existing disableGms cleanup path remains intact.
-    """
-    if sha(scoped) != '64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1':
-        raise ValueError('GMS policy fix requires exact seven-gate EU DEX')
-    source = Dex(scoped)
-    setting_read = ('Lcom/miui/powerkeeper/provider/SimpleSettings$Misc;',
-                    'getBoolean', '(Landroid/content/Context;Ljava/lang/String;Z)Z')
-    method_id = source.methods.index(setting_read)
-    # invoke-static {v0,v1,v2}, Misc.getBoolean; move-result v0
-    pattern = struct.pack('<HHHH', 0x3071, method_id, 0x0210, 0x000a)
-    target_class = 'Lcom/miui/powerkeeper/utils/GmsObserver;'
-    dest = bytearray(scoped)
-    edits = []
-    for name in ('init', 'onCloudUpdated'):
-        key = (target_class, name, '()V')
-        offset, units = source.codes[key]
-        body = scoped[offset:offset + units * 2]
-        hits = [i for i in range(0, len(body) - len(pattern) + 1, 2)
-                if body[i:i + len(pattern)] == pattern]
-        if len(hits) != 1:
-            raise ValueError('Expected one exact GMS setting read in ' + name)
-        result_offset = offset + hits[0] + 6
-        struct.pack_into('<H', dest, result_offset, 0x0012)
-        edits.append((key, result_offset))
-    dest[12:32] = hashlib.sha1(dest[32:]).digest()
-    struct.pack_into('<I', dest, 8, zlib.adler32(dest[12:]) & 0xffffffff)
-    final = bytes(dest)
-    allowed = set(range(8, 32)) | {i for _, off in edits for i in (off, off + 1)}
-    actual = {i for i, (a, b) in enumerate(zip(scoped, final)) if a != b}
-    if len(final) != len(scoped) or not actual <= allowed:
-        raise ValueError('GMS policy fix changed bytes outside two results/header')
-    if sha(final) != 'c5f3d2d47c9c49e1fdb2715b93ee04f2407f2848f599717561ccb692ce09e3f1':
-        raise ValueError('Final EU GMS policy DEX checksum mismatch')
-    verify_eu_killprocess_unchanged(source, Dex(final))
-    return final, {
-        'gms_control_setting_results_forced_false': 2,
-        'gms_control_policy': 'disabled_in_init_and_onCloudUpdated_despite_persisted_cloud_value',
-        'gms_policy_methods': [k[1] for k, _ in edits],
-        'gms_disable_cleanup_untouched': True,
-        'gms_fix_donor_parity_claimed': False,
-        'gms_fix_runtime_validated': False,
-        'android_doze_standby_background_policy_untouched': True,
-    }
-
-
 def port(eu, reference: dict):
     if sha(eu) != EU_SHA or sha(eu) != reference['eu_dex_sha256']:
         raise ValueError('EU DEX SHA-256 mismatch; donor not previously audited')
@@ -275,7 +221,6 @@ def port(eu, reference: dict):
         raise ValueError('EU DEX changed outside whitelist and DEX header')
     if sha(final) != reference['scoped_eu_dex_sha256']:
         raise ValueError('Scoped EU DEX no longer matches audited output SHA-256')
-    final, gms_policy = suppress_cloud_gms_control(final)
     return final, {
         'source': 'exact_EU_DEX', 'source_sha256': sha(eu),
         'output_sha256': sha(final), 'gate_policy': 'frozen_ZKOS_audit_GMS_Doze_Display_only',
@@ -288,7 +233,6 @@ def port(eu, reference: dict):
         'unchanged_thermal_resources_GPU_governor': True,
         'device_property_rewritten': False,
         **kill_parity,
-        **gms_policy,
     }
 
 
