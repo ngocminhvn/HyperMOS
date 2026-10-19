@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "source": "xiaomi_china_stock",
+  "field": [
+    "Lmiui/os/Build;",
+    "IS_INTERNATIONAL_BUILD",
+    "Z"
+  ],
+  "gates": [
+    {
+      "class": "Lcom/miui/powerkeeper/utils/GmsObserver;",
+      "method": "<init>",
+      "prototype": "(Landroid/content/Context;)V",
+      "expected_reads": 1,
+      "value": true,
+      "reason": "Use international GMS observer default only in constructor"
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/utils/GmsObserver;",
+      "method": "updateGoogleSync",
+      "prototype": "(Z)V",
+      "expected_reads": 1,
+      "value": true,
+      "reason": "International Google sync branch, without altering cloud or persisted settings"
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/controller/DeviceIdleController$1;",
+      "method": "<init>",
+      "prototype": "()V",
+      "expected_reads": 1,
+      "value": true,
+      "reason": "Previously audited Doze callback branch"
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/controller/DeviceIdleController$2;",
+      "method": "<init>",
+      "prototype": "()V",
+      "expected_reads": 1,
+      "value": true,
+      "reason": "Previously audited Doze callback branch"
+    }
+  ],
+  "untouched_classes": [
+    "Lcom/miui/powerkeeper/statemachine/DisplayFrameSetting;",
+    "Lcom/miui/powerkeeper/controller/KillProcessController;",
+    "Lcom/miui/powerkeeper/controller/ActiveStateController;"
+  ]
+}
