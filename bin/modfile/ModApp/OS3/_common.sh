@@ -103,31 +103,40 @@ modscenter_find_apk() {
         fi
     done
 
-    # A Kashi release may include OS3 and OS4 editions of the same package.
-    # HyperMOS uses OS3 only. Do not mistake variants for two competing apps.
+    # Select a version only from its path RELATIVE TO THE EXTRACTED ZIP.
+    # Absolute paths contain build/os3_modscenter and would falsely identify
+    # an OS4 APK as OS3. OS3/OS4 are distinct payloads with the same package.
+    local rel
+    local -a os3_matches=()
+    for apk in "${package_matches[@]}"; do
+        rel="${apk#"$root"/}"
+        if [[ "$rel" =~ (^|[/_.-])([Hh]yper)?[Oo][Ss]4([/_.-]|$) ]]; then
+            continue
+        fi
+        if [[ "$rel" =~ (^|[/_.-])([Hh]yper)?[Oo][Ss]3([/_.-]|$) ]]; then
+            os3_matches+=("$apk")
+        fi
+    done
+
     if (( ${#package_matches[@]} == 1 )); then
-        if [[ "${package_matches[0]}" =~ (^|[/_.-])([Hh]yper)?[Oo][Ss]4([/_.-]|$) ]]; then
-            printf 'Only an OS4 APK is available for %s: %s\n' "$expected_package" "${package_matches[0]}" >&2
+        apk="${package_matches[0]}"
+        rel="${apk#"$root"/}"
+        if [[ "$rel" =~ (^|[/_.-])([Hh]yper)?[Oo][Ss]4([/_.-]|$) ]]; then
+            printf 'Only OS4 APK available for %s: %s\n' "$expected_package" "$rel" >&2
             return 1
         fi
-        printf '%s\n' "${package_matches[0]}"
+        printf '%s\n' "$apk"
         return 0
     fi
 
     if (( ${#package_matches[@]} > 1 )); then
-        local -a os3_matches=()
-        for apk in "${package_matches[@]}"; do
-            if [[ "$apk" =~ (^|[/_.-])([Hh]yper)?[Oo][Ss]3([/_.-]|$) ]]; then
-                os3_matches+=("$apk")
-            fi
-        done
         if (( ${#os3_matches[@]} == 1 )); then
             printf '%s\n' "${os3_matches[0]}"
             return 0
         fi
         printf 'Cannot uniquely select OS3 APK for package %s. OS3 matches: %s\n' \
             "$expected_package" "${#os3_matches[@]}" >&2
-        printf '  %s\n' "${package_matches[@]}" >&2
+        printf '  %s\n' "${package_matches[@]#"$root"/}" >&2
         return 1
     fi
 
