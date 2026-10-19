@@ -25,8 +25,8 @@ if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   exit 1
 fi
 
-# MiCTS native Contextual Search goes last to avoid overlap with framework patches.
-info "PATCH 6/6: MiCTS native CSHelper"
+# MiCTS patches services.jar DEX only; no app APKs or overlays.
+info "PATCH 6/6: MiCTS native services.jar"
 bash "$target_dir/MiCTS/update.sh" || exit 1
 
 ok "System patch stage completed"

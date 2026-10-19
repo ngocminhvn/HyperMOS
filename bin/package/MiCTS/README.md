@@ -1,45 +1,56 @@
-# MiCTS: HyperMOS native Contextual Search integration
+# MiCTS native services.jar patch (HyperOS 3 / Android 16)
 
 Upstream reference: https://github.com/parallelcc/MiCTS
 
-This package targets HyperOS 3 / Android 16. It activates the Android
-framework's built-in VoiceInteractionManagerService **CSHelper** route for
-MiCTS's `omni.entry_point` event, pointing it to the factory-installed
-`com.google.android.googlequicksearchbox` Google app.
+This package implements the **VIMSHooker/CSHelper routing behavior in the
+existing Android framework**, using a static smali/DEX patch to
+`/system/framework/services.jar`. It does **not** install a framework
+resource overlay. It does **not** patch MiuiHome.apk or any Google APK.
 
-Implementation: static Android framework resource overlay
-(`/product/overlay/HyperMOSMiCTSOverlay.apk`), not an LSPosed module.
-There are no daemons, timers, periodic rebinds, or runtime polling.
+Precisely two resource-derived String values are replaced, inside the
+Android VoiceInteractionManagerService:
+1. In `showSessionFromSession`, the native CSHelper key becomes
+   `omni.entry_point` (matching the Bundle sent by MiCTS).
+2. In `getContextualSearchIntent`, the package used to resolve the CTS
+   handler becomes `com.google.android.googlequicksearchbox`.
 
-## Scope and safety
+The original Contextual Search launch, screenshot safety checks and
+VoiceInteraction fallback logic are preserved. The patch never removes
+`enforcePermission`, spoofs the global device identity, changes PowerKeeper,
+or installs a daemon, timer, service, boot script or background polling.
+There is no extra persistent process from this package.
 
-- Preflights AOSP CSHelper references in services.jar.
-- Checks both framework-res resource symbols exist.
-- Requires at least one system Google APK; Android uses MATCH_FACTORY_ONLY for
-  the native Contextual Search launch intent.
-- Does not modify system JARs, PowerKeeper, signed MiuiHome, app privileges,
-  or ContextualSearchManagerService.enforcePermission().
-- Installs last during bin/package/patchpackage.sh.
-- Cleans up only a stale CTS_NATIVE resource overlay.
+## Build integration
 
-## Limitations
+`bin/package/patchpackage.sh` calls `MiCTS/update.sh` after CorePatch,
+FrameworkPatcher, and Kaorios to avoid duplicate edits. The existing
+decompiler, smali assembler and JAR utility are reused. The script requires
+the known Android 16 CSHelper bytecode shape and aborts a build if it cannot
+match it **uniquely**. Replacement is atomic and only after JAR ZIP validation.
 
-This enables the app-icon and Quick Settings tile trigger through the native
-CSHelper path, not the separate Xiaomi-specific LSPosed long-press hooks.
-Long press requires a stock Launcher native trigger or a separate, carefully
-validated Launcher integration. Google can also withhold Circle to Search
-based on device or server-side eligibility.
+## Functionality and limitations
 
-The ROM build checks structure and signing. Whether Android 16 enables the
-static overlay through idmap must be checked **after flashing**.
+MiCTS application launch and its Quick Settings tile can use this **native
+CSHelper path without LSPosed**, provided the Google app supports CTS.
 
-## Verify on the phone
+This does **not** port the *separate* MiCTS Xposed hook for Xiaomi gesture
+handle/Home long-press. Those gestures need a compatible existing Xiaomi
+Launcher implementation or another separately reviewed patch. The upstream
+MiCTS APK continues to be staged by the existing downloadapp installer; its
+APK is not modified by this package.
+
+Google can also disable CTS on the app/server side; a native trigger cannot
+override Google eligibility. The AOSP CSHelper resolves a **factory Google
+application**, so removing both Velvet system APKs could break CTS even if an
+updated Google app exists under /data/app.
+
+## Check after flashing
 
 ```bat
-adb shell cmd overlay list --user 0 android
 adb shell pm path com.google.android.googlequicksearchbox
-adb shell service list | findstr /I "contextual_search voiceinteraction"
-adb logcat -d | findstr /I "MiCTS ContextualSearch"
+adb shell dumpsys package com.google.android.googlequicksearchbox | findstr /I "codePath= versionName="
+adb logcat -d | findstr /I "MiCTS ContextualSearch VoiceInteraction"
 ```
 
-Launch MiCTS or tap its quick tile and inspect logs if it does not trigger.
+Then launch MiCTS or tap its Quick Settings tile. Report:
+`build/reports/micts-native.txt`.
