@@ -65,46 +65,10 @@ scoped_hash="$(sha256sum "$tmp/eu-scoped.dex" | cut -d ' ' -f1)"
   error "PowerKeeper: scoped EU DEX output is not the verified reference"; exit 1;
 }
 
-# GMS Millet exemption: initialize at enable() and retain GMS on the existing
-# dealNoRestrictApp() refresh path. Do NOT add any new event source or polling.
-# Keep the pinned seven-gate EU output unchanged as the verified input.
-baksmali_jar="$work_dir/bin/apktool/baksmaliv2.jar"
-smali_jar="$work_dir/bin/apktool/smaliv2.jar"
-[[ -s "$baksmali_jar" && -s "$smali_jar" ]] || {
-  error "PowerKeeper: missing Smali tooling for boot-time GMS exception"; exit 1;
-}
-smali_dir="$tmp/powerkeeper-smali"
-java -jar "$baksmali_jar" d --api 36 "$tmp/eu-scoped.dex" -o "$smali_dir"
-python3 "$base_dir/gms_millet_enable_once.py" \
-  --smali "$smali_dir/com/miui/powerkeeper/controller/ActiveStateController.smali" \
-  --report "$report_dir/gms-millet-policy.json"
-java -jar "$smali_jar" a --api 36 "$smali_dir" -o "$tmp/eu-millet-boot.dex"
-python3 - "$base_dir" "$tmp/eu-scoped.dex" "$tmp/eu-millet-boot.dex" <<'PYMILLET'
-import sys
-from pathlib import Path
-sys.path.insert(0, sys.argv[1])
-from eu_zk_scoped_gates import Dex, verify_eu_killprocess_unchanged
-original = Dex(Path(sys.argv[2]).read_bytes())
-patched = Dex(Path(sys.argv[3]).read_bytes())
-enable = ('Lcom/miui/powerkeeper/controller/ActiveStateController;', 'enable', '()V')
-deal = ('Lcom/miui/powerkeeper/controller/ActiveStateController;', 'dealNoRestrictApp', '()V')
-if set(original.codes) != set(patched.codes):
-    raise SystemExit('PowerKeeper: Smali rebuild changed method inventory')
-for method in (enable, deal):
-    if method not in original.codes:
-        raise SystemExit('PowerKeeper: missing ' + repr(method))
-if patched.codes[enable][1] <= original.codes[enable][1]:
-    raise SystemExit('PowerKeeper: boot-time enable hook not assembled')
-if patched.codes[deal][1] <= original.codes[deal][1]:
-    raise SystemExit('PowerKeeper: GMS retention hook not assembled into dealNoRestrictApp')
-verify_eu_killprocess_unchanged(original, patched)
-print('[POWERKEEPER GMS MILLET] DEX verified: enable+policy regeneration updated; EU UID kill bytecode unchanged')
-PYMILLET
-installed_dex="$tmp/eu-millet-boot.dex"
-installed_hash="$(sha256sum "$installed_dex" | cut -d ' ' -f1)"
-[[ "$installed_hash" != "$scoped_hash" ]] || {
-  error "PowerKeeper: boot-only DEX edit had no effect"; exit 1;
-}
+# Install the verified seven-gate EU DEX directly, with no additional
+# ActiveStateController Smali rewrite or injected GMS Millet allowlist.
+installed_dex="$tmp/eu-scoped.dex"
+installed_hash="$scoped_hash"
 
 # Build a temporary source wrapper, then transplant only classes.dex.
 python3 "$base_dir/powerkeeper.py" prepare-donor \
@@ -137,14 +101,14 @@ report = {
     "base_apk_sha256": base_sha,
     "eu_source_dex_sha256": eu_source_sha,
     "eu_scoped_dex_sha256": scoped_dex_sha,
-    "installed_boot_millet_dex_sha256": expected_dex_sha,
-    "gms_millet_enable_boot_once": True,
-    "gms_millet_preserved_on_existing_policy_refresh": True,
-    "dealNoRestrictApp_untouched": False,
+    "installed_eu_scoped_dex_sha256": expected_dex_sha,
+    "gms_millet_extension_enabled": False,
+    "dealNoRestrictApp_untouched": True,
+    "ActiveStateController_enable_untouched": True,
     "new_background_worker": False,
     "historically_zk_verified_gate_changes_only": 7,
     "zk_reference_dex_required_at_build": False,
-    "other_eu_methods_untouched_except_enable_and_dealNoRestrictApp": True,
+    "other_eu_methods_untouched_outside_seven_gates": True,
     "device_properties_or_thermal_rewritten": False,
     "final_apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
     "source_ryu_used_as_compression_reference_only": True,
@@ -161,5 +125,5 @@ PYEU
 
 cp -f "$tmp/PowerKeeper.aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "PowerKeeper: EU DEX + seven audited gates + GMS Millet on enable/policy refresh; no background worker"
+mods "PowerKeeper: EU DEX + seven audited gates; no injected GMS Millet exemption"
 patch "PowerKeeper: stock non-DEX + v1 metadata preserved; changed DEX has invalid original cryptographic signature"

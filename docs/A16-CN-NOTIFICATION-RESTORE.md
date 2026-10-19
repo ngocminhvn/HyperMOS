@@ -53,9 +53,10 @@ Safety gates fail the build if the method/signature, the unique build-field
 read, register v0 or the policy-13 guard/early return differ unexpectedly.
 A report is written to `build/reports/frameworkpatcher-a16/notification-gates.json`
 under `scoped_eu_force_stop`. Existing FrameworkPatcher
-`ProcessSceneCleaner.handleSwipeKill` / `killAppForHasOtherTask` gates,
-`OneKeyClean` invocation, PowerKeeper EU, GMS Millet and other policies
-are unmodified. No daemon, timer, process pinning or blanket auto-start
+`ProcessSceneCleaner.handleSwipeKill` / `killAppForHasOtherTask` gates
+and the `OneKeyClean` invocation are unmodified by this force-stop edit.
+PowerKeeper uses the seven-gate EU DEX without the former extra GMS Millet
+allowlist injection. No daemon, timer, process pinning or blanket auto-start
 permission is added.
 
 **Runtime verification still needed:** on a fresh ROM build, launch Messenger,
