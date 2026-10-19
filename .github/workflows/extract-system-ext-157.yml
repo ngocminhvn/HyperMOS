@@ -37,7 +37,7 @@ jobs:
     env:
       ROM_URL: ${{ inputs.rom_url || 'https://drive.google.com/open?id=1Uv7hGxx38KtNfJiz-qj-4FWTMrJRQNFW' }}
       UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
-      WORK: ${{ runner.temp }}/hypermos-system-ext-157
+      WORK: /tmp/hypermos-system-ext-157
     steps:
       - name: Free runner disk space
         shell: bash
