@@ -103,13 +103,30 @@ modscenter_find_apk() {
         fi
     done
 
+    # A Kashi release may include OS3 and OS4 editions of the same package.
+    # HyperMOS uses OS3 only. Do not mistake variants for two competing apps.
     if (( ${#package_matches[@]} == 1 )); then
+        if [[ "${package_matches[0]}" =~ (^|[/_.-])([Hh]yper)?[Oo][Ss]4([/_.-]|$) ]]; then
+            printf 'Only an OS4 APK is available for %s: %s\n' "$expected_package" "${package_matches[0]}" >&2
+            return 1
+        fi
         printf '%s\n' "${package_matches[0]}"
         return 0
     fi
 
     if (( ${#package_matches[@]} > 1 )); then
-        printf 'Multiple APKs expose package %s:\n' "$expected_package" >&2
+        local -a os3_matches=()
+        for apk in "${package_matches[@]}"; do
+            if [[ "$apk" =~ (^|[/_.-])([Hh]yper)?[Oo][Ss]3([/_.-]|$) ]]; then
+                os3_matches+=("$apk")
+            fi
+        done
+        if (( ${#os3_matches[@]} == 1 )); then
+            printf '%s\n' "${os3_matches[0]}"
+            return 0
+        fi
+        printf 'Cannot uniquely select OS3 APK for package %s. OS3 matches: %s\n' \
+            "$expected_package" "${#os3_matches[@]}" >&2
         printf '  %s\n' "${package_matches[@]}" >&2
         return 1
     fi
