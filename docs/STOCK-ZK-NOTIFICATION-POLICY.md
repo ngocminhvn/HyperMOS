@@ -1,10 +1,8 @@
-> **Current A16 status:** PowerKeeper uses China stock DEX + four GMS/Doze gate reads; there is no whole EU/ZKOS/RYU DEX donor in the active build. The below describes older mixed configurations and is kept only as reference. See [POWERKEEPER-CHINA-STOCK-A16.md](POWERKEEPER-CHINA-STOCK-A16.md).
-
 > **Historical reference (superseded on main).** The ZKOS+RYU mixed
 > PowerKeeper DEX workflow described below is retired. Android 16 builds now
 > transplant the exact EU classes.dex onto the Xiaomi original APK, keeping
 > non-DEX members and original v1 metadata. The changed APK signature is invalid. See
-> [POWERKEEPER-CHINA-STOCK-A16.md](POWERKEEPER-CHINA-STOCK-A16.md).
+> [POWERKEEPER-EU-STYLE-STOCK.md](POWERKEEPER-EU-STYLE-STOCK.md).
 >
 > The details below describe the previous implementation, not the active build.
 > The ZKOS reference `A16/classes.dex` was deleted from the current tree;

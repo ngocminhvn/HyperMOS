@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "description": "Frozen previously audited ZKOS method-gate evidence; replaces 4,074,428-byte binary reference during Android 16 ROM builds.",
+  "zk_dex_reference": {
+    "previous_path": "bin/package/NOTIFICATION_FIX/A16/classes.dex",
+    "git_blob_sha1": "f229fb0a5c67d41a55310a119ef64b18a86d6c04",
+    "source_field": "Lmiui/zk/Build;->IS_ZK_BUILD:Z",
+    "historical_only": true,
+    "retrieval": "Git history before the commit removing the binary, not required at build time"
+  },
+  "eu_dex_sha256": "ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae",
+  "scoped_eu_dex_sha256": "64efd5ef111c27b7040c6d89054b72bef9e01d5363075dd348098e866fa6e2f1",
+  "unchanged_eu_killprocess_sha256": "e4a1804e1e715fa9ab07e1d5cd5916c041a58d2e71b5677c4d85358027515f1f",
+  "gate_method_total": 6,
+  "gate_read_total": 7,
+  "gate_methods": [
+    {
+      "class": "Lcom/miui/powerkeeper/utils/GmsObserver;",
+      "method": "<init>",
+      "prototype": "(Landroid/content/Context;)V",
+      "eu_reads": 1,
+      "previously_verified_zk_reads": 1
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/utils/GmsObserver;",
+      "method": "updateGoogleSync",
+      "prototype": "(Z)V",
+      "eu_reads": 1,
+      "previously_verified_zk_reads": 1
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/controller/DeviceIdleController$1;",
+      "method": "<init>",
+      "prototype": "()V",
+      "eu_reads": 1,
+      "previously_verified_zk_reads": 1
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/controller/DeviceIdleController$2;",
+      "method": "<init>",
+      "prototype": "()V",
+      "eu_reads": 1,
+      "previously_verified_zk_reads": 1
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/statemachine/DisplayFrameSetting;",
+      "method": "getValidLocalConfigPath",
+      "prototype": "(Landroid/content/Context;)Ljava/lang/String;",
+      "eu_reads": 2,
+      "previously_verified_zk_reads": 2
+    },
+    {
+      "class": "Lcom/miui/powerkeeper/statemachine/DisplayFrameSetting;",
+      "method": "isSupportDevice",
+      "prototype": "()Z",
+      "eu_reads": 1,
+      "previously_verified_zk_reads": 1
+    }
+  ]
+}
