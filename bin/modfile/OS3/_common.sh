@@ -14,7 +14,7 @@ modscenter_fixed_prefix() {
     case "$repo" in
         "Mods-Center/HyperOS-App-Vault") printf '%s\n' "HyperOS_AppVault" ;;
         "Mods-Center/FreeStyle-Control-Center") printf '%s\n' "FreeStyle_CC_mod_" ;;
-        "Mods-Center/ColorOS_Control_Center") printf '%s\n' "ColorOS_plugin_mod_V3_@kashis_cringey_stuffs" ;;
+        "Mods-Center/ColorOS_Control_Center") printf '%s\n' "ColorOS_plugin_mod_" ;;
         "Mods-Center/HyperOS-Screenshot-mod") printf '%s\n' "HyperOS_Screenshot" ;;
         "Mods-Center/HyperOS-Launcher") printf '%s\n' "HyperOS_Launcher" ;;
         "Mods-Center/HyperOS-Security-Center") printf '%s\n' "HyperOS_Security" ;;
@@ -55,7 +55,8 @@ modscenter_prepare_fixed() {
         return 1
     }
 
-    # Use the fixed local ZIP directly; no SHA-256 calculation.
+    # Use the newest checked-in local snapshot (selected by family prefix).
+    # The updater replaces the previous version in this directory.
     MODSCENTER_ARCHIVE="$archive"
     MODSCENTER_TAG=$(basename "$archive" .zip)
 
