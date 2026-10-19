@@ -55,8 +55,7 @@ class TestProcessPolicyContentCatcher(unittest.TestCase):
     def test_missing_or_duplicate_contentcatcher_method_fails_closed(self):
         for src in (
             SOURCE.replace("updateContentCatcherWhitelist", "renamed"),
-            SOURCE + "
-" + SOURCE[SOURCE.index(".method private"):SOURCE.index(".method public")],
+            SOURCE + "\n" + SOURCE[SOURCE.index(".method private"):SOURCE.index(".method public")],
         ):
             with self.subTest(src=src[-100:]):
                 with self.assertRaisesRegex(ValueError, "expected one updateContentCatcherWhitelist"):
