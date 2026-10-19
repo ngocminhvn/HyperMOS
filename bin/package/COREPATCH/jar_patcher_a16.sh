@@ -983,6 +983,14 @@ apply_miui_services_gboard() {
 # Apply ContentExtension patches
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
+  # When the full CN A16 ROM pipeline runs, the later FrameworkPatcher step
+  # selects the audited RYU branches in all four ProcessPolicy reads.
+  # Do not consume one read here (which led to 3/4 and failed build #160).
+  # Standalone CorePatch or Global ROMs retain their pre-existing behavior.
+  if [[ "${HYPERMOS_DEFER_A16_CN_PROCESSPOLICY:-0}" == "1" && "$regionTYPE" != *"Global"* ]]; then
+    echo "[COREPATCH A16] Defer ProcessPolicy ContentExtension gate to FrameworkPatcher"
+    return 0
+  fi
   replace_line_contains_in_smali_method "IS_INTERNATIONAL_BUILD" "updateContentCatcherWhitelist()V" "    const/4 v0, 0x0" "$decompile_dir/smali/com/android/server/am/ProcessPolicy.smali"
   echo "ContentExtension patches applied to miui-services.jar"
 }

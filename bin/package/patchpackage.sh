@@ -5,8 +5,12 @@ phase "System patch stage"
 target_dir="$work_dir/bin/package/"
 
 # HyperMOS owns signature/CorePatch/FLAG_SECURE first.
+# In this full ROM pipeline FrameworkPatcher A16 CN will apply all four
+# ProcessPolicy international-build gates. Avoid letting CorePatch consume one
+# of those source reads before the notification stage.
+# Standalone CorePatch and Global builds retain their original behavior.
 info "PATCH 1/5: CorePatch / signature"
-bash $target_dir/COREPATCH/update.sh || exit 1
+HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=1 bash "$target_dir/COREPATCH/update.sh" || exit 1
 info "PATCH 2/5: AVB"
 bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
 info "PATCH 3/5: LOCK TNM post-fs integration"

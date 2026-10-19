@@ -43,6 +43,17 @@ On the supplied China baseline the replacement count remains 20 (plus the
 separate EU force-stop gate): five former Alarm/AppOps replacements are removed
 and five PreStartFeedback/ProcessPolicy replacements are added.
 
+Build #160 originally failed because CorePatch's ContentExtension step ran
+first, converted one of ProcessPolicy's four IS_INTERNATIONAL_BUILD reads to
+const false, and the subsequent FrameworkPatcher strictly expected four
+unmodified source reads but found only three. The full ROM patchpackage.sh
+now passes HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=1 to CorePatch. On A16 China,
+CorePatch skips only that overlapping ProcessPolicy edit; FrameworkPatcher then
+receives and selects all four original gates. Standalone CorePatch (without the
+flag) and Global ROMs retain the original ContentExtension behavior. No gate
+expectation is lowered, and GMS, PowerKeeper, thermal and force-stop gates
+remain unchanged. A complete ROM build is required for final validation.
+
 PreStartFeedback's build gate is only the fallback when
 ro.mi.os.custfeatureresolve is false; otherwise config_td_prestart_intercept
 still controls it. ProcessPolicy retains the China resource IDs and all other
