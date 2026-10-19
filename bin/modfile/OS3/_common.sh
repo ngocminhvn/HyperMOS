@@ -3,11 +3,9 @@
 work_dir=${work_dir:-$(pwd)}
 source "$work_dir/functions.sh"
 
-# Allow the updater's integration preflight to use an isolated fake ROM tree.
-# Normal builds continue to use the default paths.
-OS3_MOD_CACHE="${OS3_MOD_CACHE:-$work_dir/build/os3_modscenter}"
-OS3_IMAGES="${OS3_IMAGES:-$work_dir/build/baserom/images}"
-OS3_KASHI_DIR="${OS3_KASHI_DIR:-$work_dir/bin/modfile/OS3/kashi}"
+OS3_MOD_CACHE="$work_dir/build/os3_modscenter"
+OS3_IMAGES="$work_dir/build/baserom/images"
+OS3_KASHI_DIR="$work_dir/bin/modfile/OS3/kashi"
 MODSCENTER_ARCHIVE=""
 MODSCENTER_TAG=""
 
@@ -452,37 +450,35 @@ modscenter_find_stock_apk() {
     printf '%s\n' "${matches[0]}"
 }
 
-# Select APK by its real Android package, not an upstream member path.
-# Prevent a release layout change from silently bypassing Screenshot updates.
+# Install only a designated APK from a local release ZIP, not unrelated variants
+# or module scripts. Install into the stock app's existing partition.
 modscenter_apply_fixed_archive_apk() {
     local label="$1" repo="$2" member="$3" expected_package="$4" preferred_dir="$5"
     local staging="$OS3_MOD_CACHE/single-${repo##*/}"
-    local source_apk="$staging/selected.apk"
-    local unpacked="$staging/extracted"
+    local source_apk="$staging/$(basename "$member")"
     local prepared="$staging/prepared"
-    local stock_apk stock_folder stock_filename copied_package actual_package found_apk
+    local stock_apk stock_folder stock_filename copied_package actual_package
 
     modscenter_prepare_fixed "$label" "$repo" || return 1
     if ! unzip -tqq "$MODSCENTER_ARCHIVE" >/dev/null; then
         error "$label: ZIP integrity check failed"
         return 1
     fi
+    if ! unzip -Z1 "$MODSCENTER_ARCHIVE" | grep -Fxq -- "$member"; then
+        error "$label: missing ZIP member: $member"
+        return 1
+    fi
     rm -rf "$staging"
     mkdir -p "$staging"
-    if ! unzip -q "$MODSCENTER_ARCHIVE" -d "$unpacked"; then
-        error "$label: cannot extract module payload"
+    if ! unzip -p "$MODSCENTER_ARCHIVE" "$member" > "$source_apk" || [[ ! -s "$source_apk" ]]; then
+        error "$label: cannot extract $member"
         rm -rf "$staging"
         return 1
     fi
-    found_apk=$(modscenter_find_apk "$unpacked" "$expected_package" "__no_filename_fallback__") || {
-        error "$label: exactly one APK with $expected_package required"
-        rm -rf "$staging"
-        return 1
-    }
-    cp -f "$found_apk" "$source_apk" || return 1
+
     actual_package=$(modscenter_apk_package "$source_apk" || true)
     if [[ "$actual_package" != "$expected_package" ]]; then
-        error "$label: package mismatch: ${actual_package:-<unreadable>}"
+        error "$label: package is ${actual_package:-<unreadable>}, expected $expected_package"
         rm -rf "$staging"
         return 1
     fi
