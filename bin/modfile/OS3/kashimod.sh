@@ -3,7 +3,7 @@ work_dir=$(pwd)
 source "$work_dir/bin/modfile/OS3/_common.sh"
 
 rom_os=$(cat "$work_dir/bin/ddevice/rom_os.txt" 2>/dev/null)
-[[ "$rom_os" == "OS3" || "${KASHI_PREFLIGHT:-0}" == "1" ]] || exit 0
+[[ "$rom_os" == "OS3" ]] || exit 0
 
 mods "Kashi mods: App Vault + ColorOS CC (current) + Screenshot + Theme Manager + Launcher; stock Security Center patched"
 
@@ -40,7 +40,7 @@ modscenter_apply_native_module \
 modscenter_apply_fixed_archive_apk \
     "HyperOS Screenshot" \
     "Mods-Center/HyperOS-Screenshot-mod" \
-    "@package" \
+    "files/MIUIScreenshot.apk" \
     "com.miui.screenshot" \
     "MIUIScreenshot" || exit 1
 
@@ -117,11 +117,7 @@ patch_stock_securitycenter() (
 )
 
 # Keep the SecurityCenter from the downloaded Xiaomi ROM; never import Kashi's APK.
-if [[ "${KASHI_PREFLIGHT:-0}" != "1" ]]; then
-    patch_stock_securitycenter || exit 1
-else
-    mods "Kashi integration preflight: stock SecurityCenter patch intentionally excluded"
-fi
+patch_stock_securitycenter || exit 1
 
 apply_kashi_launcher() {
     local label="HyperOS Launcher"
@@ -130,34 +126,20 @@ apply_kashi_launcher() {
     local main_apk overlay_apk home_perm source_app_dir
     local target_home target_perm target_overlay required
 
-    find_home_whitelist() {
+    find_unique_file() {
         local root="$1"
-        # Identify the priv-app permission XML by its parsed package identity;
-        # upstream is free to rename/move the XML within the release.
-        python3 - "$root" <<'PY'
-from pathlib import Path
-import sys
-import xml.etree.ElementTree as ET
+        local name="$2"
+        local -a matches
 
-root = Path(sys.argv[1])
-matches = []
-for path in root.rglob("*.xml"):
-    try:
-        tree = ET.parse(path)
-    except (ET.ParseError, OSError):
-        continue
-    for element in tree.iter():
-        if element.tag.rsplit("}", 1)[-1] == "privapp-permissions" and element.get("package") == "com.miui.home":
-            matches.append(path)
-            break
-if len(matches) != 1:
-    print(f"Launcher: expected one XML with privapp-permissions for com.miui.home; got {len(matches)}", file=sys.stderr)
-    sys.exit(1)
-print(matches[0])
-PY
+        mapfile -d '' -t matches < <(find "$root" -type f -name "$name" -print0 2>/dev/null)
+        if (( ${#matches[@]} != 1 )); then
+            error "$label: expected one $name, found ${#matches[@]}"
+            return 1
+        fi
+        printf '%s\n' "${matches[0]}"
     }
 
-    mods "$label: installing current local Kashi/Mods Center release for China ROM"
+    mods "$label: installing fixed local Kashi/Mods Center snapshot for China ROM"
 
     modscenter_unpack_latest "$label" "$repo" "$extract_dir" || return 1
 
@@ -171,7 +153,7 @@ PY
         rm -rf "$extract_dir"
         return 1
     }
-    home_perm=$(find_home_whitelist "$extract_dir") || {
+    home_perm=$(find_unique_file "$extract_dir" "privapp_whitelist_com.miui.home.xml") || {
         rm -rf "$extract_dir"
         return 1
     }
