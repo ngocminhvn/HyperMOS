@@ -32,6 +32,9 @@ The existing FrameworkPatcher entrypoint applies these scoped miui-services rule
   true therefore matches that donor's selected branch without importing its
   Build class; this is code-branch parity, not measured runtime parity.
 - Force Greeze PolicyManager.CN_MODEL=false.
+- Match RYU DeviceIdleControllerStubImpl.<clinit> outcome: set
+  mIsLowPowerDozeDevice=false immediately before its single static write.
+  No other Doze methods, constants, or system-wide DeviceIdle settings change.
 
 The four RYU-adjusted classes are handled inside the existing
 frameworkpatcher_cn_a16.py, not a separate patch or workflow. The build fails
@@ -50,8 +53,11 @@ OneKeyClean/SwipeUpClean, the separate EU force-stop method and PowerKeeper's
 seven-gate DEX are unchanged. This change is not proof of an FCM reconnect fix;
 device/network-transition validation is still required.
 
-Compared with the retired --cn-notification-fix, this no longer rewrites
-DeviceIdleControllerStubImpl or extra SmartPower/location/input classes.
+Compared with the retired --cn-notification-fix, only the single
+DeviceIdleControllerStubImpl.mIsLowPowerDozeDevice assignment is now adjusted.
+Extra SmartPower/location/input classes and all other DeviceIdle methods remain
+stock CN. This is a RYU outcome port, not proof of better FCM reconnect or
+battery life; measure on-device idle power and notification delivery.
 
 ### Scoped Xiaomi.eu force-stop decision (Messenger OneKeyClean fix)
 

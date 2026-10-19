@@ -39,6 +39,14 @@ RYU_PRESERVED_READS = {
 }
 GREEZE = "com/miui/server/greeze/PolicyManager.smali"
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
+# RYU miui-servicesRYU.jar: <clinit> reads IS_RYU_BUILD and, with its build
+# flag enabled, stores false to this field. Match that one resulting value.
+DOZE_CONTROLLER = "com/android/server/DeviceIdleControllerStubImpl.smali"
+DOZE_INIT = re.compile(r"(?ms)^\.method[^\n]*\s<clinit>\(\)V[^\n]*\n.*?^\.end method[ \t]*$")
+DOZE_FIELD_WRITE = re.compile(
+    r"(?m)^([ \t]*)sput-boolean[ \t]+(v\d+),[ \t]+"
+    r"Lcom/android/server/DeviceIdleControllerStubImpl;->mIsLowPowerDozeDevice:Z[ \t]*$"
+)
 # Confirmed by DEX-level EU vs CN OS3 A16 comparison: 28 instructions,
 # 48 code units, one international-build read; method bytecode otherwise equal.
 EU_FORCE_STOP_METHOD = re.compile(
@@ -138,6 +146,32 @@ def patch_eu_force_stop(source: str):
     }
 
 
+def patch_ryu_doze_flag(source: str):
+    """Match RYU's low-power Doze device classification, not all its policies.
+
+    RYU's <clinit> yields mIsLowPowerDozeDevice=false when IS_RYU_BUILD=true.
+    Insert one const before the sole static field write; retain all existing
+    CN instructions, control flow, other fields and other methods unchanged.
+    """
+    inits = list(DOZE_INIT.finditer(source))
+    if len(inits) != 1:
+        raise ValueError(f"Doze controller: expected one <clinit>, got {len(inits)}")
+    block = inits[0].group()
+    writes = list(DOZE_FIELD_WRITE.finditer(block))
+    if len(writes) != 1:
+        raise ValueError(f"Doze controller: expected one low-power flag write, got {len(writes)}")
+    assignment = writes[0]
+    indent, reg = assignment.groups()
+    reg_index = int(reg[1:])
+    opcode = "const/4" if reg_index <= 15 else "const/16"
+    neutralize = f"{indent}{opcode} {reg}, 0x0\n"
+    insertion_at = inits[0].start() + assignment.start()
+    output = source[:insertion_at] + neutralize + source[insertion_at:]
+    if output[:insertion_at] + output[insertion_at + len(neutralize):] != source:
+        raise ValueError("Doze controller: unexpected rewrite outside the scoped field write")
+    return output
+
+
 def patch(root: Path):
     if not root.is_dir():
         raise ValueError(f"Missing decompiled miui-services: {root}")
@@ -182,6 +216,13 @@ def patch(root: Path):
     changed, did_write = force_cn_model_false(original)
     if did_write:
         policy.write_text(changed, encoding="utf-8")
+
+    doze = locate(root, DOZE_CONTROLLER)
+    if doze is None:
+        raise ValueError("DeviceIdleControllerStubImpl missing; cannot apply RYU Doze gate")
+    original_doze = doze.read_text(encoding="utf-8")
+    patched_doze = patch_ryu_doze_flag(original_doze)
+    doze.write_text(patched_doze, encoding="utf-8")
     return {
         "source": "FrameworksForge/FrameworkPatcher + scoped RYU A16 gate selection",
         "target_jar": "miui-services.jar",
@@ -194,6 +235,8 @@ def patch(root: Path):
         "greeze_cn_model_false": True,
         "scoped_eu_force_stop": eu_force_stop,
         "greeze_changed": did_write,
+        "ryu_low_power_doze_device_false": True,
+        "ryu_doze_changed_only_static_field_write": True,
         "corepatch_signature_or_secure_flag_changed": False,
         "powerkeeper_changed": False,
     }
