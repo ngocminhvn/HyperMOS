@@ -984,7 +984,7 @@ apply_miui_services_gboard() {
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
   # When the full CN A16 ROM pipeline runs, the later FrameworkPatcher step
-  # selects the audited RYU branches in all four ProcessPolicy reads.
+  # handles all 4 ProcessPolicy reads: ContentCatcher CN=false and 3 RYU=true.
   # Do not consume one read here (which led to 3/4 and failed build #160).
   # Standalone CorePatch or Global ROMs retain their pre-existing behavior.
   if [[ "${HYPERMOS_DEFER_A16_CN_PROCESSPOLICY:-0}" == "1" && "$regionTYPE" != *"Global"* ]]; then

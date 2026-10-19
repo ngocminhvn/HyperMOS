@@ -24,12 +24,11 @@ TARGETS = (
     "com/android/server/am/PreStartFeedbackImpl.smali",
     "com/android/server/am/ProcessPolicy.smali",
 )
-# Inspected RYU miui-services methods select IS_RYU_BUILD at these five reads.
-# Select that enabled branch locally, without importing a RYU Build dependency
-# or its resource IDs. All China method bodies/resources otherwise stay intact.
+# Select audited RYU international branches, except the single CN ContentCatcher
+# whitelist branch in ProcessPolicy (false). Preserve all other CN instructions.
 RYU_ENABLED_READS = {
     "com/android/server/am/PreStartFeedbackImpl.smali": 1,
-    "com/android/server/am/ProcessPolicy.smali": 4,
+    "com/android/server/am/ProcessPolicy.smali": 3,  # plus one CN ContentCatcher false gate
 }
 # RYU leaves these exact international-build reads untouched. They must remain
 # in the clean decoded input; do not replace them with either true or false.
@@ -39,6 +38,12 @@ RYU_PRESERVED_READS = {
 }
 GREEZE = "com/miui/server/greeze/PolicyManager.smali"
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
+PROCESS_POLICY = "com/android/server/am/ProcessPolicy.smali"
+# CN ContentCatcher whitelist branch, distinct from RYU notification gates.
+CONTENT_CATCHER_METHOD = re.compile(
+    r"(?ms)^\.method[^\n]*\bupdateContentCatcherWhitelist\(\)V[^\n]*\n"
+    r".*?^\.end method[ \t]*$"
+)
 # RYU miui-servicesRYU.jar: <clinit> reads IS_RYU_BUILD and, with its build
 # flag enabled, stores false to this field. Match that one resulting value.
 DOZE_CONTROLLER = "com/android/server/DeviceIdleControllerStubImpl.smali"
@@ -83,6 +88,48 @@ def force_international_true(source: str):
         return f"{indent}{opcode} {register}, 0x1{suffix}"
 
     return REGION_READ.sub(replace, source), count
+
+
+def patch_process_policy(source: str):
+    """Select 3 RYU true gates; preserve CN ContentCatcher false.
+
+    CorePatch defers its overlapping edit so all 4 original reads remain.
+    Fail closed if the method, register or number of other reads differs.
+    """
+    methods = list(CONTENT_CATCHER_METHOD.finditer(source))
+    if len(methods) != 1:
+        raise ValueError(
+            f"ProcessPolicy: expected one updateContentCatcherWhitelist()V, got {len(methods)}")
+    method = methods[0].group()
+    gates = list(REGION_READ.finditer(method))
+    if len(gates) != 1:
+        raise ValueError(
+            f"ProcessPolicy: expected one original ContentCatcher region read, got {len(gates)}")
+    gate = gates[0]
+    if gate.group(2) != "v0":
+        raise ValueError(
+            f"ProcessPolicy: ContentCatcher region register changed: {gate.group(2)}")
+    indent, register, suffix = gate.groups()
+    local_false = f"{indent}const/4 {register}, 0x0{suffix}"
+    changed_method = method[:gate.start()] + local_false + method[gate.end():]
+    staged = (source[:methods[0].start()] + changed_method +
+              source[methods[0].end():])
+    if staged.replace(changed_method, method, 1) != source:
+        raise ValueError("ProcessPolicy: unexpected edit outside ContentCatcher method")
+    remaining = len(REGION_READ.findall(staged))
+    if remaining != RYU_ENABLED_READS[PROCESS_POLICY]:
+        raise ValueError(
+            f"ProcessPolicy: expected 3 remaining RYU reads, got {remaining}")
+    changed, replaced = force_international_true(staged)
+    if replaced != remaining:
+        raise ValueError("ProcessPolicy: failed to replace all 3 RYU reads")
+    return changed, {
+        "contentcatcher_cn_false": 1,
+        "ryu_true": replaced,
+        "audited_total": replaced + 1,
+        "contentcatcher_method": "updateContentCatcherWhitelist()V",
+        "contentcatcher_branch": "cn_false_allows_settings_whitelist_update",
+    }
 
 
 def force_cn_model_false(source: str):
@@ -183,8 +230,10 @@ def patch(root: Path):
         if file is None:
             raise ValueError(f"RYU gate target missing: {cls}")
         count = len(REGION_READ.findall(file.read_text(encoding="utf-8")))
-        if count != expected:
-            raise ValueError(f"{cls}: expected {expected} original region reads, got {count}")
+        audited_expected = expected + (1 if cls == PROCESS_POLICY else 0)
+        if count != audited_expected:
+            raise ValueError(
+                f"{cls}: expected {audited_expected} original region reads, got {count}")
         if cls in RYU_PRESERVED_READS:
             preserved[cls] = {"present": True, "original_region_reads": count,
                               "replaced": 0, "policy": "original_international_flag_like_RYU"}
@@ -194,10 +243,15 @@ def patch(root: Path):
             details[cls] = {"present": False, "replaced": 0}
             continue
         original = file.read_text(encoding="utf-8")
-        changed, count = force_international_true(original)
+        if cls == PROCESS_POLICY:
+            changed, split = patch_process_policy(original)
+            count = split["audited_total"]
+            details[cls] = {"present": True, "replaced": count, **split}
+        else:
+            changed, count = force_international_true(original)
+            details[cls] = {"present": True, "replaced": count}
         if count:
             file.write_text(changed, encoding="utf-8")
-        details[cls] = {"present": True, "replaced": count}
         total += count
     if total == 0:
         raise ValueError("No FrameworkPatcher notification gates found; refuse silent no-op")
@@ -229,6 +283,7 @@ def patch(root: Path):
         "gates_replaced": total,
         "target_classes": details,
         "ryu_enabled_region_reads": RYU_ENABLED_READS,
+        "process_policy_contentcatcher_false": True,
         "ryu_preserved_region_reads": preserved,
         "ryu_build_dependency_injected": False,
         "ryu_resource_ids_imported": False,

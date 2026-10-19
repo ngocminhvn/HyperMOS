@@ -26,11 +26,14 @@ The existing FrameworkPatcher entrypoint applies these scoped miui-services rule
   reads in AlarmManagerServiceStubImpl (1) and AppOpsServiceStubImpl (4).
   Neither true nor false is forced in those two classes.
 - Select the enabled RYU-style branches in PreStartFeedbackImpl (1 read) and
-  ProcessPolicy (4 reads), using local const true instead of adding a dependency
-  on com.projectryu.Build.IS_RYU_BUILD. These are the audited donor callsites;
-  the supplied miui-frameworkRYU.jar defines IS_RYU_BUILD=true. Local const
-  true therefore matches that donor's selected branch without importing its
-  Build class; this is code-branch parity, not measured runtime parity.
+  three ProcessPolicy reads using local const true without introducing the
+  com.projectryu.Build.IS_RYU_BUILD dependency.
+- Preserve the fourth ProcessPolicy read, in
+  updateContentCatcherWhitelist()V, as const false per CN ContentExtension.
+  This allows settings-driven updates to the com.miui.contentcatcher whitelist.
+  Fail closed unless the exact method contains one original v0 field read and
+  the three other region reads still exist. No global international-build
+  spoofing, new resources, or change to other RYU branches.
 - Force Greeze PolicyManager.CN_MODEL=false.
 - Match RYU DeviceIdleControllerStubImpl.<clinit> outcome: set
   mIsLowPowerDozeDevice=false immediately before its single static write.
@@ -39,20 +42,21 @@ The existing FrameworkPatcher entrypoint applies these scoped miui-services rule
 The four RYU-adjusted classes are handled inside the existing
 frameworkpatcher_cn_a16.py, not a separate patch or workflow. The build fails
 if their original read counts differ from the inspected Android 16 layout.
-On the supplied China baseline the replacement count remains 20 (plus the
-separate EU force-stop gate): five former Alarm/AppOps replacements are removed
-and five PreStartFeedback/ProcessPolicy replacements are added.
+On the supplied China baseline the audited total remains 20 (plus the
+separate EU force-stop gate), with ContentCatcher=false and the three other
+ProcessPolicy locations=true. Alarm/AppOps preserved policies are unchanged.
 
 Build #160 originally failed because CorePatch's ContentExtension step ran
 first, converted one of ProcessPolicy's four IS_INTERNATIONAL_BUILD reads to
 const false, and the subsequent FrameworkPatcher strictly expected four
 unmodified source reads but found only three. The full ROM patchpackage.sh
 now passes HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=1 to CorePatch. On A16 China,
-CorePatch skips only that overlapping ProcessPolicy edit; FrameworkPatcher then
-receives and selects all four original gates. Standalone CorePatch (without the
-flag) and Global ROMs retain the original ContentExtension behavior. No gate
-expectation is lowered, and GMS, PowerKeeper, thermal and force-stop gates
-remain unchanged. A complete ROM build is required for final validation.
+CorePatch skips only that overlapping ProcessPolicy edit; FrameworkPatcher
+receives all 4 original reads, retains the ContentCatcher=false branch,
+and selects true at the other 3 sites. Standalone CorePatch (without the flag)
+and Global ROMs retain their original behavior. Validation still requires all
+4 gates; GMS, PowerKeeper, thermal and force-stop gates remain unchanged.
+A complete ROM build and on-device test are required for final validation.
 
 PreStartFeedback's build gate is only the fallback when
 ro.mi.os.custfeatureresolve is false; otherwise config_td_prestart_intercept
