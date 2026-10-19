@@ -39,9 +39,8 @@ ZIPs but remains an inactive reference: it is not read by the ROM build.
 - ColorOS_plugin_mod_*.zip: find the unique APK
   with Android package miui.systemui.plugin, keeping its app-local libs and
   supported system-tree overlays as in the original ColorOS module.
-- HyperOS_Screenshot*.zip: select the unique APK with Android package
-  `com.miui.screenshot` regardless of its filename or position inside the ZIP,
-  then install into the matching stock partition.
+- HyperOS_Screenshot*.zip: install only files/MIUIScreenshot.apk
+  (com.miui.screenshot) into the matching stock partition.
 
 The ColorOS mod is restored in place of FreeStyle. Module runtime scripts
 are not executed during ROM build. The build fails when a source ZIP, unique
@@ -57,23 +56,11 @@ objects before the build.
 The manual Update Kashi Apps workflow checks all seven upstream sources:
 App Vault, ColorOS Control Center, FreeStyle Control Center, Screenshot,
 Launcher, Security Center and Theme Manager. The job retrieves the newest
-stable release for every source and evaluates its downloadable ZIP assets
-without pinning version tags or member paths. It checks ZIP safety and CRC,
-expected Android package identities, supported system-tree destinations,
-native-library inventory, and Launcher overlay plus `com.miui.home`
-priv-app permission XML by content rather than filename.
-
-Next it stages **all seven ZIPs** in a temporary directory and invokes the
-real `kashimod.sh` installer on an isolated, stock-shaped **mock ROM tree**,
-verifying selected APKs, copied app-folder structure, overlay and permissions.
-No Kashi module install scripts are executed. SecurityCenter's separate
-Xiaomi stock-APK countdown patch is deliberately outside this mock test.
-
-Only after **every check passes** does it replace old ZIPs in the Git working
-tree. A failure leaves existing ZIPs unchanged and stops before any commit.
-When enabled, the workflow commits directly to main; dry-run never commits.
-This is a structural/integration preflight only: it cannot prove device
-boot, valid signatures or runtime compatibility.
+stable release for every source, validates its ZIP and expected APK package
+(and Launcher overlay), then replaces the old ZIP if the filename or bytes
+have changed. It fails rather than silently skipping an unavailable,
+ambiguous or invalid release. Changes are committed directly to main unless
+the user selected dry-run.
 
 The FreeStyle and Security Center ZIPs are also updated, but remain reference
 archives and are not installed by the ROM build. Running the updater is a
