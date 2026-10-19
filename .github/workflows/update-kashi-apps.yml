@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Checkout fixed app snapshots
+      - name: Checkout current local app snapshots
         uses: actions/checkout@v4
         with:
           persist-credentials: true
@@ -36,224 +36,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends aapt unzip
 
-      - name: Check latest releases and stage verified ZIPs
+      - name: Validate latest releases and smoke-test OS3 integration
         id: update
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from __future__ import annotations
-          
-          import filecmp
-          import json
-          import os
-          from pathlib import Path, PurePosixPath
-          import re
-          import shutil
-          import stat
-          import subprocess
-          import tempfile
-          import zipfile
-          
-          SOURCES = [
-              ("App Vault", "Mods-Center/HyperOS-App-Vault", "HyperOS_AppVault", "com.miui.personalassistant", None),
-              # Track the current release of each mod independently.
-              # Updating a FreeStyle reference ZIP does not enable it in ROM builds.
-              ("ColorOS Control Center", "Mods-Center/ColorOS_Control_Center", "ColorOS_plugin_mod_", "miui.systemui.plugin", None),
-              ("FreeStyle Control Center (inactive)", "Mods-Center/FreeStyle-Control-Center", "FreeStyle_CC_mod_", "miui.systemui.plugin", None),
-              ("Screenshot", "Mods-Center/HyperOS-Screenshot-mod", "HyperOS_Screenshot", "com.miui.screenshot", "files/MIUIScreenshot.apk"),
-              ("Launcher", "Mods-Center/HyperOS-Launcher", "HyperOS_Launcher", "com.miui.home", None),
-              ("Security Center", "Mods-Center/HyperOS-Security-Center", "HyperOS_Security", "com.miui.securitycenter", None),
-              ("Theme Manager", "Mods-Center/HyperOS-Theme-Manager", "HyperOS_ThemeManager", "com.android.thememanager", None),
-          ]
-          DEST = Path("bin/modfile/OS3/kashi")
-          DEST.mkdir(parents=True, exist_ok=True)
-          # An upstream module must never be silently omitted from the report.
-          # Every checked-in ZIP has to belong to exactly one configured source.
-          prefixes = [source[2] for source in SOURCES]
-          if len(prefixes) != len(set(prefixes)):
-              raise ValueError("Kashi updater: duplicate release prefix")
-          local_zips = sorted(
-              item.name for item in DEST.iterdir()
-              if item.is_file() and item.suffix.lower() == ".zip"
-          )
-          unmapped = [
-              name for name in local_zips
-              if sum(name.startswith(prefix) for prefix in prefixes) != 1
-          ]
-          if not local_zips or unmapped:
-              raise ValueError(
-                  f"Kashi updater: no ZIPs or unmapped local ZIPs: {unmapped}; "
-                  "configure all Kashi ZIP prefixes before updating"
-              )
-          print(
-              f"[COVERAGE] {len(local_zips)} Kashi ZIPs mapped to "
-              f"{len(SOURCES)} upstream releases",
-              flush=True,
-          )
-          rows = []
-          changed = False
-          
-          
-          def command(*args, timeout=300):
-              return subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout).stdout
-          
-          
-          def validate_zip(path, expected_pkg, label, selected_apk=None):
-              with zipfile.ZipFile(path) as archive:
-                  entries = archive.infolist()
-                  if not entries or len(entries) > 4000:
-                      raise ValueError(f"{label}: suspicious ZIP entry count")
-                  seen = set()
-                  total_size = 0
-                  apks = []
-                  for entry in entries:
-                      name = entry.filename
-                      parts = PurePosixPath(name).parts
-                      if not name or name.startswith("/") or "\\" in name or ".." in parts or name in seen:
-                          raise ValueError(f"{label}: unsafe or duplicate ZIP member: {name}")
-                      seen.add(name)
-                      if stat.S_IFMT(entry.external_attr >> 16) == stat.S_IFLNK:
-                          raise ValueError(f"{label}: ZIP symlinks not accepted: {name}")
-                      total_size += entry.file_size
-                      if total_size > 1024 * 1024 * 1024:
-                          raise ValueError(f"{label}: ZIP expands beyond 1 GiB")
-                      if not entry.is_dir() and name.lower().endswith(".apk"):
-                          apks.append(entry)
-                  corrupt = archive.testzip()
-                  if corrupt:
-                      raise ValueError(f"{label}: ZIP checksum failed at {corrupt}")
-                  if not apks:
-                      raise ValueError(f"{label}: no APK in release ZIP")
-                  if selected_apk is not None:
-                      apks = [item for item in apks if item.filename == selected_apk]
-                      if len(apks) != 1:
-                          raise ValueError(f"{label}: expected one exact APK at {selected_apk}")
-          
-                  packages = []
-                  with tempfile.TemporaryDirectory(prefix="kashi-apks-") as folder:
-                      for index, entry in enumerate(apks):
-                          apk = Path(folder, f"{index}.apk")
-                          with archive.open(entry) as source, apk.open("wb") as sink:
-                              shutil.copyfileobj(source, sink)
-                          report = command("aapt", "dump", "badging", str(apk), timeout=120)
-                          match = re.search(r"^package: name='([^']+)'", report, re.MULTILINE)
-                          if not match:
-                              raise ValueError(f"{label}: package identity unreadable: {entry.filename}")
-                          packages.append(match.group(1))
-                  if packages.count(expected_pkg) != 1:
-                      raise ValueError(f"{label}: expected one {expected_pkg} APK; saw {packages}")
-                  if label == "Launcher":
-                      names = list(seen)
-                      if "android.miui.home.launcher.res" not in packages and not any(
-                          "LauncherResOverlay" in PurePosixPath(name).name and name.endswith(".apk")
-                          for name in names
-                      ):
-                          raise ValueError("Launcher: resource overlay APK absent")
-                      if not any(PurePosixPath(name).name == "privapp_whitelist_com.miui.home.xml" for name in names):
-                          raise ValueError("Launcher: privapp whitelist absent")
-          
-          
-          with tempfile.TemporaryDirectory(prefix="kashi-downloads-") as tmp:
-              for label, repo, prefix, expected_pkg, selected_apk in SOURCES:
-                  old_files = sorted(DEST.glob(prefix + "*.zip"))
-                  if len(old_files) != 1:
-                      raise ValueError(f"{repo}: expected one local {prefix}*.zip; found {len(old_files)}")
-                  old = old_files[0]
+          python3 bin/modfile/OS3/kashi_preflight.py
 
-                  # No version is pinned. The stable "latest" endpoint always
-                  # selects the newest published non-prerelease GitHub release.
-                  release = json.loads(command("gh", "api", f"repos/{repo}/releases/latest"))
-                  tag = release.get("tag_name", "")
-                  if release.get("draft") or release.get("prerelease") or not tag:
-                      raise ValueError(f"{repo}: latest stable release unavailable")
-
-                  all_zip_assets = [
-                      asset for asset in release.get("assets", [])
-                      if asset["name"].lower().endswith(".zip")
-                  ]
-                  assets = [
-                      asset for asset in all_zip_assets
-                      if asset["name"].startswith(prefix)
-                  ]
-
-                  # Allow a source's filename convention to change, but only
-                  # when the release has exactly one ZIP to avoid guessing.
-                  # AAPT below must still verify the expected APK package.
-                  if len(assets) != 1 and len(all_zip_assets) == 1:
-                      assets = all_zip_assets
-                  if len(assets) != 1:
-                      raise ValueError(
-                          f"{repo}: cannot identify exactly one ZIP in latest "
-                          f"release {tag}; ZIP assets = "
-                          f"{[asset['name'] for asset in all_zip_assets]}"
-                      )
-
-                  asset = assets[0]
-                  filename = asset["name"]
-                  if Path(filename).name != filename or not re.fullmatch(r"[A-Za-z0-9._@+-]+\.zip", filename):
-                      raise ValueError(f"{repo}: unsafe release filename: {filename}")
-                  expected_size = int(asset.get("size", 0))
-                  # Direct Git commits cannot contain files over GitHub's 100 MB
-                  # limit. Keep a small margin until Kashi ZIPs are migrated to LFS.
-                  if not 1024 <= expected_size <= 95 * 1024 * 1024:
-                      raise ValueError(
-                          f"{repo}: release ZIP {filename} has size {expected_size}; "
-                          "too large for direct Git storage (Git LFS required)"
-                      )
-
-                  workdir = Path(tmp, prefix)
-                  workdir.mkdir()
-                  command("gh", "release", "download", tag, "--repo", repo,
-                          "--pattern", filename, "--dir", str(workdir), "--clobber", timeout=600)
-                  downloaded = workdir / filename
-                  if not downloaded.is_file():
-                      raise ValueError(f"{repo}: expected downloaded asset missing")
-                  if downloaded.stat().st_size != expected_size:
-                      raise ValueError(f"{repo}: release size mismatch: {filename}")
-                  validate_zip(downloaded, expected_pkg, label, selected_apk)
-
-                  # The ROM locates a mod by family prefix, not a version.
-                  # Use the upstream filename unless its naming convention
-                  # has changed, in which case add the stable family prefix.
-                  destination_name = (
-                      filename if filename.startswith(prefix) else prefix + filename
-                  )
-                  if old.name == destination_name and filecmp.cmp(old, downloaded, shallow=False):
-                      rows.append((label, old.name, f"{tag} / {filename}", "Unchanged"))
-                      print(f"[UNCHANGED] {label}: {tag} ({filename})", flush=True)
-                      continue
-
-                  old_name = old.name
-                  old.unlink()
-                  shutil.copyfile(downloaded, DEST / destination_name)
-                  rows.append((label, old_name, f"{tag} / {filename}", "Updated"))
-                  changed = True
-                  print(f"[UPDATED] {label}: {tag} ({filename}) -> {destination_name}", flush=True)
-
-          summary = ["## Kashi app release check", "",
-                     f"Coverage: {len(local_zips)} local ZIPs / {len(SOURCES)} configured sources (no omissions).",
-                     "All seven sources track their latest stable release, without version pins. FreeStyle and Security Center ZIPs remain inactive in ROM builds.",
-                     "",
-                     "| App | Existing snapshot | Latest release | Result |",
-                     "|---|---|---|---|"]
-          summary.extend(f"| {label} | {before} | {latest} | {action} |"
-                         for label, before, latest, action in rows)
-          summary.extend(["", "Validated replacements: release size, ZIP CRC,",
-                          "safe paths, and expected APK package identity (plus Launcher overlay/whitelist).",
-                          "Static checks do not establish compatibility or successful boot.", ""])
-          content = "\n".join(summary)
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
-              stream.write(content)
-          Path(os.environ["RUNNER_TEMP"], "kashi-summary.md").write_text(content, encoding="utf-8")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
-              stream.write(f"changed={'true' if changed else 'false'}\n")
-          print(f"Kashi update: {'changes ready to commit' if changed else 'all releases up to date'}")
-          PY
-
-      - name: Commit verified Kashi snapshots to main
+      - name: Commit integration-verified Kashi ZIPs to main
         if: ${{ steps.update.outputs.changed == 'true' && inputs.dry_run != true }}
         shell: bash
         run: |
