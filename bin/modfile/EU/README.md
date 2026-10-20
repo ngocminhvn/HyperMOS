@@ -5,7 +5,7 @@ This directory runs **only** for a ROM whose source filename starts with
 `bin/ddevice/rom_source.txt` independently of the ROM's China-derived version
 suffix `CNXM` or the legacy `device_type.txt` region.
 
-- EU-only `mi_ext/etc/build.prop` cleanup deletes the `ro.product.mod_device` line only if its value contains `_xiaomieu`, and deletes `ro.build.host=xiaomi.eu`. Other build hosts, models and fingerprints are left alone. `verify.sh` checks the final extracted images for these exact markers.
+- EU-only `mi_ext/etc/build.prop` cleanup removes exactly five requested lines: `ro.product.mod_device=haotian_xiaomieu_global`, `ro.build.host=xiaomi.eu`, `ro.xiaomi.developerid=ingbrzy_acid_igoreisberg`, `ro.xiaomi.eu.ota_device=HAOTIAN`, and `ro.xiaomi.eu.version.code_time=1788355864`. No property recheck is added to `verify.sh`; all China builds remain unchanged.
 - `System_MultiDisableFeature/update.sh` skips its memory-extension and priv-app property rewrites on EU when the target value is already absent (as on EU 3.0.309); it still applies them if a future EU base has a value needing replacement. Audio safety props, recovery-image cleanup and theme-permission logic retain their existing behavior. China is unchanged.
 - `update.sh`: remove the exact app containers `XiaomiEUExt`,
   `XiaomiEUInject` and `MiuiExtraPhoto` from the **extracted Xiaomi.eu build
