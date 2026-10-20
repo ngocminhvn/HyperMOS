@@ -57,8 +57,31 @@ jobs:
           command -v simg2img
           command -v fsck.erofs
           command -v debugfs
-          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_ryu_eu_reference.py
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_ryu_eu_reference.py bin/audit/ryu_mirror_plan.py bin/dump/sourceforge_download.py
           df -h /
+
+      - name: Benchmark fastest RYU-EU SourceForge mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/ryu_mirror_plan.py \
+            --url "$ROM_URL" \
+            --output "$WORK/output/mirror-plan.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads((Path(os.environ["WORK"]) / "output/mirror-plan.json").read_text())
+          fastest = report.get("fastest_measured")
+          candidates = report.get("ranked", [])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("## RYU-EU SourceForge mirror benchmark\\n\\n")
+              f.write(f"- Fastest measured: `{fastest or 'none (fallback)'}`\\n")
+              f.write(f"- Verified GET samples: {report['verified_speed_samples']}\\n")
+              f.write(f"- Download order: `{' -> '.join(candidates)}`\\n")
+              f.write("- Measured from this GitHub runner with at most 2 MiB per mirror; transfer speed may change.\\n\\n")
+          PY
 
       - name: Download RYU-EU ROM with SourceForge mirror fallback
         shell: bash
@@ -67,7 +90,8 @@ jobs:
           python3 bin/dump/sourceforge_download.py \
             --url "$ROM_URL" \
             --output "$WORK/RYU-EU-source.zip" \
-            --report "$WORK/output/mirror-report.json"
+            --report "$WORK/output/mirror-report.json" \
+            --mirror-plan "$WORK/output/mirror-plan.json"
           test -s "$WORK/RYU-EU-source.zip"
           echo "[SOURCE] Downloaded and ZIP-verified RYU-EU source"
           df -h /
