@@ -240,16 +240,36 @@ def mirror_selection_label(method):
     }[method]
 
 
-def download(url, output):
+def download(url, output, connections=8, attempt_timeout=0):
+    """One aria2 transfer; a list of URLs is ONE download with multiple mirrors.
+
+    Only callers opting in to the RYU-EU speed flags change the default
+    connection count and watchdog. aria2's control file enables continuation
+    when the next candidate points to the same unchanged source archive.
+    """
     output.parent.mkdir(parents=True, exist_ok=True)
+    sources = [url] if isinstance(url, str) else list(url)
     cmd = [
         "aria2c", "--file-allocation=none", "--max-tries=3",
         "--retry-wait=4", "--connect-timeout=20", "--timeout=45",
-        "--lowest-speed-limit=12K", "--max-connection-per-server=8",
-        "--split=8", "--min-split-size=4M", "--continue=true",
-        "--dir", str(output.parent), "--out", output.name, url,
+        "--lowest-speed-limit=12K",
+        f"--max-connection-per-server={min(connections, 16)}",
+        f"--split={min(connections, 16)}",
+        "--min-split-size=1M" if connections > 8 else "--min-split-size=4M",
+        "--continue=true", "--auto-file-renaming=false",
+        "--dir", str(output.parent), "--out", output.name, *sources,
     ]
-    return subprocess.run(cmd, check=False).returncode == 0
+    print(f"[DOWNLOAD] aria2 connections={min(connections, 16)}, "
+          f"sources={len(sources)}, attempt_timeout={attempt_timeout or 'unlimited'}s",
+          flush=True)
+    try:
+        done = subprocess.run(cmd, check=False,
+                              timeout=attempt_timeout if attempt_timeout > 0 else None)
+        return done.returncode == 0
+    except subprocess.TimeoutExpired:
+        print("[WARN] aria2 mirror attempt exceeded the per-attempt deadline; "
+              "trying another source while preserving resumable data", flush=True)
+        return False
 
 
 def valid_zip(output):
@@ -273,7 +293,19 @@ def main():
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--report", required=True, type=Path)
     ap.add_argument("--mirror-plan", type=Path, help="Optional pre-benchmarked SourceForge mirror plan")
+    # Opt-in RYU-EU tuning; other workflows keep their previous download order.
+    ap.add_argument("--parallel-mirrors", type=int, default=1,
+                    help="Use several ranked SourceForge mirrors for ONE aria2 download")
+    ap.add_argument("--attempt-timeout-seconds", type=int, default=0,
+                    help="Move to the next mirror after this many seconds (0 disables)")
+    ap.add_argument("--max-mirror-attempts", type=int, default=0,
+                    help="Limit total mirror attempts (0 retains old unlimited fallback)")
+    ap.add_argument("--connections", type=int, default=8)
     args = ap.parse_args()
+    if not (1 <= args.parallel_mirrors <= 5 and 1 <= args.connections <= 16):
+        ap.error("parallel-mirrors must be 1..5 and connections must be 1..16")
+    if args.attempt_timeout_seconds < 0 or args.max_mirror_attempts < 0:
+        ap.error("attempt timeout and maximum mirror attempts must be nonnegative")
     sf = normalize(args.url)
     output = args.output.resolve()
     started = time.monotonic()
@@ -314,10 +346,26 @@ def main():
         file_path = None
         probed = []
         urls = [("direct", args.url)]
+    # aria2 accepts several HTTP URIs as mirrors of the SAME file; it can
+    # spread 16 connections across distinct SourceForge servers. For RYU-EU,
+    # prioritize the measured URLs as a single parallel attempt before
+    # falling back to the original per-mirror candidates.
+    if sf and args.parallel_mirrors > 1:
+        ranked_candidates = [item for item in urls
+                             if item[0].startswith("measured-")
+                             or item[0] == "router-autoselect"]
+        ranked_candidates = ranked_candidates[:args.parallel_mirrors]
+        if len(ranked_candidates) > 1:
+            names = ", ".join(label for label, _ in ranked_candidates)
+            print(f"[MIRROR] Concurrent SourceForge mirrors: {names}", flush=True)
+            urls = [("parallel-ranked", [link for _, link in ranked_candidates])] + urls
+    if args.max_mirror_attempts:
+        urls = urls[:args.max_mirror_attempts]
     attempts = []
     for name, url in urls:
         print(f"[DOWNLOAD] Trying {name}", flush=True)
-        success = download(url, output)
+        success = download(url, output, connections=args.connections,
+                           attempt_timeout=args.attempt_timeout_seconds)
         if success and valid_zip(output):
             print(f"[DOWNLOAD] ZIP received from {name} ({output.stat().st_size} bytes)", flush=True)
             attempts.append({"mirror": name, "result": "ok"})
@@ -347,9 +395,17 @@ def main():
             return
         print(f"[WARN] {name} failed or returned non-ZIP content; trying next mirror", flush=True)
         attempts.append({"mirror": name, "result": "failed"})
-        # Prevent a corrupted/incomplete .aria2 partial from poisoning fallback.
+        control = Path(str(output) + ".aria2")
+        if not success or output.is_file():
+            # aria2's sidecar tracks verified pieces. Reuse only when a
+            # legitimate interrupted transfer left both file and sidecar.
+            # A successful transfer with invalid ZIP is not a safe partial.
+            if not success and output.is_file() and control.is_file():
+                print("[DOWNLOAD] Keeping partial ROM and aria2 resume control "
+                      "for next mirror", flush=True)
+                continue
         output.unlink(missing_ok=True)
-        Path(str(output) + ".aria2").unlink(missing_ok=True)
+        control.unlink(missing_ok=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps({
         "type": "SourceForge" if sf else "direct", "project": project,
