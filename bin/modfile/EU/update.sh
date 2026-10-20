@@ -28,4 +28,3 @@ fi
     error "EU: XiaomiEUExt removal failed"
     exit 1
 }
-mods "EU: MiuiExtraPhoto and other Xiaomi.eu applications left untouched"
