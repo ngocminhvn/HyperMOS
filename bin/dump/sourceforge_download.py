@@ -229,7 +229,7 @@ def classify_mirror_selection(route, probes):
 
 def mirror_selection_label(method):
     return {
-        "range_measured": "Measured fastest among successful HTTP 206 range probes",
+        "range_measured": "Selected from measured HTTP 206 range routes (not guaranteed globally fastest)",
         "sourceforge_autoselect_fallback":
             "SourceForge autoselect fallback (not measured as fastest)",
         "original_direct_url": "User-supplied direct SourceForge URL (not benchmark winner)",
