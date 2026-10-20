@@ -23,6 +23,7 @@ if [ ! -f "${baserom}" ] && [ "$(echo $baserom |grep http)" != "" ]; then
                 return 1
             }
         baserom="$eu_basename"
+        eu_rom_downloaded=1
         info "EU source downloaded: $baserom"
     else
         # Leave the existing Xiaomi China/Global downloader unchanged.
