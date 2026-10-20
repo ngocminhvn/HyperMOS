@@ -14,7 +14,6 @@ info "PATCH 1/6: CorePatch / signature"
 rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
 if [[ -s "$rom_source_file" ]] &&
    [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
-  info "EU: preserve original Gboard, NotificationFilterHelper and ProcessPolicy while applying CorePatch"
   HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=0 \
   HYPERMOS_PRESERVE_EU_FRAMEWORK=1 \
     bash "$target_dir/COREPATCH/update.sh" || exit 1
