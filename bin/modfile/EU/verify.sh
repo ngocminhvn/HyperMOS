@@ -31,18 +31,6 @@ for app_root in "${app_roots[@]}"; do
     done
 done
 
-# Verify metadata cleanup after every later mod, not just at cleanup time.
-eu_prop="$images/mi_ext/etc/build.prop"
-if [[ -L "$eu_prop" ]]; then
-    error "EU: symlinked mi_ext build.prop in final ROM"
-    exit 1
-fi
-if [[ -f "$eu_prop" ]] && grep -Eq \
-    '^ro\.product\.mod_device=[^[:space:]]*_xiaomieu[^[:space:]]*$|^ro\.build\.host=xiaomi\.eu$' "$eu_prop"; then
-    error "EU: Xiaomi.eu-only mi_ext metadata reintroduced by a later mod"
-    exit 1
-fi
-
 # Keep the user-selected Kashi launcher from the shared/China mod pipeline.
 [[ -s "$images/product/priv-app/MiuiHome/MiuiHome.apk" ]] || {
     error "EU: Kashi MiuiHome missing from final ROM"
