@@ -5,10 +5,8 @@ work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
 # Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
-if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
-   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
-    exit 0
-fi
+if [[ ! -f "$work_dir/bin/ddevice/rom_source.txt" ]] ||
+   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" != "xiaomi_eu" ]]; then
 
 androidVER=$(cat "$work_dir/bin/ddevice/androidver.txt")
 regionTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
@@ -155,3 +153,4 @@ patch_enhanced_keyboard || {
   exit 1
 }
 mods "Added GMS Done"
+fi
