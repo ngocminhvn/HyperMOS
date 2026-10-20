@@ -14,8 +14,8 @@ source_file="$work_dir/bin/ddevice/rom_source.txt"
 images="$work_dir/build/baserom/images"
 [[ -d "$images/product/priv-app" ]] || { error "EU: extracted product/priv-app missing"; exit 1; }
 
-# Remove Xiaomi.eu-only metadata from mi_ext without touching Xiaomi stock build hosts.
-# ro.product.mod_device is removed only when its value identifies Xiaomi.eu.
+# Drop only the five requested Xiaomi.eu identifiers from the extracted EU mi_ext.
+# No runtime resetprop, no fingerprint changes, and no modification to China.
 eu_prop="$images/mi_ext/etc/build.prop"
 if [[ -L "$eu_prop" ]]; then
     error "EU: refusing symlinked mi_ext build.prop"
@@ -23,12 +23,12 @@ if [[ -L "$eu_prop" ]]; then
 fi
 if [[ -f "$eu_prop" ]]; then
     sed -i \
-        -e '/^ro\.product\.mod_device=[^[:space:]]*_xiaomieu[^[:space:]]*$/d' \
+        -e '/^ro\.product\.mod_device=haotian_xiaomieu_global$/d' \
         -e '/^ro\.build\.host=xiaomi\.eu$/d' \
+        -e '/^ro\.xiaomi\.developerid=ingbrzy_acid_igoreisberg$/d' \
+        -e '/^ro\.xiaomi\.eu\.ota_device=HAOTIAN$/d' \
+        -e '/^ro\.xiaomi\.eu\.version\.code_time=1788355864$/d' \
         "$eu_prop" || { error "EU: failed to clean mi_ext build.prop"; exit 1; }
-    mods "EU: removed Xiaomi.eu-only mi_ext build metadata"
-else
-    mods "EU: mi_ext build.prop absent; metadata cleanup skipped"
 fi
 
 # Remove only these exact Xiaomi.eu app containers, in standard partition
