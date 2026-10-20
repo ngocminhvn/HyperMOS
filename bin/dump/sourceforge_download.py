@@ -207,6 +207,36 @@ def benchmark(canonical, mirrors=MIRRORS):
     return best, results
 
 
+
+def classify_mirror_selection(route, probes):
+    """Distinguish measured throughput from SourceForge's own fallback routing.
+
+    A completed ZIP download does not prove that we measured this route as the
+    fastest. SourceForge may return 403 to every bounded HTTP Range probe even
+    though a full aria2 download from its autoselect router works correctly.
+    """
+    verified = {item["mirror"] for item in probes if item.get("status") == "ok"}
+    if route == "router-autoselect":
+        if "autoselect" in verified:
+            return "range_measured"
+        return "sourceforge_autoselect_fallback"
+    if route.startswith("measured-") and route[len("measured-"):] in verified:
+        return "range_measured"
+    if route == "input-direct":
+        return "original_direct_url"
+    return "unverified_fallback"
+
+
+def mirror_selection_label(method):
+    return {
+        "range_measured": "Measured fastest among successful HTTP 206 range probes",
+        "sourceforge_autoselect_fallback":
+            "SourceForge autoselect fallback (not measured as fastest)",
+        "original_direct_url": "User-supplied direct SourceForge URL (not benchmark winner)",
+        "unverified_fallback": "Fallback route (not measured as fastest)",
+    }[method]
+
+
 def download(url, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -246,7 +276,7 @@ def main():
     if sf:
         canonical, project, file_path = sf
         print(f"[SOURCEFORGE] Project: {project}, file: {file_path}", flush=True)
-        print(f"[SOURCEFORGE] Benchmarking {len(MIRRORS)} mirror options (1 MiB max per probe)", flush=True)
+        print(f"[SOURCEFORGE] Probing {len(MIRRORS)} SourceForge routes (1 MiB max; requires HTTP 206)", flush=True)
         ordered, probed = benchmark(canonical)
         for item in probed:
             if item["status"] == "ok":
@@ -255,8 +285,8 @@ def main():
                 print(f"[MIRROR] {item['mirror']}: {item.get('reason', 'unavailable')} (range probe only)", flush=True)
         urls = candidate_urls(args.url, canonical, project, file_path, ordered)
         if not any(item["status"] == "ok" for item in probed):
-            print("[WARN] Range benchmarks blocked/unavailable; will still try input "
-                  "direct URL and SourceForge CDN/router fallback endpoints", flush=True)
+            print("[MIRROR] 0 verified speed samples; using SourceForge "
+                  "router/fallback (no fastest mirror could be determined)", flush=True)
     else:
         print("[DOWNLOAD] Non-SourceForge URL: using original direct download", flush=True)
         project = None
@@ -270,10 +300,19 @@ def main():
         if success and valid_zip(output):
             print(f"[DOWNLOAD] ZIP received from {name} ({output.stat().st_size} bytes)", flush=True)
             attempts.append({"mirror": name, "result": "ok"})
+            selection_method = classify_mirror_selection(name, probed) if sf else "direct"
+            verified_speed_samples = sum(item.get("status") == "ok" for item in probed)
+            if sf:
+                print(f"[MIRROR] Selection: {mirror_selection_label(selection_method)} "
+                      f"| verified range probes: {verified_speed_samples}", flush=True)
             report = {
                 "type": "SourceForge" if sf else "direct",
                 "project": project, "file": file_path,
-                "selected_mirror": name, "probe_method": "sourceforge_router_range" if sf else None,
+                "selected_mirror": name,
+                "selection_method": selection_method,
+                "speed_benchmark_verified": selection_method == "range_measured",
+                "verified_range_probes": verified_speed_samples,
+                "probe_method": "sourceforge_router_range" if sf else None,
                 "probes": probed,
                 "attempts": attempts, "elapsed_seconds": round(time.monotonic() - started, 1),
             }
@@ -289,6 +328,8 @@ def main():
     args.report.write_text(json.dumps({
         "type": "SourceForge" if sf else "direct", "project": project,
         "file": file_path, "selected_mirror": None,
+        "selection_method": None, "speed_benchmark_verified": False,
+        "verified_range_probes": sum(item.get("status") == "ok" for item in probed),
         "probe_method": "sourceforge_router_range" if sf else None,
         "probes": probed,
         "attempts": attempts,
