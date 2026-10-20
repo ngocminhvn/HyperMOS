@@ -14,20 +14,22 @@ source_file="$work_dir/bin/ddevice/rom_source.txt"
 images="$work_dir/build/baserom/images"
 [[ -d "$images/product/priv-app" ]] || { error "EU: extracted product/priv-app missing"; exit 1; }
 
-# Restore China-style mod_device and remove four Xiaomi.eu-only properties in EU mi_ext.
-# No runtime resetprop, no fingerprint changes, and no modification to China.
+# For any Xiaomi.eu device, restore the native codename in mod_device.
+# E.g. haotian_xiaomieu_global -> haotian; mondrian_xiaomieu_eea_global -> mondrian.
+# Remove only the four specified EU metadata keys; values may vary per build.
+# Work only on extracted EU images, never on China builds or runtime properties.
 eu_prop="$images/mi_ext/etc/build.prop"
 if [[ -L "$eu_prop" ]]; then
     error "EU: refusing symlinked mi_ext build.prop"
     exit 1
 fi
 if [[ -f "$eu_prop" ]]; then
-    sed -i \
-        -e 's/^ro\.product\.mod_device=haotian_xiaomieu_global$/ro.product.mod_device=haotian/' \
+    sed -E -i \
+        -e 's/^(ro\.product\.mod_device=)([[:alnum:]_.-]+)_xiaomieu(_[[:alnum:]_.-]+)?$/\1\2/' \
         -e '/^ro\.build\.host=xiaomi\.eu$/d' \
-        -e '/^ro\.xiaomi\.developerid=ingbrzy_acid_igoreisberg$/d' \
-        -e '/^ro\.xiaomi\.eu\.ota_device=HAOTIAN$/d' \
-        -e '/^ro\.xiaomi\.eu\.version\.code_time=1788355864$/d' \
+        -e '/^ro\.xiaomi\.developerid=/d' \
+        -e '/^ro\.xiaomi\.eu\.ota_device=/d' \
+        -e '/^ro\.xiaomi\.eu\.version\.code_time=/d' \
         "$eu_prop" || { error "EU: failed to clean mi_ext build.prop"; exit 1; }
 fi
 
