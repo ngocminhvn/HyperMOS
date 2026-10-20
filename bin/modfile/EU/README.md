@@ -18,9 +18,11 @@ suffix `CNXM` or the legacy `device_type.txt` region.
 - `gmsservices` and `gmsservices16` skip Google APK/framework injection.
   `MultiLang` skips China translation overlays.
 - `Settings_GoogleShowUpCN`, `GPS_Fix`, `Framework_FixDelayPowerMenu`,
-  `Framework_FixDevicePolicy`, `Provisions_RegionPatch`,
-  `System_MultiDisableFeature`, `SystemUI_NotificationColorIcon` and
-  `Settings_FixNotificationHistory` each preserve the Xiaomi.eu original.
+  `SystemUI_NotificationColorIcon` and `Settings_FixNotificationHistory`
+  keep the Xiaomi.eu originals.
+- `Framework_FixDevicePolicy`, `Provisions_RegionPatch`, and
+  `System_MultiDisableFeature` intentionally **run for Xiaomi.eu** using the
+  same mod logic as China.
 - `bin/ddevice/DEBLOAT/debloat.sh` has its own EU-only checks preserving the
   stock Google apps and EU system updater; all other debloat remains active.
 - `bin/package/NOTIFICATION_FIX/notificationFIX.sh` skips Xiaomi.eu. This
