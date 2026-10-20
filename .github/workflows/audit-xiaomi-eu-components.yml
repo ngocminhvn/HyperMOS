@@ -4,9 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       rom_url:
-        description: 'Public direct HTTPS link to Xiaomi.eu fastboot ROM ZIP (with super.img or super.img.N)'
+        description: 'Xiaomi.eu SourceForge ROM link or direct HTTPS fastboot ZIP (super.img/super.img.N)'
         required: true
         type: string
+        default: 'https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip/download#'
 
 permissions:
   contents: read
@@ -32,36 +33,42 @@ jobs:
           set -euo pipefail
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 android-sdk-libsparse-utils e2fsprogs erofs-utils
+          sudo apt-get install -y -qq aria2 curl unzip android-sdk-libsparse-utils e2fsprogs erofs-utils
           python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py
           mkdir -p "$WORK/output"
           df -h "$WORK"
 
-      - name: Validate direct ROM URL and download Xiaomi.eu ZIP
+      - name: Auto-select the fastest verified SourceForge mirror and download ROM
         shell: bash
         run: |
           set -euo pipefail
+          python3 bin/dump/sourceforge_download.py \
+            --url "$ROM_URL" \
+            --output "$WORK/eu-rom.zip" \
+            --report "$WORK/output/mirror-report.json"
+          unzip -tq "$WORK/eu-rom.zip" >/dev/null
           python3 - <<'PY'
-          import os
-          from urllib.parse import urlsplit
-          source = os.environ["ROM_URL"].strip()
-          u = urlsplit(source)
-          if u.scheme != "https" or not u.hostname or u.username or u.password or len(source) > 4096:
-              raise SystemExit("ROM URL must be a direct public HTTPS download URL")
-          print("Downloading Xiaomi.eu ROM from", u.hostname)
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ["WORK"]) / "output/mirror-report.json").read_text())
+          mirrors = [item for item in report.get("probes", []) if item.get("status") == "ok"]
+          selected = report.get("selected_mirror") or "unknown"
+          print(f"[MIRROR] Selected: {selected} | verified range samples: {len(mirrors)}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## Xiaomi.eu SourceForge download\\n\\n")
+              summary.write(f"- Selected download route: `{selected}`\\n")
+              summary.write(f"- Verified mirror samples: {len(mirrors)}\\n")
+              summary.write("- Full probe results and fallbacks: `mirror-report.json` (artifact)\\n\\n")
           PY
-          aria2c --allow-overwrite=true --auto-file-renaming=false --file-allocation=none \
-            --max-connection-per-server=8 --split=8 --min-split-size=16M \
-            --max-tries=5 --retry-wait=10 --timeout=90 --connect-timeout=30 \
-            --dir="$WORK" --out=eu-rom.zip "$ROM_URL"
-          python3 - <<'PY'
-          import os, zipfile
-          p = os.path.join(os.environ["WORK"], "eu-rom.zip")
-          if not zipfile.is_zipfile(p):
-              raise SystemExit("Input is not a ZIP: use a direct ROM file URL, not a download page")
-          with zipfile.ZipFile(p) as z:
-              print("Relevant ZIP entries:", [m.filename for m in z.infolist() if "super.img" in m.filename])
-          PY
+
+      - name: Upload mirror diagnostics if download or extraction fails
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomieu-mirror-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/xiaomieu-component-audit/output/mirror-report.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Extract Xiaomi.eu components, build.prop and original Launcher (read-only)
         shell: bash
@@ -82,7 +89,7 @@ jobs:
           PY
           cat "$WORK/output/audit.md" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifact includes `xiaomieu-extras.zip` (the three EU components found), `xiaomieu-component-paths.txt` (original paths), original build.prop files, and the Launcher comparison. No China comparison, ROM patching, or flashing." >> "$GITHUB_STEP_SUMMARY"
+          echo 'Artifact includes xiaomieu-extras.zip (the three EU components found), xiaomieu-component-paths.txt (original paths), original build.prop files, mirror-report.json, and the Launcher comparison. No China comparison, ROM patching, or flashing.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload original EU apps, build.prop and audit report
         if: always()
