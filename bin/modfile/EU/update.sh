@@ -16,7 +16,7 @@ images="$work_dir/build/baserom/images"
 
 # For any Xiaomi.eu device, restore the native codename in mod_device.
 # E.g. haotian_xiaomieu_global -> haotian; mondrian_xiaomieu_eea_global -> mondrian.
-# Remove only the four specified EU metadata keys; values may vary per build.
+# Remove the four specified EU metadata keys by key (including ro.build.host).
 # Work only on extracted EU images, never on China builds or runtime properties.
 eu_prop="$images/mi_ext/etc/build.prop"
 if [[ -L "$eu_prop" ]]; then
@@ -26,7 +26,7 @@ fi
 if [[ -f "$eu_prop" ]]; then
     sed -E -i \
         -e 's/^(ro\.product\.mod_device=)([[:alnum:]_.-]+)_xiaomieu(_[[:alnum:]_.-]+)?$/\1\2/' \
-        -e '/^ro\.build\.host=xiaomi\.eu$/d' \
+        -e '/^ro\.build\.host=/d' \
         -e '/^ro\.xiaomi\.developerid=/d' \
         -e '/^ro\.xiaomi\.eu\.ota_device=/d' \
         -e '/^ro\.xiaomi\.eu\.version\.code_time=/d' \
