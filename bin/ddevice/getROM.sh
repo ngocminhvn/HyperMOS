@@ -6,16 +6,38 @@ source $work_dir/functions.sh
 # Check whether it is a local package or a link
 if [ ! -f "${baserom}" ] && [ "$(echo $baserom |grep http)" != "" ]; then
     info "Download link detected, starting a download..."
-    aria2c --max-download-limit=1024M --file-allocation=none -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" "${baserom}"
-    baserom=$(basename ${baserom} | sed 's/\?t.*//')
-    if [ -f $work_dir/topaz-ota_full-OS3.0.2.0.WMGCNXM-user-16.0-b487e82659.zip ]; then
-        baserom="topaz-ota_full-OS3.0.2.0.WMGCNXM-user-16.0-b487e82659.zip"
-        info "BASEROM: ${baserom}"
-    elif [ -f $work_dir/munch-ota_full-OS2.0.215.0.VLMCNXM-user-15.0-7df6d5ee94.zip ]; then
-        baserom="munch-ota_full-OS2.0.215.0.VLMCNXM-user-15.0-7df6d5ee94.zip"
-        info "BASEROM: ${baserom}"
-    elif [ ! -f "${baserom}" ]; then
-        error "Download error!"
+    if [[ "$baserom" == *"xiaomi.eu_"* ]]; then
+        # Preserve Xiaomi.eu ZIP filename (SourceForge URLs end with /download#).
+        # Reuse the dump workflow's tested auto-mirror downloader.
+        eu_basename=$(printf '%s\n' "$baserom" | grep -oE 'xiaomi[.]eu_[A-Za-z0-9._-]+[.]zip' | head -n 1)
+        [[ -n "$eu_basename" && "$eu_basename" != */* ]] || {
+            error "EU: unable to determine a safe ZIP filename from ROM URL"
+            return 1
+        }
+        mkdir -p "$work_dir/build"
+        python3 "$work_dir/bin/dump/sourceforge_download.py" \
+            --url "$baserom" \
+            --output "$work_dir/$eu_basename" \
+            --report "$work_dir/build/eu-mirror-report.json" || {
+                error "EU: source ZIP download failed"
+                return 1
+            }
+        baserom="$eu_basename"
+        info "EU source downloaded: $baserom"
+    else
+        # Leave the existing Xiaomi China/Global downloader unchanged.
+        aria2c --max-download-limit=1024M --file-allocation=none -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" "${baserom}"
+        baserom=$(basename ${baserom} | sed 's/\?t.*//')
+        if [ -f $work_dir/topaz-ota_full-OS3.0.2.0.WMGCNXM-user-16.0-b487e82659.zip ]; then
+            baserom="topaz-ota_full-OS3.0.2.0.WMGCNXM-user-16.0-b487e82659.zip"
+            info "BASEROM: ${baserom}"
+        elif [ -f $work_dir/munch-ota_full-OS2.0.215.0.VLMCNXM-user-15.0-7df6d5ee94.zip ]; then
+            baserom="munch-ota_full-OS2.0.215.0.VLMCNXM-user-15.0-7df6d5ee94.zip"
+            info "BASEROM: ${baserom}"
+        elif [ ! -f "${baserom}" ]; then
+            error "Download error!"
+            return 1
+        fi
     fi
 elif [ -f "${baserom}" ]; then
     info "BASEROM: ${baserom}"
@@ -29,9 +51,16 @@ fi
 if [ "$(echo $baserom |grep miui_)" != "" ]; then
     device_code=$(basename $baserom |cut -d '_' -f 2)
     base_rom_code=$(echo "$baserom" | awk -F'_' '{print $3}')
-elif [ "$(echo $baserom |grep xiaomi.eu_)" != "" ]; then
-    device_code=$(basename $baserom |cut -d '_' -f 3)
-    base_rom_code=$(echo "$baserom" | awk -F'_' '{print $3}')
+elif [[ "${baserom##*/}" == xiaomi.eu_* ]]; then
+    # xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_<hash>.zip
+    # The codename is field 2, *not* field 3 (the version).
+    eu_filename="${baserom##*/}"
+    device_code=$(printf '%s\n' "$eu_filename" | cut -d '_' -f 2)
+    base_rom_code=$(printf '%s\n' "$eu_filename" | cut -d '_' -f 3)
+    if [[ ! "$device_code" =~ ^[A-Za-z0-9]+$ || ! "$base_rom_code" =~ ^(OS[0-9]|V1[34]) ]]; then
+        error "EU: unexpected filename, cannot determine device/version: $eu_filename"
+        return 1
+    fi
 elif [ "$(echo $baserom | grep -E '.*-ota_full-.*')" != "" ]; then
     device_code=$(basename $baserom | cut -d '-' -f 1)
     base_rom_code=$(basename $baserom | cut -d '-' -f 3)
@@ -101,5 +130,16 @@ echo $base_rom_code > $work_dir/bin/ddevice/os_code.txt
 echo $device_code > $work_dir/bin/ddevice/device_code.txt
 echo $DEVICE_TYPE > $work_dir/bin/ddevice/device_type.txt
 echo $ROM_OS > $work_dir/bin/ddevice/rom_os.txt
+
+# Source identity is independent of regionTYPE (Xiaomi.eu often uses CNXM).
+if [[ "${baserom##*/}" == xiaomi.eu_* ]]; then
+    ROM_SOURCE="xiaomi_eu"
+elif [[ "$DEVICE_TYPE" == "China" ]]; then
+    ROM_SOURCE="china"
+else
+    ROM_SOURCE="other"
+fi
+printf '%s\n' "$ROM_SOURCE" > "$work_dir/bin/ddevice/rom_source.txt"
+info "ROM source: $ROM_SOURCE | region: $DEVICE_TYPE | device: $device_code | version: $base_rom_code"
 
 
