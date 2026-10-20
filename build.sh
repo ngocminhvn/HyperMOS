@@ -148,6 +148,12 @@ fi
 rm -rf build/baserom/payload.bin
 rm -rf build/baserom/images/super.img
 
+# Reclaim space after extracting an 8+ GiB Xiaomi.eu URL download.
+# Never delete a user-supplied local ZIP.
+if [[ "$rom_source" == "xiaomi_eu" && "${eu_rom_downloaded:-0}" == "1" ]]; then
+    rm -f -- "$work_dir/$baserom"
+    info "EU: removed downloaded source archive after successful extraction"
+fi
 
 phase "3/4 Apply HyperMOS modifications"
 mods "Gathering device information"
