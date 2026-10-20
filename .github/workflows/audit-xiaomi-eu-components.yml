@@ -53,7 +53,7 @@ jobs:
           python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py
           df -h "$WORK"
 
-      - name: Auto-select the fastest verified SourceForge mirror and download ROM
+      - name: Check SourceForge mirrors and download ROM with fallback
         shell: bash
         run: |
           set -euo pipefail
@@ -67,11 +67,15 @@ jobs:
           report = json.loads((Path(os.environ["WORK"]) / "output/mirror-report.json").read_text())
           mirrors = [item for item in report.get("probes", []) if item.get("status") == "ok"]
           selected = report.get("selected_mirror") or "unknown"
-          print(f"[MIRROR] Selected: {selected} | verified range samples: {len(mirrors)}")
+          basis = report.get("selection_method") or "unknown"
+          verified = bool(report.get("speed_benchmark_verified", False))
+          print(f"[MIRROR] Download route: {selected} | method: {basis} | tested speed: {verified} | 206 samples: {len(mirrors)}")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write("## Xiaomi.eu SourceForge download\n\n")
-              summary.write(f"- Selected download route: `{selected}`\n")
-              summary.write(f"- Verified mirror samples: {len(mirrors)}\n")
+              summary.write(f"- Download route: `{selected}`\n")
+              summary.write(f"- Selection method: `{basis}`\n")
+              summary.write(f"- Verified throughput benchmark: **{'yes' if verified else 'no (SourceForge fallback)'}**\n")
+              summary.write(f"- Successful HTTP 206 samples: {len(mirrors)}\n")
               summary.write("- Full probe results and fallbacks: `mirror-report.json` (artifact)\n\n")
           PY
 
