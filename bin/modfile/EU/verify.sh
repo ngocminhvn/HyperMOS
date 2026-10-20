@@ -38,12 +38,7 @@ if [[ -L "$eu_prop" ]]; then
     exit 1
 fi
 if [[ -f "$eu_prop" ]] && grep -Eq \
-    '^ro\.product\.mod_device=[^[:space:]]*_xiaomieu[^[:space:]]*$|^ro\.build\.host=xiaomi\.eu from the shared/China mod pipeline.
-[[ -s "$images/product/priv-app/MiuiHome/MiuiHome.apk" ]] || {
-    error "EU: Kashi MiuiHome missing from final ROM"
-    exit 1
-}
- "$eu_prop"; then
+    '^ro\.product\.mod_device=[^[:space:]]*_xiaomieu[^[:space:]]*$|^ro\.build\.host=xiaomi\.eu$' "$eu_prop"; then
     error "EU: Xiaomi.eu-only mi_ext metadata reintroduced by a later mod"
     exit 1
 fi
