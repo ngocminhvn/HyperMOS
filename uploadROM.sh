@@ -77,6 +77,23 @@ elif [[ ${baserom_type} == 'br' ]]; then
     mkdir -p "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/super/"
     mv -f "$work_dir/build/baserom/firmware-update/"* "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/"
     mv -f "$work_dir/build/baserom/images/super.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/super/"
+elif [[ "${baserom_type}" == "eu_super" ]]; then
+    # Xiaomi.eu fastboot packages provide super.img.N + boot/firmware images.
+    # Super was already unpacked and repacked in packROM.sh.
+    package_dir="$work_dir/out/${os_type}_${device_code}_${base_rom_code}"
+    mkdir -p "$package_dir/images" "$package_dir/super"
+    [[ -s "$work_dir/build/baserom/images/super.img" ]] || {
+        echo "[ERROR] - EU repacked super.img missing" >&2
+        exit 1
+    }
+    mv -f "$work_dir/build/baserom/images/super.img" "$package_dir/super/" || exit 1
+    shopt -s nullglob
+    eu_firmware=("$work_dir/build/baserom/images/"*.img)
+    if (( ${#eu_firmware[@]} > 0 )); then
+        mv -f "${eu_firmware[@]}" "$package_dir/images/" || exit 1
+    fi
+    shopt -u nullglob
+    echo "[REPACK] - Xiaomi.eu fastboot images staged (super + ${#eu_firmware[@]} firmware images)"
 fi
 
 # Bundle the SukiSU manager, root metadata and pristine init_boot together
@@ -159,6 +176,13 @@ case "$regionTYPE" in
     China|CN)         region_short="CN" ;;
     *)                region_short="$(echo "$regionTYPE" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')" ;;
 esac
+
+# Xiaomi.eu is China-based (CNXM) but should not be mislabeled as stock CN.
+rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
+if [[ -s "$rom_source_file" ]] &&
+   [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
+    region_short="XEU"
+fi
 
 build_date="$(date +%d%m%y)"
 # Debug builds use the GitHub Actions run number instead of HHMM.
