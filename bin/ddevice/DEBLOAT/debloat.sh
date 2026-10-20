@@ -6,10 +6,25 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     debloat_apps+=("$line")
 done < $WORK_DIR/bin/ddevice/DEBLOAT/APPLIST.txt
 
-rm -rf $WORK_DIR/build/baserom/images/product/etc/auto-install*
-rm -rf $WORK_DIR/build/baserom/images/product/app/Updater
-rm -rf $WORK_DIR/build/baserom/images/product/etc/permissions/cn.google.services.xml
+# Xiaomi.eu already bundles Google services and its own updater/provisioning.
+# The rest of the user-selected debloat list remains active for EU as on CN.
+EU_DEBLOAT=0
+if [[ -s "$WORK_DIR/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    source "$WORK_DIR/bin/modfile/EU/policy.sh" || exit 1
+    EU_DEBLOAT=1
+    info "Xiaomi.eu: preserve pre-installed Google apps and EU update services"
+else
+    rm -rf "$WORK_DIR/build/baserom/images/product/etc/auto-install"*
+    rm -rf "$WORK_DIR/build/baserom/images/product/app/Updater"
+    rm -rf "$WORK_DIR/build/baserom/images/product/etc/permissions/cn.google.services.xml"
+fi
+
 for debloat_app in "${debloat_apps[@]}"; do
+    if [[ "$EU_DEBLOAT" == "1" ]] && eu_preserve_google_debloat "$debloat_app"; then
+        info "Xiaomi.eu: keep original Google app: $debloat_app"
+        continue
+    fi
     # Find the app directory in both system and product directories
     app_dirs=$(find build/baserom/images/system/ -type d -name "*$debloat_app*" 2>/dev/null)
     app_dirs2=$(find build/baserom/images/product/ -type d -name "*$debloat_app*" 2>/dev/null)
