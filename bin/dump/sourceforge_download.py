@@ -215,13 +215,15 @@ def classify_mirror_selection(route, probes):
     fastest. SourceForge may return 403 to every bounded HTTP Range probe even
     though a full aria2 download from its autoselect router works correctly.
     """
-    verified = {item["mirror"] for item in probes if item.get("status") == "ok"}
+    verified = {item["mirror"]: item.get("probe_method", "range") for item in probes if item.get("status") == "ok"}
     if route == "router-autoselect":
         if "autoselect" in verified:
-            return "range_measured"
+            return ("bounded_get_measured" if verified["autoselect"] == "bounded_get"
+                    else "range_measured")
         return "sourceforge_autoselect_fallback"
     if route.startswith("measured-") and route[len("measured-"):] in verified:
-        return "range_measured"
+        method = verified[route[len("measured-"):]]
+        return "bounded_get_measured" if method == "bounded_get" else "range_measured"
     if route == "input-direct":
         return "original_direct_url"
     return "unverified_fallback"
@@ -230,6 +232,7 @@ def classify_mirror_selection(route, probes):
 def mirror_selection_label(method):
     return {
         "range_measured": "Selected from measured HTTP 206 range routes (not guaranteed globally fastest)",
+        "bounded_get_measured": "Selected from bounded GET mirror samples (not guaranteed globally fastest)",
         "sourceforge_autoselect_fallback":
             "SourceForge autoselect fallback (not measured as fastest)",
         "original_direct_url": "User-supplied direct SourceForge URL (not benchmark winner)",
@@ -269,6 +272,7 @@ def main():
     ap.add_argument("--url", required=True)
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--report", required=True, type=Path)
+    ap.add_argument("--mirror-plan", type=Path, help="Optional pre-benchmarked SourceForge mirror plan")
     args = ap.parse_args()
     sf = normalize(args.url)
     output = args.output.resolve()
@@ -277,7 +281,24 @@ def main():
         canonical, project, file_path = sf
         print(f"[SOURCEFORGE] Project: {project}, file: {file_path}", flush=True)
         print(f"[SOURCEFORGE] Probing {len(MIRRORS)} SourceForge routes (1 MiB max; requires HTTP 206)", flush=True)
-        ordered, probed = benchmark(canonical)
+        if args.mirror_plan:
+            plan = json.loads(args.mirror_plan.read_text(encoding="utf-8"))
+            if (plan.get("version") != 1
+                or plan.get("canonical_url") != canonical
+                or plan.get("project") != project
+                or plan.get("file") != file_path):
+                raise SystemExit("[ERROR] Mirror plan does not match this ROM URL")
+            ordered = plan.get("ranked")
+            probed = plan.get("probes")
+            if (not isinstance(ordered, list) or not ordered
+                or not all(isinstance(m, str) and m in MIRRORS for m in ordered)
+                or not isinstance(probed, list)
+                or any(not isinstance(item, dict) for item in probed)):
+                raise SystemExit("[ERROR] Invalid SourceForge mirror plan")
+            print(f"[MIRROR] Using pre-benchmarked mirror plan: {', '.join(ordered)}",
+                  flush=True)
+        else:
+            ordered, probed = benchmark(canonical)
         for item in probed:
             if item["status"] == "ok":
                 print(f"[MIRROR] {item['mirror']}: {item['speed_mib_s']} MiB/s via {item['serving_host']}", flush=True)
@@ -310,9 +331,14 @@ def main():
                 "project": project, "file": file_path,
                 "selected_mirror": name,
                 "selection_method": selection_method,
-                "speed_benchmark_verified": selection_method == "range_measured",
-                "verified_range_probes": verified_speed_samples,
-                "probe_method": "sourceforge_router_range" if sf else None,
+                "speed_benchmark_verified": selection_method in (
+                    "range_measured", "bounded_get_measured"),
+                "verified_speed_samples": verified_speed_samples,
+                "verified_range_probes": sum(p.get("status") == "ok" and
+                                             p.get("probe_method", "range") != "bounded_get"
+                                             for p in probed),
+                "probe_method": "bounded_get" if args.mirror_plan else (
+                    "sourceforge_router_range" if sf else None),
                 "probes": probed,
                 "attempts": attempts, "elapsed_seconds": round(time.monotonic() - started, 1),
             }
@@ -329,8 +355,12 @@ def main():
         "type": "SourceForge" if sf else "direct", "project": project,
         "file": file_path, "selected_mirror": None,
         "selection_method": None, "speed_benchmark_verified": False,
-        "verified_range_probes": sum(item.get("status") == "ok" for item in probed),
-        "probe_method": "sourceforge_router_range" if sf else None,
+        "verified_speed_samples": sum(item.get("status") == "ok" for item in probed),
+        "verified_range_probes": sum(item.get("status") == "ok" and
+                                     item.get("probe_method", "range") != "bounded_get"
+                                     for item in probed),
+        "probe_method": "bounded_get" if args.mirror_plan else (
+            "sourceforge_router_range" if sf else None),
         "probes": probed,
         "attempts": attempts,
     }, indent=2) + "\n")
