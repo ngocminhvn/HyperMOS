@@ -135,11 +135,11 @@ def run(rom: Path, work: Path, lpunpack: Path) -> None:
         )
         (output / "report.md").write_text(
             "# Xiaomi.eu original miui-services.jar\n\n"
-            f"- ROM source ZIP: \`{original_archive_name}\`\n"
-            f"- Partition: \`{selected}\` (\`{kind}\`)\n"
-            f"- Original path: \`{source_path}\`\n"
+            f"- ROM source ZIP: `{original_archive_name}`\n"
+            f"- Partition: `{selected}` (`{kind}`)\n"
+            f"- Original path: `{source_path}`\n"
             f"- Size: {final.stat().st_size:,} bytes\n"
-            f"- SHA-256: \`{sha256}\`\n"
+            f"- SHA-256: `{sha256}`\n"
             "- File copied byte-for-byte; no patching or re-signing.\n",
             encoding="utf-8",
         )
