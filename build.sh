@@ -147,6 +147,11 @@ fi
 
 rm -rf build/baserom/payload.bin
 rm -rf build/baserom/images/super.img
+if [[ "${is_base_rom_eu:-false}" == "true" ]]; then
+    # Original super is no longer needed once its partitions are fully extracted.
+    rm -f -- "$work_dir/build/baserom/super.img"
+    info "EU: released raw source super.img after partition extraction"
+fi
 
 # Reclaim space after extracting an 8+ GiB Xiaomi.eu URL download.
 # Never delete a user-supplied local ZIP.
