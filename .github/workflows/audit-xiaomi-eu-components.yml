@@ -1,4 +1,4 @@
-name: Audit Xiaomi.eu extras and Launcher
+name: Audit Xiaomi.eu extras, build.prop and Launcher
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   audit:
-    name: Extract three Xiaomi.eu components and compare Launcher
+    name: Extract original EU components, build.prop and Launcher
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -63,7 +63,7 @@ jobs:
               print("Relevant ZIP entries:", [m.filename for m in z.infolist() if "super.img" in m.filename])
           PY
 
-      - name: Extract Xiaomi.eu components and original Launcher (read-only)
+      - name: Extract Xiaomi.eu components, build.prop and original Launcher (read-only)
         shell: bash
         run: |
           set -euo pipefail
@@ -72,9 +72,9 @@ jobs:
             "bin/lpunpack.py" "bin/modfile/ModApp/OS3/kashimod.sh"
           cat "$WORK/output/audit.md" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifact contains original APK/directories, audit.json, and audit.md. No ROM was patched or flashed." >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifact contains original APK/directories, raw build.prop files from ROM partitions, audit.json, and audit.md. No China comparison, ROM patching, or flashing." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload original components and comparison report
+      - name: Upload original EU apps, build.prop and audit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
