@@ -97,12 +97,17 @@ def candidate_urls(original_url, canonical, project, relative, ranked):
     urls = []
     if is_direct_input:
         urls.append(("input-direct", original_url))
+    # Respect the benchmark order even when SourceForge's "autoselect"
+    # route was fastest. It used to be pushed behind slower measured mirrors.
     for mirror in ranked:
-        if mirror != "autoselect":
-            # Download through the same router that was benchmarked: it provides
-            # the mirror's current redirect/token instead of a bare CDN URL.
+        if mirror == "autoselect":
+            urls.append(("router-autoselect",
+                         download_router_url(project, relative)))
+        else:
+            # Use the router for signed redirects to the tested real CDN.
             urls.append((f"measured-{mirror}",
                          download_router_url(project, relative, mirror)))
+    # Keep autoselect available even when its range probe was unavailable.
     urls.append(("router-autoselect", download_router_url(project, relative)))
     for mirror in ("onboardcloud", "zenlayer", "twds", "psychz", "master"):
         urls.append((f"router-{mirror}",
