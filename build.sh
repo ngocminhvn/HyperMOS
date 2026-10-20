@@ -23,7 +23,9 @@ rm -rf $work_dir/build
 
 phase "1/4 Download and inspect base ROM"
 python3 $work_dir/notify.py download "$repo_name" "$baserom" "$prefix_id" "$builder_id"
-source "$work_dir/bin/ddevice/getROM.sh" "$baserom"
+source "$work_dir/bin/ddevice/getROM.sh" "$baserom" || exit 1
+rom_source="$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")"
+info "Detected ROM source: $rom_source"
 
 phase "2/4 Extract base ROM"
 python3 $work_dir/notify.py unpack "$repo_name" "$baserom" "$prefix_id" "$builder_id"
@@ -42,6 +44,8 @@ elif unzip -l ${baserom} | grep -q "br$";then
 elif unzip -l ${baserom} | grep -q "images/super.img*"; then
     unpack "Found super.img.* files"
     is_base_rom_eu=true
+    baserom_type="eu_super"
+    echo "$baserom_type" > "$work_dir/bin/ddevice/romtype.txt"
     unpack "ROM validation passed."
 else
     error "Unpack failed"
@@ -93,17 +97,38 @@ elif [[ ${baserom_type} == 'br' ]];then
         done
 elif [[ ${is_base_rom_eu} == true ]];then
     unpack "Unpacking BASEROM [super.img]"
-    super_list=$(python3 bin/lpunpack.py --info build/baserom/super.img | grep "super:" | awk '{ print $5 }')
-    for i in ${super_list}; do
-        if [[ $i == *_a ]];then
-            i=${i%_a}
-            python3 bin/lpunpack.py -p ${i}_a build/baserom/super.img build/baserom/images >/dev/null 2>&1
-            mv build/baserom/images/${i}_a.img build/baserom/images/${i}.img 
-        else
-            python3 bin/lpunpack.py -p ${i} build/baserom/super.img build/baserom/images >/dev/null 2>&1
+    # lpunpack --info may output no JSON/table even for valid EU super metadata.
+    # Read the actual liblp partition names, as verified in the EU audit action.
+    eu_partition_list="$work_dir/build/baserom/eu-partitions.txt"
+    python3 "$work_dir/bin/ddevice/list_super_partitions.py" \
+        "$work_dir/bin/lpunpack.py" "$work_dir/build/baserom/super.img" \
+        > "$eu_partition_list" || { error "EU: unable to read super partition metadata"; exit 1; }
+    mapfile -t eu_partitions < "$eu_partition_list"
+    (( ${#eu_partitions[@]} > 0 )) || { error "EU: no super partitions found"; exit 1; }
+    super_list=""
+    for i in "${eu_partitions[@]}"; do
+        # Ignore inactive slot; preserve original partition names for the repacker.
+        [[ "$i" != *_b ]] || continue
+        part_name="${i%_a}"
+        if [[ -f "build/baserom/images/${part_name}.img" ]]; then
+            error "EU: duplicate logical partition $part_name"
+            exit 1
         fi
+        python3 "$work_dir/bin/lpunpack.py" -p "$i" \
+            "$work_dir/build/baserom/super.img" "$work_dir/build/baserom/images" >/dev/null || {
+                error "EU: failed extracting logical partition $i"
+                exit 1
+            }
+        [[ -s "build/baserom/images/${i}.img" ]] || {
+            error "EU: extracted $i is missing/empty"
+            exit 1
+        }
+        if [[ "$i" != "$part_name" ]]; then
+            mv "build/baserom/images/${i}.img" "build/baserom/images/${part_name}.img" || exit 1
+        fi
+        super_list="$super_list $part_name"
     done
-    super_list=$(echo $super_list | sed 's/_a//g')
+    [[ -n "$super_list" ]] || { error "EU: no active super partitions"; exit 1; }
 fi
 
 for part in ${super_list}; do
@@ -132,13 +157,22 @@ bash $work_dir/bin/ddevice/fetchINFO.sh
 # Gửi thông báo đang Build với đầy đủ Codename và Version
 python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_id"
 
-bash $work_dir/bin/ddevice/DEBLOAT/debloat.sh
+bash $work_dir/bin/ddevice/DEBLOAT/debloat.sh || exit 1
 info "Done"
+
+# Only Xiaomi.eu gets dedicated cleanup. Shared/China mod order is unchanged.
+if [[ "$rom_source" == "xiaomi_eu" ]]; then
+    bash "$work_dir/bin/modfile/EU/update.sh" || exit 1
+fi
 
 bash $work_dir/bin/modfile/ModApp/OS3/insmod.sh || exit 1
 bash $work_dir/bin/modfile/Universal/insfile.sh || exit 1
 bash $work_dir/bin/modfile/UpdateFile/insupdate.sh || exit 1
 bash $work_dir/bin/package/patchpackage.sh || exit 1
+
+if [[ "$rom_source" == "xiaomi_eu" ]]; then
+    bash "$work_dir/bin/modfile/EU/verify.sh" || exit 1
+fi
 
 # Preserve the Xiaomi vendor/ODM thermal and performance configuration.
 # No RYU PerfHook/GPU-permission overlay or legacy profile verifier is run.
