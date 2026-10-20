@@ -6,7 +6,45 @@ source $work_dir/functions.sh
 # Check whether it is a local package or a link
 if [ ! -f "${baserom}" ] && [ "$(echo $baserom |grep http)" != "" ]; then
     info "Download link detected, starting a download..."
-    if [[ "$baserom" == *"xiaomi.eu_"* ]]; then
+    # Detect SourceForge by actual URL host and project ZIP path, not a ROM
+    # filename or a "sourceforge" substring. Works for CN and Xiaomi.eu ZIPs.
+    # Empty output means non-SourceForge: leave their download path unchanged.
+    sf_zip_name="$(python3 - "$baserom" <<'PY'
+import re
+import sys
+from pathlib import PurePosixPath
+from bin.dump.sourceforge_download import normalize
+
+result = normalize(sys.argv[1])
+if result is not None:
+    name = PurePosixPath(result[2]).name
+    # This build pipeline uses unquoted ZIP names in a few existing steps.
+    # Reject exotic names here rather than risking path/glob interpretation.
+    if not re.fullmatch(r"[A-Za-z0-9._+()-]+\.zip", name, flags=re.I):
+        raise SystemExit("Invalid/unsafe SourceForge ROM ZIP filename")
+    print(name)
+PY
+    )" || {
+        error "Invalid SourceForge ROM download URL"
+        return 1
+    }
+
+    if [[ -n "$sf_zip_name" ]]; then
+        mkdir -p "$work_dir/build"
+        info "SourceForge ROM detected: benchmarking fastest available mirrors"
+        python3 "$work_dir/bin/dump/sourceforge_download.py" \
+            --url "$baserom" \
+            --output "$work_dir/$sf_zip_name" \
+            --report "$work_dir/build/sourceforge-mirror-report.json" || {
+                error "SourceForge ROM download/ZIP verification failed"
+                return 1
+            }
+        baserom="$sf_zip_name"
+        # Only downloaded Xiaomi.eu ZIPs are disposable after extraction.
+        if [[ "$baserom" == xiaomi.eu_* ]]; then
+            eu_rom_downloaded=1
+        fi
+    elif [[ "$baserom" == *"xiaomi.eu_"* ]]; then
         # Preserve Xiaomi.eu ZIP filename (SourceForge URLs end with /download#).
         # Reuse the dump workflow's tested auto-mirror downloader.
         eu_basename=$(printf '%s\n' "$baserom" | grep -oE 'xiaomi[.]eu_[A-Za-z0-9._-]+[.]zip' | head -n 1)
