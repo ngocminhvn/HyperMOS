@@ -3,6 +3,12 @@ source $work_dir/functions.sh
 rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt)
 regionTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
 androidVER=$(cat $work_dir/bin/ddevice/androidver.txt)
+# EU keeps its existing values when no change is needed; China behavior is unchanged.
+rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
+rom_source=""
+if [[ -s "$rom_source_file" ]]; then
+    rom_source="$(tr -d '\\r\\n' < "$rom_source_file")"
+fi
 BuildProp1="$work_dir/build/baserom/images/system/system/build.prop"
 BuildProp2="$work_dir/build/baserom/images/product/etc/build.prop"
 BuildProp3="$work_dir/build/baserom/images/system_ext/etc/build.prop"
@@ -64,7 +70,34 @@ fix_themereset() {
     mods "Done"
 }
 
-disable_memory_extenstion
-disable_privapp_control_enforce
-disable_privapp_control_disable
+# Avoid rewriting stock Xiaomi.eu prop files when these operations are no-ops.
+# Future EU versions with a matching value still receive the requested patch.
+eu_has_prop_value() {
+    local needle="$1" prop
+    for prop in "$BuildProp1" "$BuildProp2" "$BuildProp3" "$BuildProp4"; do
+        if [[ -f "$prop" ]] && grep -Fxq -- "$needle" "$prop"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [[ "$rom_source" != "xiaomi_eu" ]] || eu_has_prop_value 'persist.miui.extm.enable=1'; then
+    disable_memory_extenstion
+else
+    mods "EU: Memory Extension already disabled/absent; skip build.prop rewrite"
+fi
+
+if [[ "$rom_source" != "xiaomi_eu" ]] || eu_has_prop_value 'ro.control_privapp_permissions=enforce'; then
+    disable_privapp_control_enforce
+else
+    mods "EU: no priv-app enforce setting; skip build.prop rewrite"
+fi
+
+if [[ "$rom_source" != "xiaomi_eu" ]] || eu_has_prop_value 'ro.control_privapp_permissions=disable'; then
+    disable_privapp_control_disable
+else
+    mods "EU: no priv-app disable setting; skip build.prop rewrite"
+fi
+
 fix_themereset
