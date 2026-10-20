@@ -131,9 +131,14 @@ patch_stock_securitycenter() (
     patch "Security Center: source ROM signer block preserved in ZKOS-style invalid-integrity mode"
 )
 
-# Patch SecurityCenter for both China and Xiaomi.eu; signer validation is source-aware.
-# Keep the rest of the Kashi mods running after the patch.
-patch_stock_securitycenter || exit 1
+# Xiaomi.eu SecurityCenter uses a different DEX structure; leave its APK untouched.
+# Skip only this patch, not the remaining Kashi mods.
+rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
+if [[ -s "$rom_source_file" ]] && [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
+    mods "Security Center: Xiaomi.eu detected -> leave original APK unchanged"
+else
+    patch_stock_securitycenter || exit 1
+fi
 
 apply_kashi_launcher() {
     local label="HyperOS Launcher"
