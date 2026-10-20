@@ -21,7 +21,6 @@ if [[ -d "$target" && ! -L "$target" ]]; then
 elif [[ -e "$target" || -L "$target" ]]; then
     error "EU: unexpected non-directory XiaomiEUExt target: $target"
     exit 1
-else
 fi
 
 [[ ! -e "$target" && ! -L "$target" ]] || {
