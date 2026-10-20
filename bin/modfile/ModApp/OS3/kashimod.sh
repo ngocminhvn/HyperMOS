@@ -34,7 +34,7 @@ modscenter_apply_native_module \
     "Mods-Center/ColorOS_Control_Center" \
     "miui.systemui.plugin" \
     "*MIUISystemUIPlugin*.apk" \
-    "-" \
+    "product/app/MIUISystemUIPlugin" \
     "MIUISystemUIPlugin" || exit 1
 
 modscenter_apply_fixed_archive_apk \
