@@ -7,7 +7,6 @@ rom_source_file="$WORK_DIR/bin/ddevice/rom_source.txt"
 if [[ -s "$rom_source_file" ]]; then
     rom_source="$(tr -d '\r\n' < "$rom_source_file")"
     if [[ "$rom_source" == "xiaomi_eu" ]]; then
-        info "NOTIFICATION_FIX: skip all notification patching for Xiaomi.eu source"
         exit 0
     fi
 fi
