@@ -7,7 +7,7 @@ androidVER=$(cat $work_dir/bin/ddevice/androidver.txt)
 rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
 rom_source=""
 if [[ -s "$rom_source_file" ]]; then
-    rom_source="$(tr -d '\\r\\n' < "$rom_source_file")"
+    rom_source="$(tr -d '\r\n' < "$rom_source_file")"
 fi
 BuildProp1="$work_dir/build/baserom/images/system/system/build.prop"
 BuildProp2="$work_dir/build/baserom/images/product/etc/build.prop"
