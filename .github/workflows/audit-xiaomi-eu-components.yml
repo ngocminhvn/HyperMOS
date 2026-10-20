@@ -1,4 +1,4 @@
-name: Audit Xiaomi.eu extras, build.prop and Launcher
+name: Extract Xiaomi.eu extras ZIP, paths, build.prop
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   audit:
-    name: Extract original EU components, build.prop and Launcher
+    name: Extract 3 extras into ZIP, paths, build.prop and Launcher
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -70,9 +70,19 @@ jobs:
           python3 bin/audit/audit_xiaomi_eu_apps.py \
             "$WORK/eu-rom.zip" "$WORK" \
             "bin/lpunpack.py" "bin/modfile/ModApp/OS3/kashimod.sh"
+          test -s "$WORK/output/xiaomieu-extras.zip"
+          test -s "$WORK/output/xiaomieu-component-paths.txt"
+          python3 - "$WORK/output/xiaomieu-extras.zip" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              assert z.testzip() is None
+              required = {"xiaomieu-component-paths.txt", "xiaomieu-components-manifest.json"}
+              assert required <= set(z.namelist()), "ZIP missing path report/manifest"
+          print("[OK] Original Xiaomi.eu components ZIP verified")
+          PY
           cat "$WORK/output/audit.md" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifact contains original APK/directories, raw build.prop files from ROM partitions, audit.json, and audit.md. No China comparison, ROM patching, or flashing." >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifact includes `xiaomieu-extras.zip` (the three EU components found), `xiaomieu-component-paths.txt` (original paths), original build.prop files, and the Launcher comparison. No China comparison, ROM patching, or flashing." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload original EU apps, build.prop and audit report
         if: always()
