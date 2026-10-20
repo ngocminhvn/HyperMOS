@@ -1,3 +1,12 @@
+#!/usr/bin/env bash
+# TEMPORARY SAFETY GATE: #168 failed to assemble SystemServerImpl.smali.
+# Keep the original implementation below for later investigation.
+# Disabled by default for all ROM variants; opt in only after verification.
+if [[ "${HYPERMOS_ENABLE_FIX_DEVICE_POLICY:-0}" != "1" ]]; then
+    echo "[SKIP] Framework_FixDevicePolicy: temporarily disabled; preserve miui-services.jar"
+    exit 0
+fi
+
 work_dir=$(pwd)
 source $work_dir/functions.sh
 sdkLevel=$(cat $work_dir/bin/ddevice/sdkLevel.txt)
