@@ -5,11 +5,13 @@ This directory runs **only** for a ROM whose source filename starts with
 `bin/ddevice/rom_source.txt` independently of the ROM's China-derived version
 suffix `CNXM` or the legacy `device_type.txt` region.
 
-- `update.sh`: delete exactly `/product/priv-app/XiaomiEUExt` from the
-  **extracted build tree**, not from any connected device. Keep
-  `/product/priv-app/MiuiExtraPhoto` untouched.
-- `verify.sh`: after applying the normal China/shared mods, reject a result
-  that has reintroduced XiaomiEUExt or lost the Kashi MiuiHome APK.
+- `update.sh`: remove the exact app containers `XiaomiEUExt`,
+  `XiaomiEUInject` and `MiuiExtraPhoto` from the **extracted Xiaomi.eu build
+  tree**, checking standard `app`/`priv-app` locations across relevant
+  partitions. Missing components are silently ignored. This never touches
+  the China build or a connected phone.
+- `verify.sh`: after all shared mods, ensure none of these three app
+  containers have been reintroduced and Kashi MiuiHome is still installed.
 - Every China-only mod checks `bin/ddevice/rom_source.txt` at the start
   of its **own** `update.sh`. There is no central EU skip-list and no special
   filtering in `Universal/insfile.sh` or `UpdateFile/insupdate.sh`.
