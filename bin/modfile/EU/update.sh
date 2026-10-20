@@ -1,29 +1,45 @@
 #!/usr/bin/env bash
-# Xiaomi.eu-only build-time customization. China and Global builds are untouched.
+# Xiaomi.eu-only app cleanup. Never run against China or Global source ROMs.
 set -euo pipefail
+
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
-
 source_file="$work_dir/bin/ddevice/rom_source.txt"
-[[ -s "$source_file" ]] || { error "EU: rom_source.txt is missing"; exit 1; }
-rom_source="$(tr -d '\r\n' < "$source_file")"
-[[ "$rom_source" == "xiaomi_eu" ]] || { error "EU: refusing to modify non-Xiaomi.eu source ($rom_source)"; exit 1; }
-
-images="$work_dir/build/baserom/images"
-[[ -d "$images/product/priv-app" ]] || { error "EU: product/priv-app missing from unpacked ROM"; exit 1; }
-
-# Explicit user choice: keep the Kashi MiuiHome mod, but do not ship XiaomiEUExt.
-# Remove only this exact directory, not other Xiaomi.eu system apps or overlays.
-target="$images/product/priv-app/XiaomiEUExt"
-if [[ -d "$target" && ! -L "$target" ]]; then
-    rm -rf -- "$target"
-    mods "EU: removed stock /product/priv-app/XiaomiEUExt"
-elif [[ -e "$target" || -L "$target" ]]; then
-    error "EU: unexpected non-directory XiaomiEUExt target: $target"
-    exit 1
-fi
-
-[[ ! -e "$target" && ! -L "$target" ]] || {
-    error "EU: XiaomiEUExt removal failed"
+[[ -s "$source_file" ]] || { error "EU: missing rom_source.txt"; exit 1; }
+[[ "$(tr -d '\r\n' < "$source_file")" == "xiaomi_eu" ]] || {
+    error "EU: refused to apply EU cleanup to a non-Xiaomi.eu ROM"
     exit 1
 }
+
+images="$work_dir/build/baserom/images"
+[[ -d "$images/product/priv-app" ]] || { error "EU: extracted product/priv-app missing"; exit 1; }
+
+# Remove only these exact Xiaomi.eu app containers, in standard partition
+# app locations. Never match substrings or touch other preinstalled apps.
+components=(XiaomiEUExt XiaomiEUInject MiuiExtraPhoto)
+app_roots=(
+    "$images/product/priv-app" "$images/product/app"
+    "$images/system_ext/priv-app" "$images/system_ext/app"
+    "$images/mi_ext/priv-app" "$images/mi_ext/app"
+    "$images/system/system/priv-app" "$images/system/system/app"
+    "$images/system/priv-app" "$images/system/app"
+)
+
+for app_root in "${app_roots[@]}"; do
+    [[ -d "$app_root" && ! -L "$app_root" ]] || continue
+    for component in "${components[@]}"; do
+        target="$app_root/$component"
+        if [[ -L "$target" || ( -e "$target" && ! -d "$target" ) ]]; then
+            error "EU: unexpected app container type: $target"
+            exit 1
+        fi
+        if [[ -d "$target" ]]; then
+            rm -rf -- "$target" || { error "EU: cannot remove $target"; exit 1; }
+            [[ ! -e "$target" && ! -L "$target" ]] || {
+                error "EU: removal verification failed: $target"
+                exit 1
+            }
+            mods "EU: removed ${target#"$images"/}"
+        fi
+    done
+done
