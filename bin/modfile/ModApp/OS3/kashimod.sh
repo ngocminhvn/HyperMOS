@@ -85,10 +85,19 @@ patch_stock_securitycenter() (
         exit 1
     fi
     stock_cert=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$signature_log" | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')
-    [[ "$stock_cert" == "$xiaomi_cert" ]] || {
-        error "SecurityCenter countdown: stock signer is not the expected Xiaomi certificate"
+    [[ "$stock_cert" =~ ^[0-9a-f]{64}$ ]] || {
+        error "SecurityCenter countdown: cannot read a valid SHA-256 signer digest"
         exit 1
     }
+    local rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
+    local rom_source=""
+    [[ -s "$rom_source_file" ]] && rom_source=$(tr -d '\r\n' < "$rom_source_file")
+    if [[ "$rom_source" == "xiaomi_eu" ]]; then
+        mods "Security Center: Xiaomi.eu verified APK signature (signer $stock_cert); use source ROM signer"
+    elif [[ "$stock_cert" != "$xiaomi_cert" ]]; then
+        error "SecurityCenter countdown: stock signer is not the expected Xiaomi certificate"
+        exit 1
+    fi
 
     mods "Security Center: decoding stock ROM APK for ZKOS-style countdown patch; preserving ADB timing"
     "${apkeditor[@]}" d -t raw -f -no-dex-debug \
@@ -107,25 +116,18 @@ patch_stock_securitycenter() (
         exit 1
     }
 
-    # APKEditor restores Xiaomi's signer block like the ZKOS mod. DEX changes
-    # invalidate its integrity digest, so the finished ROM still needs CorePatch.
+    # APKEditor preserves the source ROM signer block (China or Xiaomi.eu).
+    # DEX changes invalidate the integrity digest; the ROM still needs CorePatch.
     cp -f "$tmp/SecurityCenter.apk" "$stock_apk"
     rm -rf "$(dirname "$stock_apk")/oat"
     chmod 0644 "$stock_apk" 2>/dev/null || true
     mods "Security Center: permission countdown = 0; stock ADB handler timings preserved -> Done"
-    patch "Security Center: Xiaomi signer block preserved in ZKOS-style invalid-integrity mode"
+    patch "Security Center: source ROM signer block preserved in ZKOS-style invalid-integrity mode"
 )
 
-# Xiaomi.eu already carries its own SecurityCenter changes/signature.
-# Keep that APK untouched; the China-only countdown patch requires stock Xiaomi signing.
-# Do not skip the rest of the Kashi mod pipeline.
-rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
-if [[ -s "$rom_source_file" ]] && [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
-    mods "Security Center: Xiaomi.eu detected -> skip countdown patch, preserve original APK"
-else
-    # China and other supported sources retain the existing certificate-checked patch.
-    patch_stock_securitycenter || exit 1
-fi
+# Patch SecurityCenter for both China and Xiaomi.eu; signer validation is source-aware.
+# Keep the rest of the Kashi mods running after the patch.
+patch_stock_securitycenter || exit 1
 
 apply_kashi_launcher() {
     local label="HyperOS Launcher"
