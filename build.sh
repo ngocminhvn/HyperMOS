@@ -89,7 +89,7 @@ elif [[ "${is_base_rom_eu:-false}" == "true" ]]; then
     # Enumerate numbered chunks in numeric order and require a complete run.
     mapfile -d '' -t super_chunks < <(
         find build/baserom/images -maxdepth 1 -type f \
-            -regextype posix-extended -regex '.*/super\\.img\\.[0-9]+' -print0 |
+            -regextype posix-extended -regex '.*/super\.img\.[0-9]+' -print0 |
             sort -zV
     )
     (( ${#super_chunks[@]} > 0 )) || {
@@ -117,7 +117,7 @@ elif [[ "${is_base_rom_eu:-false}" == "true" ]]; then
     if [[ -f build/baserom/images/cust.img.0 ]]; then
         mapfile -d '' -t cust_chunks < <(
             find build/baserom/images -maxdepth 1 -type f \
-                -regextype posix-extended -regex '.*/cust\\.img\\.[0-9]+' -print0 |
+                -regextype posix-extended -regex '.*/cust\.img\.[0-9]+' -print0 |
                 sort -zV
         )
         for index in "${!cust_chunks[@]}"; do
