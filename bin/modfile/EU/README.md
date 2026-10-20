@@ -20,6 +20,9 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   SystemUI_NotificationColorIcon, and Settings_FixNotificationHistory.
 - `bin/package/NOTIFICATION_FIX/notificationFIX.sh` skips Xiaomi.eu. This
   prevents China-specific notification/PowerKeeper DEX transplants.
+- On Android 16, CorePatch continues its requested signature/FLAG_SECURE
+  patches but does **not** transplant China's Gboard/IME, ContentCatcher or
+  NotificationFilterHelper behavior into Xiaomi.eu's native framework.
 - Unlisted steps still use the existing HyperMOS pipeline, including Kashi
   launcher, CorePatch, AVB, Kaorios, MiCTS, TNM and other UpdateFile mods.
   No code or skip behavior for the China build is changed.
