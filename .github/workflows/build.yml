@@ -113,6 +113,32 @@ jobs:
             exit 1
           fi
 
+          # Test the Ubuntu system sparse converter before downloading an
+          # 8+ GiB Xiaomi.eu ROM. The bundled converter can fail to load
+          # libc++.so on GitHub's hosted runner (build #162).
+          python3 - <<'PYSPARSE'
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          import struct
+          import subprocess
+
+          converter = Path("/usr/bin/simg2img")
+          if not converter.is_file():
+              raise SystemExit("[ERROR] android-sdk-libsparse-utils: /usr/bin/simg2img missing")
+          with TemporaryDirectory(prefix="hypermos-sparse-check-") as folder:
+              sparse = Path(folder) / "test.sparse.img"
+              raw = Path(folder) / "test.raw.img"
+              sparse.write_bytes(
+                  struct.pack("<I4H4I", 0xED26FF3A, 1, 0, 28, 12, 4096, 1, 1, 0)
+                  + struct.pack("<HHII", 0xCAC1, 0, 1, 12 + 4096)
+                  + (b"Z" * 4096)
+              )
+              subprocess.run([str(converter), str(sparse), str(raw)], check=True)
+              if raw.read_bytes() != b"Z" * 4096:
+                  raise SystemExit("[ERROR] system simg2img failed sparse round-trip")
+          print("[OK] System simg2img loads and converts sparse images")
+          PYSPARSE
+
           sudo chmod -R a+rwX .
           chmod +x bin/magiskboot 2>/dev/null || true
           chmod +x bin/Linux/x86_64/* 2>/dev/null || true
