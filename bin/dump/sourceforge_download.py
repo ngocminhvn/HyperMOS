@@ -8,6 +8,7 @@ import argparse
 import concurrent.futures
 import json
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -216,6 +217,10 @@ def classify_mirror_selection(route, probes):
     though a full aria2 download from its autoselect router works correctly.
     """
     verified = {item["mirror"]: item.get("probe_method", "range") for item in probes if item.get("status") == "ok"}
+    if route == "parallel-ranked":
+        return ("parallel_measured" if sum(
+            p.get("status") == "ok" for p in probes) >= 2
+            else "unverified_fallback")
     if route == "router-autoselect":
         if "autoselect" in verified:
             return ("bounded_get_measured" if verified["autoselect"] == "bounded_get"
@@ -233,6 +238,7 @@ def mirror_selection_label(method):
     return {
         "range_measured": "Selected from measured HTTP 206 range routes (not guaranteed globally fastest)",
         "bounded_get_measured": "Selected from bounded GET mirror samples (not guaranteed globally fastest)",
+        "parallel_measured": "Multiple measured SourceForge mirrors used concurrently",
         "sourceforge_autoselect_fallback":
             "SourceForge autoselect fallback (not measured as fastest)",
         "original_direct_url": "User-supplied direct SourceForge URL (not benchmark winner)",
@@ -256,19 +262,25 @@ def download(url, output, connections=8, attempt_timeout=0):
         f"--max-connection-per-server={min(connections, 16)}",
         f"--split={min(connections, 16)}",
         "--min-split-size=1M" if connections > 8 else "--min-split-size=4M",
-        "--continue=true", "--auto-file-renaming=false",
+        "--continue=true", "--summary-interval=30",
+        *(["--auto-file-renaming=false"] if connections > 8 else []),
         "--dir", str(output.parent), "--out", output.name, *sources,
     ]
     print(f"[DOWNLOAD] aria2 connections={min(connections, 16)}, "
           f"sources={len(sources)}, attempt_timeout={attempt_timeout or 'unlimited'}s",
           flush=True)
+    proc = subprocess.Popen(cmd)
     try:
-        done = subprocess.run(cmd, check=False,
-                              timeout=attempt_timeout if attempt_timeout > 0 else None)
-        return done.returncode == 0
+        return proc.wait(timeout=attempt_timeout if attempt_timeout > 0 else None) == 0
     except subprocess.TimeoutExpired:
         print("[WARN] aria2 mirror attempt exceeded the per-attempt deadline; "
-              "trying another source while preserving resumable data", flush=True)
+              "sending SIGINT to save resumable state", flush=True)
+        proc.send_signal(signal.SIGINT)
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
         return False
 
 
@@ -366,6 +378,9 @@ def main():
         print(f"[DOWNLOAD] Trying {name}", flush=True)
         success = download(url, output, connections=args.connections,
                            attempt_timeout=args.attempt_timeout_seconds)
+        if success:
+            print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
+                  flush=True)
         if success and valid_zip(output):
             print(f"[DOWNLOAD] ZIP received from {name} ({output.stat().st_size} bytes)", flush=True)
             attempts.append({"mirror": name, "result": "ok"})
@@ -380,7 +395,7 @@ def main():
                 "selected_mirror": name,
                 "selection_method": selection_method,
                 "speed_benchmark_verified": selection_method in (
-                    "range_measured", "bounded_get_measured"),
+                    "range_measured", "bounded_get_measured", "parallel_measured"),
                 "verified_speed_samples": verified_speed_samples,
                 "verified_range_probes": sum(p.get("status") == "ok" and
                                              p.get("probe_method", "range") != "bounded_get"
@@ -396,14 +411,13 @@ def main():
         print(f"[WARN] {name} failed or returned non-ZIP content; trying next mirror", flush=True)
         attempts.append({"mirror": name, "result": "failed"})
         control = Path(str(output) + ".aria2")
-        if not success or output.is_file():
-            # aria2's sidecar tracks verified pieces. Reuse only when a
-            # legitimate interrupted transfer left both file and sidecar.
-            # A successful transfer with invalid ZIP is not a safe partial.
-            if not success and output.is_file() and control.is_file():
-                print("[DOWNLOAD] Keeping partial ROM and aria2 resume control "
-                      "for next mirror", flush=True)
-                continue
+        # aria2's sidecar tracks downloaded pieces. Reuse only when an
+        # interrupted transfer left both output file and sidecar. A successful
+        # transfer with an invalid ZIP is not a safe partial.
+        if not success and output.is_file() and control.is_file():
+            print("[DOWNLOAD] Keeping partial ROM and aria2 resume control "
+                  "for next mirror", flush=True)
+            continue
         output.unlink(missing_ok=True)
         control.unlink(missing_ok=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
