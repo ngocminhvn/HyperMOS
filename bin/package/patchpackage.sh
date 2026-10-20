@@ -24,7 +24,6 @@ info "PATCH 2/6: AVB"
 bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
 info "PATCH 3/6: LOCK TNM post-fs integration"
 bash "$target_dir/LOCK/update.sh" || exit 1
-info "PATCH 4/6: Notification"
 bash $target_dir/NOTIFICATION_FIX/notificationFIX.sh || exit 1
 
 # Kaorios must see the final framework/services state from the patches above.
