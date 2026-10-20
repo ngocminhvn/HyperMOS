@@ -1,5 +1,12 @@
 WORK_DIR=$(pwd)
 source $WORK_DIR/functions.sh
+# Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
+if [[ -f "$WORK_DIR/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    info "Xiaomi.eu: keep stock; skip China notification-history Settings patch"
+    exit 0
+fi
+
 MAIN_FOLDER="$WORK_DIR/build/baserom/images"
 rom_os=$(cat $WORK_DIR/bin/ddevice/rom_os.txt)
 regionTYPE=$(cat $WORK_DIR/bin/ddevice/device_type.txt)
