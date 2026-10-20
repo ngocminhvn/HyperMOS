@@ -83,6 +83,15 @@ jobs:
               f.write("- Measured from this GitHub runner with at most 2 MiB per mirror; transfer speed may change.\n\n")
           PY
 
+      - name: Publish mirror benchmark before large download
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryu-mirror-benchmark-${{ github.run_id }}
+          path: ${{ env.WORK }}/output/mirror-plan.json
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
+
       - name: Download RYU-EU ROM with SourceForge mirror fallback
         shell: bash
         run: |
@@ -91,7 +100,11 @@ jobs:
             --url "$ROM_URL" \
             --output "$WORK/RYU-EU-source.zip" \
             --report "$WORK/output/mirror-report.json" \
-            --mirror-plan "$WORK/output/mirror-plan.json"
+            --mirror-plan "$WORK/output/mirror-plan.json" \
+            --parallel-mirrors 3 \
+            --connections 16 \
+            --attempt-timeout-seconds 1200 \
+            --max-mirror-attempts 6
           test -s "$WORK/RYU-EU-source.zip"
           echo "[SOURCE] Downloaded and ZIP-verified RYU-EU source"
           df -h /
