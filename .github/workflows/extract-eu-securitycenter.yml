@@ -1,0 +1,85 @@
+name: Extract Xiaomi.eu SecurityCenter APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Xiaomi.eu fastboot ROM SourceForge URL (super.img/super.img.N)'
+        required: true
+        type: string
+        default: 'https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip/download#'
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    name: Extract original EU SecurityCenter.apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      WORK: ${{ runner.temp }}/xiaomieu-securitycenter-${{ github.run_id }}
+      ROM_URL: ${{ inputs.rom_url }}
+    steps:
+      - name: Checkout HyperMOS scripts
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - name: Validate URL and prepare output
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/output"
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+          uri = os.environ["ROM_URL"].strip()
+          parsed = urlsplit(uri)
+          host = (parsed.hostname or "").lower()
+          valid_host = host in ("sourceforge.net", "www.sourceforge.net", "downloads.sourceforge.net") or host.endswith(".dl.sourceforge.net")
+          if (parsed.scheme != "https" or not valid_host or parsed.username or parsed.password
+                  or ".zip" not in parsed.path.lower() or len(uri) > 4096):
+              raise SystemExit("Expected an HTTPS SourceForge ROM ZIP URL")
+          print("[INPUT] SourceForge host:", host)
+          PY
+
+      - name: Install extraction dependencies and free disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 curl unzip android-sdk-libsparse-utils e2fsprogs erofs-utils
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_eu_securitycenter.py
+          df -h "$WORK"
+
+      - name: Download Xiaomi.eu ROM with SourceForge mirror fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/dump/sourceforge_download.py \
+            --url "$ROM_URL" \
+            --output "$WORK/eu-rom.zip" \
+            --report "$WORK/output/mirror-report.json"
+
+      - name: Extract original SecurityCenter APK (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/extract_eu_securitycenter.py \
+            "$WORK/eu-rom.zip" "$WORK" "bin/lpunpack.py"
+          test -s "$WORK/output/SecurityCenter.apk"
+          test -s "$WORK/output/securitycenter-manifest.json"
+          cat "$WORK/output/securitycenter-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload SecurityCenter APK and manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomieu-securitycenter-${{ github.run_id }}
+          path: ${{ env.WORK }}/output/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
