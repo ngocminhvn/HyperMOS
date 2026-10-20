@@ -983,6 +983,10 @@ apply_miui_services_gboard() {
 # Apply ContentExtension patches
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
+  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+    log "Xiaomi.eu: preserve original ProcessPolicy / ContentCatcher gate"
+    return 0
+  fi
   # When the full CN A16 ROM pipeline runs, the later FrameworkPatcher step
   # handles all 4 ProcessPolicy reads: ContentCatcher CN=false and 3 RYU=true.
   # Do not consume one read here (which led to 3/4 and failed build #160).
@@ -1041,7 +1045,9 @@ patch_miui_services() {
     apply_miui_services_signature_patches "$decompile_dir"
   fi
 
-  if [[ $regionTYPE == *"Global"* ]];then
+  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+    log "Xiaomi.eu: preserve original miui-services Gboard/IME policy"
+  elif [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
     apply_miui_services_gboard "$decompile_dir"
@@ -1110,14 +1116,16 @@ patch_miui_framework() {
     decompile_dir=$(decompile_jar "$miui_framework_path") || return 1
   fi
 
-  # Existing HyperMOS Gboard patch
-  apply_miui_framework_gboard "$decompile_dir"
-
-  # The independent, audited EU NotificationFilterHelper port remains enabled.
-  # Port ONLY the two audited EU NotificationFilterHelper methods.
-  # Leave PowerInsightPolicy and every other CN power/thermal API unchanged.
-  python3 "$SCRIPT_DIR/port_eu_notification_filter_a16.py" "$decompile_dir" \
-    --report "$WORK_DIR/build/reports/eu-framework-a16/notification-filter.json" || return 1
+  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+    # EU already contains its own notification filter and Google IME rules.
+    # Keep both intact, while still applying shared CorePatch options.
+    log "Xiaomi.eu: preserve Gboard/IME and stock NotificationFilterHelper"
+  else
+    # China source: keep existing Gboard and audited EU filter port.
+    apply_miui_framework_gboard "$decompile_dir"
+    python3 "$SCRIPT_DIR/port_eu_notification_filter_a16.py" "$decompile_dir" \
+      --report "$WORK_DIR/build/reports/eu-framework-a16/notification-filter.json" || return 1
+  fi
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
