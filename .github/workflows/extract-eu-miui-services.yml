@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      WORK: /tmp/hypermos-eu-miui-services-\${{ github.run_id }}
-      ROM_URL: \${{ inputs.rom_url }}
+      WORK: /tmp/hypermos-eu-miui-services-${{ github.run_id }}
+      ROM_URL: ${{ inputs.rom_url }}
 
     steps:
       - name: Checkout HyperMOS extraction tools
@@ -92,8 +92,8 @@ jobs:
       - name: Upload mirror benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: xiaomieu-miui-services-mirror-\${{ github.run_id }}
-          path: \${{ env.WORK }}/output/mirror-plan.json
+          name: xiaomieu-miui-services-mirror-${{ github.run_id }}
+          path: ${{ env.WORK }}/output/mirror-plan.json
           if-no-files-found: warn
           retention-days: 7
           compression-level: 0
@@ -128,8 +128,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xiaomieu-original-miui-services-\${{ github.run_id }}
-          path: \${{ env.WORK }}/output/
+          name: xiaomieu-original-miui-services-${{ github.run_id }}
+          path: ${{ env.WORK }}/output/
           if-no-files-found: warn
           retention-days: 7
           compression-level: 0
