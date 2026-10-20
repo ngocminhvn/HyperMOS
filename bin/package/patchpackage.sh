@@ -9,7 +9,16 @@ target_dir="$work_dir/bin/package/"
 # and 3 RYU=true; do not consume a source read before notification stage.
 # Standalone CorePatch and Global builds retain their original behavior.
 info "PATCH 1/6: CorePatch / signature"
-HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=1 bash "$target_dir/COREPATCH/update.sh" || exit 1
+# China defers its ProcessPolicy gate to NOTIFICATION_FIX/FrameworkPatcher.
+# Xiaomi.eu skips that stage, so CorePatch must handle its gate itself.
+rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
+if [[ -s "$rom_source_file" ]] &&
+   [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
+  info "EU: CorePatch runs without China notification ProcessPolicy deferral"
+  HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=0 bash "$target_dir/COREPATCH/update.sh" || exit 1
+else
+  HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=1 bash "$target_dir/COREPATCH/update.sh" || exit 1
+fi
 info "PATCH 2/6: AVB"
 bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
 info "PATCH 3/6: LOCK TNM post-fs integration"
