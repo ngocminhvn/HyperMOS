@@ -107,7 +107,13 @@ patch_stock_securitycenter() (
         exit 1
     }
 
-    python3 "$work_dir/bin/modfile/ModApp/OS3/securitycenter_countdown.py" "$tmp/raw"
+    # Explicit status check: this function is called with || exit 1,
+    # which can suppress Bash errexit inside the function/subshell.
+    # Never rebuild and replace an APK when the requested edit did not apply.
+    if ! python3 "$work_dir/bin/modfile/ModApp/OS3/securitycenter_countdown.py" "$tmp/raw"; then
+        error "SecurityCenter countdown: source ROM method unsupported; original APK not replaced"
+        return 1
+    fi
     "${apkeditor[@]}" b -t raw -f -i "$tmp/raw" -o "$tmp/SecurityCenter.apk" >/dev/null
 
     rebuilt_package=$(modscenter_apk_package "$tmp/SecurityCenter.apk" || true)
