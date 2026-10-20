@@ -1,0 +1,108 @@
+name: Extract RYU-EU framework and system references
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'RYU-EU SourceForge ROM ZIP'
+        required: true
+        type: string
+        default: 'https://sourceforge.net/projects/projectzk/files/ProjectRYU/RYU-EU/RYUOS3/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_EU261003.zip/download#'
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    name: Download RYU-EU and extract original JAR APK build.prop
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      WORK: /tmp/hypermos-ryu-eu-${{ github.run_id }}
+      ROM_URL: ${{ inputs.rom_url }}
+    steps:
+      - name: Checkout extractor
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - name: Validate SourceForge URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/output"
+          python3 - <<'PY'
+          import os
+          from bin.dump.sourceforge_download import normalize
+
+          url = os.environ["ROM_URL"].strip()
+          source = normalize(url)
+          if source is None or len(url) > 4096:
+              raise SystemExit("Only SourceForge RYU-EU ROM ZIP URLs are accepted")
+          canonical, project, relative = source
+          if project.lower() != "projectzk" or not relative.lower().startswith("projectryu/ryu-eu/"):
+              raise SystemExit("Expected ProjectRYU RYU-EU under SourceForge projectzk")
+          print("[SOURCE]", canonical)
+          PY
+
+      - name: Prepare disk space and read-only extraction tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 curl unzip android-sdk-libsparse-utils e2fsprogs erofs-utils brotli
+          command -v simg2img
+          command -v fsck.erofs
+          command -v debugfs
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_ryu_eu_reference.py
+          df -h /
+
+      - name: Download RYU-EU ROM with SourceForge mirror fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/dump/sourceforge_download.py \
+            --url "$ROM_URL" \
+            --output "$WORK/RYU-EU-source.zip" \
+            --report "$WORK/output/mirror-report.json"
+          test -s "$WORK/RYU-EU-source.zip"
+          echo "[SOURCE] Downloaded and ZIP-verified RYU-EU source"
+          df -h /
+
+      - name: Extract original framework JARs APKs and build.prop
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/extract_ryu_eu_reference.py \
+            "$WORK/RYU-EU-source.zip" "$WORK" "bin/lpunpack.py"
+          test -s "$WORK/output/ryu-reference-manifest.json"
+          test -s "$WORK/output/SHA256SUMS.txt"
+          test -s "$WORK/output/report.md"
+          cat "$WORK/output/report.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Files are original copies from RYU-EU, not patched, re-signed, or flashed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Include partial report on failure
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          {
+            echo "## RYU-EU extraction failed"
+            echo "Check the failed step; incomplete file lists, if present, are included in the artifact."
+            if [ -s "$WORK/output/report.md" ]; then
+              cat "$WORK/output/report.md"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload RYU-EU original files and SHA256 manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryu-eu-original-framework-apks-props-${{ github.run_id }}
+          path: ${{ env.WORK }}/output/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
