@@ -10,14 +10,17 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   `/product/priv-app/MiuiExtraPhoto` untouched.
 - `verify.sh`: after applying the normal China/shared mods, reject a result
   that has reintroduced XiaomiEUExt or lost the Kashi MiuiHome APK.
-- `policy.sh` holds the Xiaomi.eu-only skip list, consumed by the existing
-  `Universal/insfile.sh` and `UpdateFile/insupdate.sh` dispatchers.
-- No Google APK / framework injection from `gmsservices` or `gmsservices16`.
-  Preinstalled EU GMS, Google apps and its updater are preserved by debloat.
-- Skip CN MultiLang overlays, Settings_GoogleShowUpCN, GPS_Fix,
-  Framework_FixDelayPowerMenu, Framework_FixDevicePolicy,
-  Provisions_RegionPatch, System_MultiDisableFeature,
-  SystemUI_NotificationColorIcon, and Settings_FixNotificationHistory.
+- Every China-only mod checks `bin/ddevice/rom_source.txt` at the start
+  of its **own** `update.sh`. There is no central EU skip-list and no special
+  filtering in `Universal/insfile.sh` or `UpdateFile/insupdate.sh`.
+- `gmsservices` and `gmsservices16` skip Google APK/framework injection.
+  `MultiLang` skips China translation overlays.
+- `Settings_GoogleShowUpCN`, `GPS_Fix`, `Framework_FixDelayPowerMenu`,
+  `Framework_FixDevicePolicy`, `Provisions_RegionPatch`,
+  `System_MultiDisableFeature`, `SystemUI_NotificationColorIcon` and
+  `Settings_FixNotificationHistory` each preserve the Xiaomi.eu original.
+- `bin/ddevice/DEBLOAT/debloat.sh` has its own EU-only checks preserving the
+  stock Google apps and EU system updater; all other debloat remains active.
 - `bin/package/NOTIFICATION_FIX/notificationFIX.sh` skips Xiaomi.eu. This
   prevents China-specific notification/PowerKeeper DEX transplants.
 - On Android 16, CorePatch continues its requested signature/FLAG_SECURE
