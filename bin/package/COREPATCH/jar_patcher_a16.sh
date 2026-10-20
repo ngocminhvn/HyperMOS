@@ -984,7 +984,6 @@ apply_miui_services_gboard() {
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
   if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-    log "Xiaomi.eu: preserve original ProcessPolicy / ContentCatcher gate"
     return 0
   fi
   # When the full CN A16 ROM pipeline runs, the later FrameworkPatcher step
@@ -1046,7 +1045,6 @@ patch_miui_services() {
   fi
 
   if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-    log "Xiaomi.eu: preserve original miui-services Gboard/IME policy"
   elif [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
@@ -1119,7 +1117,6 @@ patch_miui_framework() {
   if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
     # EU already contains its own notification filter and Google IME rules.
     # Keep both intact, while still applying shared CorePatch options.
-    log "Xiaomi.eu: preserve Gboard/IME and stock NotificationFilterHelper"
   else
     # China source: keep existing Gboard and audited EU filter port.
     apply_miui_framework_gboard "$decompile_dir"
