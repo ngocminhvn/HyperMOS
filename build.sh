@@ -70,17 +70,68 @@ elif [[ ${baserom_type} == 'br' ]];then
     unpack "Extracting files *.new.dat.br"
     unzip ${baserom} -d build/baserom >/dev/null 2>&1 || error "Extracting new.dat.br error"
     unpack "File new.dat.br extracted."
-elif [[ ${is_base_rom_eu} == true ]];then
-    unpack "Extracting files from BASETROM [super.img]"
-    unzip ${baserom} 'images/*' -d build/baserom >  /dev/null 2>&1 ||error "Extracting [super.img] error"
-    unpack "Merging super.img.* into super.img"
-    simg2img build/baserom/images/super.img.* build/baserom/images/super.img
-    rm -rf build/baserom/images/super.img.*
-    mv build/baserom/images/super.img build/baserom/super.img
+elif [[ "${is_base_rom_eu:-false}" == "true" ]]; then
+    unpack "Extracting files from BASEROM [super.img]"
+    if ! unzip "$baserom" 'images/*' -d build/baserom >/dev/null 2>&1; then
+        error "EU: extracting fastboot images from ZIP failed"
+        exit 1
+    fi
+
+    # GitHub Actions installs android-sdk-libsparse-utils (/usr/bin/simg2img).
+    # The bundled bin/Linux/x86_64/simg2img takes PATH precedence but needs
+    # libc++.so, which is absent on ubuntu-latest (build #162).
+    simg2img_bin="/usr/bin/simg2img"
+    if [[ ! -x "$simg2img_bin" ]]; then
+        error "EU: system simg2img unavailable (install android-sdk-libsparse-utils)"
+        exit 1
+    fi
+
+    # Enumerate numbered chunks in numeric order and require a complete run.
+    mapfile -d '' -t super_chunks < <(
+        find build/baserom/images -maxdepth 1 -type f \
+            -regextype posix-extended -regex '.*/super\\.img\\.[0-9]+' -print0 |
+            sort -zV
+    )
+    (( ${#super_chunks[@]} > 0 )) || {
+        error "EU: no numbered super.img chunks extracted"
+        exit 1
+    }
+    for index in "${!super_chunks[@]}"; do
+        [[ "${super_chunks[$index]}" == "build/baserom/images/super.img.$index" ]] || {
+            error "EU: missing or unordered super.img chunk $index"
+            exit 1
+        }
+    done
+
+    unpack "Converting ${#super_chunks[@]} sparse super.img chunks with system simg2img"
+    raw_super="build/baserom/super.img"
+    if ! "$simg2img_bin" "${super_chunks[@]}" "$raw_super" || [[ ! -s "$raw_super" ]]; then
+        error "EU: failed to convert sparse super.img (no partial input will be removed)"
+        exit 1
+    fi
+    rm -f -- "${super_chunks[@]}"
     unpack "[super.img] extracted."
-    if [[ -f build/baserom/images/cust.img.0 ]];then
-        simg2img build/baserom/images/cust.img.* build/baserom/images/cust.img
-        rm -rf build/baserom/images/cust.img.*
+
+    # Some fastboot packages also split cust.img; convert with the same
+    # verified system tool and never delete chunks before success.
+    if [[ -f build/baserom/images/cust.img.0 ]]; then
+        mapfile -d '' -t cust_chunks < <(
+            find build/baserom/images -maxdepth 1 -type f \
+                -regextype posix-extended -regex '.*/cust\\.img\\.[0-9]+' -print0 |
+                sort -zV
+        )
+        for index in "${!cust_chunks[@]}"; do
+            [[ "${cust_chunks[$index]}" == "build/baserom/images/cust.img.$index" ]] || {
+                error "EU: missing cust.img chunk $index"
+                exit 1
+            }
+        done
+        if ! "$simg2img_bin" "${cust_chunks[@]}" build/baserom/images/cust.img ||
+           [[ ! -s build/baserom/images/cust.img ]]; then
+            error "EU: failed to convert sparse cust.img"
+            exit 1
+        fi
+        rm -f -- "${cust_chunks[@]}"
     fi
 fi
 
