@@ -325,7 +325,7 @@ def main():
             verified_speed_samples = sum(item.get("status") == "ok" for item in probed)
             if sf:
                 print(f"[MIRROR] Selection: {mirror_selection_label(selection_method)} "
-                      f"| verified range probes: {verified_speed_samples}", flush=True)
+                      f"| verified speed samples: {verified_speed_samples}", flush=True)
             report = {
                 "type": "SourceForge" if sf else "direct",
                 "project": project, "file": file_path,
