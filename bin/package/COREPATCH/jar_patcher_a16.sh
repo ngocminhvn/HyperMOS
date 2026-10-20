@@ -1045,6 +1045,7 @@ patch_miui_services() {
   fi
 
   if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+    : # Xiaomi.eu: preserve existing miui-services Gboard and policy behavior.
   elif [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
@@ -1117,6 +1118,7 @@ patch_miui_framework() {
   if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
     # EU already contains its own notification filter and Google IME rules.
     # Keep both intact, while still applying shared CorePatch options.
+    :
   else
     # China source: keep existing Gboard and audited EU filter port.
     apply_miui_framework_gboard "$decompile_dir"
