@@ -46,7 +46,6 @@ jobs:
             --url "$ROM_URL" \
             --output "$WORK/eu-rom.zip" \
             --report "$WORK/output/mirror-report.json"
-          unzip -tq "$WORK/eu-rom.zip" >/dev/null
           python3 - <<'PY'
           import json, os
           from pathlib import Path
@@ -55,20 +54,11 @@ jobs:
           selected = report.get("selected_mirror") or "unknown"
           print(f"[MIRROR] Selected: {selected} | verified range samples: {len(mirrors)}")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write("## Xiaomi.eu SourceForge download\\n\\n")
-              summary.write(f"- Selected download route: `{selected}`\\n")
-              summary.write(f"- Verified mirror samples: {len(mirrors)}\\n")
-              summary.write("- Full probe results and fallbacks: `mirror-report.json` (artifact)\\n\\n")
+              summary.write("## Xiaomi.eu SourceForge download\n\n")
+              summary.write(f"- Selected download route: `{selected}`\n")
+              summary.write(f"- Verified mirror samples: {len(mirrors)}\n")
+              summary.write("- Full probe results and fallbacks: `mirror-report.json` (artifact)\n\n")
           PY
-
-      - name: Upload mirror diagnostics if download or extraction fails
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: xiaomieu-mirror-diagnostics-${{ github.run_id }}
-          path: ${{ runner.temp }}/xiaomieu-component-audit/output/mirror-report.json
-          if-no-files-found: ignore
-          retention-days: 7
 
       - name: Extract Xiaomi.eu components, build.prop and original Launcher (read-only)
         shell: bash
@@ -90,6 +80,15 @@ jobs:
           cat "$WORK/output/audit.md" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo 'Artifact includes xiaomieu-extras.zip (the three EU components found), xiaomieu-component-paths.txt (original paths), original build.prop files, mirror-report.json, and the Launcher comparison. No China comparison, ROM patching, or flashing.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload mirror diagnostics if download or extraction fails
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomieu-mirror-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/xiaomieu-component-audit/output/mirror-report.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload original EU apps, build.prop and audit report
         if: always()
