@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      WORK: ${{ runner.temp }}/xiaomieu-component-audit
+      WORK: /tmp/hypermos-xiaomieu-${{ github.run_id }}
       ROM_URL: ${{ inputs.rom_url }}
     steps:
       - name: Checkout HyperMOS
@@ -26,6 +26,22 @@ jobs:
         with:
           lfs: false
           persist-credentials: false
+
+      - name: Validate audit workflow inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[AUDIT] Staging directory: $WORK"
+          mkdir -p "$WORK/output"
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+          source = os.environ["ROM_URL"].strip()
+          url = urlsplit(source)
+          if url.scheme != "https" or not url.hostname or url.username or url.password or len(source) > 4096:
+              raise SystemExit("ROM_URL must be a public HTTPS URL for a ROM ZIP")
+          print("[AUDIT] ROM URL host:", url.hostname)
+          PY
 
       - name: Free disk and install extraction tools
         shell: bash
@@ -35,7 +51,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq aria2 curl unzip android-sdk-libsparse-utils e2fsprogs erofs-utils
           python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py
-          mkdir -p "$WORK/output"
           df -h "$WORK"
 
       - name: Auto-select the fastest verified SourceForge mirror and download ROM
@@ -86,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xiaomieu-mirror-diagnostics-${{ github.run_id }}
-          path: ${{ runner.temp }}/xiaomieu-component-audit/output/mirror-report.json
+          path: ${{ env.WORK }}/output/mirror-report.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -95,7 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xiaomieu-extras-vs-launcher-${{ github.run_id }}
-          path: ${{ runner.temp }}/xiaomieu-component-audit/output/
+          path: ${{ env.WORK }}/output/
           if-no-files-found: warn
           retention-days: 7
           compression-level: 0
