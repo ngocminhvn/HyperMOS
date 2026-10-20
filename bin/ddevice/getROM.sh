@@ -31,7 +31,7 @@ PY
 
     if [[ -n "$sf_zip_name" ]]; then
         mkdir -p "$work_dir/build"
-        info "SourceForge ROM detected: benchmarking fastest available mirrors"
+        info "SourceForge ROM detected: checking mirror speed; using automatic fallback if probes are blocked"
         python3 "$work_dir/bin/dump/sourceforge_download.py" \
             --url "$baserom" \
             --output "$work_dir/$sf_zip_name" \
