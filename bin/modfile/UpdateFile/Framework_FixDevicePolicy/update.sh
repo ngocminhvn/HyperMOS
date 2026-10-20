@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# TEMPORARY SAFETY GATE: #168 failed to assemble SystemServerImpl.smali.
-# Keep the original implementation below for later investigation.
-# Disabled by default for all ROM variants; opt in only after verification.
-if [[ "${HYPERMOS_ENABLE_FIX_DEVICE_POLICY:-0}" != "1" ]]; then
-    echo "[SKIP] Framework_FixDevicePolicy: temporarily disabled; preserve miui-services.jar"
+work_dir=$(pwd)
+
+# China-only: Xiaomi.eu's SystemServerImpl has no enforceVersionPolicy()
+# (verified on the A16 EU miui-services.jar, SHA-256 a1b7aeba...), so this
+# patch corrupts SystemServerImpl.smali on EU and failed #168. Xiaomi.eu
+# preserves its original miui-services.jar. Check here so dispatchers
+# stay generic.
+if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    echo "[SKIP] Framework_FixDevicePolicy: Xiaomi.eu preserves original miui-services.jar"
     exit 0
 fi
-
-work_dir=$(pwd)
 source $work_dir/functions.sh
 sdkLevel=$(cat $work_dir/bin/ddevice/sdkLevel.txt)
 deviceTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
