@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Read-only audit: extract Xiaomi.eu extras and original launcher apps from fastboot ZIP."""
+import contextlib
 import hashlib
+import importlib.util
+import io
 import json
 import re
 import shutil
@@ -283,14 +286,49 @@ def zip_eu_components(output, found):
     return zip_file, path_file, manifest
 
 
+
+def read_partition_names(superimage, lpunpack):
+    """Read raw liblp metadata, not lpunpack.py's fragile --info JSON serializer.
+
+    Some valid Xiaomi.eu super images make lpunpack's optional _get_info()
+    formatter return an empty string even though _read_metadata() succeeded.
+    The partition table is the authoritative input to extraction.
+    """
+    module_path = lpunpack.resolve()
+    spec = importlib.util.spec_from_file_location("hypermos_audit_lpunpack", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load bundled lpunpack module: " + str(module_path))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    reader = module.LpUnpack(SUPER_IMAGE=str(superimage))
+    try:
+        # The bundled implementation prints when it falls back to backup metadata.
+        # Keep that diagnostic without contaminating the partition-name result.
+        messages = io.StringIO()
+        with contextlib.redirect_stdout(messages):
+            metadata = reader._read_metadata()
+        for message in messages.getvalue().splitlines():
+            if message.strip():
+                print("[LP METADATA]", message.strip(), flush=True)
+        names = [partition.name for partition in metadata.partitions]
+    finally:
+        reader._fd.close()
+    if not names or any(not isinstance(name, str) or not name for name in names):
+        raise RuntimeError("super.img partition table is empty or invalid")
+    if len(names) != len(set(names)):
+        raise RuntimeError("super.img partition table contains duplicate names")
+    print("[LP METADATA] Partitions:", ", ".join(names), flush=True)
+    return set(names)
+
+
+
 def audit(rom, work, lpunpack, kashi):
     out = work / "output"
     out.mkdir(exist_ok=True, parents=True)
     deleted = launcher_deletion_names(kashi)
     superimage = make_super(rom, work)
-    meta = json.loads(call(sys.executable, lpunpack, "--info", "-f", "json",
-                           superimage, output=True))
-    all_parts = {x["name"] for x in meta["partition_table"]}
+    all_parts = read_partition_names(superimage, lpunpack)
     found, scanned, build_props = [], [], []
     for part in PARTITIONS:
         exact = next((p for p in (part + "_a", part, part + "_b") if p in all_parts), None)
