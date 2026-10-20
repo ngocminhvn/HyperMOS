@@ -1,0 +1,85 @@
+name: Audit Xiaomi.eu extras and Launcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Public direct HTTPS link to Xiaomi.eu fastboot ROM ZIP (with super.img or super.img.N)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Extract three Xiaomi.eu components and compare Launcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      WORK: ${{ runner.temp }}/xiaomieu-component-audit
+      ROM_URL: ${{ inputs.rom_url }}
+    steps:
+      - name: Checkout HyperMOS
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - name: Free disk and install extraction tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 android-sdk-libsparse-utils e2fsprogs erofs-utils
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py
+          mkdir -p "$WORK/output"
+          df -h "$WORK"
+
+      - name: Validate direct ROM URL and download Xiaomi.eu ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+          source = os.environ["ROM_URL"].strip()
+          u = urlsplit(source)
+          if u.scheme != "https" or not u.hostname or u.username or u.password or len(source) > 4096:
+              raise SystemExit("ROM URL must be a direct public HTTPS download URL")
+          print("Downloading Xiaomi.eu ROM from", u.hostname)
+          PY
+          aria2c --allow-overwrite=true --auto-file-renaming=false --file-allocation=none \
+            --max-connection-per-server=8 --split=8 --min-split-size=16M \
+            --max-tries=5 --retry-wait=10 --timeout=90 --connect-timeout=30 \
+            --dir="$WORK" --out=eu-rom.zip "$ROM_URL"
+          python3 - <<'PY'
+          import os, zipfile
+          p = os.path.join(os.environ["WORK"], "eu-rom.zip")
+          if not zipfile.is_zipfile(p):
+              raise SystemExit("Input is not a ZIP: use a direct ROM file URL, not a download page")
+          with zipfile.ZipFile(p) as z:
+              print("Relevant ZIP entries:", [m.filename for m in z.infolist() if "super.img" in m.filename])
+          PY
+
+      - name: Extract Xiaomi.eu components and original Launcher (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/audit/audit_xiaomi_eu_apps.py \
+            "$WORK/eu-rom.zip" "$WORK" \
+            "bin/lpunpack.py" "bin/modfile/ModApp/OS3/kashimod.sh"
+          cat "$WORK/output/audit.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifact contains original APK/directories, audit.json, and audit.md. No ROM was patched or flashed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload original components and comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomieu-extras-vs-launcher-${{ github.run_id }}
+          path: ${{ runner.temp }}/xiaomieu-component-audit/output/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
