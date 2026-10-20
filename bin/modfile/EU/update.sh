@@ -14,7 +14,7 @@ source_file="$work_dir/bin/ddevice/rom_source.txt"
 images="$work_dir/build/baserom/images"
 [[ -d "$images/product/priv-app" ]] || { error "EU: extracted product/priv-app missing"; exit 1; }
 
-# Drop only the five requested Xiaomi.eu identifiers from the extracted EU mi_ext.
+# Restore China-style mod_device and remove four Xiaomi.eu-only properties in EU mi_ext.
 # No runtime resetprop, no fingerprint changes, and no modification to China.
 eu_prop="$images/mi_ext/etc/build.prop"
 if [[ -L "$eu_prop" ]]; then
@@ -23,7 +23,7 @@ if [[ -L "$eu_prop" ]]; then
 fi
 if [[ -f "$eu_prop" ]]; then
     sed -i \
-        -e '/^ro\.product\.mod_device=haotian_xiaomieu_global$/d' \
+        -e 's/^ro\.product\.mod_device=haotian_xiaomieu_global$/ro.product.mod_device=haotian/' \
         -e '/^ro\.build\.host=xiaomi\.eu$/d' \
         -e '/^ro\.xiaomi\.developerid=ingbrzy_acid_igoreisberg$/d' \
         -e '/^ro\.xiaomi\.eu\.ota_device=HAOTIAN$/d' \
