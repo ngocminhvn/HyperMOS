@@ -33,7 +33,7 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   patches but does **not** transplant China's Gboard/IME, ContentCatcher or
   NotificationFilterHelper behavior into Xiaomi.eu's native framework.
 - Unlisted steps still use the existing HyperMOS pipeline, including Kashi
-  launcher, CorePatch, AVB, Kaorios, MiCTS, TNM and other UpdateFile mods.
+  launcher, CorePatch, AVB, Kaorios, TNM and other UpdateFile mods.
   No code or skip behavior for the China build is changed.
 
 For Xiaomi.eu ZIPs with sparse `images/super.img.N`, the build merges and
