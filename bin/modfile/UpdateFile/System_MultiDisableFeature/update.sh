@@ -1,5 +1,12 @@
 work_dir=$(pwd)
 source $work_dir/functions.sh
+# Xiaomi.eu already provides this functionality. Keep China dispatch unchanged.
+if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    info "Xiaomi.eu: keep stock; skip China system property and init patch"
+    exit 0
+fi
+
 rom_os=$(cat $WORK_DIR/bin/ddevice/rom_os.txt)
 regionTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
 androidVER=$(cat $WORK_DIR/bin/ddevice/androidver.txt)
