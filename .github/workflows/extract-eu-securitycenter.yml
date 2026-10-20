@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      WORK: ${{ runner.temp }}/xiaomieu-securitycenter-${{ github.run_id }}
+      WORK: /tmp/xiaomieu-securitycenter-${{ github.run_id }}
       ROM_URL: ${{ inputs.rom_url }}
     steps:
       - name: Checkout HyperMOS scripts
