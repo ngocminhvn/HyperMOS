@@ -11,7 +11,6 @@ done < $WORK_DIR/bin/ddevice/DEBLOAT/APPLIST.txt
 EU_DEBLOAT=0
 if [[ -s "$WORK_DIR/bin/ddevice/rom_source.txt" ]] &&
    [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
-    source "$WORK_DIR/bin/modfile/EU/policy.sh" || exit 1
     EU_DEBLOAT=1
     info "Xiaomi.eu: preserve pre-installed Google apps and EU update services"
 else
@@ -21,9 +20,20 @@ else
 fi
 
 for debloat_app in "${debloat_apps[@]}"; do
-    if [[ "$EU_DEBLOAT" == "1" ]] && eu_preserve_google_debloat "$debloat_app"; then
-        info "Xiaomi.eu: keep original Google app: $debloat_app"
-        continue
+    if [[ "$EU_DEBLOAT" == "1" ]]; then
+        # Only Xiaomi.eu: keep its original GMS apps and updater, otherwise
+        # the common APPLIST loop would undo the early updater preservation.
+        case "$debloat_app" in
+            Gmail2|GoogleOne|GoogleOne_arm64|Maps|PlayAutoInstallStubApp|\
+            GoogleNews_xxhdpi|GoogleNews_xxxhdpi|GoogleNews|Drive|Meet|Photos|\
+            YTMusic|YouTube|HealthConnectStub|PersonalSafety|\
+            GooglePlayServicesUpdater|Duo|CalendarGoogle|\
+            CalendarGoogle_arm64|CalendarGoogle_xxhdpi|CalendarGoogle_xxxhdpi|\
+            Updater|MIUISystemAppUpdater)
+                info "Xiaomi.eu: keep original Google/updater app: $debloat_app"
+                continue
+                ;;
+        esac
     fi
     # Find the app directory in both system and product directories
     app_dirs=$(find build/baserom/images/system/ -type d -name "*$debloat_app*" 2>/dev/null)
