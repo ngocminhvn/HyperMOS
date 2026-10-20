@@ -215,6 +215,74 @@ def launcher_deletion_names(path):
     return re.findall(r'"([^"\n]+)"', found[0])
 
 
+
+def zip_eu_components(output, found):
+    """ZIP only the three requested Xiaomi.eu components, retaining exact paths."""
+    requested = sorted(
+        (entry for entry in found if entry["name"] in EXTRAS),
+        key=lambda e: (e["name"], e["partition"], e["path"]),
+    )
+    path_lines = [
+        "Xiaomi.eu original component paths (partition-relative, not inferred runtime paths)",
+        "Each component retains its original partition and path in the ZIP.",
+        "",
+    ]
+    manifest = {
+        "components_requested": list(EXTRAS),
+        "components_found": sorted({entry["name"] for entry in requested}),
+        "original_paths": [],
+        "archived_files": [],
+    }
+    for name in EXTRAS:
+        entries = [entry for entry in requested if entry["name"] == name]
+        path_lines.append(f"[{name}]")
+        if not entries:
+            path_lines.append("NOT FOUND in the scanned ROM app directories")
+        for entry in entries:
+            relative = Path("files") / entry["partition"] / entry["path"].lstrip("/")
+            source = output / relative
+            if source.is_symlink() or not source.exists():
+                raise RuntimeError("Expected extracted component not found: " + str(relative))
+            location = entry["partition"] + ":" + entry["path"]
+            path_lines.append("Source (partition:path): " + location)
+            path_lines.append("ZIP path: " + relative.as_posix())
+            manifest["original_paths"].append(
+                {"component": name, "partition": entry["partition"],
+                 "source_path": entry["path"], "zip_path": relative.as_posix()}
+            )
+        path_lines.append("")
+    path_text = "\n".join(path_lines) + "\n"
+    path_file = output / "xiaomieu-component-paths.txt"
+    path_file.write_text(path_text, encoding="utf-8")
+    zip_file = output / "xiaomieu-extras.zip"
+    seen = set()
+    with zipfile.ZipFile(zip_file, "w", compression=zipfile.ZIP_STORED,
+                         allowZip64=True) as archive:
+        for entry in requested:
+            relative = Path("files") / entry["partition"] / entry["path"].lstrip("/")
+            source = output / relative
+            children = sorted(source.rglob("*")) if source.is_dir() else [source]
+            for child in children:
+                if child.is_symlink() or not child.is_file():
+                    continue
+                inside = child.relative_to(output).as_posix()
+                if inside in seen:
+                    continue
+                seen.add(inside)
+                archive.write(child, arcname=inside)
+                manifest["archived_files"].append(
+                    {"path": inside, "bytes": child.stat().st_size}
+                )
+        archive.writestr("xiaomieu-component-paths.txt", path_text)
+        archive.writestr("xiaomieu-components-manifest.json",
+                         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+    with zipfile.ZipFile(zip_file) as archive:
+        bad = archive.testzip()
+        if bad:
+            raise RuntimeError("Archive integrity test failed: " + bad)
+    return zip_file, path_file, manifest
+
+
 def audit(rom, work, lpunpack, kashi):
     out = work / "output"
     out.mkdir(exist_ok=True, parents=True)
@@ -264,6 +332,11 @@ def audit(rom, work, lpunpack, kashi):
         report["build_props"].append(prop)
     if not report["build_props"]:
         raise RuntimeError("No build.prop found in selected ROM partitions")
+    archive, paths_file, component_manifest = zip_eu_components(out, found)
+    report["extras_archive"] = archive.name
+    report["extras_paths_file"] = paths_file.name
+    report["extras_archive_bytes"] = archive.stat().st_size
+    report["extras_in_archive"] = component_manifest["components_found"]
     (out / "audit.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     lines = ["# Xiaomi.eu vs HyperMOS Launcher audit", "",
              "Launcher replacement removes these exact directory names: " + ", ".join(deleted),
@@ -273,6 +346,11 @@ def audit(rom, work, lpunpack, kashi):
         paths = ", ".join(info["paths"]) or "None in scanned app locations"
         lines.append("| " + name + " | " + str(info["found"]) + " | " + paths + " | " +
                      str(info["directly_removed_by_launcher"]) + " |")
+    lines += ["", "## Extracted Xiaomi.eu extras ZIP", "",
+              "ZIP: `xiaomieu-extras.zip` (ONLY XiaomiEUExt, XiaomiEUInject, MiuiExtraPhoto).",
+              "Original partition-relative locations: `xiaomieu-component-paths.txt`.",
+              "Both the ZIP and the text file are included in this Actions artifact.",
+              "Missing components are explicitly marked NOT FOUND; a missing component is never fabricated.", ""]
     lines += ["", "## Original build.prop files", "",
               "Raw original files in artifact `build-props/<partition>/...`. "
               "No China ROM comparison is performed automatically.", ""]
