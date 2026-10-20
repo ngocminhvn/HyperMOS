@@ -22,7 +22,6 @@ elif [[ -e "$target" || -L "$target" ]]; then
     error "EU: unexpected non-directory XiaomiEUExt target: $target"
     exit 1
 else
-    mods "EU: stock XiaomiEUExt absent; nothing to remove"
 fi
 
 [[ ! -e "$target" && ! -L "$target" ]] || {
