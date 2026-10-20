@@ -10,7 +10,7 @@ target_dir="$work_dir/bin/package/"
 # Standalone CorePatch and Global builds retain their original behavior.
 info "PATCH 1/6: CorePatch / signature"
 # China defers its ProcessPolicy gate to NOTIFICATION_FIX/FrameworkPatcher.
-# Xiaomi.eu skips that stage, so CorePatch must handle its gate itself.
+# Xiaomi.eu skips that stage and preserves its existing Gboard / notification / ProcessPolicy code.
 rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
 if [[ -s "$rom_source_file" ]] &&
    [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
