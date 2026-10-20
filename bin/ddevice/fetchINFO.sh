@@ -41,6 +41,10 @@ echo "- Device Name: $name"
 echo "- Codename: $device_code"
 echo "- Xiaomi Version: $rom_os"  
 echo "- BuildRegion: $regionTYPE"
+if [[ -s "$work_dir/bin/ddevice/rom_source.txt" ]]; then
+    rom_source="$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")"
+    echo "- ROM Source: $rom_source"
+fi
 echo "- Android: $AndroidVer"                                      
 echo "- Xiaomi Version: $base_rom_code"                                                                        
 echo "- BuildTool Version: $starxVER"
