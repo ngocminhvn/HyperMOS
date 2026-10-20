@@ -12,7 +12,6 @@ EU_DEBLOAT=0
 if [[ -s "$WORK_DIR/bin/ddevice/rom_source.txt" ]] &&
    [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
     EU_DEBLOAT=1
-    info "Xiaomi.eu: preserve pre-installed Google apps and EU update services"
 else
     rm -rf "$WORK_DIR/build/baserom/images/product/etc/auto-install"*
     rm -rf "$WORK_DIR/build/baserom/images/product/app/Updater"
@@ -30,7 +29,6 @@ for debloat_app in "${debloat_apps[@]}"; do
             GooglePlayServicesUpdater|Duo|CalendarGoogle|\
             CalendarGoogle_arm64|CalendarGoogle_xxhdpi|CalendarGoogle_xxxhdpi|\
             Updater|MIUISystemAppUpdater)
-                info "Xiaomi.eu: keep original Google/updater app: $debloat_app"
                 continue
                 ;;
         esac
