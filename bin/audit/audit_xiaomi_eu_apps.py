@@ -15,6 +15,17 @@ LAUNCHERS = ("MiuiHome", "MiuiHomeT", "MiLauncherGlobal", "PocoHome", "PocoLaunc
 ROOTS = ("app", "priv-app", "product/app", "product/priv-app", "system_ext/app",
          "system_ext/priv-app", "system/app", "system/priv-app", "mi_ext/app",
          "mi_ext/priv-app", "mi_product/app", "mi_product/priv-app")
+# Keep the original bytes and partition-relative filenames. EU/China comparison
+# is intentionally deferred until the user supplies their own China build.props.
+PARTITIONS = ("product", "system_ext", "system", "mi_ext", "mi_product",
+              "vendor", "odm", "vendor_dlkm", "odm_dlkm", "system_dlkm", "product_dlkm")
+PROP_CANDIDATES = tuple("/" + p for p in (
+    "build.prop", "system/build.prop", "system/system/build.prop",
+    "product/build.prop", "system_ext/build.prop", "vendor/build.prop",
+    "odm/build.prop", "mi_ext/build.prop", "mi_product/build.prop",
+    "vendor_dlkm/build.prop", "odm_dlkm/build.prop",
+    "system_dlkm/build.prop", "product_dlkm/build.prop",
+))
 
 
 def call(*args, output=False):
@@ -100,14 +111,54 @@ def copy_target(source, output):
         shutil.copy2(source, output, follow_symlinks=False)
 
 
-def read_apps(image, part, out, scratch):
+
+def collect_props_erofs(root, partition, output):
+    """Copy every regular build.prop discovered inside one extracted EROFS tree."""
+    collected = []
+    for path in sorted(root.rglob("build.prop")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(root)
+        dest = output / "build-props" / partition / relative
+        copy_target(path, dest)
+        collected.append(dict(partition=partition, source_path="/" + relative.as_posix(),
+                              output_path=dest.relative_to(output).as_posix()))
+    return collected
+
+
+def collect_props_ext4(image, partition, output, scratch):
+    """Extract known Android build.prop locations without mounting the filesystem."""
+    collected = []
+    for source_path in PROP_CANDIDATES:
+        # debugfs may exit with 0 and emit a missing-file warning; verify stat content.
+        description = call("debugfs", "-R", "stat " + source_path, image, output=True)
+        if "Inode:" not in description or "Type: regular" not in description:
+            continue
+        relative = Path(source_path.lstrip("/"))
+        tmp = scratch / "build-props" / partition / relative
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        call("debugfs", "-R", "dump -p " + source_path + " " + str(tmp), image)
+        if not tmp.is_file():
+            raise RuntimeError("Failed to extract original build.prop: " + source_path)
+        dest = output / "build-props" / partition / relative
+        copy_target(tmp, dest)
+        collected.append(dict(partition=partition, source_path=source_path,
+                              output_path=dest.relative_to(output).as_posix()))
+    return collected
+
+
+def read_apps(image, part, out, scratch, scan_apps=True):
     found = []
+    props = []
     names = EXTRAS + LAUNCHERS
     kind = filesystem(image)
     if kind == "erofs":
         root = scratch / "erofs"
         root.mkdir(parents=True, exist_ok=True)
         call("fsck.erofs", "--extract=" + str(root), image)
+        props = collect_props_erofs(root, part, out)
+        if not scan_apps:
+            return found, props
         for p in root.rglob("*"):
             name = p.name.removesuffix(".apk")
             if name not in names or not (p.is_dir() or (p.is_file() and p.suffix == ".apk")):
@@ -118,6 +169,9 @@ def read_apps(image, part, out, scratch):
             copy_target(p, out / "files" / part / relative)
             found.append(dict(name=name, partition=part, path="/" + relative.as_posix()))
     else:
+        props = collect_props_ext4(image, part, out, scratch)
+        if not scan_apps:
+            return found, props
         for dirname in ROOTS:
             for name in names:
                 for suffix in ("", ".apk"):
@@ -149,7 +203,7 @@ def read_apps(image, part, out, scratch):
                             raise RuntimeError("Failed ext4 file dump: " + source_path)
                     copy_target(source, out / "files" / part / source_path.lstrip("/"))
                     found.append(dict(name=name, partition=part, path=source_path))
-    return found
+    return found, props
 
 
 def launcher_deletion_names(path):
@@ -169,8 +223,8 @@ def audit(rom, work, lpunpack, kashi):
     meta = json.loads(call(sys.executable, lpunpack, "--info", "-f", "json",
                            superimage, output=True))
     all_parts = {x["name"] for x in meta["partition_table"]}
-    found, scanned = [], []
-    for part in ("product", "system_ext", "system", "mi_ext", "mi_product"):
+    found, scanned, build_props = [], [], []
+    for part in PARTITIONS:
         exact = next((p for p in (part + "_a", part, part + "_b") if p in all_parts), None)
         if exact is None:
             continue
@@ -182,12 +236,15 @@ def audit(rom, work, lpunpack, kashi):
             raise RuntimeError("Missing unpacked logical partition " + exact)
         scratch = work / "scratch"
         scanned.append(dict(name=exact, filesystem=filesystem(image)))
-        found.extend(read_apps(image, part, out, scratch))
+        apps, props = read_apps(image, part, out, scratch, scan_apps=(part in ("product", "system_ext", "system", "mi_ext", "mi_product")))
+        found.extend(apps)
+        build_props.extend(props)
         shutil.rmtree(scratch, ignore_errors=True)
         image.unlink()
     if not scanned:
         raise RuntimeError("No app-bearing partitions found in super.img")
     report = dict(scanned=scanned, paths=found, launcher_removed_dirs=deleted,
+                  build_props=[],
                   components={name: {"found": any(x["name"] == name for x in found),
                                      "directly_removed_by_launcher": name in deleted,
                                      "paths": [x["partition"] + ":" + x["path"] for x in found if x["name"] == name]}
@@ -199,6 +256,14 @@ def audit(rom, work, lpunpack, kashi):
                 sha.update(chunk)
         report["apks"].append(dict(path=str(apk.relative_to(out)), bytes=apk.stat().st_size,
                                    sha256=sha.hexdigest()))
+    for prop in sorted(build_props, key=lambda p: (p["partition"], p["source_path"])):
+        dest = out / prop["output_path"]
+        data = dest.read_bytes()
+        prop["bytes"] = len(data)
+        prop["sha256"] = hashlib.sha256(data).hexdigest()
+        report["build_props"].append(prop)
+    if not report["build_props"]:
+        raise RuntimeError("No build.prop found in selected ROM partitions")
     (out / "audit.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     lines = ["# Xiaomi.eu vs HyperMOS Launcher audit", "",
              "Launcher replacement removes these exact directory names: " + ", ".join(deleted),
@@ -208,6 +273,13 @@ def audit(rom, work, lpunpack, kashi):
         paths = ", ".join(info["paths"]) or "None in scanned app locations"
         lines.append("| " + name + " | " + str(info["found"]) + " | " + paths + " | " +
                      str(info["directly_removed_by_launcher"]) + " |")
+    lines += ["", "## Original build.prop files", "",
+              "Raw original files in artifact `build-props/<partition>/...`. "
+              "No China ROM comparison is performed automatically.", ""]
+    for prop in report["build_props"]:
+        lines.append("- `" + prop["output_path"] + "` (source `" +
+                     prop["partition"] + ":" + prop["source_path"] +
+                     "`, SHA-256 `" + prop["sha256"] + "`)")
     lines += ["", "No direct name match does not rule out runtime dependencies on Launcher.",
               "Original Launcher directories are also extracted when present.",
               "The source ROM is never flashed or patched. SHA-256 values are in audit.json."]
