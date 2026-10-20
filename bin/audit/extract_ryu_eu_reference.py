@@ -3,6 +3,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -232,7 +233,8 @@ def main(rom, work, lpunpack):
     if not any(e["category"] == "build-props" for e in entries):
         missing.append("build.prop")
     items = sorted(entries, key=lambda e: e["file"])
-    manifest = {"source_zip": source_zip, "preserved_unmodified": True,
+    manifest = {"source_zip": source_zip, "source_url": os.environ.get("ROM_URL", ""),
+                "preserved_unmodified": True,
                 "partitions_scanned": scanned, "missing_required": missing,
                 "files": items}
     (output / "ryu-reference-manifest.json").write_text(
@@ -240,7 +242,8 @@ def main(rom, work, lpunpack):
     (output / "SHA256SUMS.txt").write_text(
         "".join(e["sha256"] + "  " + e["file"] + "\n" for e in items))
     lines = ["# Original RYU-EU ROM reference", "",
-             "- Source ZIP: " + source_zip,
+             "- Source URL: " + os.environ.get("ROM_URL", ""),
+             "- Downloaded ZIP: " + source_zip,
              "- Scanned partitions: " + ", ".join(scanned),
              "- Files copied: " + str(len(items)),
              "- Status: " + ("INCOMPLETE" if missing else "PASS"),
