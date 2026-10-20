@@ -14,6 +14,23 @@ source_file="$work_dir/bin/ddevice/rom_source.txt"
 images="$work_dir/build/baserom/images"
 [[ -d "$images/product/priv-app" ]] || { error "EU: extracted product/priv-app missing"; exit 1; }
 
+# Remove Xiaomi.eu-only metadata from mi_ext without touching Xiaomi stock build hosts.
+# ro.product.mod_device is removed only when its value identifies Xiaomi.eu.
+eu_prop="$images/mi_ext/etc/build.prop"
+if [[ -L "$eu_prop" ]]; then
+    error "EU: refusing symlinked mi_ext build.prop"
+    exit 1
+fi
+if [[ -f "$eu_prop" ]]; then
+    sed -i \
+        -e '/^ro\.product\.mod_device=[^[:space:]]*_xiaomieu[^[:space:]]*$/d' \
+        -e '/^ro\.build\.host=xiaomi\.eu$/d' \
+        "$eu_prop" || { error "EU: failed to clean mi_ext build.prop"; exit 1; }
+    mods "EU: removed Xiaomi.eu-only mi_ext build metadata"
+else
+    mods "EU: mi_ext build.prop absent; metadata cleanup skipped"
+fi
+
 # Remove only these exact Xiaomi.eu app containers, in standard partition
 # app locations. Never match substrings or touch other preinstalled apps.
 components=(XiaomiEUExt XiaomiEUInject MiuiExtraPhoto)
