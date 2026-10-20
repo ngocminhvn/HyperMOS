@@ -19,9 +19,9 @@ HyperMOS is a Xiaomi HyperOS ROM build and modification project designed to auto
 - **Project:** HyperMOS
 - **Current build script version:** `1.3PS`
 - **Platform:** Xiaomi HyperOS
-- **Supported ROM region:** **China (CN) only**
+- **Build sources:** **Xiaomi China (tested)** and **Xiaomi.eu fastboot ZIP (experimental)**
 - **Build environment:** GitHub Actions / Ubuntu
-- **Build input:** Xiaomi China ROM package URL
+- **Build input:** Xiaomi China ROM package URL or Xiaomi.eu fastboot ZIP URL
 - **Supported ROM layouts:** `payload.bin`, `super.img`, and `*.new.dat.br`
 - **Build process:** Unpack → Debloat → Apply mods → Apply patches → Repack
 - **Upload options:** Google Drive via rclone or Pixeldrain
@@ -29,9 +29,18 @@ HyperMOS is a Xiaomi HyperOS ROM build and modification project designed to auto
 
 ## Important Notes
 
-**HyperMOS only supports Xiaomi HyperOS China (CN) ROMs.**
+**China remains the tested default. Xiaomi.eu source handling is experimental and has not yet passed an end-to-end ROM build and on-device verification.**
 
-Global, EEA, India, Taiwan, Russia, Indonesia, Turkey, Xiaomi.eu, and other non-China ROM bases are not supported.
+Xiaomi.eu ZIP filenames (`xiaomi.eu_<DEVICE>_<VERSION>_...`) select
+`rom_source=xiaomi_eu`, independently from the `CNXM` base region tag.
+This enables `bin/modfile/EU/update.sh` to remove only stock
+`/product/priv-app/XiaomiEUExt`. All existing China/shared mods are still
+applied, but the China-only `NOTIFICATION_FIX` stage is skipped; EU retains
+its original notification/PowerKeeper behavior. The final ROM filename uses
+`XEU` instead of `CN` to distinguish the build source.
+
+Other Global, EEA, India, Taiwan, Russia, Indonesia, Turkey, and unrelated
+non-China ROM bases have not been validated for this pipeline.
 
 Always keep a working backup and make sure you know how to restore the original firmware before flashing a modified ROM.
 
