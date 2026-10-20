@@ -11,6 +11,7 @@ if [[ -s "$rom_source_file" ]]; then
     fi
 fi
 
+info "PATCH 4/6: Notification"
 AndroidVER=$(cat $WORK_DIR/bin/ddevice/androidver.txt)
 regionTYPE=$(cat $WORK_DIR/bin/ddevice/device_type.txt)
 
