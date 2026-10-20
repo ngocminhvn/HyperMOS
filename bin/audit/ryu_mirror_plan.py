@@ -10,12 +10,14 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import sys
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from bin.dump import sourceforge_download as sf
 
 SAMPLE_BYTES = 2 * 1024 * 1024
@@ -36,7 +38,7 @@ def probe(mirror: str, project: str, relative: str) -> dict:
             code = response.getcode()
             serving = (urlsplit(response.geturl()).hostname or "").lower()
             first = response.read(4)
-            if first != b"PK\\x03\\x04":
+            if first != b"PK\x03\x04":
                 return {**result, "status": "unavailable",
                         "reason": f"non_zip_header_http_{code}",
                         "serving_host": serving}
@@ -111,7 +113,7 @@ def main() -> None:
         "fastest_measured": ranked[0] if verified else None,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2) + "\\n", encoding="utf-8")
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
