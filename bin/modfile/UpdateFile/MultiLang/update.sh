@@ -2,8 +2,10 @@ work_dir=$(pwd)
 MAIN_FOLDER="$work_dir/build/baserom/images"
 source "$work_dir/functions.sh"
 # Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
-if [[ ! -f "$work_dir/bin/ddevice/rom_source.txt" ]] ||
-   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" != "xiaomi_eu" ]]; then
+if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    exit 0
+fi
 
 deviceTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 
@@ -40,5 +42,4 @@ if [[ "$deviceTYPE" == "China" ]]; then
   done
   shopt -u nullglob
   mods "MultiLanguage overlays ready: ${#bundled[@]} bundled, ${#supplemental[@]} supplemental."
-fi
 fi

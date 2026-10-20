@@ -4,13 +4,13 @@ source $WORK_DIR/functions.sh
 # Xiaomi.eu already provides its own notification/PowerKeeper behavior.
 # Never port China-only FrameworkPatcher, notification DEX or EU donor PowerKeeper.
 rom_source_file="$WORK_DIR/bin/ddevice/rom_source.txt"
-rom_source=""
 if [[ -s "$rom_source_file" ]]; then
     rom_source="$(tr -d '\r\n' < "$rom_source_file")"
+    if [[ "$rom_source" == "xiaomi_eu" ]]; then
+        exit 0
+    fi
 fi
 
-# EU: silently skip only this patch stage, without exiting the script.
-if [[ "$rom_source" != "xiaomi_eu" ]]; then
 info "PATCH 4/6: Notification"
 AndroidVER=$(cat $WORK_DIR/bin/ddevice/androidver.txt)
 regionTYPE=$(cat $WORK_DIR/bin/ddevice/device_type.txt)
@@ -38,8 +38,6 @@ elif [[ $AndroidVER == "16" ]];then
 elif [[ $AndroidVER == "17" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A17/SystemUI.sh
-fi
-
 fi
 
 fi

@@ -5,8 +5,10 @@ work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
 # Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
-if [[ ! -f "$work_dir/bin/ddevice/rom_source.txt" ]] ||
-   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" != "xiaomi_eu" ]]; then
+if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    exit 0
+fi
 
 regionTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 GPS_CONF="$work_dir/build/baserom/images/vendor/etc/gps.conf"
@@ -48,4 +50,3 @@ if ! grep -qx 'NTP_SERVER=time.cloudflare.com' "$GPS_CONF" || \
 fi
 
 mods "GPS Fix -> Done"
-fi

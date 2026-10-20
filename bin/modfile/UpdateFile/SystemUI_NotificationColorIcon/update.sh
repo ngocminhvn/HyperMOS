@@ -1,8 +1,10 @@
 work_dir=$(pwd)
 source $work_dir/functions.sh
 # Xiaomi.eu already provides this functionality. Keep China dispatch unchanged.
-if [[ ! -f "$work_dir/bin/ddevice/rom_source.txt" ]] ||
-   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" != "xiaomi_eu" ]]; then
+if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    exit 0
+fi
 
 MAIN_FOLDER="$work_dir/build/baserom/images"
 repS="python3 $work_dir/bin/strRep.py"
@@ -36,5 +38,4 @@ fi
 rm -rf $work_dir/apk_temp
 mods "Done"
 
-fi
 fi

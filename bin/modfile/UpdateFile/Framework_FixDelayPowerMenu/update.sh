@@ -1,8 +1,10 @@
 work_dir=$(pwd)
 source $work_dir/functions.sh
 # Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
-if [[ ! -f "$work_dir/bin/ddevice/rom_source.txt" ]] ||
-   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" != "xiaomi_eu" ]]; then
+if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    exit 0
+fi
 
 sdkLevel=$(cat $work_dir/bin/ddevice/sdkLevel.txt)
 deviceTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
@@ -131,5 +133,4 @@ fi
 if [[ $deviceTYPE == "China" ]]; then
 patch "Fixing Delay Power Button..."
 miui-services
-fi
 fi

@@ -1,8 +1,10 @@
 WORK_DIR=$(pwd)
 source $WORK_DIR/functions.sh
 # Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
-if [[ ! -f "$WORK_DIR/bin/ddevice/rom_source.txt" ]] ||
-   [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/rom_source.txt")" != "xiaomi_eu" ]]; then
+if [[ -f "$WORK_DIR/bin/ddevice/rom_source.txt" ]] &&
+   [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
+    exit 0
+fi
 
 MAIN_FOLDER="$WORK_DIR/build/baserom/images"
 repS="python3 $WORK_DIR/bin/strRep.py"
@@ -35,5 +37,4 @@ if [[ $deviceTYPE == "China" ]];then
 	mods "Done"
 else
     mods "Region not support to patch"
-fi
 fi
