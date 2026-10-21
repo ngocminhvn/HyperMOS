@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract original RYU-EU apps and audit Toolbox thermal references (read-only)."""
+"""Forensic, read-only RYU-EU thermal extraction; never infer a live profile mapping."""
 from __future__ import annotations
 
 import hashlib
@@ -9,285 +9,595 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
 from audit_xiaomi_eu_apps import call, filesystem, make_super, read_partition_names
 
-TARGETS = (
-    "com.android.updater",
-    "com.miui.packageinstaller",
-    "com.projectryu.toolbox",
-)
-PARTITIONS = ("product", "system_ext", "system", "mi_ext", "mi_product",
+PARTITIONS = ("system", "system_ext", "product", "mi_ext", "mi_product",
               "vendor", "odm", "vendor_dlkm", "odm_dlkm")
 APP_PARTITIONS = set(PARTITIONS[:5])
-THERMAL_RX = re.compile(r"thermal|thermald|therm_mgr|therm-engine|cooling", re.I)
-SMALI_RX = re.compile(
-    r"thermal|thermald|therm_mgr|cooling|/sys/class/thermal|"
-    r"persist\.[A-Za-z0-9._-]*therm|vendor\.[A-Za-z0-9._-]*therm|"
-    r"heat[_-]?mode|temperature", re.I)
-PKG_RX = re.compile(r"^package:\s+name='([^']+)'", re.M)
-MAX_THERMAL_FILE = 16 * 1024 * 1024
-MAX_THERMAL_TOTAL = 160 * 1024 * 1024
+APKS = ("com.android.updater", "com.miui.packageinstaller",
+        "com.projectryu.toolbox", "com.miui.powerkeeper", "com.miui.securitycenter")
+JARS = ("framework.jar", "services.jar", "miui-framework.jar", "miui-services.jar")
+REQUIRED_CONFIGS = (
+    "thermal-map.conf", "thermal-normal.conf", "thermal-per-normal.conf",
+    "thermal-hp-normal.conf", "thermal-cgame.conf", "thermal-mgame.conf",
+    "thermal-nolimits.conf",
+)
+SETTINGS_KEYS = ("projectryu_thermal_profiles", "projectryu_thermal_sconfig",
+                 "projectryu_thermal_per_app")
+SYSFS_KEY = "/sys/class/thermal/thermal_message/sconfig"
+TERMS = re.compile(
+    r"thermal|thermald|thermalservice|therm_mgr|therm-engine|"
+    r"therm[_-]?engine|sconfig|PerfHook|powerhint|power_hint|"
+    r"projectryu_thermal|cooling|heat[_-]?mode|ThermalManager", re.I)
+LIBRARY = re.compile(r"^(?:libthermal|libtherm|libpower|libperf).*\.so$|^libryu_core\.so$", re.I)
+EXECUTABLE = re.compile(r"thermal-engine|thermald|thermalservice|mi_thermald|therm_mgr", re.I)
+PACKAGE_LINE = re.compile(r"^package:\s+name='([^']+)'", re.M)
+PATH_TOKEN = re.compile(r"/(?:vendor|odm|system_ext|system|product|mi_ext)/[A-Za-z0-9_./@+-]+")
+SMALI_CONST = re.compile(r"\bconst(?:/4|/16|/high16)?\s+[vp]\d+,\s+(-?0x[0-9a-f]+|-?\d+)", re.I)
+MAX_FILE = 256 * 1024 * 1024
+MAX_REFERENCE_LINES = 3000
 
 
-def digest(path: Path) -> str:
+def hash_file(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def is_app_path(path: Path) -> bool:
-    return any(segment in ("app", "priv-app") for segment in path.parts[:-1])
+def logical_parts(part: str, rel: Path) -> tuple[str, ...]:
+    parts = rel.parts
+    if parts and parts[0] == part:
+        parts = parts[1:]
+    return parts
+
+
+def target_group(part: str, rel: Path, path: Path) -> str | None:
+    parts = logical_parts(part, rel)
+    if not parts:
+        return None
+    name = parts[-1].lower()
+    lower = tuple(p.lower() for p in parts)
+    if name in JARS and "framework" in lower:
+        return "framework"
+    if name.endswith(".so") and LIBRARY.fullmatch(name) and any(
+            p in lower for p in ("lib", "lib64", "hw")):
+        return "libraries"
+    if ("bin" in lower or "xbin" in lower or "hw" in lower) and EXECUTABLE.search(name):
+        return "binaries"
+    if name in ("build.prop", "default.prop") or (
+            name.endswith(".prop") and TERMS.search(name)):
+        return "properties"
+    if len(parts) >= 3 and parts[0] == "etc" and parts[1] == "perf" and part in ("vendor", "odm"):
+        return "perf"
+    if name.endswith(".rc") and ("init" in lower or name.startswith("init")):
+        # Capture all init RCs that reference relevant services or properties.
+        if TERMS.search(rel.as_posix()) or file_contains(path, TERMS, 2 * 1024 * 1024):
+            return "init-services"
+    if "etc" in lower and (
+            name.startswith(("thermal", "therm", "powerhint", "power_hint"))
+            or "thermal" in lower or "thermald" in lower
+            or name in REQUIRED_CONFIGS):
+        return "thermal"
+    if name.startswith(("thermal", "therm")) and name.endswith((
+            ".conf", ".cfg", ".xml", ".json", ".ini", ".pb", ".prop", ".rc", ".txt")):
+        return "thermal"
+    return None
+
+
+def file_contains(file: Path, pattern: re.Pattern, max_bytes: int) -> bool:
+    if file.stat().st_size > max_bytes:
+        return False
+    return bool(pattern.search(file.read_text(errors="replace")))
+
+
+def original_device_path(part: str, rel: Path) -> str:
+    parts = logical_parts(part, rel)
+    return "/" + part + "/" + "/".join(parts)
+
+
+def keep_file(source: Path, out: Path, part: str, rel: Path,
+              group: str, entries: list[dict], **extra) -> dict | None:
+    if not source.is_file() or source.is_symlink():
+        return None
+    size = source.stat().st_size
+    if size > MAX_FILE:
+        raise RuntimeError("Required evidence too large: " + part + ":/" + rel.as_posix())
+    if not size or rel.is_absolute() or ".." in rel.parts:
+        return None
+    # Keep true partition-relative path, even if an EROFS root contains a nested prefix.
+    target = out / group / part / rel
+    if target.exists():
+        return next((e for e in entries if e["zip_path"] ==
+                     target.relative_to(out).as_posix()), None)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+    row = {"group": group, "partition": part,
+           "partition_relative_path": "/" + rel.as_posix(),
+           "device_path_candidate": original_device_path(part, rel),
+           "zip_path": target.relative_to(out).as_posix(),
+           "bytes": size, "sha256": hash_file(target)}
+    row.update(extra)
+    entries.append(row)
+    print("[SAVE]", row["zip_path"], size, flush=True)
+    return row
 
 
 def package_name(apk: Path) -> str | None:
-    run = subprocess.run(["aapt", "dump", "badging", str(apk)],
-                         capture_output=True, text=True, errors="replace",
-                         timeout=35, check=False)
-    result = PKG_RX.search(run.stdout)
-    return result.group(1) if result else None
+    result = subprocess.run(["aapt", "dump", "badging", str(apk)],
+                            text=True, capture_output=True, errors="replace",
+                            check=False, timeout=40)
+    m = PACKAGE_LINE.search(result.stdout)
+    return m.group(1) if m else None
 
 
-def record_file(source: Path, output: Path, group: str, part: str,
-                relative: Path, entries: list[dict], extra: dict | None = None):
-    if source.is_symlink() or not source.is_file() or not source.stat().st_size:
+def scan_apks(root: Path, part: str, out: Path, entries: list[dict]):
+    if part not in APP_PARTITIONS:
         return
-    if ".." in relative.parts or relative.is_absolute():
-        raise RuntimeError("Unsafe partition path: " + str(relative))
-    destination = output / group / part / relative
-    if destination.exists():
-        return
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
-    item = {
-        "category": group, "partition": part,
-        "original_path": "/" + relative.as_posix(),
-        "zip_path": destination.relative_to(output).as_posix(),
-        "bytes": destination.stat().st_size,
-        "sha256": digest(destination),
-    }
-    if extra:
-        item.update(extra)
-    entries.append(item)
-    print("[COPY]", item["zip_path"], flush=True)
-
-
-def scan_apps(root: Path, part: str, output: Path, entries: list[dict]):
-    apks = [p for p in root.rglob("*.apk")
-            if p.is_file() and not p.is_symlink()
-            and is_app_path(p.relative_to(root))]
-    # The first pass is fast; the second catches renamed/obfuscated APK filenames.
-    guessed = [p for p in apks if re.search(
-        r"updat|packageinstall|toolbox|projectryu|ryutool", str(p), re.I)]
-    checked: set[Path] = set()
-    found = {e["package"] for e in entries if e["category"] == "apks"}
-    for group in (guessed, apks):
-        if group is apks and found == set(TARGETS):
-            break
-        for apk in group:
-            if apk in checked:
-                continue
-            checked.add(apk)
-            pkg = package_name(apk)
-            if pkg not in TARGETS:
-                continue
-            rel = apk.relative_to(root)
-            # Verify the APK container before preserving unmodified bytes.
-            with zipfile.ZipFile(apk) as z:
-                if "AndroidManifest.xml" not in z.namelist() or z.testzip():
-                    raise RuntimeError("Invalid original APK: " + str(apk))
-            record_file(apk, output, "apks", part, rel, entries,
-                        {"package": pkg, "apk_role": "identified_by_manifest"})
-            found.add(pkg)
-        if found == set(TARGETS):
-            break
-
-
-def thermal_candidate(path: Path, root: Path) -> bool:
-    rel = path.relative_to(root)
-    if path.is_symlink() or not path.is_file():
-        return False
-    if path.stat().st_size > MAX_THERMAL_FILE or path.stat().st_size == 0:
-        return False
-    allowed = {".conf", ".cfg", ".xml", ".json", ".ini", ".rc",
-               ".txt", ".sh", ".prop", ".bin", ".pb"}
-    if path.suffix.lower() not in allowed:
-        return False
-    if THERMAL_RX.search(rel.as_posix()):
-        return True
-    # Some vendor init services have generic names but launch thermal daemons.
-    if path.suffix.lower() in (".rc", ".sh") and path.stat().st_size < 512000:
-        if "init" in rel.parts or "etc" in rel.parts:
-            try:
-                return bool(THERMAL_RX.search(path.read_text(errors="replace")))
-            except OSError:
-                return False
-    return False
-
-
-def scan_thermal(root: Path, part: str, output: Path, entries: list[dict],
-                 bytes_copied: list[int]):
-    for file in root.rglob("*"):
-        if not thermal_candidate(file, root):
+    candidates = [p for p in root.rglob("*.apk") if p.is_file() and not p.is_symlink()
+                  and any(x in ("app", "priv-app") for x in p.relative_to(root).parts[:-1])]
+    # Name-first ordering speeds up typical ROMs without guessing package names.
+    candidates.sort(key=lambda p: (not bool(re.search(
+        r"updat|packageinstall|toolbox|projectryu|powerkeeper|securitycenter",
+        str(p), re.I)), str(p)))
+    for apk in candidates:
+        pkg = package_name(apk)
+        if pkg not in APKS:
             continue
-        size = file.stat().st_size
-        if bytes_copied[0] + size > MAX_THERMAL_TOTAL:
-            raise RuntimeError("Thermal evidence exceeds bounded 160 MiB archive limit")
-        count = len(entries)
-        record_file(file, output, "thermal", part, file.relative_to(root),
-                    entries, {"relation": "ROM_thermal_candidate"})
-        if len(entries) != count:
-            bytes_copied[0] += size
+        with zipfile.ZipFile(apk) as archive:
+            if "AndroidManifest.xml" not in archive.namelist() or archive.testzip():
+                raise RuntimeError("Original APK is corrupt: " + str(apk))
+        keep_file(apk, out, part, apk.relative_to(root), "apks", entries,
+                  package=pkg, verified_from="aapt AndroidManifest")
 
 
-def unpack_partition(image: Path, scratch: Path):
+def scan_partition(root: Path, part: str, out: Path, entries: list[dict],
+                   references: dict[str, list[dict]]):
+    scan_apks(root, part, out, entries)
+    # Preserve service-config paths exactly when referenced by init or text configuration.
+    discovered: list[tuple[Path, Path, str]] = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or p.is_symlink():
+            continue
+        rel = p.relative_to(root)
+        group = target_group(part, rel, p)
+        if group:
+            keep_file(p, out, part, rel, group, entries)
+            discovered.append((p, rel, group))
+    for p, rel, group in discovered:
+        if group not in ("thermal", "perf", "init-services", "properties"):
+            continue
+        if p.stat().st_size > 4 * 1024 * 1024:
+            continue
+        try:
+            lines = p.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for idx, line in enumerate(lines, 1):
+            if not TERMS.search(line):
+                continue
+            if len(references["config"]) < MAX_REFERENCE_LINES:
+                references["config"].append({
+                    "source": part + ":/" + rel.as_posix(),
+                    "line": idx, "text": line[:500], "kind": group})
+            for token in PATH_TOKEN.findall(line):
+                references["paths"].append({
+                    "source": part + ":/" + rel.as_posix(),
+                    "line": idx, "referenced_path": token.rstrip(",:;)")})
+    # Extract additional named files referenced by the discovered init/config lines.
+    for ref in references["paths"]:
+        token = ref["referenced_path"]
+        if not token.startswith("/" + part + "/"):
+            continue
+        tail = Path(token[len(part) + 2:])
+        if tail.is_absolute() or ".." in tail.parts:
+            continue
+        for candidate in (root / tail, root / part / tail):
+            if candidate.is_file() and not candidate.is_symlink():
+                keep_file(candidate, out, part, candidate.relative_to(root),
+                          "init-services" if candidate.suffix == ".rc" else "thermal",
+                          entries, referenced_from=ref["source"])
+                break
+
+
+def unpack(image: Path, scratch: Path):
     root = scratch / "root"
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True)
     kind = filesystem(image)
-    print("[FILESYSTEM]", image.name, kind, flush=True)
     if kind == "erofs":
         call("fsck.erofs", "--extract=" + str(root), image)
     elif kind == "ext4":
-        # Slower fallback; RYU-EU HAOTIAN is usually EROFS.
-        run = subprocess.run(["debugfs", "-R", "rdump / " + str(root), str(image)],
-                             capture_output=True, text=True, check=False, timeout=1200)
-        if run.returncode != 0:
-            raise RuntimeError("debugfs rdump failed: " + run.stderr[-1000:])
-        if not any(root.iterdir()):
-            raise RuntimeError("debugfs returned an empty directory")
+        proc = subprocess.run(
+            ["debugfs", "-R", "rdump / " + str(root), str(image)],
+            text=True, capture_output=True, errors="replace", timeout=1200)
+        if proc.returncode or not any(root.iterdir()):
+            raise RuntimeError("debugfs ext4 extraction failed: " + proc.stderr[-1000:])
     else:
-        raise RuntimeError("Unsupported filesystem: " + kind)
+        raise RuntimeError("Unsupported filesystem type: " + kind)
     return root, kind
 
 
-def scan_zip_thermal(rom: Path, output: Path, entries: list[dict]):
-    """Capture thermal scripts directly shipped next to super.img, if any."""
-    with zipfile.ZipFile(rom) as archive:
+def extract_zip_thermal(source: Path, out: Path, entries: list[dict]):
+    # Direct ROM ZIP may also have thermal scripts outside dynamic partitions.
+    with zipfile.ZipFile(source) as archive:
         for info in archive.infolist():
-            name = info.filename
-            if (info.is_dir() or info.file_size > MAX_THERMAL_FILE
-                    or not THERMAL_RX.search(name)
-                    or not name.lower().endswith((".conf", ".xml", ".sh", ".rc", ".prop", ".json"))
-                    or name.startswith("/") or ".." in Path(name).parts):
+            if (info.is_dir() or not TERMS.search(info.filename)
+                    or not info.filename.lower().endswith((".rc", ".conf", ".xml", ".cfg", ".sh", ".prop", ".json"))
+                    or info.file_size > MAX_FILE or info.filename.startswith("/")
+                    or ".." in Path(info.filename).parts or "\\" in info.filename):
                 continue
-            dest = output / "rom-thermal" / name
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info) as src, dest.open("wb") as dst:
-                shutil.copyfileobj(src, dst)
-            entries.append({"category": "rom-thermal", "partition": "ROM_ZIP",
-                            "original_path": name, "zip_path": dest.relative_to(output).as_posix(),
-                            "bytes": dest.stat().st_size, "sha256": digest(dest),
-                            "relation": "ROM_thermal_candidate"})
+            target = out / "thermal" / "ROM_ZIP" / info.filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info) as stream, target.open("wb") as dst:
+                shutil.copyfileobj(stream, dst)
+            entries.append({
+                "group": "thermal", "partition": "ROM_ZIP",
+                "partition_relative_path": info.filename, "device_path_candidate": None,
+                "zip_path": target.relative_to(out).as_posix(),
+                "bytes": target.stat().st_size, "sha256": hash_file(target)})
 
 
-def toolbox_analysis(output: Path, entries: list[dict]):
-    analysis = output / "analysis"
-    analysis.mkdir(parents=True, exist_ok=True)
-    matches = [e for e in entries if e.get("package") == "com.projectryu.toolbox"]
-    report = {"decompile_success": False, "toolbox_apks": [e["zip_path"] for e in matches],
-              "static_thermal_references": [], "smali_files_with_matches": [],
-              "error": None}
-    if not matches:
-        report["error"] = "Toolbox package not found; thermal files are only candidates."
-        return report
-    source = output / matches[0]["zip_path"]
-    destination = analysis / "apktool-decode"
-    try:
-        run = subprocess.run(
-            ["java", "-Xmx3g", "-jar", "bin/apktool/apktool.jar", "d", "-f",
-             "-r", "-o", str(destination), str(source)],
-            capture_output=True, text=True, errors="replace", timeout=600, check=False)
-        report["decompile_success"] = run.returncode == 0
-        (analysis / "apktool-log.txt").write_text(
-            (run.stdout + "\n" + run.stderr)[-60000:], encoding="utf-8")
-        if not report["decompile_success"]:
-            report["error"] = "apktool exit code " + str(run.returncode)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        report["error"] = str(exc)
-    references: list[dict] = []
-    evidence_lines: list[str] = []
-    # Preserve only relevant excerpts, not the entire reconstructed APK.
-    for smali in sorted(destination.rglob("*.smali")) if destination.exists() else []:
-        method = ""
-        lines = smali.read_text(errors="replace").splitlines()
-        found_in_file = 0
-        for idx, line in enumerate(lines):
-            if line.lstrip().startswith(".method"):
-                method = line.strip()
-            if not SMALI_RX.search(line):
-                continue
-            if len(references) >= 500:
-                break
-            snippet = "\n".join(lines[max(0, idx - 2):min(len(lines), idx + 3)])
-            item = {"class_file": str(smali.relative_to(destination)),
-                    "method": method, "line": idx + 1, "instruction": line.strip()}
-            references.append(item)
-            evidence_lines.append("FILE: " + item["class_file"] + "\n"
-                                  + "METHOD: " + method + "\n" + snippet + "\n")
-            found_in_file += 1
-        if found_in_file:
-            report["smali_files_with_matches"].append(str(smali.relative_to(destination)))
-    # APK resource and assets can contain non-Dex thermal scripts/configuration.
-    for member in sorted(source.parent.glob("*.apk")):
-        try:
-            with zipfile.ZipFile(member) as z:
-                for info in z.infolist():
-                    if info.is_dir() or info.file_size > 2 * 1024 * 1024:
-                        continue
-                    if re.search(r"thermal|cooling|thermald", info.filename, re.I):
-                        references.append({"asset": info.filename, "instruction": "APK asset path"})
-                    if info.filename.startswith(("assets/", "res/raw/")):
-                        data = z.read(info)
-                        try:
-                            decoded = data.decode("utf-8")
-                        except UnicodeDecodeError:
-                            continue
-                        for index, line in enumerate(decoded.splitlines(), 1):
-                            if SMALI_RX.search(line) and len(references) < 500:
-                                references.append({"asset": info.filename,
-                                                   "line": index,
-                                                   "instruction": line[:500]})
-        except zipfile.BadZipFile:
-            pass
-    report["static_thermal_references"] = references
-    (analysis / "toolbox-thermal-smali-excerpts.txt").write_text(
-        "\n---\n".join(evidence_lines) + "\n", encoding="utf-8")
-    shutil.rmtree(destination, ignore_errors=True)
-    return report
-
-
-def classify(entries: list[dict], analysis: dict):
-    lines = [ref.get("instruction", "").lower()
-             for ref in analysis["static_thermal_references"]]
-    for entry in entries:
-        if entry["category"] not in ("thermal", "rom-thermal"):
+def append_hits(lines: list[str], origin: str, references: list[dict],
+                limit: int = MAX_REFERENCE_LINES, radius: int = 8):
+    method = ""
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith(".method"):
+            method = line.strip()
+        if not TERMS.search(line):
             continue
-        full = entry["original_path"].lower()
-        basename = Path(full).name
-        # A concrete constant pointing to this config name is evidence of a link.
-        concrete = [line for line in lines if (full in line or
-                    (len(basename) >= 8 and basename in line))]
-        entry["relation"] = ("referenced_in_toolbox_static_code" if concrete
-                             else "ROM_thermal_candidate_not_proven_used_by_toolbox")
-        if concrete:
-            entry["matched_code_lines"] = concrete[:8]
+        if len(references) >= limit:
+            return
+        start, stop = max(0, index - radius), min(len(lines), index + radius + 1)
+        excerpt = "\n".join(f"{n + 1}: {lines[n]}" for n in range(start, stop))
+        references.append({
+            "source": origin, "line": index + 1, "method": method or None,
+            "match": line[:450], "context": excerpt})
+
+
+def smali_evidence(tree: Path, identity: str, results: list[dict]):
+    for smali in sorted(tree.rglob("*.smali")):
+        if len(results) >= MAX_REFERENCE_LINES:
+            break
+        append_hits(smali.read_text(errors="replace").splitlines(),
+                    identity + "!/" + smali.relative_to(tree).as_posix(), results)
+
+
+def scan_archive_strings(path: Path, identity: str, results: list[dict]):
+    with zipfile.ZipFile(path) as z:
+        members = [x for x in z.infolist() if x.filename.endswith(".dex")]
+        for info in members:
+            if info.file_size > MAX_FILE:
+                continue
+            data = z.read(info)
+            # Raw ASCII scan yields leads only, not proof of a method call.
+            candidates = sorted(set(
+                m.group(0).decode("utf-8", errors="replace")
+                for m in re.finditer(rb"[\x20-\x7e]{6,}", data)
+                if TERMS.search(m.group(0).decode("utf-8", errors="replace"))))
+            for item in candidates[:150]:
+                if len(results) < MAX_REFERENCE_LINES:
+                    results.append({
+                        "source": identity + "!/" + info.filename,
+                        "line": None, "method": None, "match": item[:450],
+                        "context": "", "evidence_type": "DEX_string_only"})
+    return [i.filename for i in members]
+
+
+def scan_apk_internals(path: Path, row: dict, out: Path, entries: list[dict],
+                       res_refs: list[dict]):
+    with zipfile.ZipFile(path) as z:
+        for info in z.infolist():
+            name = info.filename
+            if info.is_dir() or name.startswith("/") or ".." in Path(name).parts:
+                continue
+            is_dex = bool(re.fullmatch(r"classes\d*\.dex", Path(name).name))
+            relevant = (is_dex or name.startswith(("assets/", "res/raw/"))
+                        or name == "libryu_core.so" or name.endswith("/libryu_core.so"))
+            if not relevant or info.file_size > MAX_FILE:
+                continue
+            # Preserve exact APK-contained bytes independently for analysis.
+            target = out / "analysis" / "toolbox-apk-internals" / row["partition"] / Path(row["partition_relative_path"].lstrip("/")) / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(info) as inp, target.open("wb") as dst:
+                shutil.copyfileobj(inp, dst)
+            entries.append({
+                "group": "analysis", "partition": row["partition"],
+                "partition_relative_path": row["partition_relative_path"],
+                "device_path_candidate": row["device_path_candidate"],
+                "zip_path": target.relative_to(out).as_posix(),
+                "source_apk": row["zip_path"], "apk_member": name,
+                "bytes": target.stat().st_size, "sha256": hash_file(target)})
+            if name.startswith(("assets/", "res/raw/")) and info.file_size < 2 * 1024 * 1024:
+                try:
+                    lines = target.read_text(encoding="utf-8").splitlines()
+                except (UnicodeDecodeError, OSError):
+                    continue
+                append_hits(lines, row["zip_path"] + "!/" + name, res_refs)
+
+
+def decompile_apk(path: Path, identity: str, analysis_dir: Path,
+                  smali_refs: list[dict], res_refs: list[dict], errors: list[str]):
+    with tempfile.TemporaryDirectory(prefix="ryu-apk-") as tmp:
+        target = Path(tmp) / "decoded"
+        for args in ([], ["-r"]):
+            proc = subprocess.run(
+                ["java", "-Xmx3g", "-jar", "bin/apktool/apktool.jar", "d", "-f",
+                 *args, "-o", str(target), str(path)],
+                capture_output=True, text=True, errors="replace", timeout=600)
+            if proc.returncode == 0:
+                smali_evidence(target, identity, smali_refs)
+                for path2 in sorted(target.rglob("*")):
+                    if not path2.is_file() or path2.suffix.lower() not in (
+                            ".xml", ".json", ".txt", ".conf", ".properties"):
+                        continue
+                    if path2.stat().st_size < 1024 * 1024 and len(res_refs) < MAX_REFERENCE_LINES:
+                        append_hits(path2.read_text(errors="replace").splitlines(),
+                                    identity + "!/" + path2.relative_to(target).as_posix(), res_refs)
+                return
+            errors.append(identity + ": apktool " + ("resources" if not args else "no-resources")
+                          + " decode failed: " + proc.stderr[-700:])
+            shutil.rmtree(target, ignore_errors=True)
+
+
+def decompile_dex_archive(path: Path, identity: str,
+                          refs: list[dict], errors: list[str]):
+    with tempfile.TemporaryDirectory(prefix="ryu-baksmali-") as tmp:
+        parent = Path(tmp)
+        with zipfile.ZipFile(path) as z:
+            dex_members = [i for i in z.infolist()
+                           if re.fullmatch(r"classes\d*\.dex", Path(i.filename).name)]
+            for no, member in enumerate(dex_members):
+                if member.file_size > MAX_FILE:
+                    errors.append(identity + ": oversized dex " + member.filename)
+                    continue
+                dex = parent / ("in-%d.dex" % no)
+                with z.open(member) as src, dex.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                destination = parent / ("smali-%d" % no)
+                try:
+                    proc = subprocess.run([
+                        "java", "-Xmx3g", "-jar", "bin/apktool/baksmali-3.0.5.jar",
+                        "d", str(dex), "-o", str(destination)],
+                        capture_output=True, text=True, errors="replace", timeout=240)
+                    if proc.returncode:
+                        errors.append(identity + ": baksmali failed for " +
+                                      member.filename + ": " + proc.stderr[-700:])
+                    else:
+                        smali_evidence(destination, identity + "!/" + member.filename, refs)
+                except (OSError, subprocess.TimeoutExpired) as ex:
+                    errors.append(identity + ": baksmali " + member.filename + ": " + str(ex))
+                finally:
+                    dex.unlink(missing_ok=True)
+                    shutil.rmtree(destination, ignore_errors=True)
+
+
+def binary_leads(out: Path, entries: list[dict], references: list[dict], errors: list[str]):
+    for row in entries:
+        if row["group"] not in ("binaries", "libraries"):
+            continue
+        path = out / row["zip_path"]
+        if path.stat().st_size > 100 * 1024 * 1024:
+            errors.append("Binary string scan skipped (size): " + row["zip_path"])
+            continue
+        try:
+            run = subprocess.run(["strings", "-a", "-n", "6", str(path)],
+                                 capture_output=True, text=True, errors="replace",
+                                 timeout=40)
+            lines = run.stdout.splitlines()
+            for idx, line in enumerate(lines):
+                if TERMS.search(line) and len(references) < MAX_REFERENCE_LINES:
+                    references.append({
+                        "source": row["zip_path"], "line": idx + 1,
+                        "text": line[:350], "evidence_type": "ELF_string_only"})
+        except (OSError, subprocess.TimeoutExpired) as ex:
+            errors.append("Binary scan: " + row["zip_path"] + ": " + str(ex))
+
+
+def analyze(out: Path, entries: list[dict], refs: dict, errors: list[str]):
+    code_refs: list[dict] = []
+    resource_refs: list[dict] = []
+    dex_refs: list[dict] = []
+    frameworks: list[dict] = []
+    watched = [e for e in entries if e["group"] in ("apks", "framework")]
+    for row in watched:
+        identity = row["zip_path"]
+        path = out / identity
+        pkg = row.get("package")
+        try:
+            dex_files = scan_archive_strings(path, identity, dex_refs)
+            if pkg == "com.projectryu.toolbox":
+                scan_apk_internals(path, row, out, entries, resource_refs)
+                decompile_apk(path, identity, out / "analysis", code_refs, resource_refs, errors)
+            elif pkg in ("com.miui.powerkeeper", "com.miui.securitycenter") or row["group"] == "framework":
+                decompile_dex_archive(path, identity, code_refs, errors)
+            frameworks.append({"source": identity, "dex_members": dex_files,
+                               "decompilation_attempted": True})
+        except (OSError, ValueError, zipfile.BadZipFile, subprocess.TimeoutExpired) as ex:
+            errors.append("Static analysis " + identity + ": " + str(ex))
+    binary_refs: list[dict] = []
+    binary_leads(out, entries, binary_refs, errors)
+    refs["code"] = code_refs
+    refs["resources"] = resource_refs
+    refs["dex"] = dex_refs
+    refs["binary"] = binary_refs
+    refs["archives_scanned"] = frameworks
+
+
+def possible_numeric_leads(refs: dict) -> list[dict]:
+    candidates = []
+    seen = set()
+    for row in refs["code"]:
+        if not re.search(r"sconfig|projectryu_thermal", row["context"], re.I):
+            continue
+        for m in SMALI_CONST.finditer(row["context"]):
+            value = m.group(1)
+            evidence = (row["source"], row["method"], value)
+            if evidence in seen:
+                continue
+            seen.add(evidence)
+            candidates.append({
+                "value": value, "status": "candidate",
+                "reason": "Constant near thermal/sconfig reference; register/control-flow unverified",
+                "evidence": [{"source": row["source"], "line": row["line"],
+                              "method": row["method"], "excerpt": row["context"][:1600]}]})
+            if len(candidates) >= 60:
+                return candidates
+    return candidates
+
+
+def write_analysis(out: Path, entries: list[dict], refs: dict,
+                   scanned: list[dict], errors: list[str]) -> dict:
+    directory = out / "analysis"
+    directory.mkdir(parents=True, exist_ok=True)
+    file_lookup = {}
+    for name in REQUIRED_CONFIGS:
+        hits = [e for e in entries if e["group"] in ("thermal", "perf")
+                and Path(e["partition_relative_path"]).name.lower() == name]
+        file_lookup[name] = {
+            "status": "FOUND" if hits else "MISSING",
+            "original_paths": [
+                e["partition"] + ":" + e["partition_relative_path"] for e in hits],
+            "zip_paths": [e["zip_path"] for e in hits],
+        }
+    def format_hits(items: list[dict]) -> str:
+        chunks = []
+        for e in items:
+            chunks.append(
+                "SOURCE: " + e["source"] + "\n" +
+                ("METHOD: " + str(e.get("method")) + "\n" if e.get("method") else "") +
+                ("LINE: " + str(e.get("line")) + "\n" if e.get("line") else "") +
+                (e.get("context") or e.get("text") or e.get("match") or "") + "\n")
+        return "\n---\n".join(chunks) or "NO STATIC REFERENCES FOUND\n"
+    (directory / "toolbox-thermal-references.txt").write_text(
+        "# SMALI reference excerpts, APK resources, and DEX leads (all static)\n" +
+        format_hits(refs["code"] + refs["resources"] + refs["dex"]), encoding="utf-8")
+    config_refs = [
+        {"source": r["source"], "line": r["line"], "text": r["text"]}
+        for r in refs["config"]]
+    service_text = [
+        "# Init/config excerpts\n",
+        format_hits(config_refs),
+        "\n# Referenced absolute device paths (not automatically validated)\n",
+        json.dumps(refs["paths"], indent=2, ensure_ascii=False),
+        "\n# ELF string leads (not evidence of service execution)\n",
+        format_hits(refs["binary"]),
+    ]
+    (directory / "service-references.txt").write_text(
+        "\n".join(service_text), encoding="utf-8")
+    ui_candidates = [
+        {"source": r["source"], "line": r["line"], "excerpt": r["context"][:600]}
+        for r in refs["resources"]
+        if re.search(r"thermal|sconfig|profile|balanced|performance|game", r["match"], re.I)
+    ][:100]
+    mapping = {
+        "schema_version": 2,
+        "assessment": "static analysis only",
+        "mapping_status": "unknown",
+        "confirmation_rule": (
+            "confirmed requires a traced UI selection -> Settings/IPC/sysfs write -> "
+            "service interpretation -> profile config and runtime state evidence; "
+            "filenames and code/binary strings alone never confirm a mapping"),
+        "watched_settings": {key: {"status": "unknown", "runtime_test_required": True}
+                             for key in SETTINGS_KEYS},
+        "watched_sysfs": {SYSFS_KEY: {"status": "unknown", "runtime_test_required": True}},
+        "required_config_files": file_lookup,
+        "ui_choices": [],
+        "ui_label_leads": ui_candidates,
+        "sconfig_value_leads": possible_numeric_leads(refs),
+        "profile_mappings": [],
+        "actual_cpu_gpu_limit_changes": {"status": "unknown", "runtime_test_required": True},
+        "per_app_application": {"status": "unknown", "runtime_test_required": True},
+        "default_restore": {"status": "unknown", "runtime_test_required": True},
+        "service_receiver": {"status": "unknown", "runtime_test_required": True},
+        "static_evidence_counts": {k: len(refs[k]) for k in (
+            "code", "resources", "dex", "config", "paths", "binary")},
+        "runtime_test_guidance": [
+            "Read-only snapshots before/after EACH Toolbox UI choice.",
+            "settings get system/global/secure projectryu_thermal_profiles",
+            "settings get system/global/secure projectryu_thermal_sconfig",
+            "settings get system/global/secure projectryu_thermal_per_app",
+            "cat /sys/class/thermal/thermal_message/sconfig (only if node exists)",
+            "dumpsys thermalservice; getprop | grep -i thermal",
+            "Record CPU cpufreq and GPU devfreq policy readouts before/after.",
+            "Repeat with per-app selection, app foreground/background, and reboot.",
+            "Compare service logs and init service state; no write operations required."
+        ],
+    }
+    (directory / "profile-mapping.json").write_text(
+        json.dumps(mapping, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    lines = [
+        "# RYU EU thermal map and service evidence", "",
+        "**Status: static analysis; runtime mapping is not confirmed.**", "",
+        "## Required configuration names (real ZIP scan)", "",
+        "| Filename | Status | Original locations |",
+        "| --- | --- | --- |",
+    ]
+    for name, hit in file_lookup.items():
+        lines.append("| " + name + " | " + hit["status"] + " | " +
+                     (", ".join(hit["original_paths"]) or "—") + " |")
+    lines += [
+        "", "## Package & framework discovery", "",
+        "| Requested item | Status | Source |",
+        "| --- | --- | --- |",
+    ]
+    for pkg in APKS:
+        hits = [e for e in entries if e.get("package") == pkg]
+        lines.append("| " + pkg + " | " + ("FOUND" if hits else "MISSING") + " | " +
+                     (", ".join(e["partition"] + ":" + e["partition_relative_path"]
+                                for e in hits) or "—") + " |")
+    for name in JARS:
+        hits = [e for e in entries if e["group"] == "framework"
+                and Path(e["partition_relative_path"]).name == name]
+        lines.append("| " + name + " | " + ("FOUND" if hits else "MISSING") + " | " +
+                     (", ".join(e["partition"] + ":" + e["partition_relative_path"]
+                                for e in hits) or "—") + " |")
+    lines += [
+        "", "## Investigation", "",
+        "Partitions scanned: " + ", ".join(e["image"] for e in scanned),
+        "Files preserved unchanged: " + str(len(entries)),
+        "Static SMALI excerpts: " + str(len(refs["code"])),
+        "Resource leads: " + str(len(refs["resources"])),
+        "DEX-only string leads: " + str(len(refs["dex"])),
+        "Init/config matched lines: " + str(len(refs["config"])),
+        "Service/binary string leads: " + str(len(refs["binary"])),
+        "", "Related files are collected because of their actual paths/content; "
+        "collection is not proof that Toolbox calls them.",
+        "The UI -> sconfig -> file -> service mapping remains **unknown** until "
+        "control-flow evidence and, if necessary, read-only runtime comparisons.",
+        "See profile-mapping.json for candidate constants and all required runtime tests.",
+        "", "## Unresolved/static analysis warnings", "",
+    ]
+    lines += ["- " + error for error in errors] or ["- None recorded"]
+    (directory / "thermal-map-report.md").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8")
+    return mapping
+
+
+def validate_original_files(out: Path, entries: list[dict]):
+    for row in entries:
+        path = out / row["zip_path"]
+        if path.stat().st_size != row["bytes"] or hash_file(path) != row["sha256"]:
+            raise RuntimeError("Checksum or size mismatch: " + row["zip_path"])
 
 
 def main(rom: Path, work: Path, lpunpack: Path):
-    output = work / "output"
-    output.mkdir(parents=True, exist_ok=True)
+    out = work / "output"
+    out.mkdir(parents=True, exist_ok=True)
     entries: list[dict] = []
-    scan_zip_thermal(rom, output, entries)
+    refs: dict = {"code": [], "resources": [], "dex": [], "config": [],
+                  "paths": [], "binary": [], "archives_scanned": []}
+    errors: list[str] = []
+    extract_zip_thermal(rom, out, entries)
     super_image = make_super(rom, work)
     names = read_partition_names(super_image, lpunpack.resolve())
-    scanned = []
-    total_thermal = [0]
+    scanned: list[dict] = []
     try:
         for part in PARTITIONS:
-            selected = next((candidate for candidate in (part + "_a", part, part + "_b")
-                             if candidate in names), None)
-            if not selected:
+            selected = next((x for x in (part + "_a", part, part + "_b") if x in names), None)
+            if selected is None:
+                errors.append("Partition not present in super: " + part)
                 continue
             stage = work / "partition"
             scratch = work / "scratch"
@@ -296,89 +606,49 @@ def main(rom: Path, work: Path, lpunpack: Path):
                 call(sys.executable, lpunpack, "-p", selected, super_image, stage)
                 image = stage / (selected + ".img")
                 if not image.is_file() or not image.stat().st_size:
-                    raise RuntimeError("Missing partition image " + selected)
-                root, kind = unpack_partition(image, scratch)
-                if part in APP_PARTITIONS:
-                    scan_apps(root, part, output, entries)
-                scan_thermal(root, part, output, entries, total_thermal)
-                scanned.append({"partition": part, "image": selected, "filesystem": kind})
+                    raise RuntimeError("Unpacked partition missing: " + selected)
+                root, kind = unpack(image, scratch)
+                scan_partition(root, part, out, entries, refs)
+                scanned.append({"image": selected, "partition": part, "filesystem": kind})
             finally:
                 shutil.rmtree(stage, ignore_errors=True)
                 shutil.rmtree(scratch, ignore_errors=True)
     finally:
         super_image.unlink(missing_ok=True)
-    analysis = toolbox_analysis(output, entries)
-    classify(entries, analysis)
-    present = sorted({e["package"] for e in entries if e["category"] == "apks"})
-    missing = sorted(set(TARGETS) - set(present))
+    analyze(out, entries, refs, errors)
+    mapping = write_analysis(out, entries, refs, scanned, errors)
+    validate_original_files(out, entries)
+    packages_found = sorted({e.get("package") for e in entries if e.get("package")})
+    missing = sorted(set(APKS) - set(packages_found))
     manifest = {
         "source_url": os.environ.get("ROM_URL", ""),
-        "preserved_original_bytes": True,
-        "target_packages": list(TARGETS),
-        "packages_found": present,
-        "packages_missing": missing,
+        "original_files_unmodified": True,
         "partitions_scanned": scanned,
-        "thermal_static_analysis": analysis,
-        "files": sorted(entries, key=lambda e: e["zip_path"]),
-        "qualification": ("Static references only; runtime mode switching may be mediated "
-                          "by system services, props, native libraries or root scripts."),
-    }
-    (output / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    originals = sorted(entries, key=lambda e: e["zip_path"])
-    (output / "SHA256SUMS.txt").write_text(
-        "".join(e["sha256"] + "  " + e["zip_path"] + "\n" for e in originals),
-        encoding="utf-8")
-    lines = [
-        "# RYU-EU Updater / PackageInstaller / Toolbox thermal audit", "",
-        "Source ROM: " + os.environ.get("ROM_URL", ""),
-        "Source APKs and thermal files preserved byte-for-byte (no resigning).", "",
-        "## Requested packages", "",
-        "| Package | Status | Original partition and path |",
-        "| --- | --- | --- |",
-    ]
-    for pkg in TARGETS:
-        hits = [e for e in entries if e.get("package") == pkg]
-        paths = "; ".join(e["partition"] + ":" + e["original_path"] for e in hits) or "—"
-        lines.append("| " + pkg + " | " + ("FOUND" if hits else "MISSING") + " | " + paths + " |")
-    related = [e for e in entries if e["category"] in ("thermal", "rom-thermal")]
-    confirmed = [e for e in related if e["relation"] == "referenced_in_toolbox_static_code"]
-    lines.extend([
-        "", "## Toolbox thermal evidence", "",
-        "apktool decode: " + ("PASS" if analysis["decompile_success"] else
-                            "FAILED / INCOMPLETE: " + str(analysis["error"])),
-        "Static matching instructions/assets: " + str(len(analysis["static_thermal_references"])),
-        "Thermal files directly named in Toolbox static references: " + str(len(confirmed)),
-        "Other thermal files retained for inspection: " + str(len(related) - len(confirmed)),
-        "",
-        "| Relation | Original file |",
-        "| --- | --- |",
-    ])
-    for e in related:
-        lines.append("| " + ("STATIC REFERENCE" if e in confirmed else "CANDIDATE") +
-                     " | " + e["partition"] + ":" + e["original_path"] + " |")
-    lines.extend([
-        "", "Static matching does NOT establish that a mode is actively used.",
-        "If no references match, inspect analysis/toolbox-thermal-smali-excerpts.txt and "
-        "manifest.json; a service or a script outside these partitions may own thermal switching.",
-        "Missing packages or unresolved paths are never invented.",
-    ])
-    report = "\n".join(lines) + "\n"
-    (output / "report.md").write_text(report, encoding="utf-8")
-    zip_path = output / "ryu-eu-updater-installer-toolbox-thermal.zip"
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED,
-                         compresslevel=4, allowZip64=True) as archive:
-        for file in sorted(output.rglob("*")):
-            if file.is_file() and not file.is_symlink() and file != zip_path:
-                archive.write(file, file.relative_to(output).as_posix())
-    with zipfile.ZipFile(zip_path) as archive:
-        corrupted = archive.testzip()
-        if corrupted:
-            raise RuntimeError("Output ZIP corruption: " + corrupted)
-    print(report, flush=True)
-    print("[ZIP]", zip_path, zip_path.stat().st_size, "bytes", flush=True)
+        "requested_packages": list(APKS), "packages_found": packages_found,
+        "packages_missing": missing, "framework_requested": list(JARS),
+        "mapping_status": mapping["mapping_status"],
+        "analysis_warnings": errors,
+        "files": sorted(entries, key=lambda e: e["zip_path"])}
+    (out / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (out / "SHA256SUMS.txt").write_text(
+        "".join(e["sha256"] + "  " + e["zip_path"] + "\n"
+                for e in sorted(entries, key=lambda x: x["zip_path"])), encoding="utf-8")
+    archive = out / "RYU-Thermal-Analysis.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED,
+                         compresslevel=4, allowZip64=True) as z:
+        for file in sorted(out.rglob("*")):
+            if file.is_file() and not file.is_symlink() and file != archive:
+                z.write(file, file.relative_to(out).as_posix())
+    with zipfile.ZipFile(archive) as z:
+        if z.testzip() is not None:
+            raise RuntimeError("Artifact ZIP checksum test failed")
+        if "analysis/profile-mapping.json" not in z.namelist():
+            raise RuntimeError("Incomplete analysis ZIP")
+    print((out / "analysis" / "thermal-map-report.md").read_text(), flush=True)
+    print("[ZIP]", archive, archive.stat().st_size, flush=True)
     if missing:
-        raise RuntimeError("Requested APK(s) not found: " + ", ".join(missing))
+        print("::warning::Missing requested packages: " + ", ".join(missing), flush=True)
 
 
 if __name__ == "__main__":
@@ -389,4 +659,4 @@ if __name__ == "__main__":
              Path(sys.argv[3]).resolve())
     except (OSError, ValueError, RuntimeError, zipfile.BadZipFile,
             subprocess.CalledProcessError) as exc:
-        raise SystemExit("[RYU EU THERMAL AUDIT ERROR] " + str(exc))
+        raise SystemExit("[RYU THERMAL EXTRACTION ERROR] " + str(exc))
