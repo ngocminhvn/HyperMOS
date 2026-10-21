@@ -825,6 +825,10 @@ def main(rom: Path, work: Path, lpunpack: Path):
                 root, kind = unpack(image, scratch)
                 scan_partition(root, part, out, entries, refs)
                 scanned.append({"image": selected, "partition": part, "filesystem": kind})
+            except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+                errors.append("Partition extraction incomplete: " + selected + ": " + str(exc))
+                print("::warning::Partition extraction incomplete: " + selected +
+                      ": " + str(exc), flush=True)
             finally:
                 shutil.rmtree(stage, ignore_errors=True)
                 shutil.rmtree(scratch, ignore_errors=True)
