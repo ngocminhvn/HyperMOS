@@ -23,6 +23,8 @@ done
 for cmd in python3 java unzip zip zipalign; do
   command -v "$cmd" >/dev/null || { error "MICTS: missing $cmd"; exit 1; }
 done
+# Audit actual DEX class definitions and method signatures before disassembly.
+python3 "$mod_dir/dex_audit.py" "$services" --mode input
 scratch="$(mktemp -d "$work_dir/jar_temp.micts.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/original" "$scratch/smali"
@@ -57,5 +59,7 @@ done
 zipalign -f 4 "$scratch/patched.jar" "$scratch/aligned.jar"
 unzip -tq "$scratch/aligned.jar" >/dev/null
 [[ -s "$scratch/aligned.jar" ]] || { error 'MICTS: invalid patched JAR'; exit 1; }
+# Audit final JAR after reassembly: target methods, bridge and DEX counts.
+python3 "$mod_dir/dex_audit.py" "$scratch/aligned.jar" --mode output
 cp -f "$scratch/aligned.jar" "$services"
 mods 'MICTS: EU CSService bridge installed; stock MiCTS APK/Tile kept'
