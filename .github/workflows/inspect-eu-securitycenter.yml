@@ -1,0 +1,82 @@
+name: Inspect EU SecurityCenter countdown
+
+on:
+  push:
+    branches:
+      - fix/eu-securitycenter-countdown
+    paths:
+      - .github/workflows/inspect-eu-securitycenter.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: xiaomieu
+            run_id: 39432734236
+            artifact: xiaomieu-securitycenter-39432734236
+          - label: ryu-eu
+            run_id: 39533579142
+            artifact: ryu-eu-securitycenter-39533579142
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          run-id: ${{ matrix.run_id }}
+          github-token: ${{ github.token }}
+          path: original
+      - name: Decode and inspect countdown methods
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s original/SecurityCenter.apk
+          java -Xmx4g -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
+            -i original/SecurityCenter.apk -o decoded > decode.log
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import os
+          root = Path("decoded")
+          needle = "com/miui/permcenter/privacymanager/InterceptPermissionFragment.smali"
+          matches = sorted(p for p in root.rglob("*.smali") if p.as_posix().endswith(needle))
+          print("SOURCE", os.environ.get("SOURCE_LABEL", "unknown"))
+          print("FRAGMENT_MATCHES", len(matches))
+          for path in matches:
+              lines = path.read_text(errors="replace").splitlines()
+              print("FRAGMENT", path, "LINES", len(lines))
+              method = None
+              methods = []
+              for index, line in enumerate(lines, 1):
+                  if line.startswith(".method "):
+                      method = (index, line)
+                  elif line.startswith(".end method") and method:
+                      methods.append((method[0], index, method[1]))
+                      method = None
+              print("METHODS", len(methods))
+              for start, end, header in methods:
+                  body = "\n".join(lines[start - 1:end])
+                  print("METHOD", start, end, header)
+                  if re.search(r"(?i)(count|second|timer|delay|0xa\b|0x0\b)", body):
+                      if end - start <= 90:
+                          for n in range(start, end + 1):
+                              print(f"{n}: {lines[n-1]}")
+                      else:
+                          for n in range(start, end + 1):
+                              if re.search(r"(?i)(count|second|timer|delay|0xa\b)", lines[n-1]):
+                                  lo, hi = max(start, n-6), min(end, n+6)
+                                  for k in range(lo, hi+1):
+                                      print(f"{k}: {lines[k-1]}")
+              print("END_FRAGMENT")
+          PY
+        env:
+          SOURCE_LABEL: ${{ matrix.label }}
