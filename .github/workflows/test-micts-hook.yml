@@ -1,0 +1,26 @@
+name: MiCTS hook smoke tests
+
+on:
+  pull_request:
+    paths:
+      - 'bin/package/MICTS/**'
+      - '.github/workflows/test-micts-hook.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell and Python syntax
+        shell: bash
+        run: |
+          bash -n bin/package/MICTS/update.sh
+          python3 -m py_compile bin/package/MICTS/patch.py bin/package/MICTS/test_patch.py
+      - name: Test strict CSService hook behavior and failure checks
+        shell: bash
+        run: |
+          python3 -m unittest discover -v -s bin/package/MICTS -p 'test_patch.py'
