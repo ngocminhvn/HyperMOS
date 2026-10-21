@@ -47,8 +47,8 @@ jobs:
           import re
           import os
           root = Path("decoded")
-          needle = "com/miui/permcenter/privacymanager/InterceptPermissionFragment.smali"
-          matches = sorted(p for p in root.rglob("*.smali") if p.as_posix().endswith(needle))
+          needles = ("com/miui/permcenter/privacymanager/InterceptPermissionFragment.smali", "com/miui/permcenter/privacymanager/InterceptBaseFragment.smali")
+          matches = sorted(p for p in root.rglob("*.smali") if p.as_posix().endswith(needles))
           print("SOURCE", os.environ.get("SOURCE_LABEL", "unknown"))
           print("FRAGMENT_MATCHES", len(matches))
           for path in matches:
