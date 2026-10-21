@@ -48,61 +48,92 @@ for debloat_app in "${debloat_apps[@]}"; do
         fi
     done
 done
-# Xiaomi.eu may store the Music/Video APKs in an app container whose name
-# does not match the old APPLIST patterns. Identify ONLY these exact package
-# names, sourced from fadeltd/xiaomi-debloater/bloatware.json, via APK manifest.
-# Do not remove arbitrary "Music", "Video", or overlay folders by name.
-if [[ "$EU_DEBLOAT" == "1" ]]; then
-    if ! command -v aapt >/dev/null 2>&1; then
-        error "EU media debloat: aapt is required for exact package detection"
-        exit 1
-    fi
+# Detect Xiaomi media by the actual package name from APK's AndroidManifest,
+# not the source ROM's naming convention. Applies to all ROM sources.
+# fadeltd/xiaomi-debloater: com.miui.player and com.miui.videoplayer;
+# retain the EU-only alternate com.miui.video target from earlier rules.
+# aapt is already installed by the official ROM build workflow.
+if ! command -v aapt >/dev/null 2>&1; then
+    error "Media debloat: aapt is required for exact APK package detection"
+    exit 1
+fi
 
-    images_root="$WORK_DIR/build/baserom/images"
-    eu_app_roots=()
-    for partition in system system_ext product mi_ext mi_product; do
-        for base in "$images_root/$partition" "$images_root/$partition/system"; do
-            for kind in app priv-app data-app; do
-                [[ -d "$base/$kind" ]] && eu_app_roots+=("$base/$kind")
-            done
+media_package_from_apk() {
+    aapt dump badging "$1" 2>/dev/null |
+        sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1
+}
+
+images_root="$WORK_DIR/build/baserom/images"
+media_app_roots=()
+for partition in system system_ext product mi_ext mi_product vendor odm; do
+    for base in "$images_root/$partition" "$images_root/$partition/system"; do
+        for kind in app priv-app data-app; do
+            [[ -d "$base/$kind" ]] && media_app_roots+=("$base/$kind")
         done
     done
+done
 
-    eu_media_removed=0
-    if (( ${#eu_app_roots[@]} > 0 )); then
-        # Collect paths first: deleting an app container while find is walking
-        # it could otherwise skip other APKs or create traversal errors.
-        mapfile -d '' -t eu_media_apks < <(
-            find "${eu_app_roots[@]}" -type f -iname '*.apk' -print0
-        )
-        for apk in "${eu_media_apks[@]}"; do
-            [[ -f "$apk" ]] || continue
-            package_name="$(aapt dump badging "$apk" 2>/dev/null |
-                sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
-            case "$package_name" in
-                com.miui.player|com.miui.videoplayer|com.miui.video) ;;
-                *) continue ;;
-            esac
+media_scanned=0
+media_unreadable=0
+media_removed=0
+if (( ${#media_app_roots[@]} > 0 )); then
+    # Snapshot candidates before deleting containers (NUL-safe paths).
+    mapfile -d '' -t media_apks < <(
+        find "${media_app_roots[@]}" -type f -iname '*.apk' -print0
+    )
 
-            for app_root in "${eu_app_roots[@]}"; do
-                [[ "$apk" == "$app_root/"* ]] || continue
-                relative_apk="${apk#"$app_root/"}"
-                if [[ "$relative_apk" == */* ]]; then
-                    app_container="$app_root/${relative_apk%%/*}"
-                    [[ -d "$app_container" ]] || break
-                    info "EU media debloat: $package_name -> removing $app_container"
-                    rm -rf -- "$app_container" || exit 1
-                else
-                    info "EU media debloat: $package_name -> removing $apk"
-                    rm -f -- "$apk" || exit 1
-                fi
-                ((eu_media_removed+=1))
-                break
-            done
+    for apk in "${media_apks[@]}"; do
+        [[ -f "$apk" ]] || continue
+        ((media_scanned+=1))
+        package_name="$(media_package_from_apk "$apk")"
+        if [[ -z "$package_name" ]]; then
+            ((media_unreadable+=1))
+            continue
+        fi
+
+        case "$package_name" in
+            com.miui.player|com.miui.videoplayer)
+                # Xiaomi Music & Mi Video: remove on China, EU, Global, etc.
+                ;;
+            com.miui.video)
+                # Alternate Mi Video package remains EU-only.
+                [[ "$EU_DEBLOAT" == "1" ]] || continue
+                ;;
+            *) continue ;;
+        esac
+
+        for app_root in "${media_app_roots[@]}"; do
+            [[ "$apk" == "$app_root/"* ]] || continue
+            relative_apk="${apk#"$app_root/"}"
+            if [[ "$relative_apk" == */* ]]; then
+                container="$app_root/${relative_apk%%/*}"
+                [[ -d "$container" ]] || break
+
+                # Remove the entire app container only when EVERY APK inside
+                # declares the same package. Otherwise abort safely instead
+                # of deleting another application's APK or shared resources.
+                mapfile -d '' -t container_apks < <(
+                    find "$container" -type f -iname '*.apk' -print0
+                )
+                for sibling in "${container_apks[@]}"; do
+                    sibling_package="$(media_package_from_apk "$sibling")"
+                    if [[ "$sibling_package" != "$package_name" ]]; then
+                        error "Media debloat: mixed/unreadable package in $container ($sibling); not deleting"
+                        exit 1
+                    fi
+                done
+                info "Media debloat [${EU_DEBLOAT}]: $package_name -> removing $container"
+                rm -rf -- "$container" || exit 1
+            else
+                info "Media debloat [${EU_DEBLOAT}]: $package_name -> removing $apk"
+                rm -f -- "$apk" || exit 1
+            fi
+            ((media_removed+=1))
+            break
         done
-    fi
-    info "EU media debloat: removed $eu_media_removed Xiaomi Music/Mi Video app container(s)"
+    done
 fi
+info "Media debloat: scanned=$media_scanned unreadable=$media_unreadable removed=$media_removed (EU=$EU_DEBLOAT)"
 
 info "Debloat Done"
 
