@@ -1,108 +1,82 @@
 #!/usr/bin/env python3
-"""Strict Xiaomi.eu Android 16 MiCTS CSService bridge patcher.
+"""MiCTS EU Android 16 test hook: strict CSService, no VIS fallback.
 
-Scope the ContextualSearch permission exception to a verified MiCTS Binder
-request, never to arbitrary callers or a globally disabled permission check.
+Match the MiCTS invocation marker, then verify its *package UID* (not APK
+signature/version). The package lookup is needed to avoid granting unrelated
+apps a screenshot-capable contextual-search permission exception.
 """
 import argparse
-import base64
-import hashlib
 from pathlib import Path
 import re
-import struct
 import sys
 
-VIMS = 'com/android/server/voiceinteraction/VoiceInteractionManagerService$VoiceInteractionManagerServiceStub.smali'
-CSMS = 'com/android/server/contextualsearch/ContextualSearchManagerService.smali'
-BRIDGE = 'com/android/server/micts/MiCTSBridge.smali'
+VIMS = "com/android/server/voiceinteraction/VoiceInteractionManagerService$VoiceInteractionManagerServiceStub.smali"
+CSMS = "com/android/server/contextualsearch/ContextualSearchManagerService.smali"
+BRIDGE = "com/android/server/micts/MiCTSBridge.smali"
 
-def item(buf, off, width=4):
-    if off + width > len(buf):
-        raise ValueError('truncated APK signing block')
-    n = int.from_bytes(buf[off:off+width], 'little')
-    end = off+width+n
-    if end > len(buf):
-        raise ValueError('invalid APK signing block length')
-    return buf[off+width:end], end
-
-def cert_hash(apk):
-    data=Path(apk).read_bytes()
-    pos=data.rfind(b'PK\x05\x06', max(0,len(data)-65557))
-    if pos < 0 or pos+22 > len(data):
-        raise ValueError('APK ZIP directory missing')
-    cd=struct.unpack_from('<I',data,pos+16)[0]
-    if cd<24 or data[cd-16:cd]!=b'APK Sig Block 42':
-        raise ValueError('APK has no v2/v3 signature')
-    length=struct.unpack_from('<Q',data,cd-24)[0]
-    start=cd-length-8
-    if start<0 or struct.unpack_from('<Q',data,start)[0]!=length:
-        raise ValueError('APK signing block corrupt')
-    p=start+8
-    while p<cd-24:
-        pair,p=item(data,p,8)
-        if len(pair)<4: raise ValueError('invalid APK signer')
-        if struct.unpack_from('<I',pair,0)[0] not in (0x7109871a,0xf05368c0):
-            continue
-        signers,_=item(pair,4)
-        signer,_=item(signers,0)
-        signed,_=item(signer,0)
-        _,q=item(signed,0)
-        certs,_=item(signed,q)
-        cert,_=item(certs,0)
-        if not cert.startswith(b'0'): raise ValueError('invalid signer DER')
-        return hashlib.sha256(cert).digest()
-    raise ValueError('no supported APK signing scheme')
 
 def find_one(roots, rel):
-    paths=[p for root in roots for p in root.rglob(rel)]
-    if len(paths)!=1:
-        raise ValueError('expected exactly one %s, found %d' % (rel,len(paths)))
+    paths = [p for root in roots for p in root.rglob(rel)]
+    if len(paths) != 1:
+        raise ValueError(f"expected one {rel}, found {len(paths)}")
     return paths[0]
 
+
 def inject(src, method, code):
-    hits=list(re.finditer(method,src,re.M))
-    if len(hits)!=1: raise ValueError('missing or ambiguous target method: '+method)
-    a=hits[0].end()
-    b=src.find('\n.end method',a)
-    if b<0: raise ValueError('unterminated smali method')
-    body=src[a:b]
-    if 'MiCTSBridge;' in body: raise ValueError('method already patched')
-    m=re.search(r'(?m)^[ \t]*\.locals[ \t]+(\d+)[ \t]*$',body)
-    if not m: raise ValueError('smali must be disassembled with baksmali -l')
-    if int(m.group(1))<1:
-        body=body[:m.start(1)]+'1'+body[m.end(1):]
-        m=re.search(r'(?m)^[ \t]*\.locals[ \t]+\d+[ \t]*$',body)
-    # Keep debug/parameter annotations before the new instructions.
-    offset=m.end()
-    in_annotation=False
+    hits = list(re.finditer(method, src, re.M))
+    if len(hits) != 1:
+        raise ValueError("missing/ambiguous method: " + method)
+    a = hits[0].end()
+    b = src.find("\n.end method", a)
+    if b < 0:
+        raise ValueError("unterminated method: " + method)
+    body = src[a:b]
+    if "MiCTSBridge;" in body:
+        raise ValueError("method already patched")
+    m = re.search(r"(?m)^[ \t]*\.locals[ \t]+(\d+)[ \t]*$", body)
+    if not m:
+        raise ValueError("expected .locals in target method")
+    if int(m.group(1)) < 1:
+        body = body[:m.start(1)] + "1" + body[m.end(1):]
+        m = re.search(r"(?m)^[ \t]*\.locals[ \t]+\d+[ \t]*$", body)
+    # Keep method param/annotation directives before the injection.
+    offset = m.end()
+    annotation = False
     for line in body[offset:].splitlines(keepends=True):
-        s=line.strip()
-        if s.startswith('.annotation'): in_annotation=True
-        if s.startswith('.end annotation'):
-            in_annotation=False
-            offset+=len(line)
+        s = line.strip()
+        if s.startswith(".annotation"):
+            annotation = True
+        if s.startswith(".end annotation"):
+            annotation = False
+            offset += len(line)
             continue
-        if not in_annotation and s and not s.startswith(('.', '#')):
+        if not annotation and s and not s.startswith((".", "#")):
             break
-        offset+=len(line)
-    body=body[:offset]+'\n'+code+'\n'+body[offset:]
-    return src[:a]+body+src[b:]
+        offset += len(line)
+    body = body[:offset] + "\n" + code + "\n" + body[offset:]
+    return src[:a] + body + src[b:]
 
-VIS_HOOK="""    invoke-static {p2}, Lcom/android/server/micts/MiCTSBridge;->tryStart(Landroid/os/Bundle;)Z
+
+# Only a marked MiCTS call is intercepted. Once intercepted, return the
+# CSService result directly: false means test failure, NEVER VIS fallback.
+VIS_HOOK = """    invoke-static {p2}, Lcom/android/server/micts/MiCTSBridge;->isRequest(Landroid/os/Bundle;)Z
     move-result v0
-    if-eqz v0, :micts_vis_fallback
-    const/4 v0, 0x1
+    if-eqz v0, :micts_original_vis
+    invoke-static {p2}, Lcom/android/server/micts/MiCTSBridge;->start(Landroid/os/Bundle;)Z
+    move-result v0
     return v0
-    :micts_vis_fallback"""
-CS_HOOK="""    invoke-static {}, Lcom/android/server/micts/MiCTSBridge;->isActive()Z
-    move-result v0
-    if-eqz v0, :micts_permission_original
-    return-void
-    :micts_permission_original"""
+    :micts_original_vis"""
 
-def bridge(digest):
-    signer=base64.b64encode(digest).decode('ascii')
-    return """# Generated by bin/package/MICTS/patch.py. No daemon, no global bypass.
+# Only within the authenticated current-thread CSService invocation.
+CS_HOOK = """    invoke-static {}, Lcom/android/server/micts/MiCTSBridge;->isActive()Z
+    move-result v0
+    if-eqz v0, :micts_original_permission
+    return-void
+    :micts_original_permission"""
+
+
+BRIDGE_SMALI = """# Generated by bin/package/MICTS/patch.py.
+# No version or signature pin; no VIS fallback; no daemon.
 .class public final Lcom/android/server/micts/MiCTSBridge;
 .super Ljava/lang/Object;
 
@@ -114,6 +88,19 @@ def bridge(digest):
     invoke-direct {v0}, Ljava/lang/ThreadLocal;-><init>()V
     sput-object v0, Lcom/android/server/micts/MiCTSBridge;->sActive:Ljava/lang/ThreadLocal;
     return-void
+.end method
+
+.method public static isRequest(Landroid/os/Bundle;)Z
+    .locals 2
+    if-eqz p0, :micts_not_request
+    const-string v0, "micts_trigger"
+    const/4 v1, 0x0
+    invoke-virtual {p0, v0, v1}, Landroid/os/Bundle;->getBoolean(Ljava/lang/String;Z)Z
+    move-result v0
+    return v0
+    :micts_not_request
+    const/4 v0, 0x0
+    return v0
 .end method
 
 .method public static isActive()Z
@@ -130,51 +117,36 @@ def bridge(digest):
     return v0
 .end method
 
-.method public static tryStart(Landroid/os/Bundle;)Z
+.method public static start(Landroid/os/Bundle;)Z
     .locals 13
-    if-eqz p0, :micts_fallback
-    const-string v0, "micts_trigger"
-    const/4 v1, 0x0
-    invoke-virtual {p0, v0, v1}, Landroid/os/Bundle;->getBoolean(Ljava/lang/String;Z)Z
-    move-result v0
-    if-eqz v0, :micts_fallback
-
-    :micts_outer_start
+    :micts_try_begin
+    # Preserve a lightweight package-UID guard independent of app updates.
     invoke-static {}, Landroid/os/Binder;->getCallingUid()I
     move-result v0
     invoke-static {}, Landroid/app/ActivityThread;->currentActivityThread()Landroid/app/ActivityThread;
     move-result-object v1
-    if-eqz v1, :micts_fallback
+    if-eqz v1, :micts_fail
     invoke-virtual {v1}, Landroid/app/ActivityThread;->getSystemContext()Landroid/app/ContextImpl;
     move-result-object v1
-    if-eqz v1, :micts_fallback
+    if-eqz v1, :micts_fail
     invoke-virtual {v1}, Landroid/content/Context;->getPackageManager()Landroid/content/pm/PackageManager;
     move-result-object v2
-    if-eqz v2, :micts_fallback
     invoke-virtual {v2, v0}, Landroid/content/pm/PackageManager;->getPackagesForUid(I)[Ljava/lang/String;
     move-result-object v3
-    if-eqz v3, :micts_fallback
+    if-eqz v3, :micts_fail
     const-string v4, "com.parallelc.micts"
     const/4 v5, 0x0
     array-length v6, v3
-    :micts_check_uid
-    if-ge v5, v6, :micts_fallback
+    :micts_scan_uid
+    if-ge v5, v6, :micts_fail
     aget-object v7, v3, v5
     invoke-virtual {v4, v7}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
-    move-result v8
-    if-nez v8, :micts_check_signer
-    add-int/lit8 v5, v5, 0x1
-    goto :micts_check_uid
-    :micts_check_signer
-    const-string v7, "%s"
-    const/4 v8, 0x0
-    invoke-static {v7, v8}, Landroid/util/Base64;->decode(Ljava/lang/String;I)[B
-    move-result-object v7
-    const/4 v8, 0x1
-    invoke-virtual {v2, v4, v7, v8}, Landroid/content/pm/PackageManager;->hasSigningCertificate(Ljava/lang/String;[BI)Z
     move-result v9
-    if-eqz v9, :micts_fallback
+    if-nez v9, :micts_uid_ok
+    add-int/lit8 v5, v5, 0x1
+    goto :micts_scan_uid
 
+    :micts_uid_ok
     const-string v4, "omni.entry_point"
     const/4 v5, 0x1
     invoke-virtual {p0, v4, v5}, Landroid/os/Bundle;->getInt(Ljava/lang/String;I)I
@@ -182,67 +154,86 @@ def bridge(digest):
     const-string v5, "contextual_search"
     invoke-static {v5}, Landroid/os/ServiceManager;->getService(Ljava/lang/String;)Landroid/os/IBinder;
     move-result-object v5
-    if-eqz v5, :micts_fallback
+    if-eqz v5, :micts_fail
     invoke-static {v5}, Landroid/app/contextualsearch/IContextualSearchManager$Stub;->asInterface(Landroid/os/IBinder;)Landroid/app/contextualsearch/IContextualSearchManager;
     move-result-object v5
-    if-eqz v5, :micts_fallback
+    if-eqz v5, :micts_fail
 
-    sget-object v6, Lcom/android/server/micts/MiCTSBridge;->sActive:Ljava/lang/ThreadLocal;
-    sget-object v7, Ljava/lang/Boolean;->TRUE:Ljava/lang/Boolean;
-    invoke-virtual {v6, v7}, Ljava/lang/ThreadLocal;->set(Ljava/lang/Object;)V
+    # Existing upstream route switches Binder identity temporarily.
+    # Always restore it and remove the ThreadLocal when leaving CSService.
     invoke-static {}, Landroid/os/Binder;->clearCallingIdentity()J
     move-result-wide v7
-    :micts_invoke_start
+    sget-object v6, Lcom/android/server/micts/MiCTSBridge;->sActive:Ljava/lang/ThreadLocal;
+    :micts_invoke_setup
+    sget-object v9, Ljava/lang/Boolean;->TRUE:Ljava/lang/Boolean;
+    invoke-virtual {v6, v9}, Ljava/lang/ThreadLocal;->set(Ljava/lang/Object;)V
+    :micts_invoke_begin
     invoke-interface {v5, v4}, Landroid/app/contextualsearch/IContextualSearchManager;->startContextualSearch(I)V
     :micts_invoke_end
     invoke-static {v7, v8}, Landroid/os/Binder;->restoreCallingIdentity(J)V
     invoke-virtual {v6}, Ljava/lang/ThreadLocal;->remove()V
+    const-string v1, "MiCTSBridge"
+    const-string v2, "CSService invocation sent"
+    invoke-static {v1, v2}, Landroid/util/Slog;->i(Ljava/lang/String;Ljava/lang/String;)I
+    move-result v3
     const/4 v0, 0x1
     return v0
-    :micts_invoke_error
+
+    :micts_invoke_catch
     move-exception v9
     invoke-static {v7, v8}, Landroid/os/Binder;->restoreCallingIdentity(J)V
     invoke-virtual {v6}, Ljava/lang/ThreadLocal;->remove()V
     throw v9
-    .catchall {:micts_invoke_start .. :micts_invoke_end} :micts_invoke_error
-    :micts_outer_end
-    goto :micts_fallback
-    :micts_outer_catch
-    move-exception v0
+    .catchall {:micts_invoke_setup .. :micts_invoke_end} :micts_invoke_catch
+
+    :micts_fail
     const-string v1, "MiCTSBridge"
-    const-string v2, "CSService path failed; retaining VIS"
-    invoke-static {v1, v2, v0}, Landroid/util/Slog;->w(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)I
+    const-string v2, "CSService unavailable or MiCTS package UID mismatch (no VIS fallback)"
+    invoke-static {v1, v2}, Landroid/util/Slog;->w(Ljava/lang/String;Ljava/lang/String;)I
     move-result v3
-    :micts_fallback
     const/4 v0, 0x0
     return v0
-    .catch Ljava/lang/Throwable; {:micts_outer_start .. :micts_outer_end} :micts_outer_catch
+
+    :micts_try_end
+    goto :micts_fail
+    :micts_error
+    move-exception v0
+    const-string v1, "MiCTSBridge"
+    const-string v2, "CSService invocation failed (no VIS fallback)"
+    invoke-static {v1, v2, v0}, Landroid/util/Slog;->e(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)I
+    move-result v3
+    const/4 v0, 0x0
+    return v0
+    .catch Ljava/lang/Throwable; {:micts_try_begin .. :micts_try_end} :micts_error
 .end method
-""" % signer
+"""
+
 
 def main():
-    ap=argparse.ArgumentParser()
-    ap.add_argument('--root',type=Path,required=True)
-    ap.add_argument('--apk',type=Path,required=True)
-    args=ap.parse_args()
-    signer=cert_hash(args.apk)
-    roots=list(args.root.glob('classes*.dex.out'))
-    if not roots: raise ValueError('no disassembled services.jar DEX')
-    vis=find_one(roots,VIMS)
-    cs=find_one(roots,CSMS)
-    base=next(x for x in roots if x in vis.parents)
-    dest=base/BRIDGE
-    if dest.exists(): raise ValueError('already patched')
-    a=inject(vis.read_text(),r'^\.method[^\n]*\bshowSessionFromSession\(Landroid/os/IBinder;Landroid/os/Bundle;ILjava/lang/String;\)Z[ \t]*$',VIS_HOOK)
-    b=inject(cs.read_text(),r'^\.method[^\n]*\benforcePermission\(Ljava/lang/String;\)V[ \t]*$',CS_HOOK)
-    # No files written until every method and certificate has passed validation.
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--root", type=Path, required=True)
+    args = ap.parse_args()
+    roots = list(args.root.glob("classes*.dex.out"))
+    if not roots:
+        raise ValueError("no disassembled services.jar DEX")
+    vis = find_one(roots, VIMS)
+    cs = find_one(roots, CSMS)
+    parent = next(root for root in roots if root in vis.parents)
+    dest = parent / BRIDGE
+    if dest.exists():
+        raise ValueError("already patched")
+    a = inject(vis.read_text(), r"^\.method[^\n]*\bshowSessionFromSession\(Landroid/os/IBinder;Landroid/os/Bundle;ILjava/lang/String;\)Z[ \t]*$", VIS_HOOK)
+    b = inject(cs.read_text(), r"^\.method[^\n]*\benforcePermission\(Ljava/lang/String;\)V[ \t]*$", CS_HOOK)
+    # Validate all methods first. No partial writes when a signature differs.
     vis.write_text(a)
     cs.write_text(b)
-    dest.parent.mkdir(parents=True,exist_ok=True)
-    dest.write_text(bridge(signer))
-    print('MICTS: validated and patched VIMS, CSMS; signer:',signer.hex())
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(BRIDGE_SMALI)
+    print("MICTS: CSService-only bridge added; no APK signer pin; no VIS fallback")
 
-if __name__=='__main__':
-    try: main()
-    except (ValueError,OSError) as error:
-        sys.exit('MICTS FAIL-CLOSED: '+str(error))
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError) as err:
+        sys.exit("MICTS FAST-FAIL: " + str(err))
