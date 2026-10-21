@@ -511,6 +511,12 @@ def analyze(out: Path, entries: list[dict], refs: dict, errors: list[str]):
             errors.append("Static analysis " + identity + ": " + str(ex))
     binary_refs: list[dict] = []
     binary_leads(out, entries, binary_refs, errors)
+    for label, collection in (
+            ("SMALI", code_refs), ("resources", resource_refs),
+            ("DEX", dex_refs), ("ELF", binary_refs)):
+        if len(collection) >= MAX_REFERENCE_LINES:
+            errors.append(label + " evidence hit extraction cap of " +
+                          str(MAX_REFERENCE_LINES) + " (partial evidence)")
     refs["code"] = code_refs
     refs["resources"] = resource_refs
     refs["dex"] = dex_refs
@@ -743,6 +749,53 @@ def validate_original_files(out: Path, entries: list[dict]):
             raise RuntimeError("Checksum or size mismatch: " + row["zip_path"])
 
 
+
+def self_test():
+    """Lightweight fixture test, before downloading multi-GB ROM in CI."""
+    with tempfile.TemporaryDirectory(prefix="ryu-thermal-test-") as tmp:
+        home = Path(tmp)
+        root, out = home / "vendor-files", home / "out"
+        (root / "etc" / "perf").mkdir(parents=True)
+        (root / "etc" / "init").mkdir(parents=True)
+        (root / "bin").mkdir(parents=True)
+        (root / "etc" / "thermal-map.conf").write_text(
+            "sconfig=2 profile=thermal-normal.conf\n", encoding="utf-8")
+        (root / "etc" / "thermal-normal.conf").write_text(
+            "sensor=cpu-therm\n", encoding="utf-8")
+        (root / "etc" / "perf" / "profile.json").write_text(
+            '{"hint":"ryu"}\n', encoding="utf-8")
+        (root / "etc" / "init" / "init.vendor.thermal.rc").write_text(
+            "service mi_thermald /vendor/bin/mi_thermald\n"
+            "    class main\n"
+            "    --config /vendor/etc/thermal-normal.conf\n", encoding="utf-8")
+        (root / "bin" / "mi_thermald").write_bytes(b"\x7fELFtest\n")
+        entries: list[dict] = []
+        refs: dict = {"code": [], "resources": [], "dex": [], "config": [],
+                      "paths": [], "binary": [], "archives_scanned": []}
+        scan_partition(root, "vendor", out, entries, refs)
+        saved = {row["zip_path"] for row in entries}
+        assert "thermal/vendor/etc/thermal-map.conf" in saved
+        assert "thermal/vendor/etc/thermal-normal.conf" in saved
+        assert "perf/vendor/etc/perf/profile.json" in saved
+        assert "init-services/vendor/etc/init/init.vendor.thermal.rc" in saved
+        assert "binaries/vendor/bin/mi_thermald" in saved
+        assert any(e["referenced_path"] == "/vendor/etc/thermal-normal.conf"
+                   for e in refs["paths"])
+        append_hits([
+            ".method public choose()V", "const/4 v0, 0x2",
+            'const-string v1, "projectryu_thermal_sconfig"',
+            ".end method"], "toolbox!/smali/X.smali", refs["code"])
+        result = write_analysis(out, entries, refs, [], [])
+        assert result["required_config_files"]["thermal-map.conf"]["status"] == "FOUND"
+        assert result["required_config_files"]["thermal-hp-normal.conf"]["status"] == "MISSING"
+        assert result["profile_mappings"][0]["status"] == "candidate"
+        assert result["mapping_status"] == "unknown"
+        assert result["init_declared_service_candidates"][0]["service"] == "mi_thermald"
+        assert (out / "analysis" / "profile-mapping.json").is_file()
+        validate_original_files(out, entries)
+    print("[SELFTEST] thermal/config/perf/binary/init classification & evidence: PASS", flush=True)
+
+
 def main(rom: Path, work: Path, lpunpack: Path):
     out = work / "output"
     out.mkdir(parents=True, exist_ok=True)
@@ -800,6 +853,10 @@ def main(rom: Path, work: Path, lpunpack: Path):
     archive = out / "RYU-Thermal-Analysis.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED,
                          compresslevel=4, allowZip64=True) as z:
+        for folder in ("apks", "framework", "thermal/odm", "thermal/vendor",
+                       "perf", "binaries", "libraries", "init-services",
+                       "properties", "analysis"):
+            z.writestr(folder + "/", "")
         for file in sorted(out.rglob("*")):
             if file.is_file() and not file.is_symlink() and file != archive:
                 z.write(file, file.relative_to(out).as_posix())
@@ -815,6 +872,9 @@ def main(rom: Path, work: Path, lpunpack: Path):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--self-test"]:
+        self_test()
+        sys.exit(0)
     if len(sys.argv) != 4:
         raise SystemExit("Usage: extract_ryu_eu_toolbox.py ROM.zip WORKDIR bin/lpunpack.py")
     try:
