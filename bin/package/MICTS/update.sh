@@ -48,6 +48,18 @@ for dex in "${dexes[@]}"; do
     java -jar "$work_dir/bin/apktool/smaliv2.jar" a --api "$sdk" "$scratch/smali/$dex.out" -o "$scratch/$dex" >/dev/null
     java -jar "$work_dir/bin/apktool/baksmaliv2.jar" d -l --api "$sdk" "$scratch/$dex" -o "$scratch/verified-$dex" >/dev/null
     [[ -d "$scratch/verified-$dex/com/android/server" ]] || { error "MICTS: DEX verification failed: $dex"; exit 1; }
+    # Verify the exact smali callsite survives reassembly, not just valid DEX syntax.
+    if [[ -f "$scratch/smali/$dex.out/com/android/server/micts/MiCTSBridge.smali" ]]; then
+      [[ -s "$scratch/verified-$dex/com/android/server/micts/MiCTSBridge.smali" ]] || { error "MICTS: bridge lost after reassembly"; exit 1; }
+    fi
+    for rel in 'com/android/server/contextualsearch/ContextualSearchManagerService.smali' 'com/android/server/voiceinteraction/VoiceInteractionManagerService$VoiceInteractionManagerServiceStub.smali'; do
+      if [[ -f "$scratch/smali/$dex.out/$rel" ]]; then
+        grep -Fq 'Lcom/android/server/micts/MiCTSBridge;' "$scratch/verified-$dex/$rel" || {
+          error "MICTS: callsite lost after reassembly: $rel"
+          exit 1
+        }
+      fi
+    done
     (cd "$scratch" && zip -q -0 patched.jar "$dex")
   fi
 done
