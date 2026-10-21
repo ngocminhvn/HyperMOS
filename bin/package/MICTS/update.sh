@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# EU/Android 16 only. Uses the existing signed MiCTS 2.6 APK as the Tile UI.
+# EU/Android 16 only. APK-independent framework hook; existing MiCTS Tile stays.
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
 mod_dir="$work_dir/bin/package/MICTS"
@@ -13,18 +13,9 @@ if [[ ! -s "$src_file" || ! -s "$android_file" ]] ||
   exit 0
 fi
 services="$work_dir/build/baserom/images/system/framework/services.jar"
-apk="$work_dir/build/downloadapp-cache/MiCTS_2.6.apk"
-if [[ ! -s "$apk" ]]; then
-  apk="$work_dir/bin/modfile/Universal/downloadapp/MiCTS_2.6.apk"
-fi
-if [[ ! -s "$apk" ]]; then
-  error 'MICTS: MiCTS_2.6.apk missing; downloadapp staging must run first'
-  exit 1
-fi
-if [[ "$(sha256sum "$apk" | cut -d' ' -f1)" != '4680d24112fbf0d7ff5bbc055b760f2d67173d7d5879ec5411540d5caa7a97b8' ]]; then
-  error 'MICTS: official APK SHA-256 mismatch'
-  exit 1
-fi
+# Do not pin/check MiCTS APK version, SHA-256, or signer here.
+# The framework bridge is compatible with future APK updates as long as
+# the request marker and method signature remain compatible.
 sdk="$(tr -d '\r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")"
 for f in "$services" "$work_dir/bin/apktool/baksmaliv2.jar" "$work_dir/bin/apktool/smaliv2.jar"; do
   [[ -s "$f" ]] || { error "MICTS: missing $f"; exit 1; }
@@ -41,7 +32,7 @@ mapfile -t dexes < <(find "$scratch/original" -maxdepth 1 -name 'classes*.dex' -
 for dex in "${dexes[@]}"; do
   java -jar "$work_dir/bin/apktool/baksmaliv2.jar" d -l --api "$sdk" "$scratch/original/$dex" -o "$scratch/smali/$dex.out" >/dev/null
 done
-python3 "$mod_dir/patch.py" --root "$scratch/smali" --apk "$apk"
+python3 "$mod_dir/patch.py" --root "$scratch/smali"
 cp "$services" "$scratch/patched.jar"
 for dex in "${dexes[@]}"; do
   if find "$scratch/smali/$dex.out" -type f \( -name 'MiCTSBridge.smali' -o -name '*VoiceInteractionManagerServiceStub.smali' -o -name 'ContextualSearchManagerService.smali' \) -print -quit | grep -q .; then
