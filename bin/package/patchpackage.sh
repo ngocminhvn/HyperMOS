@@ -36,5 +36,13 @@ if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
 fi
 
 
+# MiCTS must be last: CorePatch/Kaorios already modify services.jar.
+# The MiCTS updater itself skips China/non-A16 without changing any JAR.
+info "PATCH 6/6: MiCTS CSService (Xiaomi.eu A16)"
+if ! bash "$target_dir/MICTS/update.sh"; then
+  error "MICTS: validated patch failed; aborting package stage"
+  exit 1
+fi
+
 ok "System patch stage completed"
 
