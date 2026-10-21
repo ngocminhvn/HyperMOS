@@ -655,17 +655,36 @@ def write_analysis(out: Path, entries: list[dict], refs: dict,
         for r in refs["resources"]
         if re.search(r"thermal|sconfig|profile|balanced|performance|game", r["match"], re.I)
     ][:100]
+    all_leads = refs["code"] + refs["resources"] + refs["dex"] + refs["binary"]
+    def trace_key(key: str) -> dict:
+        hits = [
+            {"source": r["source"], "line": r.get("line"),
+             "excerpt": (r.get("context") or r.get("text") or r.get("match") or "")[:700],
+             "evidence_type": r.get("evidence_type", "static_source_excerpt")}
+            for r in all_leads
+            if key.lower() in (
+                (r.get("context") or "") + (r.get("text") or "") +
+                (r.get("match") or "")).lower()
+        ][:20]
+        return {
+            "status": "candidate" if hits else "unknown",
+            "evidence": hits,
+            "runtime_test_required": True,
+            "meaning": "Static reference only; not proof of a runtime write"}
     mapping = {
         "schema_version": 2,
         "assessment": "static analysis only",
+        "status_definitions": {
+            "confirmed": "Only end-to-end UI action, sconfig/Settings, service, and runtime effect are verified",
+            "candidate": "An explicit static reference or mapping statement exists but lacks runtime proof",
+            "unknown": "No sufficient, uniquely attributable evidence of a mapping"},
         "mapping_status": "unknown",
         "confirmation_rule": (
             "confirmed requires a traced UI selection -> Settings/IPC/sysfs write -> "
             "service interpretation -> profile config and runtime state evidence; "
             "filenames and code/binary strings alone never confirm a mapping"),
-        "watched_settings": {key: {"status": "unknown", "runtime_test_required": True}
-                             for key in SETTINGS_KEYS},
-        "watched_sysfs": {SYSFS_KEY: {"status": "unknown", "runtime_test_required": True}},
+        "watched_settings": {key: trace_key(key) for key in SETTINGS_KEYS},
+        "watched_sysfs": {SYSFS_KEY: trace_key(SYSFS_KEY)},
         "required_config_files": file_lookup,
         "ui_choices": [],
         "ui_label_leads": ui_candidates,
