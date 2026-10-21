@@ -25,13 +25,12 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   `Framework_FixDevicePolicy` keep the Xiaomi.eu originals.
   `Framework_FixDevicePolicy` is China-only because the EU
   `SystemServerImpl` has no `enforceVersionPolicy()` to patch.
-- `Framework_FixDelayPowerMenu` is an **EU OS3 compatibility trial**, enabled
-  by default. It targets only the literal nested
+- `Framework_FixDelayPowerMenu` runs automatically on Xiaomi.eu OS3,
+  without a workflow checkbox. It targets only the literal nested
   `MiuiShortcutTriggerHelper$ShortcutSettingsObserver` class, requires exactly
   three `IS_GLOBAL_BUILD` reads, and re-disassembles the rebuilt DEX before
   replacing the JAR. A mismatch fails the build while retaining the source JAR.
-  Set `HYPERMOS_EU_DELAY_POWER_MENU_FIX=0` to skip this patch on EU
-  without modifying China or the five EU build properties. Device runtime
+  China ROM behavior and the five EU build properties are unchanged. Device runtime
   behavior (power menu, key shortcuts, lock/unlock) still requires testing.
 - `Provisions_RegionPatch` and `System_MultiDisableFeature`
   intentionally run for Xiaomi.eu. Provision requires exactly one
