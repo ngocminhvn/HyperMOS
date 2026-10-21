@@ -112,7 +112,8 @@ jobs:
               assert z.testzip() is None, "Corrupt ZIP member"
               names = set(z.namelist())
               assert {"manifest.json", "SHA256SUMS.txt", "analysis/profile-mapping.json", "analysis/thermal-map-report.md", "analysis/toolbox-thermal-references.txt", "analysis/service-references.txt"} <= names
-              assert any(p.startswith("apks/") for p in names), "No APKs included"
+              assert any(p.startswith("apks/") and p.lower().endswith(".apk")
+                         for p in names), "No original APK extracted"
               print("[ZIP VERIFIED]", len(names), "members")
           PY
           {
