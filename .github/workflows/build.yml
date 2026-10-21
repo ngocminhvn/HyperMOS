@@ -15,6 +15,11 @@ on:
         required: false
         default: false
         type: boolean
+      eu_power_menu_fix:
+        description: 'EU OS3: Fix delay power menu (A/B test, on by default)'
+        required: true
+        default: true
+        type: boolean
       root_mode:
         description: 'SukiSU Ultra v4.2.1 root (stock KMI, manager APK bundled)'
         required: true
@@ -131,6 +136,7 @@ jobs:
         env:
           INPUT_URL: ${{ inputs.input_url }}
           ROOT_MODE: ${{ inputs.root_mode }}
+          HYPERMOS_EU_DELAY_POWER_MENU_FIX: ${{ inputs.eu_power_menu_fix && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail
