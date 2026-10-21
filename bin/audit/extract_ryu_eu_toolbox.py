@@ -176,16 +176,23 @@ def scan_partition(root: Path, part: str, out: Path, entries: list[dict],
         except OSError:
             continue
         for idx, line in enumerate(lines, 1):
-            if not TERMS.search(line):
-                continue
-            if len(references["config"]) < MAX_REFERENCE_LINES:
+            # Paths may occur on continuation lines without the word "thermal".
+            if TERMS.search(line) and len(references["config"]) < MAX_REFERENCE_LINES:
                 references["config"].append({
                     "source": part + ":/" + rel.as_posix(),
                     "line": idx, "text": line[:500], "kind": group})
             for token in PATH_TOKEN.findall(line):
-                references["paths"].append({
-                    "source": part + ":/" + rel.as_posix(),
-                    "line": idx, "referenced_path": token.rstrip(",:;)")})
+                token = token.rstrip(",:;)")
+                # Capture configs/thermal binaries invoked from init; do not
+                # archive unrelated /system/bin commands just because an RC cites them.
+                if ("/etc/" not in token and
+                        not EXECUTABLE.search(Path(token).name) and
+                        not LIBRARY.fullmatch(Path(token).name)):
+                    continue
+                item = {"source": part + ":/" + rel.as_posix(),
+                        "line": idx, "referenced_path": token}
+                if item not in references["paths"]:
+                    references["paths"].append(item)
     # Extract additional named files referenced by the discovered init/config lines.
     for ref in references["paths"]:
         token = ref["referenced_path"]
@@ -201,6 +208,86 @@ def scan_partition(root: Path, part: str, out: Path, entries: list[dict],
                           entries, referenced_from=ref["source"])
                 break
 
+
+
+def follow_cross_partition_refs(super_image: Path, names: set[str], lpunpack: Path,
+                                work: Path, out: Path, entries: list[dict],
+                                refs: dict, errors: list[str]):
+    """Resolve paths declared by ROM init/config files, including cross-partition links.
+
+    Operates on partition images sequentially, never bundles image bytes. A path
+    mentioned by a file is evidence of a *reference*, not proof it was invoked.
+    """
+    for pass_number in range(2):
+        archive_paths = {e["device_path_candidate"] for e in entries
+                         if e.get("device_path_candidate")}
+        wanted: dict[str, set[str]] = {}
+        for item in refs["paths"]:
+            token = item["referenced_path"]
+            part = next((x for x in PARTITIONS if token.startswith("/" + x + "/")), None)
+            if not part or token in archive_paths:
+                continue
+            wanted.setdefault(part, set()).add(token)
+        if not wanted:
+            break
+        progress = 0
+        for part, paths in wanted.items():
+            selected = next((name for name in (part + "_a", part, part + "_b")
+                             if name in names), None)
+            if not selected:
+                continue
+            stage, scratch = work / "ref-partition", work / "ref-scratch"
+            stage.mkdir(exist_ok=True)
+            try:
+                call(sys.executable, lpunpack, "-p", selected, super_image, stage)
+                image = stage / (selected + ".img")
+                root, _ = unpack(image, scratch)
+                for token in sorted(paths):
+                    rel = Path(token[len(part) + 2:])
+                    if rel.is_absolute() or ".." in rel.parts:
+                        continue
+                    found = next((p for p in (root / rel, root / part / rel)
+                                  if p.is_file() and not p.is_symlink()), None)
+                    if not found:
+                        continue
+                    group = ("init-services" if found.suffix == ".rc" else
+                             "libraries" if LIBRARY.fullmatch(found.name) else
+                             "binaries" if EXECUTABLE.search(found.name) else "thermal")
+                    row = keep_file(found, out, part, found.relative_to(root),
+                                    group, entries,
+                                    service_referenced=True)
+                    if row:
+                        progress += 1
+                        if found.suffix.lower() in (".rc", ".conf", ".xml",
+                                                    ".cfg", ".json", ".prop",
+                                                    ".sh", ".txt"):
+                            if found.stat().st_size <= 4 * 1024 * 1024:
+                                for idx, line in enumerate(
+                                        found.read_text(errors="replace").splitlines(), 1):
+                                    for candidate in PATH_TOKEN.findall(line):
+                                        candidate = candidate.rstrip(",:;)")
+                                        if "/etc/" in candidate:
+                                            item = {
+                                                "source": row["partition"] + ":" +
+                                                row["partition_relative_path"],
+                                                "line": idx, "referenced_path": candidate}
+                                            if item not in refs["paths"]:
+                                                refs["paths"].append(item)
+            finally:
+                shutil.rmtree(stage, ignore_errors=True)
+                shutil.rmtree(scratch, ignore_errors=True)
+        if not progress:
+            break
+    captured = {e["device_path_candidate"] for e in entries
+                if e.get("device_path_candidate")}
+    for ref in refs["paths"]:
+        ref["resolution"] = ("FOUND" if ref["referenced_path"] in captured
+                             else "MISSING_OR_OUT_OF_SCOPE")
+    unresolved = sorted({i["referenced_path"] for i in refs["paths"]
+                         if i["resolution"] != "FOUND"})
+    if unresolved:
+        errors.append("Unresolved paths named by ROM init/config: " +
+                      str(len(unresolved)) + "; see service-references.txt")
 
 def unpack(image: Path, scratch: Path):
     root = scratch / "root"
@@ -613,6 +700,8 @@ def main(rom: Path, work: Path, lpunpack: Path):
             finally:
                 shutil.rmtree(stage, ignore_errors=True)
                 shutil.rmtree(scratch, ignore_errors=True)
+        follow_cross_partition_refs(super_image, names, lpunpack, work, out,
+                                    entries, refs, errors)
     finally:
         super_image.unlink(missing_ok=True)
     analyze(out, entries, refs, errors)
