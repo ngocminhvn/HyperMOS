@@ -20,13 +20,24 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   filtering in `Universal/insfile.sh` or `UpdateFile/insupdate.sh`.
 - `gmsservices` and `gmsservices16` skip Google APK/framework injection.
   `MultiLang` skips China translation overlays.
-- `Settings_GoogleShowUpCN`, `GPS_Fix`, `Framework_FixDelayPowerMenu`,
+- `Settings_GoogleShowUpCN`, `GPS_Fix`,
   `SystemUI_NotificationColorIcon`, `Settings_FixNotificationHistory` and
   `Framework_FixDevicePolicy` keep the Xiaomi.eu originals.
   `Framework_FixDevicePolicy` is China-only because the EU
   `SystemServerImpl` has no `enforceVersionPolicy()` to patch.
+- `Framework_FixDelayPowerMenu` is an **EU OS3 compatibility trial**, enabled
+  by default. It targets only the literal nested
+  `MiuiShortcutTriggerHelper$ShortcutSettingsObserver` class, requires exactly
+  three `IS_GLOBAL_BUILD` reads, and re-disassembles the rebuilt DEX before
+  replacing the JAR. A mismatch fails the build while retaining the source JAR.
+  Set `HYPERMOS_EU_DELAY_POWER_MENU_FIX=0` to skip this patch on EU
+  without modifying China or the five EU build properties. Device runtime
+  behavior (power menu, key shortcuts, lock/unlock) still requires testing.
 - `Provisions_RegionPatch` and `System_MultiDisableFeature`
-  intentionally **run for Xiaomi.eu** using the same mod logic as China.
+  intentionally run for Xiaomi.eu. Provision requires exactly one
+  `checkVersionConsistent()Z` method before changing smali. If it is absent
+  the original APK is kept; malformed boundaries fail the build rather than
+  overwriting another method.
 - `bin/ddevice/DEBLOAT/debloat.sh` has its own EU-only checks preserving the
   stock Google apps and EU system updater; all other debloat remains active.
 - `bin/package/NOTIFICATION_FIX/notificationFIX.sh` skips Xiaomi.eu. This
