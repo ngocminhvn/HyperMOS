@@ -1,0 +1,151 @@
+name: Extract RYU-EU SecurityCenter APK (Google Drive)
+
+on:
+  workflow_dispatch:
+    inputs:
+      drive_file_id:
+        description: 'Google Drive ID of the RYU-EU fastboot ROM ZIP'
+        required: true
+        type: string
+        default: '1aV8QL6L9PlKlEWOLrj_Q2NG4FG0_9uMr'
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    name: Download RYU-EU and extract original SecurityCenter.apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      WORK: /tmp/hypermos-ryu-securitycenter-${{ github.run_id }}
+      DRIVE_ID: ${{ inputs.drive_file_id }}
+
+    steps:
+      - name: Checkout extraction tools
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - name: Validate Google Drive file ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/output"
+          python3 - <<'PY'
+          import os
+          import re
+          file_id = os.environ["DRIVE_ID"].strip()
+          if not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", file_id):
+              raise SystemExit("Invalid Google Drive file ID")
+          print("[SOURCE] Google Drive file ID:", file_id)
+          PY
+
+      - name: Free disk and install extraction dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip android-sdk-libsparse-utils e2fsprogs erofs-utils python3-venv
+          python3 -m venv "$WORK/venv"
+          "$WORK/venv/bin/pip" install --quiet 'gdown==5.2.0'
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_eu_securitycenter.py
+          command -v simg2img
+          command -v debugfs
+          command -v fsck.erofs
+          df -h /
+
+      - name: Download original RYU-EU ROM from Google Drive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROM="$WORK/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_EU261003.zip"
+          valid_archive() {
+            python3 - "$ROM" <<'PY'
+          import re
+          import sys
+          import zipfile
+          from pathlib import Path
+          source = Path(sys.argv[1])
+          if not source.is_file() or not zipfile.is_zipfile(source):
+              raise SystemExit("Download is not a ZIP archive")
+          with zipfile.ZipFile(source) as archive:
+              infos = archive.infolist()
+              found = any(re.fullmatch(r"(?:.*/)?super\\.img(?:\\.[0-9]+)?", info.filename)
+                          and not info.is_dir() for info in infos)
+              if not found:
+                  raise SystemExit("Downloaded ZIP has no super.img or super.img.N")
+              print(f"[ZIP] {len(infos)} members; fastboot super image found")
+          PY
+          }
+          for attempt in 1 2 3; do
+            echo "[DOWNLOAD] Attempt $attempt/3"
+            if "$WORK/venv/bin/gdown" --id "$DRIVE_ID" --output "$ROM" --continue; then
+              if valid_archive; then
+                echo "[DOWNLOAD] ZIP index verified"
+                du -h "$ROM"
+                df -h /
+                exit 0
+              fi
+            fi
+            echo "::warning::Google Drive download attempt $attempt failed or was incomplete"
+            if [ "$attempt" -lt 3 ]; then sleep 20; fi
+          done
+          echo "::error::Could not download a valid RYU-EU ROM ZIP. Check public Google Drive access/download quota."
+          exit 1
+
+      - name: Extract original SecurityCenter.apk (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROM="$WORK/RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_EU261003.zip"
+          python3 bin/audit/extract_eu_securitycenter.py "$ROM" "$WORK" "bin/lpunpack.py"
+          test -s "$WORK/output/SecurityCenter.apk"
+          test -s "$WORK/output/securitycenter-manifest.json"
+          (cd "$WORK/output" && sha256sum SecurityCenter.apk > SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          out = Path(os.environ["WORK"]) / "output"
+          path = out / "securitycenter-manifest.json"
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          manifest["rom_variant"] = "RYU-EU"
+          manifest["source_google_drive_id"] = os.environ["DRIVE_ID"]
+          path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          report = out / "securitycenter-report.md"
+          text = report.read_text(encoding="utf-8").replace(
+              "# Original Xiaomi.eu SecurityCenter", "# Original RYU-EU SecurityCenter"
+          )
+          report.write_text(text, encoding="utf-8")
+          PY
+          cat "$WORK/output/securitycenter-report.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "APK copied unchanged; no patching, re-signing, or ROM installation." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report extraction failure
+        if: failure()
+        shell: bash
+        run: |
+          echo "## RYU-EU SecurityCenter extraction failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Inspect the failed step. Google Drive may require public access or may rate-limit large downloads." >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$WORK/output/securitycenter-report.md" ]; then
+            cat "$WORK/output/securitycenter-report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload original APK, checksum and manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryu-eu-securitycenter-${{ github.run_id }}
+          path: |
+            ${{ env.WORK }}/output/SecurityCenter.apk
+            ${{ env.WORK }}/output/SHA256SUMS.txt
+            ${{ env.WORK }}/output/securitycenter-manifest.json
+            ${{ env.WORK }}/output/securitycenter-report.md
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
