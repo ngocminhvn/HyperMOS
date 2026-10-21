@@ -35,9 +35,9 @@ if [[ "${HYPERMOS_EU_PROP_CLEANUP:-0}" == "1" && -f "$eu_prop" ]]; then
         "$eu_prop" || { error "EU: failed to clean mi_ext build.prop"; exit 1; }
 fi
 
-# Remove only these exact Xiaomi.eu app containers, in standard partition
-# app locations. Never match substrings or touch other preinstalled apps.
-components=(XiaomiEUExt XiaomiEUInject MiuiExtraPhoto)
+# Remove only these two exact Xiaomi.eu app containers, in standard partition
+# app locations. Preserve MiuiExtraPhoto during EU bootloop investigation.
+components=(XiaomiEUExt XiaomiEUInject)
 app_roots=(
     "$images/product/priv-app" "$images/product/app"
     "$images/system_ext/priv-app" "$images/system_ext/app"
