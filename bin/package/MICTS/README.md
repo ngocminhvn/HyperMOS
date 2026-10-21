@@ -1,16 +1,29 @@
-# MICTS (experimental, Xiaomi.eu Android 16)
+# MICTS – experimental Xiaomi.eu Android 16 CSService-only hook
 
-This package patches `/system/framework/services.jar` **after CorePatch and Kaorios**. It keeps the unmodified, checksum-pinned official MiCTS v2.6 APK and its Quick Settings tile.
+Location: `bin/package/MICTS`.
 
-When `showSessionFromSession` receives a MiCTS request, the bridge validates:
-1. `micts_trigger=true` in the Bundle.
-2. Binder calling UID belongs to `com.parallelc.micts`.
-3. APK signer SHA-256 matches the officially pinned APK used at build time.
+The existing MiCTS APK and its Quick Settings Tile are **unchanged**. This package is a build-time `services.jar` patch, applied after CorePatch / Kaorios.
 
-Only then does the bridge call Contextual Search. A ThreadLocal guard limits the `ContextualSearchManagerService.enforcePermission` shortcut to that specific request on the current system_server thread. Binder identity is restored and the guard is removed in a finally-equivalent handler. Calls not meeting these checks follow the original VIS path. No persistent daemon is added.
+### Trigger and compatibility
 
-**Build constraints:** `xiaomi_eu` + Android 16 only; all others quietly skip. The build fails closed on unknown method signatures, missing signed APK, invalid APK digest, missing target classes, or DEX assembly/verification errors. No system JAR is overwritten on validation failure.
+- Catch only `showSessionFromSession(...)` calls that carry the MiCTS `micts_trigger=true` Bundle flag.
+- **No MiCTS APK signature, APK hash, or version pin in this hook.** App updates do not require changing this patch if they keep the same package name and request API.
+- Keep a **UID → package-name** safety check for `com.parallelc.micts`. It is version-independent and prevents unrelated apps from activating a privileged contextual-search permission path by spoofing the Bundle.
+- Send accepted invocations directly to `ContextualSearchManagerService`. The temporary permission hook is limited by a per-thread flag and is cleaned up after the call, restoring Binder identity.
+- **Strict test mode:** CSService missing, UID mismatch, or invocation error logs `MiCTSBridge` and returns `false`; it does **not** invoke VIS as fallback. Unmarked requests retain normal Android behavior.
 
-**Unverified:** Needs an actual EU OS3 services.jar build and a boot test. It is not proven to fix 5-second Google launch stalls. The unmodified MiCTS app still defaults to 400ms tile delay; users can reduce that in MiCTS settings. The direct Contextual Search service may still be rejected at runtime if Google changes its requirements.
+### Build constraints
 
-**Rollback:** revert the branch/PR or remove the `MICTS/update.sh` call in `bin/package/patchpackage.sh` and rebuild. Do not flash untested framework modifications onto a device without a recoverable stock ROM.
+- Only Xiaomi.eu / Android 16 is modified; China and other Android versions skip.
+- Missing or unexpected JAR method/class, smali failure, and rebuilt-DEX verification errors abort the ROM build without replacing the original JAR.
+- The hook **does not** depend on which MiCTS APK is staged by the downloader. The existing separate `Universal/downloadapp` preload still pins its initial official MiCTS v2.6 release; updates installed later on the device are not checked by this hook.
+
+### Testing
+
+- Not boot-tested against the actual HyperMOS EU `services.jar`; a successful smali build is necessary but not sufficient.
+- Check `logcat | grep MiCTSBridge` to distinguish success from strict no-VIS failure.
+- Compare the stock Circle to Search gesture with repeated MiCTS Quick Settings invocations.
+- The official app's Tile delay defaults to 400 ms; changing this setting can independently reduce perceived latency.
+- A 5-second Google startup cannot be ruled out even with CSService.
+
+Do not merge or flash without a successful test build and a recovery image. Reverting the PR removes the hook.
