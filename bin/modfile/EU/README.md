@@ -7,13 +7,14 @@ suffix `CNXM` or the legacy `device_type.txt` region.
 
 - EU-only `mi_ext/etc/build.prop` metadata edits are **disabled by default** during bootloop diagnosis: all five properties (`ro.product.mod_device`, `ro.build.host`, `ro.xiaomi.developerid`, `ro.xiaomi.eu.ota_device`, `ro.xiaomi.eu.version.code_time`) are preserved from the source. The old normalization/removal logic is available only when `HYPERMOS_EU_PROP_CLEANUP=1` is explicitly set. China builds are unchanged; EU app cleanup remains active.
 - `System_MultiDisableFeature/update.sh` skips its memory-extension and priv-app property rewrites on EU when the target value is already absent (as on EU 3.0.309); it still applies them if a future EU base has a value needing replacement. Audio safety props, recovery-image cleanup and theme-permission logic retain their existing behavior. China is unchanged.
-- `update.sh`: remove the exact app containers `XiaomiEUExt`,
-  `XiaomiEUInject` and `MiuiExtraPhoto` from the **extracted Xiaomi.eu build
-  tree**, checking standard `app`/`priv-app` locations across relevant
-  partitions. Missing components are silently ignored. This never touches
-  the China build or a connected phone.
-- `verify.sh`: after all shared mods, ensure none of these three app
-  containers have been reintroduced and Kashi MiuiHome is still installed.
+- `update.sh`: remove only the exact `XiaomiEUExt` and `XiaomiEUInject`
+  app containers from the **extracted Xiaomi.eu build tree** in standard
+  `app`/`priv-app` locations; missing components are ignored. Temporarily
+  **preserve the original `MiuiExtraPhoto`** during bootloop investigation,
+  consistent with the RYU-EU reference. China builds are untouched.
+- `verify.sh`: after all shared mods, ensure neither of the two removed app
+  containers has been reintroduced and Kashi MiuiHome is still installed.
+  `MiuiExtraPhoto` is not a removal target or absence requirement.
 - Every China-only mod checks `bin/ddevice/rom_source.txt` at the start
   of its **own** `update.sh`. There is no central EU skip-list and no special
   filtering in `Universal/insfile.sh` or `UpdateFile/insupdate.sh`.
