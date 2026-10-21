@@ -1,6 +1,11 @@
 name: MiCTS hook smoke tests
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'bin/package/MICTS/**'
+      - '.github/workflows/test-micts-hook.yml'
   pull_request:
     paths:
       - 'bin/package/MICTS/**'
