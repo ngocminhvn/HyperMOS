@@ -61,7 +61,7 @@ class PatchTest(unittest.TestCase):
         self.assertNotIn("hasSigningCertificate", bridge)
 
     def test_system_as_root_services_path_matches_kaorios(self):
-        root = PATCH.parents[2]
+        root = PATCH.parents[3]
         updater = (root / "bin/package/MICTS/update.sh").read_text()
         kaorios = (root / "bin/package/KAORIOS_TOOLBOX/patch.sh").read_text()
         jar_path = "build/baserom/images/system/system/framework/services.jar"
