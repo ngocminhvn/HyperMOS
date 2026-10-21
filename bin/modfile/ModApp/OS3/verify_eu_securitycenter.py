@@ -8,7 +8,7 @@ from pathlib import Path
 
 BASE = "com/miui/permcenter/privacymanager/InterceptBaseFragment.smali"
 CHILD = "com/miui/permcenter/privacymanager/InterceptPermissionFragment.smali"
-METHOD = re.compile(r"(?ms)^\\.method\\s+[^\\n]*?\\b(?P<name>[ij]0)\\(\\)I\\s*\\n(?P<body>.*?)^\\.end method\\s*$")
+METHOD = re.compile(r"(?ms)^\.method\s+[^\n]*?\b(?P<name>[ij]0)\(\)I\s*\n(?P<body>.*?)^\.end method\s*$")
 
 
 def find_one(root: Path, suffix: str) -> Path:
@@ -38,7 +38,7 @@ def verify(root: Path) -> None:
     countdown = instructions(method_body(base, "j0"))
     if countdown != ["const/4 v0, 0x0", "return v0"]:
         raise ValueError("EU countdown is not the verified zero-second implementation")
-    if re.search(r"(?m)^\\.method\\s+[^\\n]*\\bj0\\(\\)I\\s*$", child):
+    if re.search(r"(?m)^\.method\s+[^\n]*\bj0\(\)I\s*$", child):
         raise ValueError("EU permission fragment overrides the zero-second countdown")
     caller = instructions(method_body(base, "i0"))
     required = [
