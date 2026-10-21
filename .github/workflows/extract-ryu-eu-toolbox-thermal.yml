@@ -60,7 +60,7 @@ jobs:
           command -v simg2img
           command -v fsck.erofs
           command -v debugfs
-          java -jar bin/apktool/apktool.jar --version
+          java -jar bin/apktool/apktool.jar version
           python3 -m py_compile \
             bin/audit/extract_ryu_eu_toolbox.py \
             bin/audit/audit_xiaomi_eu_apps.py \
