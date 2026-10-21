@@ -1,4 +1,4 @@
-name: Inspect EU SecurityCenter countdown
+name: Verify EU SecurityCenter countdown
 
 on:
   push:
@@ -6,13 +6,15 @@ on:
       - fix/eu-securitycenter-countdown
     paths:
       - .github/workflows/inspect-eu-securitycenter.yml
+      - bin/modfile/ModApp/OS3/kashimod.sh
+      - bin/modfile/ModApp/OS3/verify_eu_securitycenter.py
 
 permissions:
   actions: read
   contents: read
 
 jobs:
-  inspect:
+  verify:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -35,48 +37,18 @@ jobs:
           run-id: ${{ matrix.run_id }}
           github-token: ${{ github.token }}
           path: original
-      - name: Decode and inspect countdown methods
+      - name: Verify original signed EU APK
         shell: bash
         run: |
           set -euo pipefail
+          bash -n bin/modfile/ModApp/OS3/kashimod.sh
+          python3 -m py_compile bin/modfile/ModApp/OS3/verify_eu_securitycenter.py
           test -s original/SecurityCenter.apk
+          before="$(sha256sum original/SecurityCenter.apk)"
+          java -jar bin/apktool/apksigner.jar verify original/SecurityCenter.apk
           java -Xmx4g -jar bin/apktool/apke.jar d -t raw -f -no-dex-debug \
             -i original/SecurityCenter.apk -o decoded > decode.log
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          import os
-          root = Path("decoded")
-          needles = ("com/miui/permcenter/privacymanager/InterceptPermissionFragment.smali", "com/miui/permcenter/privacymanager/InterceptBaseFragment.smali")
-          matches = sorted(p for p in root.rglob("*.smali") if p.as_posix().endswith(needles))
-          print("SOURCE", os.environ.get("SOURCE_LABEL", "unknown"))
-          print("FRAGMENT_MATCHES", len(matches))
-          for path in matches:
-              lines = path.read_text(errors="replace").splitlines()
-              print("FRAGMENT", path, "LINES", len(lines))
-              method = None
-              methods = []
-              for index, line in enumerate(lines, 1):
-                  if line.startswith(".method "):
-                      method = (index, line)
-                  elif line.startswith(".end method") and method:
-                      methods.append((method[0], index, method[1]))
-                      method = None
-              print("METHODS", len(methods))
-              for start, end, header in methods:
-                  body = "\n".join(lines[start - 1:end])
-                  print("METHOD", start, end, header)
-                  if end - start <= 35 or re.search(r"(?i)(count|second|timer|delay|0xa\b|0x0\b)", body):
-                      if end - start <= 90:
-                          for n in range(start, end + 1):
-                              print(f"{n}: {lines[n-1]}")
-                      else:
-                          for n in range(start, end + 1):
-                              if re.search(r"(?i)(count|second|timer|delay|0xa\b)", lines[n-1]):
-                                  lo, hi = max(start, n-6), min(end, n+6)
-                                  for k in range(lo, hi+1):
-                                      print(f"{k}: {lines[k-1]}")
-              print("END_FRAGMENT")
-          PY
-        env:
-          SOURCE_LABEL: ${{ matrix.label }}
+          python3 bin/modfile/ModApp/OS3/verify_eu_securitycenter.py decoded
+          after="$(sha256sum original/SecurityCenter.apk)"
+          test "$before" = "$after"
+          echo "${{ matrix.label }}: original signed APK unchanged"
