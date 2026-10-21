@@ -66,7 +66,7 @@ jobs:
               for start, end, header in methods:
                   body = "\n".join(lines[start - 1:end])
                   print("METHOD", start, end, header)
-                  if re.search(r"(?i)(count|second|timer|delay|0xa\b|0x0\b)", body):
+                  if end - start <= 35 or re.search(r"(?i)(count|second|timer|delay|0xa\b|0x0\b)", body):
                       if end - start <= 90:
                           for n in range(start, end + 1):
                               print(f"{n}: {lines[n-1]}")
