@@ -12,7 +12,9 @@ if [[ ! -s "$src_file" || ! -s "$android_file" ]] ||
   info 'MICTS: skip non-EU / non-Android16 build'
   exit 0
 fi
-services="$work_dir/build/baserom/images/system/framework/services.jar"
+# Match the canonical HyperMOS system-as-root staging used by Kaorios.
+# Never silently select a different JAR: patch the exact packed system path.
+services="$work_dir/build/baserom/images/system/system/framework/services.jar"
 # Do not pin/check MiCTS APK version, SHA-256, or signer here.
 # The framework bridge is compatible with future APK updates as long as
 # the request marker and method signature remain compatible.
