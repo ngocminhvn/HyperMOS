@@ -1,4 +1,4 @@
-name: Extract RYU-EU Updater Installer Toolbox Thermal
+name: Extract Full RYU-EU Thermal System
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   extract:
-    name: Extract 3 original APKs, inspect Toolbox thermal, package ZIP
+    name: Extract complete thermal files, apps, framework and forensic reports
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -55,7 +55,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
           sudo apt-get update -qq
           sudo apt-get install -y -qq aria2 curl unzip android-sdk-libsparse-utils \
-            e2fsprogs erofs-utils aapt default-jre-headless
+            e2fsprogs erofs-utils aapt binutils default-jre-headless
           command -v aapt
           command -v simg2img
           command -v fsck.erofs
@@ -99,25 +99,25 @@ jobs:
           set -euo pipefail
           python3 bin/audit/extract_ryu_eu_toolbox.py \
             "$WORK/ryu-eu-original.zip" "$WORK" "bin/lpunpack.py"
-          test -s "$WORK/output/ryu-eu-updater-installer-toolbox-thermal.zip"
+          test -s "$WORK/output/RYU-Thermal-Analysis.zip"
           test -s "$WORK/output/manifest.json"
-          test -s "$WORK/output/report.md"
+          test -s "$WORK/output/analysis/thermal-map-report.md"
           python3 - <<'PY'
           import os
           import zipfile
           from pathlib import Path
-          archive = Path(os.environ["WORK"]) / "output/ryu-eu-updater-installer-toolbox-thermal.zip"
+          archive = Path(os.environ["WORK"]) / "output/RYU-Thermal-Analysis.zip"
           with zipfile.ZipFile(archive) as z:
               assert z.testzip() is None, "Corrupt ZIP member"
               names = set(z.namelist())
-              assert {"manifest.json", "report.md", "SHA256SUMS.txt"} <= names
+              assert {"manifest.json", "SHA256SUMS.txt", "analysis/profile-mapping.json", "analysis/thermal-map-report.md", "analysis/toolbox-thermal-references.txt", "analysis/service-references.txt"} <= names
               assert any(p.startswith("apks/") for p in names), "No APKs included"
               print("[ZIP VERIFIED]", len(names), "members")
           PY
           {
             echo "## RYU-EU APK and thermal extraction"
             echo ""
-            head -n 100 "$WORK/output/report.md"
+            head -n 100 "$WORK/output/analysis/thermal-map-report.md"
             echo ""
             echo "Full results, original files, and thermal analysis are inside the ZIP artifact."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -129,8 +129,8 @@ jobs:
           {
             echo "## RYU-EU Toolbox extraction error"
             echo "Inspect the failed step and any partial artifact."
-            if [ -s "$WORK/output/report.md" ]; then
-              head -n 100 "$WORK/output/report.md"
+            if [ -s "$WORK/output/analysis/thermal-map-report.md" ]; then
+              head -n 100 "$WORK/output/analysis/thermal-map-report.md"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -138,11 +138,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ryu-eu-updater-installer-toolbox-thermal-${{ github.run_id }}
+          name: ryu-eu-full-thermal-analysis-${{ github.run_id }}
           path: |
-            ${{ env.WORK }}/output/ryu-eu-updater-installer-toolbox-thermal.zip
+            ${{ env.WORK }}/output/RYU-Thermal-Analysis.zip
             ${{ env.WORK }}/output/manifest.json
-            ${{ env.WORK }}/output/report.md
+            ${{ env.WORK }}/output/analysis/thermal-map-report.md
             ${{ env.WORK }}/output/SHA256SUMS.txt
             ${{ env.WORK }}/output/mirror-plan.json
             ${{ env.WORK }}/output/mirror-report.json
