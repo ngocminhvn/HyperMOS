@@ -67,6 +67,7 @@ jobs:
             bin/audit/ryu_mirror_plan.py \
             bin/dump/sourceforge_download.py \
             bin/lpunpack.py
+          python3 bin/audit/extract_ryu_eu_toolbox.py --self-test
           df -h /
 
       - name: Benchmark SourceForge mirrors
@@ -93,7 +94,7 @@ jobs:
           test -s "$WORK/ryu-eu-original.zip"
           df -h /
 
-      - name: Extract APK by manifest and audit Toolbox thermal
+      - name: Extract and trace complete thermal evidence from original ROM
         shell: bash
         run: |
           set -euo pipefail
