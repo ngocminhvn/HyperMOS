@@ -74,7 +74,7 @@ jobs:
               raise SystemExit("Download is not a ZIP archive")
           with zipfile.ZipFile(source) as archive:
               infos = archive.infolist()
-              found = any(re.fullmatch(r"(?:.*/)?super\\.img(?:\\.[0-9]+)?", info.filename)
+              found = any(re.fullmatch(r"(?:.*/)?super\.img(?:\.[0-9]+)?", info.filename)
                           and not info.is_dir() for info in infos)
               if not found:
                   raise SystemExit("Downloaded ZIP has no super.img or super.img.N")
