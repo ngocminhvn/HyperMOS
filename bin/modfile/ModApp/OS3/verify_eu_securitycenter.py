@@ -49,7 +49,7 @@ def verify(root: Path) -> None:
     if not any(caller[index:index + len(required)] == required
                for index in range(len(caller) - len(required) + 1)):
         raise ValueError("EU countdown constructor no longer receives j0() result")
-    print("EU SecurityCenter: signed stock APK already uses a zero-second countdown")
+    print("EU SecurityCenter: stock DEX already uses a zero-second countdown")
 
 
 if __name__ == "__main__":
