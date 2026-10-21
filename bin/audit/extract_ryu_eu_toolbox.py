@@ -509,8 +509,9 @@ def analyze(out: Path, entries: list[dict], refs: dict, errors: list[str]):
                                "decompilation_attempted": True})
         except (OSError, ValueError, zipfile.BadZipFile, subprocess.TimeoutExpired) as ex:
             errors.append("Static analysis " + identity + ": " + str(ex))
-    binary_refs: list[dict] = []
-    binary_leads(out, entries, binary_refs, errors)
+    binary_refs: list[dict] = list(refs["binary"])
+    binary_leads(out, [e for e in entries if e.get("apk_member")
+                       and e["group"] == "libraries"], binary_refs, errors)
     for label, collection in (
             ("SMALI", code_refs), ("resources", resource_refs),
             ("DEX", dex_refs), ("ELF", binary_refs)):
@@ -827,6 +828,19 @@ def main(rom: Path, work: Path, lpunpack: Path):
             finally:
                 shutil.rmtree(stage, ignore_errors=True)
                 shutil.rmtree(scratch, ignore_errors=True)
+        # Native thermal services may reference configs using literal paths.
+        # Preserve these leads and follow them before discarding super.img.
+        binary_leads(out, entries, refs["binary"], errors)
+        for hit in refs["binary"]:
+            for candidate in PATH_TOKEN.findall(hit["text"]):
+                candidate = candidate.rstrip(",:;)")
+                if "/etc/" not in candidate:
+                    continue
+                item = {"source": hit["source"], "line": hit["line"],
+                        "referenced_path": candidate,
+                        "evidence_type": "ELF_string_only"}
+                if item not in refs["paths"]:
+                    refs["paths"].append(item)
         follow_cross_partition_refs(super_image, names, lpunpack, work, out,
                                     entries, refs, errors)
     finally:
