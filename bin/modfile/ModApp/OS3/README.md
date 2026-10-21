@@ -2,7 +2,7 @@
 
 HyperMOS builds use the latest validated system-app release ZIPs committed to
 this repository by the Update Kashi Apps workflow. SecurityCenter installed in
-the ROM is taken from the downloaded Xiaomi base ROM and patched during build.
+the ROM is taken from the downloaded Xiaomi base ROM. China builds patch its countdown; Xiaomi.eu builds verify that the original signed APK already has a zero-second countdown and leave it unchanged.
 Normal ROM builds do not fetch GitHub releases on their own.
 
 ## Local ZIP naming
