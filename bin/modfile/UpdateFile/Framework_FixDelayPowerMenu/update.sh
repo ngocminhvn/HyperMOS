@@ -12,13 +12,9 @@ deviceTYPE="$(cat "$work_dir/bin/ddevice/device_type.txt")"
 rom_os="$(cat "$work_dir/bin/ddevice/rom_os.txt")"
 sdkLevel="$(cat "$work_dir/bin/ddevice/sdkLevel.txt")"
 
-# China retains its power-menu patch. EU OS3 uses a reversible trial:
-# set HYPERMOS_EU_DELAY_POWER_MENU_FIX=0 to preserve the original EU JAR.
+# China keeps its existing power-menu patch. Xiaomi.eu OS3 is patched
+# automatically based on ROM source, without a workflow toggle.
 if [[ "$rom_source" == "xiaomi_eu" ]]; then
-    if [[ "${HYPERMOS_EU_DELAY_POWER_MENU_FIX:-1}" != "1" ]]; then
-        mods "EU: power-menu patch disabled; keeping original JAR"
-        exit 0
-    fi
     if [[ "$rom_os" != "OS3" ]]; then
         mods "EU: power-menu trial validated only for OS3; skipping $rom_os"
         exit 0
