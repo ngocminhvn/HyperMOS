@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Verify EU-only app removals after all shared/China mod stages.
+# Verify the two EU-only app removals after all shared/China mod stages.
+# Preserve MiuiExtraPhoto: it is not a removal target.
 set -euo pipefail
 
 work_dir="$(pwd)"
@@ -12,7 +13,7 @@ source_file="$work_dir/bin/ddevice/rom_source.txt"
 }
 
 images="$work_dir/build/baserom/images"
-components=(XiaomiEUExt XiaomiEUInject MiuiExtraPhoto)
+components=(XiaomiEUExt XiaomiEUInject)
 app_roots=(
     "$images/product/priv-app" "$images/product/app"
     "$images/system_ext/priv-app" "$images/system_ext/app"
