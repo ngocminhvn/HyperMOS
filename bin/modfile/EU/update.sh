@@ -14,7 +14,7 @@ source_file="$work_dir/bin/ddevice/rom_source.txt"
 images="$work_dir/build/baserom/images"
 [[ -d "$images/product/priv-app" ]] || { error "EU: extracted product/priv-app missing"; exit 1; }
 
-# For any Xiaomi.eu device, preserve the international _global suffix in mod_device.
+# EU property cleanup is disabled by default while investigating possible bootloop.
 # E.g. haotian_xiaomieu_global -> haotian_global; mondrian_xiaomieu_eea_global -> mondrian_global.
 # Remove the four specified EU metadata keys by key (including ro.build.host).
 # Work only on extracted EU images, never on China builds or runtime properties.
@@ -23,7 +23,9 @@ if [[ -L "$eu_prop" ]]; then
     error "EU: refusing symlinked mi_ext build.prop"
     exit 1
 fi
-if [[ -f "$eu_prop" ]]; then
+# Opt in explicitly only after verifying boot stability on an EU build.
+# With the default (0), all five original properties remain byte-for-byte unchanged.
+if [[ "${HYPERMOS_EU_PROP_CLEANUP:-0}" == "1" && -f "$eu_prop" ]]; then
     sed -E -i \
         -e 's/^(ro\.product\.mod_device=)([[:alnum:]_.-]+)_xiaomieu(_[[:alnum:]_.-]+)?$/\1\2_global/' \
         -e '/^ro\.build\.host=/d' \
