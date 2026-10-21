@@ -33,17 +33,25 @@ def fileReplaceRange(filename, startIndex, endIndex, content):
 					wrote = True
 
 
-# Main script
-# Loading configs
+# Main script - a missing marker MUST NOT become a negative slice index.
+if len(sys.argv) != 3:
+    print("Usage: strRep.py <patch.ini> <target.smali>", file=sys.stderr)
+    sys.exit(2)
 
-for i, arg in enumerate(sys.argv):
-	if i > 0:
-		ini = ConfigObj(str(sys.argv[1]))
-		config = ini['main']
-		replaceFile = str(sys.argv[2])
-		phraseStart = config['phraseStart']
-		phraseEnd = config['phraseEnd']
-		replaceWith = config['replaceWith']
-		startIndex = lineNumByPhrase(phraseStart, replaceFile)
-		endIndex = lineNumByPhrase(phraseEnd, replaceFile, 0, startIndex)
-		fileReplaceRange(replaceFile, startIndex, endIndex, replaceWith)
+ini = ConfigObj(sys.argv[1])
+config = ini['main']
+replaceFile = sys.argv[2]
+phraseStart = config['phraseStart']
+phraseEnd = config['phraseEnd']
+replaceWith = config['replaceWith']
+
+startIndex = lineNumByPhrase(phraseStart, replaceFile)
+if startIndex < 0:
+    print(f"strRep: start marker not found: {phraseStart}", file=sys.stderr)
+    sys.exit(1)
+endIndex = lineNumByPhrase(phraseEnd, replaceFile, 0, startIndex)
+if endIndex < startIndex:
+    print(f"strRep: end marker not found after start: {phraseEnd}", file=sys.stderr)
+    sys.exit(1)
+
+fileReplaceRange(replaceFile, startIndex, endIndex, replaceWith)
