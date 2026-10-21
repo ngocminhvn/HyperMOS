@@ -17,7 +17,7 @@ from audit_xiaomi_eu_apps import call, filesystem, make_super, read_partition_na
 
 PARTITIONS = ("system", "system_ext", "product", "mi_ext", "mi_product",
               "vendor", "odm", "vendor_dlkm", "odm_dlkm")
-APP_PARTITIONS = set(PARTITIONS[:5])
+APP_PARTITIONS = set(PARTITIONS)
 APKS = ("com.android.updater", "com.miui.packageinstaller",
         "com.projectryu.toolbox", "com.miui.powerkeeper", "com.miui.securitycenter")
 JARS = ("framework.jar", "services.jar", "miui-framework.jar", "miui-services.jar")
@@ -62,6 +62,8 @@ def target_group(part: str, rel: Path, path: Path) -> str | None:
     lower = tuple(p.lower() for p in parts)
     if name in JARS and "framework" in lower:
         return "framework"
+    if name.endswith(".ko") and TERMS.search(name) and part.endswith("_dlkm"):
+        return "binaries"
     if name.endswith(".so") and LIBRARY.fullmatch(name) and any(
             p in lower for p in ("lib", "lib64", "hw")):
         return "libraries"
@@ -385,12 +387,16 @@ def scan_apk_internals(path: Path, row: dict, out: Path, entries: list[dict],
             if not relevant or info.file_size > MAX_FILE:
                 continue
             # Preserve exact APK-contained bytes independently for analysis.
-            target = out / "analysis" / "toolbox-apk-internals" / row["partition"] / Path(row["partition_relative_path"].lstrip("/")) / name
+            embedded_lib = name == "libryu_core.so" or name.endswith("/libryu_core.so")
+            folder = ("libraries/apk-embedded" if embedded_lib
+                      else "analysis/toolbox-apk-internals")
+            target = out / folder / row["partition"] / Path(row["partition_relative_path"].lstrip("/")) / name
             target.parent.mkdir(parents=True, exist_ok=True)
             with z.open(info) as inp, target.open("wb") as dst:
                 shutil.copyfileobj(inp, dst)
             entries.append({
-                "group": "analysis", "partition": row["partition"],
+                "group": "libraries" if embedded_lib else "analysis",
+                "partition": row["partition"],
                 "partition_relative_path": row["partition_relative_path"],
                 "device_path_candidate": row["device_path_candidate"],
                 "zip_path": target.relative_to(out).as_posix(),
@@ -534,6 +540,68 @@ def possible_numeric_leads(refs: dict) -> list[dict]:
     return candidates
 
 
+
+def find_config_mapping_leads(out: Path, entries: list[dict]) -> list[dict]:
+    """Only quote literal mapping statements, never deduce indices from a filename."""
+    leads = []
+    for row in entries:
+        if row["group"] not in ("thermal", "perf"):
+            continue
+        path = out / row["zip_path"]
+        if (path.suffix.lower() not in (".conf", ".cfg", ".xml", ".json", ".txt", ".ini")
+                or path.stat().st_size > 8 * 1024 * 1024):
+            continue
+        for line_no, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+            if not re.search(r"thermal[-_][\w.-]+\.conf", line, re.I):
+                continue
+            evidence = {
+                "source": row["partition"] + ":" + row["partition_relative_path"],
+                "line": line_no, "exact_line": line[:500]}
+            # Same-line mention is a lead only. Numeric values require
+            # explicit sconfig syntax; never use a number inferred from the mode name.
+            match = re.search(r"\bsconfig\s*[:= ]+\s*(0x[0-9a-f]+|\d+)", line, re.I)
+            leads.append({
+                "status": "candidate",
+                "sconfig": match.group(1) if match else None,
+                "configuration_names_mentioned": sorted(set(
+                    re.findall(r"thermal[-_][\w.-]+\.conf", line, re.I))),
+                "reason": "Config text co-occurrence, not proven applied by a running service",
+                "evidence": [evidence]})
+            if len(leads) >= 250:
+                return leads
+    return leads
+
+
+def find_init_service_leads(out: Path, entries: list[dict]) -> list[dict]:
+    candidates = []
+    for row in entries:
+        if row["group"] != "init-services":
+            continue
+        path = out / row["zip_path"]
+        if path.stat().st_size > 4 * 1024 * 1024:
+            continue
+        lines = path.read_text(errors="replace").splitlines()
+        for i, line in enumerate(lines):
+            declaration = re.match(r"^\s*service\s+(\S+)\s+(\S+)(.*)$", line)
+            if not declaration:
+                continue
+            next_service = next((j for j in range(i+1, len(lines)) if
+                                 re.match(r"^(?:service|on)\s+", lines[j])), len(lines))
+            block = lines[i:next_service]
+            if not any(TERMS.search(x) for x in block):
+                continue
+            candidates.append({
+                "status": "candidate", "service": declaration.group(1),
+                "binary": declaration.group(2),
+                "reason": "Init service declared in ROM; runtime execution / sconfig handling unverified",
+                "evidence": [{"source": row["partition"] + ":" +
+                              row["partition_relative_path"], "line": i + 1,
+                              "excerpt": "\n".join(block[:35])[:3000]}]})
+            if len(candidates) >= 200:
+                return candidates
+    return candidates
+
+
 def write_analysis(out: Path, entries: list[dict], refs: dict,
                    scanned: list[dict], errors: list[str]) -> dict:
     directory = out / "analysis"
@@ -573,6 +641,8 @@ def write_analysis(out: Path, entries: list[dict], refs: dict,
     ]
     (directory / "service-references.txt").write_text(
         "\n".join(service_text), encoding="utf-8")
+    mapping_leads = find_config_mapping_leads(out, entries)
+    service_leads = find_init_service_leads(out, entries)
     ui_candidates = [
         {"source": r["source"], "line": r["line"], "excerpt": r["context"][:600]}
         for r in refs["resources"]
@@ -592,12 +662,14 @@ def write_analysis(out: Path, entries: list[dict], refs: dict,
         "required_config_files": file_lookup,
         "ui_choices": [],
         "ui_label_leads": ui_candidates,
+        "init_declared_service_candidates": service_leads,
         "sconfig_value_leads": possible_numeric_leads(refs),
-        "profile_mappings": [],
+        "profile_mappings": mapping_leads,
         "actual_cpu_gpu_limit_changes": {"status": "unknown", "runtime_test_required": True},
         "per_app_application": {"status": "unknown", "runtime_test_required": True},
         "default_restore": {"status": "unknown", "runtime_test_required": True},
-        "service_receiver": {"status": "unknown", "runtime_test_required": True},
+        "service_receiver": {"status": "unknown", "runtime_test_required": True,
+                             "candidates": service_leads},
         "static_evidence_counts": {k: len(refs[k]) for k in (
             "code", "resources", "dex", "config", "paths", "binary")},
         "runtime_test_guidance": [
@@ -649,6 +721,8 @@ def write_analysis(out: Path, entries: list[dict], refs: dict,
         "DEX-only string leads: " + str(len(refs["dex"])),
         "Init/config matched lines: " + str(len(refs["config"])),
         "Service/binary string leads: " + str(len(refs["binary"])),
+        "Init service declarations (candidates): " + str(len(service_leads)),
+        "Literal config mapping leads (candidates): " + str(len(mapping_leads)),
         "", "Related files are collected because of their actual paths/content; "
         "collection is not proof that Toolbox calls them.",
         "The UI -> sconfig -> file -> service mapping remains **unknown** until "
