@@ -131,11 +131,45 @@ patch_stock_securitycenter() (
     patch "Security Center: source ROM signer block preserved in ZKOS-style invalid-integrity mode"
 )
 
-# Xiaomi.eu SecurityCenter uses a different DEX structure; leave its APK untouched.
-# Skip only this patch, not the remaining Kashi mods.
+# Xiaomi.eu already returns zero seconds from InterceptBaseFragment.j0().
+# Verify that exact call path and retain the original signed APK byte-for-byte.
+verify_eu_securitycenter() (
+    set -euo pipefail
+    local tmp="$work_dir/apk_temp/securitycenter-eu-verify"
+    local stock_apk before after
+    stock_apk=$(modscenter_find_stock_apk "com.miui.securitycenter" "SecurityCenter") || return 1
+    [[ "$(modscenter_apk_package "$stock_apk")" == "com.miui.securitycenter" ]] || {
+        error "EU SecurityCenter: unexpected APK package"
+        return 1
+    }
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+    trap 'rm -rf "$tmp"' EXIT
+    before=$(sha256sum "$stock_apk") || return 1
+    if ! java -jar "$work_dir/bin/apktool/apksigner.jar" verify "$stock_apk" >"$tmp/signature.log" 2>&1; then
+        error "EU SecurityCenter: original APK signature is invalid"
+        return 1
+    fi
+    if ! java -Xmx4g -jar "$work_dir/bin/apktool/apke.jar" d -t raw -f -no-dex-debug \
+        -i "$stock_apk" -o "$tmp/raw" >"$tmp/decode.log" 2>&1; then
+        error "EU SecurityCenter: cannot decode original APK"
+        return 1
+    fi
+    if ! python3 "$work_dir/bin/modfile/ModApp/OS3/verify_eu_securitycenter.py" "$tmp/raw"; then
+        error "EU SecurityCenter: zero-second countdown could not be verified"
+        return 1
+    fi
+    after=$(sha256sum "$stock_apk") || return 1
+    [[ "$before" == "$after" ]] || {
+        error "EU SecurityCenter: original APK changed during verification"
+        return 1
+    }
+    mods "Security Center: Xiaomi.eu countdown already zero; original signed APK preserved"
+)
+
 rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
 if [[ -s "$rom_source_file" ]] && [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
-    mods "Security Center: Xiaomi.eu detected -> leave original APK unchanged"
+    verify_eu_securitycenter || exit 1
 else
     patch_stock_securitycenter || exit 1
 fi
