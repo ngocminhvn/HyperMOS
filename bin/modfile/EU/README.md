@@ -5,7 +5,7 @@ This directory runs **only** for a ROM whose source filename starts with
 `bin/ddevice/rom_source.txt` independently of the ROM's China-derived version
 suffix `CNXM` or the legacy `device_type.txt` region.
 
-- EU-only `mi_ext/etc/build.prop` metadata edits are **disabled by default** during bootloop diagnosis: all five properties (`ro.product.mod_device`, `ro.build.host`, `ro.xiaomi.developerid`, `ro.xiaomi.eu.ota_device`, `ro.xiaomi.eu.version.code_time`) are preserved from the source. The old normalization/removal logic is available only when `HYPERMOS_EU_PROP_CLEANUP=1` is explicitly set. China builds are unchanged; EU app cleanup remains active.
+- EU-only `mi_ext/etc/build.prop` metadata edits are **enabled by default for bootloop A/B build 2**: normalize `ro.product.mod_device=<codename>_xiaomieu[_region]` to `<codename>_global` and delete property keys `ro.build.host`, `ro.xiaomi.developerid`, `ro.xiaomi.eu.ota_device`, and `ro.xiaomi.eu.version.code_time` (regardless of their values). Set `HYPERMOS_EU_PROP_CLEANUP=0` to disable all five edits for rollback/testing. No property post-check in `verify.sh`. China builds are unchanged; `MiuiExtraPhoto` remains preserved.
 - `System_MultiDisableFeature/update.sh` skips its memory-extension and priv-app property rewrites on EU when the target value is already absent (as on EU 3.0.309); it still applies them if a future EU base has a value needing replacement. Audio safety props, recovery-image cleanup and theme-permission logic retain their existing behavior. China is unchanged.
 - `update.sh`: remove only the exact `XiaomiEUExt` and `XiaomiEUInject`
   app containers from the **extracted Xiaomi.eu build tree** in standard
