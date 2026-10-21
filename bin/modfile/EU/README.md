@@ -31,6 +31,7 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   stock Google apps and EU system updater; all other debloat remains active.
 - `bin/package/NOTIFICATION_FIX/notificationFIX.sh` skips Xiaomi.eu. This
   prevents China-specific notification/PowerKeeper DEX transplants.
+- Xiaomi.eu SecurityCenter is verified to already return a zero-second permission countdown through `InterceptBaseFragment.j0()`. The build verifies the signed APK and call path, then preserves the original APK byte-for-byte. If a future EU release changes this structure, the build fails before replacing the APK.
 - On Android 16, CorePatch continues its requested signature/FLAG_SECURE
   patches but does **not** transplant China's Gboard/IME, ContentCatcher or
   NotificationFilterHelper behavior into Xiaomi.eu's native framework.
