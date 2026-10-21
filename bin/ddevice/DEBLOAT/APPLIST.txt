@@ -11,6 +11,7 @@ PlayAutoInstallStubApp
 Updater
 YouTube
 MIServiceGlobal
+MIUIMusicGlobal
 BasicDreams
 Stk
 Stk1
@@ -49,10 +50,12 @@ MIUISuperMarket
 MSA
 MiuiSuperMarket
 MiBrowser
+MIUIMusic
 Email
 MIFinance
 MIUINewHome
 mab
+MiuiMusic
 MIUIReporter
 SogouIME
 SogouInput
@@ -89,6 +92,7 @@ MIUIYoupin
 MIUIVipAccount
 MIUINewHome_Removable
 Health
+MIUIMusicT
 facebook-appmanager
 MIUIDuokanReader
 MiRadio
@@ -115,3 +119,5 @@ Creation
 MiuiPassword
 Padapp
 MIUIThemeManagerPad
+com.miui.videoplayer
+com.miui.player
