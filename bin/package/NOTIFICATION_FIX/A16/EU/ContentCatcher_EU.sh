@@ -28,13 +28,43 @@ python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/EU/contentcatcher_eu_a16.py"
 # Any explicit donor IS_ZK_BUILD reference maps to native IS_INTERNATIONAL_BUILD.
 python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/EU/eu_zk_broadcast_greeze_parity_a16.py" \
     "$decoded" --report "$work_dir/build/reports/frameworkpatcher-a16/eu-zk-broadcast-greeze-parity.json"
-# All-app FCM delivery: reuse existing ZK-style thaw path; do not disable Greeze.
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/EU/eu_zk_fcm_delivery_a16.py" \
-    "$decoded" --report "$work_dir/build/reports/frameworkpatcher-a16/eu-greeze-fcm.json"
+# Use the original, SHA-pinned ZK304 donor for exact static-policy parity.
+# Keep the EU-only Greeze/PowerKeeper API and method layout intact.
+zk_tmp="$(mktemp -d "$work_dir/zk304-notification.XXXXXX")"
+cleanup_zk() { rm -rf "$zk_tmp"; }
+trap 'rm -rf "$decoded" "$work_dir/miui-services" "$output"; cleanup_zk' EXIT
+zk_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16/EU/ZK304"
+zk_archive="$zk_dir/zk304-miui-services.jar.zst"
+[[ -s "$zk_archive" && -s "$zk_dir/manifest.json" ]] || {
+    error "ZK304: verified EU donor archive/manifest missing"
+    exit 1
+}
+zstd -q -d -f "$zk_archive" -o "$zk_tmp/zk304.jar"
+python3 - "$zk_tmp/zk304.jar" "$zk_dir/manifest.json" <<'PYZKSHA'
+import hashlib, json, sys
+from pathlib import Path
+donor, manifest = (Path(p) for p in sys.argv[1:])
+expected = json.loads(manifest.read_text())["files"]["miui-services.jar"]
+if hashlib.sha256(donor.read_bytes()).hexdigest() != expected:
+    raise SystemExit("ZK304: donor JAR SHA-256 does not match pinned manifest")
+PYZKSHA
+mkdir -p "$zk_tmp/decoded"
+unzip -q "$zk_tmp/zk304.jar" 'classes*.dex' -d "$zk_tmp/decoded"
+for dex in "$zk_tmp/decoded"/classes*.dex; do
+    [ -s "$dex" ] || { error "ZK304: donor DEX missing"; exit 1; }
+    name="$(basename "$dex" .dex)"
+    smali="smali"
+    [[ "$name" == "classes" ]] || smali="smali_$name"
+    java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api "$API_LEVEL" "$dex" \
+        -o "$zk_tmp/decoded/$smali" >/dev/null
+done
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/EU/zk304_notification_policy_a16.py" \
+    "$decoded" "$zk_tmp/decoded" \
+    --report "$work_dir/build/reports/frameworkpatcher-a16/eu-zk304-notification-policy.json"
 recompile_jar "$jar" >/dev/null
 if [[ ! -s "$output" ]] || ! unzip -t "$output" >/dev/null 2>&1; then
     echo "[EU CONTENTCATCHER A16] rebuilt JAR invalid" >&2
     exit 1
 fi
 mv -f "$output" "$jar"
-log "[EU A16] ContentCatcher + ZK304 gate parity + selective Google FCM Greeze thaw"
+log "[EU A16] ContentCatcher + pinned-ZK304 NotificationManager static policy + Greeze gate parity"
