@@ -43,18 +43,21 @@ class SecureFlagPatcherTest(unittest.TestCase):
         )
         self.assertEqual(PATCHER.run(self.root, False), 0)
         self.assertEqual(PATCHER.run(self.root, True), 0)
-        self.assertEqual(policy.read_text().count(PATCHER.HOOK), 1)
-        self.assertEqual(window.read_text().count(PATCHER.HOOK), 2)
+        self.assertIn("const/4 v0, 0x1", policy.read_text(encoding="utf-8"))
+        self.assertIn("const/4 v0, 0x0", window.read_text(encoding="utf-8"))
+        self.assertNotIn("KaoriosHook", policy.read_text(encoding="utf-8"))
+        self.assertNotIn("KaoriosHook", window.read_text(encoding="utf-8"))
 
-    def test_refuses_register_shift(self):
+    def test_allocates_local_register_for_static_return(self):
         path = self.write(
             "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali",
             ".class public Lcom/android/server/devicepolicy/DevicePolicyCacheImpl;\n"
             ".method public isScreenCaptureAllowed(I)Z\n"
             "    .registers 2\n\n    const/4 p1, 0x1\n    return p1\n.end method\n",
         )
-        with self.assertRaises(PATCHER.PatchError):
-            PATCHER.patch_target(path, PATCHER.TARGETS[0], False)
+        self.assertTrue(PATCHER.patch_target(path, PATCHER.TARGETS[0], False))
+        self.assertIn(".registers 3", path.read_text(encoding="utf-8"))
+        self.assertFalse(PATCHER.patch_target(path, PATCHER.TARGETS[0], True))
 
     def test_window_state_animator_fallback(self):
         self.write(
@@ -69,10 +72,10 @@ class SecureFlagPatcherTest(unittest.TestCase):
             ".method isSecureLocked()Z\n    .locals 1\n\n    const/4 v0, 0x1\n    return v0\n.end method\n",
         )
         self.assertEqual(PATCHER.run(self.root, False), 0)
-        self.assertIn(PATCHER.HOOK, animator.read_text(encoding="utf-8"))
+        self.assertIn("const/4 v0, 0x0", animator.read_text(encoding="utf-8"))
         self.assertEqual(PATCHER.run(self.root, True), 0)
 
-    def test_optional_android13_paths_use_same_runtime_switch(self):
+    def test_optional_android13_paths_are_statically_bypassed(self):
         self.write(
             "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali",
             ".class public Lcom/android/server/devicepolicy/DevicePolicyCacheImpl;\n"
@@ -100,10 +103,10 @@ class SecureFlagPatcherTest(unittest.TestCase):
         )
         self.assertEqual(PATCHER.run(self.root, False), 0)
         self.assertEqual(PATCHER.run(self.root, True), 0)
-        self.assertEqual(policy.read_text(encoding="utf-8").count(PATCHER.HOOK), 2)
-        self.assertEqual(surface.read_text(encoding="utf-8").count(PATCHER.HOOK), 1)
+        self.assertNotIn("KaoriosHook", policy.read_text(encoding="utf-8"))
+        self.assertNotIn("KaoriosHook", surface.read_text(encoding="utf-8"))
 
-    def test_xiaomi_capture_gate_uses_runtime_switch(self):
+    def test_xiaomi_capture_gate_is_statically_bypassed(self):
         miui = self.write(
             "com/android/server/wm/WindowManagerServiceImpl.smali",
             ".class public Lcom/android/server/wm/WindowManagerServiceImpl;\n"
@@ -113,8 +116,9 @@ class SecureFlagPatcherTest(unittest.TestCase):
         self.assertEqual(PATCHER.run(self.root, False, "miui-services"), 0)
         self.assertEqual(PATCHER.run(self.root, True, "miui-services"), 0)
         body = miui.read_text(encoding="utf-8")
-        self.assertEqual(body.count(PATCHER.HOOK), 1)
-        self.assertIn(":kaorios_secure_stock", body)
+        self.assertIn("const/4 v0, 0x0", body)
+        self.assertNotIn("KaoriosHook", body)
+        self.assertNotIn(":kaorios_secure_stock", body)
 
 
 if __name__ == "__main__":

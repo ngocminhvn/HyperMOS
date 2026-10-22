@@ -4,8 +4,8 @@ source $work_dir/functions.sh
 phase "System patch stage"
 target_dir="$work_dir/bin/package/"
 
-# CorePatch owns only the build-time signature bypass. Kaorios exclusively
-# owns the runtime Secure Flag implementation.
+# CorePatch owns only the build-time signature bypass. The Kaorios MOD layer
+# exclusively owns the static Secure Flag implementation.
 # shellcheck source=/dev/null
 source "$target_dir/KAORIOS_TOOLBOX/config.sh"
 case "${KAORIOS_ENABLE_COREPATCH,,}" in
@@ -36,7 +36,7 @@ info "PATCH 4/6: Notification fix"
 bash "$target_dir/NOTIFICATION_FIX/notificationFIX.sh" || exit 1
 
 # Kaorios must see the framework/services state from the patches above.
-# It adds runtime FLAG_SECURE hooks while CorePatch remains build-time.
+# It adds static FLAG_SECURE bypasses while CorePatch handles signatures.
 info "PATCH 5/6: Kaorios Toolbox"
 if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   error "KAORIOS: patch failed; aborting package stage"

@@ -20,8 +20,8 @@ KAORIOS_ENABLE_INSTALLER_SOURCE="${KAORIOS_ENABLE_INSTALLER_SOURCE:-true}"
 KAORIOS_ENABLE_DEVSTATUS="${KAORIOS_ENABLE_DEVSTATUS:-true}"
 KAORIOS_ENABLE_BUILD_SPOOF="${KAORIOS_ENABLE_BUILD_SPOOF:-true}"
 
-# Runtime Toolbox switch for bypassing FLAG_SECURE. This uses KaoriosHook and
-# keeps the stock path intact while the switch is off.
+# Build-time permanent FLAG_SECURE bypass. The Toolbox APK is left untouched,
+# so its visible runtime switch does not change this statically patched state.
 KAORIOS_ENABLE_SECURE_FLAG="${KAORIOS_ENABLE_SECURE_FLAG:-true}"
 
 # Build-time CorePatch/signature-verification bypass. Android cannot safely

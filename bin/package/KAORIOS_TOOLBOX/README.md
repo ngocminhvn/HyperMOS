@@ -19,7 +19,7 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - Android 17 `Build` / `Build$VERSION` spoof;
 - Toolbox APK as a `system_ext` priv-app.
 
-The Toolbox **Disable Secure Flag** switch is connected to guarded runtime hooks in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Android 13 legacy capture setters/getters are covered when their methods exist. When the switch is off, every hook falls through to the stock ROM implementation. HyperMOS CorePatch/signature bypass remains a build-time patch in `bin/package/COREPATCH`; Android package verification cannot safely be turned into a per-app runtime Toolbox preference.
+HyperMOS permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Android 13 legacy capture setters/getters are covered when their methods exist. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state. HyperMOS CorePatch/signature bypass remains a separate build-time patch in `bin/package/COREPATCH`.
 
 ## Per-feature config
 
@@ -38,7 +38,7 @@ Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/updat
 | `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
 | `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
 | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
-| `KAORIOS_ENABLE_SECURE_FLAG` | Add runtime `services.jar`, optional Android 13 legacy, and Xiaomi `miui-services.jar` hooks for the Toolbox **Disable Secure Flag** switch; this also enables the required `SystemServer` initialization hook |
+| `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar`, optional Android 13 legacy paths, and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
 | `KAORIOS_ENABLE_COREPATCH` | Apply the build-time CorePatch/signature-verification bypass before Kaorios |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
 | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
@@ -80,11 +80,11 @@ Required final feature checks include:
 
 - `initGenerateSoftwareKeyPair` + `CertificateChainIfNeeded` for Play Integrity/keybox;
 - `hasSystemFeature` for system-feature spoofing;
-- `isSecureFlag()` in the driver plus the guarded `DevicePolicyCacheImpl` and `WindowState`/`WindowStateAnimator` call sites for runtime Secure Flag control;
-- the guarded Xiaomi `WindowManagerServiceImpl.notAllowCaptureDisplay(...)` call site when `miui-services.jar` is present;
-- guarded Android 13 legacy screen-capture getters/setters when those methods are present;
+- static `DevicePolicyCacheImpl` and `WindowState`/`WindowStateAnimator` Secure Flag bypasses;
+- the static Xiaomi `WindowManagerServiceImpl.notAllowCaptureDisplay(...)` bypass when `miui-services.jar` is present;
+- static Android 13 legacy screen-capture getter/setter bypasses when those methods are present;
 
-The Secure Flag patcher refuses layouts without a proven free local register instead of shifting parameter registers blindly. It also re-disassembles the saved candidate JAR and checks every injected hook before installation.
+The Secure Flag patcher replaces only the selected method bodies, allocates the minimum safe return register, then re-disassembles the saved candidate JAR and verifies every bypass before installation.
 
 ## Keybox handling
 

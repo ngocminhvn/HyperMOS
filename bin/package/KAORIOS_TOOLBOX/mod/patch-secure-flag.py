@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add or verify MOD-local Kaorios runtime FLAG_SECURE hooks."""
+"""Apply or verify MOD-local permanent FLAG_SECURE bypasses."""
 
 from __future__ import annotations
 
@@ -10,14 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-HOOK = "Landroid/security/kaorios/KaoriosHook;->isSecureFlag()Z"
-
-
 @dataclass(frozen=True)
 class Target:
     relative_class: str
     signature: str
-    enabled_return: tuple[str, ...]
+    static_return: tuple[str, ...]
 
 
 SERVICES_REQUIRED_TARGETS = (
@@ -50,7 +47,7 @@ SERVICES_REQUIRED_TARGETS = (
 
 # Android 13 used additional setters/getters. They are optional because newer
 # releases removed or relocated them, but when present they must use the same
-# Kaorios runtime switch instead of a permanent CorePatch return value.
+# build-time switch instead of keeping a second implementation in CorePatch.
 SERVICES_OPTIONAL_TARGETS = (
     Target(
         "com/android/server/devicepolicy/DevicePolicyManagerService.smali",
@@ -108,7 +105,7 @@ def method_span(text: str, signature: str) -> tuple[int, int]:
     return matches[0].start(), end + len("\n.end method")
 
 
-def insertion_offset(block: str, signature: str) -> int:
+def body_offset(block: str, signature: str) -> int:
     lines = block.splitlines(keepends=True)
     register_index = next(
         (index for index, line in enumerate(lines) if re.match(r"\s*\.(?:registers|locals)\s+", line)),
@@ -116,39 +113,6 @@ def insertion_offset(block: str, signature: str) -> int:
     )
     if register_index is None:
         raise PatchError(f"{signature}: missing .registers/.locals")
-
-    register_line = lines[register_index].strip()
-    count = int(register_line.split()[1], 0)
-    if register_line.startswith(".locals"):
-        locals_available = count
-    else:
-        descriptor = signature[signature.index("(") + 1 : signature.index(")")]
-        params = 0
-        index = 0
-        while index < len(descriptor):
-            char = descriptor[index]
-            if char in "JD":
-                params += 2
-                index += 1
-            elif char == "L":
-                params += 1
-                index = descriptor.index(";", index) + 1
-            elif char == "[":
-                params += 1
-                index += 1
-                while descriptor[index] == "[":
-                    index += 1
-                index = descriptor.index(";", index) + 1 if descriptor[index] == "L" else index + 1
-            else:
-                params += 1
-                index += 1
-        if " static " not in f" {lines[0]} ":
-            params += 1
-        locals_available = count - params
-    if locals_available < 1:
-        raise PatchError(
-            f"{signature}: no safe local register for v0; refusing to shift parameter registers"
-        )
 
     annotation_depth = 0
     for index in range(register_index + 1, len(lines)):
@@ -167,34 +131,59 @@ def insertion_offset(block: str, signature: str) -> int:
     raise PatchError(f"{signature}: no original instruction/label found")
 
 
-def expected_snippet(target: Target) -> str:
-    body = [
-        f"    invoke-static {{}}, {HOOK}",
-        "    move-result v0",
-        "    if-eqz v0, :kaorios_secure_stock",
-        *[f"    {line}" for line in target.enabled_return],
-        "",
-        "    :kaorios_secure_stock",
-    ]
-    return "\n".join(body) + "\n"
+def parameter_slots(signature: str, is_static: bool) -> int:
+    descriptor = signature[signature.index("(") + 1 : signature.index(")")]
+    slots = 0
+    index = 0
+    while index < len(descriptor):
+        char = descriptor[index]
+        if char in "JD":
+            slots += 2
+            index += 1
+        elif char == "L":
+            slots += 1
+            index = descriptor.index(";", index) + 1
+        elif char == "[":
+            slots += 1
+            index += 1
+            while descriptor[index] == "[":
+                index += 1
+            index = descriptor.index(";", index) + 1 if descriptor[index] == "L" else index + 1
+        else:
+            slots += 1
+            index += 1
+    return slots if is_static else slots + 1
+
+
+def static_method(block: str, target: Target) -> str:
+    offset = body_offset(block, target.signature)
+    prefix = block[:offset]
+    if any("v0" in line for line in target.static_return):
+        register = re.search(r"(?m)^([ \t]*)\.(locals|registers)[ \t]+(\d+)[ \t]*$", prefix)
+        if register is None:
+            raise PatchError(f"{target.signature}: missing .registers/.locals")
+        count = int(register.group(3), 0)
+        if register.group(2) == "locals":
+            required = max(count, 1)
+        else:
+            header = block.splitlines()[0]
+            required = max(count, parameter_slots(target.signature, " static " in f" {header} ") + 1)
+        replacement = f"{register.group(1)}.{register.group(2)} {required}"
+        prefix = prefix[: register.start()] + replacement + prefix[register.end() :]
+    body = "".join(f"    {line}\n" for line in target.static_return)
+    return prefix + body + ".end method"
 
 
 def patch_target(path: Path, target: Target, check_only: bool) -> bool:
     text = path.read_text(encoding="utf-8")
     start, end = method_span(text, target.signature)
     block = text[start:end]
-    snippet = expected_snippet(target)
-    if HOOK in block:
-        if snippet.rstrip() not in block:
-            raise PatchError(f"{path}: unexpected pre-existing Kaorios hook in {target.signature}")
+    desired = static_method(block, target)
+    if block == desired:
         return False
     if check_only:
-        raise PatchError(f"{path}: missing Kaorios hook in {target.signature}")
-    if ":kaorios_secure_stock" in block:
-        raise PatchError(f"{path}: label collision in {target.signature}")
-    offset = insertion_offset(block, target.signature)
-    updated = block[:offset] + snippet + block[offset:]
-    path.write_text(text[:start] + updated + text[end:], encoding="utf-8")
+        raise PatchError(f"{path}: missing permanent bypass in {target.signature}")
+    path.write_text(text[:start] + desired + text[end:], encoding="utf-8")
     return True
 
 
@@ -209,7 +198,7 @@ def patch_if_supported(root: Path, target: Target, check_only: bool) -> bool:
             return False
         raise
     if changed:
-        print(f"KAORIOS: patched {target.signature} in {path.name}")
+        print(f"KAORIOS: statically patched {target.signature} in {path.name}")
     return True
 
 
@@ -231,8 +220,8 @@ def run_services(root: Path, check_only: bool) -> int:
         if patch_if_supported(root, target, check_only):
             optional_patched += 1
     if optional_patched:
-        print(f"KAORIOS: verified {optional_patched} optional Android 13 Secure Flag hooks")
-    print("KAORIOS: runtime Secure Flag hooks verified" if check_only else "KAORIOS: runtime Secure Flag hooks applied")
+        print(f"KAORIOS: verified {optional_patched} optional Android 13 Secure Flag bypasses")
+    print("KAORIOS: static Secure Flag bypasses verified" if check_only else "KAORIOS: static Secure Flag bypasses applied")
     return 0
 
 
@@ -243,9 +232,9 @@ def run_miui_services(root: Path, check_only: bool) -> int:
         raise PatchError("WindowManagerServiceImpl.smali not found in miui-services")
     patch_target(path, target, check_only)
     print(
-        "KAORIOS: Xiaomi Secure Flag hook verified"
+        "KAORIOS: Xiaomi static Secure Flag bypass verified"
         if check_only
-        else "KAORIOS: Xiaomi Secure Flag hook applied"
+        else "KAORIOS: Xiaomi static Secure Flag bypass applied"
     )
     return 0
 

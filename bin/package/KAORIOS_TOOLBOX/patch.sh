@@ -6,7 +6,7 @@ set -euo pipefail
 # MOD-only behavior is kept outside those files in mod-kaorios-adapter.py.
 # Upstream script snapshot: 9a50d37fbe160279925218703653122c0671f383
 # CorePatch/signature bypass remains a build-time HyperMOS patch. This stage
-# adds the Kaorios runtime FLAG_SECURE hooks used by the Toolbox switch.
+# adds MOD-local static FLAG_SECURE bypasses without modifying the Toolbox APK.
 #
 # Applied Kaorios features (per the upstream Patch_Guide_2.0.6.1_VI):
 #   - process/context initialisation (ActivityThread + Instrumentation);
@@ -104,13 +104,18 @@ services_features_enabled() {
 }
 
 system_server_hook_needed() {
+  is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"
+}
+
+services_driver_needed() {
   is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER" ||
-  is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"
+  is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" ||
+  is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"
 }
 
 framework_driver_needed() {
   framework_callsite_features_enabled ||
-  services_features_enabled ||
+  services_driver_needed ||
   is_enabled "$KAORIOS_ENABLE_DEVSTATUS"
 }
 
@@ -606,11 +611,6 @@ verify_framework_final() {
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z' "driver dev-status implementation"
     fi
-    if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'isSecureFlag()Z' "driver Secure Flag implementation"
-    fi
-
     if [[ "$ANDROID_VER" == "17" ]]; then
       verify_advanced_policy_payload "$root"
     fi
@@ -685,10 +685,10 @@ verify_services_final() {
 
   if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
     python3 "$SECURE_FLAG_PATCHER" "$root" --archive services --check-only >/dev/null || {
-      error "KAORIOS: final verification failed: runtime Secure Flag hooks"
+      error "KAORIOS: final verification failed: static Secure Flag bypasses"
       return 1
     }
-    info "KAORIOS: runtime Secure Flag hooks verified"
+    info "KAORIOS: static Secure Flag bypasses verified"
   fi
 
   info "KAORIOS: enabled services features verified"
@@ -698,10 +698,10 @@ verify_miui_services_final() {
   local root="$1"
   require_miui_services_targets "$root"
   python3 "$SECURE_FLAG_PATCHER" "$root" --archive miui-services --check-only >/dev/null || {
-    error "KAORIOS: final verification failed: Xiaomi runtime Secure Flag hook"
+    error "KAORIOS: final verification failed: Xiaomi static Secure Flag bypass"
     return 1
   }
-  info "KAORIOS: Xiaomi runtime Secure Flag hook verified"
+  info "KAORIOS: Xiaomi static Secure Flag bypass verified"
 }
 
 verify_candidate() {
@@ -828,7 +828,7 @@ validate_optional_keybox_input() {
   fi
 }
 
-mods "Kaorios Toolbox upstream 2.0.6.1 integration (runtime FLAG_SECURE + build-time CorePatch)"
+mods "Kaorios Toolbox upstream 2.0.6.1 integration (static FLAG_SECURE + build-time CorePatch)"
 
 info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
 info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
@@ -856,7 +856,7 @@ if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
   if [[ -n "$MIUI_SERVICES_JAR" ]]; then
     patch_archive "$MIUI_SERVICES_JAR" miui-services
   else
-    info "KAORIOS: miui-services.jar not present; Xiaomi-specific Secure Flag hook skipped"
+    info "KAORIOS: miui-services.jar not present; Xiaomi-specific Secure Flag bypass skipped"
   fi
 fi
 
