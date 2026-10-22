@@ -52,13 +52,13 @@ else
   }
   zstd -q -d -f "$zk_archive" -o "$zk_tmp/zk304.jar"
   python3 - "$zk_tmp/zk304.jar" "$zk_dir/manifest.json" <<'PYZKSHA'
-  import hashlib, json, sys
-  from pathlib import Path
-  donor, manifest = (Path(p) for p in sys.argv[1:])
-  expected = json.loads(manifest.read_text())["files"]["miui-services.jar"]
-  if hashlib.sha256(donor.read_bytes()).hexdigest() != expected:
-      raise SystemExit("ZK304: donor JAR SHA-256 does not match pinned manifest")
-  PYZKSHA
+import hashlib, json, sys
+from pathlib import Path
+donor, manifest = (Path(p) for p in sys.argv[1:])
+expected = json.loads(manifest.read_text())["files"]["miui-services.jar"]
+if hashlib.sha256(donor.read_bytes()).hexdigest() != expected:
+    raise SystemExit("ZK304: donor JAR SHA-256 does not match pinned manifest")
+PYZKSHA
   mkdir -p "$zk_tmp/decoded"
   unzip -q "$zk_tmp/zk304.jar" 'classes*.dex' -d "$zk_tmp/decoded"
   for dex in "$zk_tmp/decoded"/classes*.dex; do
