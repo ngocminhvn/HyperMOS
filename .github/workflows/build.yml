@@ -24,10 +24,10 @@ on:
           - root
           - stock
       enable_app_privacy:
-        description: 'Opt in to the signature-gated Android 16 TNM App Privacy patch'
+        description: 'Enable the signature-gated Android 16 TNM App Privacy patch'
         required: true
         type: boolean
-        default: false
+        default: true
       upload_method:
         description: 'Upload ROM to'
         required: true

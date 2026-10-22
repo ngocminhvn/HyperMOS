@@ -106,5 +106,5 @@ cp "$tmp/framework.candidate.jar" "$framework"
 mkdir -p "$(dirname "$marker")"
 printf '%s\n' 'schema=1' 'apis=getInstalledPackages,getInstalledApplications,getPackageInfo,getApplicationInfo,getPackageUid,getPackageGids' > "$marker"
 chmod 0644 "$marker"
-mods "TNM App Privacy -> opt-in A16 APM policy (schema 1, six verified APIs)"
+mods "TNM App Privacy -> A16 APM policy (schema 1, six verified APIs)"
 

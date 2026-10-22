@@ -35,13 +35,13 @@ if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   exit 1
 fi
 
-# This patch remains opt-in until A16 China and Xiaomi.eu images have completed
-# boot/runtime validation. It runs after Kaorios and never changes Kaorios files.
+# Enabled by default. The patcher still skips unsupported layouts before changing
+# framework.jar. Set TNM_ENABLE_APP_PRIVACY=0 only for an explicit opt-out build.
 info "PATCH 6/6: TNM App Privacy (compatibility-gated)"
-if [[ "${TNM_ENABLE_APP_PRIVACY:-0}" == "1" ]]; then
+if [[ "${TNM_ENABLE_APP_PRIVACY:-1}" == "1" ]]; then
   bash "$target_dir/TNM/patch.sh" || exit 1
 else
-  info "TNM App Privacy: disabled by default; set TNM_ENABLE_APP_PRIVACY=1 for validation builds"
+  info "TNM App Privacy: disabled explicitly with TNM_ENABLE_APP_PRIVACY=0"
 fi
 
 

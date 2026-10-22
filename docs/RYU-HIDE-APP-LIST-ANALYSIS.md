@@ -73,8 +73,8 @@ ported.
 
 Static Smali assembly and synthetic call-site tests cannot prove boot, runtime,
 multi-user, China/EU vendor behavior, or parity with direct Binder and query
-APIs. Those remain device-validation items; therefore the ROM build gate is
-off by default.
+APIs. Those remain device-validation items. The ROM build now enables the
+signature-gated patch by default, while unsupported layouts still skip safely.
 
 The supplied Android 16 Xiaomi.eu 17.0 `framework.jar` was also decompiled and
 the gated transformer successfully rebuilt its complete APM DEX and candidate
