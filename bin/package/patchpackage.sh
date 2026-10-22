@@ -4,7 +4,31 @@ source $work_dir/functions.sh
 phase "System patch stage"
 target_dir="$work_dir/bin/package/"
 
-# HyperMOS owns signature/CorePatch/FLAG_SECURE first.
+# CorePatch/signature bypass is build-time. When the Kaorios runtime Secure
+# Flag hook is enabled, do not permanently force the stock secure path off.
+# shellcheck source=/dev/null
+source "$target_dir/KAORIOS_TOOLBOX/config.sh"
+case "${KAORIOS_ENABLE_COREPATCH,,}" in
+  1|true|yes|on) export COREPATCH_DISABLE_SIGNATURE_VERIFICATION=1 ;;
+  0|false|no|off) export COREPATCH_DISABLE_SIGNATURE_VERIFICATION=0 ;;
+  *) error "KAORIOS: invalid boolean KAORIOS_ENABLE_COREPATCH=$KAORIOS_ENABLE_COREPATCH"; exit 1 ;;
+esac
+case "${KAORIOS_MASTER,,}" in
+  1|true|yes|on) kaorios_master_enabled=1 ;;
+  0|false|no|off) kaorios_master_enabled=0 ;;
+  *) error "KAORIOS: invalid boolean KAORIOS_MASTER=$KAORIOS_MASTER"; exit 1 ;;
+esac
+case "${KAORIOS_ENABLE_SECURE_FLAG,,}" in
+  1|true|yes|on) kaorios_secure_flag_enabled=1 ;;
+  0|false|no|off) kaorios_secure_flag_enabled=0 ;;
+  *) error "KAORIOS: invalid boolean KAORIOS_ENABLE_SECURE_FLAG=$KAORIOS_ENABLE_SECURE_FLAG"; exit 1 ;;
+esac
+if [[ "$kaorios_master_enabled" == "1" && "$kaorios_secure_flag_enabled" == "1" ]]; then
+  export COREPATCH_DISABLE_SECURE_FLAG=0
+else
+  export COREPATCH_DISABLE_SECURE_FLAG=1
+fi
+
 # FrameworkPatcher A16 CN handles 4 ProcessPolicy gates: ContentCatcher=false
 # and 3 RYU=true; do not consume a source read before notification stage.
 # Standalone CorePatch and Global builds retain their original behavior.
@@ -27,8 +51,8 @@ bash "$target_dir/LOCK/update.sh" || exit 1
 info "PATCH 4/6: Notification fix"
 bash "$target_dir/NOTIFICATION_FIX/notificationFIX.sh" || exit 1
 
-# Kaorios must see the final framework/services state from the patches above.
-# It only adds Kaorios hooks; it does not duplicate FLAG_SECURE/CorePatch.
+# Kaorios must see the framework/services state from the patches above.
+# It adds runtime FLAG_SECURE hooks while CorePatch remains build-time.
 info "PATCH 5/6: Kaorios Toolbox"
 if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   error "KAORIOS: patch failed; aborting package stage"

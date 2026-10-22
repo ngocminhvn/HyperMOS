@@ -4,7 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. The dev-status helper remains MOD-local and does not modify the upstream patcher. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
+Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. The dev-status helper remains MOD-local and does not modify the upstream patcher. Current upstream script snapshot: `9a50d37fbe160279925218703653122c0671f383`.
 
 ## Scope
 
@@ -19,7 +19,7 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - Android 17 `Build` / `Build$VERSION` spoof;
 - Toolbox APK as a `system_ext` priv-app.
 
-Kaorios **FLAG_SECURE** and **CorePatch** are intentionally not applied here because HyperMOS already owns those patches in `bin/package/COREPATCH`.
+The Toolbox **Disable Secure Flag** switch is connected to guarded runtime hooks in `services.jar`. When the switch is off, execution falls through to the stock ROM implementation. HyperMOS CorePatch/signature bypass remains a build-time patch in `bin/package/COREPATCH`; Android package verification cannot safely be turned into a per-app runtime Toolbox preference.
 
 ## Per-feature config
 
@@ -38,6 +38,8 @@ Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/updat
 | `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
 | `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
 | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
+| `KAORIOS_ENABLE_SECURE_FLAG` | Add runtime `services.jar` hooks for the Toolbox **Disable Secure Flag** switch; this also enables the required `SystemServer` initialization hook |
+| `KAORIOS_ENABLE_COREPATCH` | Apply the build-time CorePatch/signature-verification bypass before Kaorios |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
 | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
 | `KAORIOS_DEVSTATUS_STRICT` | Fail instead of warning when the dev-status layout is unsupported |
@@ -52,19 +54,20 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 
 `bin/package/patchpackage.sh` runs:
 
-1. HyperMOS COREPATCH
+1. HyperMOS CorePatch/signature bypass (controlled by `KAORIOS_ENABLE_COREPATCH`); its old unconditional FLAG_SECURE patch is skipped while the Kaorios runtime hook is enabled
 2. DISABLE_AVB
-3. notification fix
-4. Kaorios upstream 2.0.6.1 integration
-5. refresh-rate patch
+3. LOCK/TNM post-fs integration
+4. notification fix
+5. Kaorios upstream 2.0.6.1 integration
+6. TNM App Privacy (compatibility-gated)
 
-Kaorios therefore patches and verifies the final framework/services state instead of being overwritten by a later framework patch.
+Kaorios patches after CorePatch and the notification fix, so its framework/services hooks are applied to their resulting artifacts. TNM App Privacy then runs with its own compatibility checks and skips unsupported layouts before changing `framework.jar`.
 
 ## Safety / verification
 
 `patch.sh`:
 
-- pins the reviewed `KaoriosToolbox.apk` Git blob; `classes.dex` is intentionally not hash-pinned so it can be updated independently;
+- pins both reviewed v2.0.6.1 release payloads (`KaoriosToolbox.apk` SHA-256 `b6d7a83fef7dd5ec2f43319597def24371cd05d64d91fb9e5e3c161f2f407fcf`, `classes.dex` SHA-256 `ca9489f388e8717463c1f33a56c298a4b6bd5785b82d11f20da1deb65c799c9a`);
 - decompiles every `classes*.dex` separately;
 - requires the expected target classes before modifying anything;
 - uses upstream `kaorios_patcher.py --mode 1` for hook targets and `--mode 2` for the Android 17 Build spoof targets;
@@ -77,6 +80,9 @@ Required final feature checks include:
 
 - `initGenerateSoftwareKeyPair` + `CertificateChainIfNeeded` for Play Integrity/keybox;
 - `hasSystemFeature` for system-feature spoofing;
+- `isSecureFlag()` in the driver plus the guarded `DevicePolicyCacheImpl` and `WindowState`/`WindowStateAnimator` call sites for runtime Secure Flag control;
+
+The Secure Flag patcher refuses layouts without a proven free local register instead of shifting parameter registers blindly. It also re-disassembles the saved candidate JAR and checks every injected hook before installation.
 
 ## Keybox handling
 

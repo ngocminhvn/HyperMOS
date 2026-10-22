@@ -16,8 +16,8 @@ API_LEVEL=37
 # ============================================
 # Feature Flags (set by command-line arguments)
 # ============================================
-FEATURE_DISABLE_SIGNATURE_VERIFICATION=1
-FEATURE_DISABLE_SECURE_FLAG=1
+FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}"
+FEATURE_DISABLE_SECURE_FLAG="${COREPATCH_DISABLE_SECURE_FLAG:-1}"
 
 # ----------------------------------------------
 # Internal helpers (python-powered transformations)
@@ -1150,8 +1150,8 @@ patch_miui_framework() {
 
 # Main function
 # Initialize environment and check tools
-FEATURE_DISABLE_SIGNATURE_VERIFICATION=1
-FEATURE_DISABLE_SECURE_FLAG=1
+FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}"
+FEATURE_DISABLE_SECURE_FLAG="${COREPATCH_DISABLE_SECURE_FLAG:-1}"
 init_env
 ensure_tools || exit 1
 

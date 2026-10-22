@@ -90,7 +90,9 @@ Patch_Framework () {
 
     jar_util d 'framework.jar' fw 0 10
 
-    $penguin_frw > /dev/null 2>&1
+    if [[ "${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}" == "1" ]]; then
+        $penguin_frw > /dev/null 2>&1
+    fi
     
     jar_util a 'framework.jar' fw 0 10
 
@@ -116,7 +118,9 @@ Patch_Miuisv () {
 Patch_MiuiFramework () {
     jar_util d 'miui-framework.jar' fw 0 10
 
-    $penguin_miui_frw > /dev/null 2>&1
+    if [[ "${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}" == "1" ]]; then
+        $penguin_miui_frw > /dev/null 2>&1
+    fi
 
     jar_util a 'miui-framework.jar' fw 0 10
 }

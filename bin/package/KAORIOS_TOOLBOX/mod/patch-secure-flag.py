@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Add or verify Kaorios runtime FLAG_SECURE hooks in services smali."""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+HOOK = "Landroid/security/kaorios/KaoriosHook;->isSecureFlag()Z"
+
+
+@dataclass(frozen=True)
+class Target:
+    relative_class: str
+    signature: str
+    enabled_return: tuple[str, ...]
+
+
+TARGETS = (
+    Target(
+        "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali",
+        "isScreenCaptureAllowed(I)Z",
+        ("const/4 v0, 0x1", "return v0"),
+    ),
+    Target(
+        "com/android/server/wm/WindowState.smali",
+        "isSecureLocked()Z",
+        ("const/4 v0, 0x0", "return v0"),
+    ),
+    Target(
+        "com/android/server/wm/WindowState.smali",
+        "setSecureLocked(Z)V",
+        ("return-void",),
+    ),
+    Target(
+        "com/android/server/wm/WindowStateAnimator.smali",
+        "isSecureLocked()Z",
+        ("const/4 v0, 0x0", "return v0"),
+    ),
+    Target(
+        "com/android/server/wm/WindowStateAnimator.smali",
+        "setSecureLocked(Z)V",
+        ("return-void",),
+    ),
+)
+
+
+class PatchError(RuntimeError):
+    pass
+
+
+def find_unique(root: Path, relative: str) -> Path | None:
+    matches = [path for path in root.rglob(Path(relative).name) if path.as_posix().endswith(relative)]
+    if len(matches) > 1:
+        raise PatchError(f"expected at most one {relative}, found {len(matches)}")
+    return matches[0] if matches else None
+
+
+def method_span(text: str, signature: str) -> tuple[int, int]:
+    header = re.compile(rf"(?m)^\.method[^\n]*\s{re.escape(signature)}[ \t]*$")
+    matches = list(header.finditer(text))
+    if len(matches) != 1:
+        raise PatchError(f"expected exactly one method {signature}, found {len(matches)}")
+    end = text.find("\n.end method", matches[0].end())
+    if end < 0:
+        raise PatchError(f"unterminated method {signature}")
+    return matches[0].start(), end + len("\n.end method")
+
+
+def insertion_offset(block: str, signature: str) -> int:
+    lines = block.splitlines(keepends=True)
+    register_index = next(
+        (index for index, line in enumerate(lines) if re.match(r"\s*\.(?:registers|locals)\s+", line)),
+        None,
+    )
+    if register_index is None:
+        raise PatchError(f"{signature}: missing .registers/.locals")
+
+    register_line = lines[register_index].strip()
+    count = int(register_line.split()[1], 0)
+    if register_line.startswith(".locals"):
+        locals_available = count
+    else:
+        descriptor = signature[signature.index("(") + 1 : signature.index(")")]
+        params = 0
+        index = 0
+        while index < len(descriptor):
+            char = descriptor[index]
+            if char in "JD":
+                params += 2
+                index += 1
+            elif char == "L":
+                params += 1
+                index = descriptor.index(";", index) + 1
+            elif char == "[":
+                params += 1
+                index += 1
+                while descriptor[index] == "[":
+                    index += 1
+                index = descriptor.index(";", index) + 1 if descriptor[index] == "L" else index + 1
+            else:
+                params += 1
+                index += 1
+        if " static " not in f" {lines[0]} ":
+            params += 1
+        locals_available = count - params
+    if locals_available < 1:
+        raise PatchError(
+            f"{signature}: no safe local register for v0; refusing to shift parameter registers"
+        )
+
+    annotation_depth = 0
+    for index in range(register_index + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith(".annotation") or stripped.startswith(".subannotation"):
+            annotation_depth += 1
+            continue
+        if stripped.startswith(".end annotation") or stripped.startswith(".end subannotation"):
+            annotation_depth -= 1
+            continue
+        if annotation_depth:
+            continue
+        if not stripped or stripped.startswith("#") or stripped.startswith("."):
+            continue
+        return sum(len(line) for line in lines[:index])
+    raise PatchError(f"{signature}: no original instruction/label found")
+
+
+def expected_snippet(target: Target) -> str:
+    body = [
+        f"    invoke-static {{}}, {HOOK}",
+        "    move-result v0",
+        "    if-eqz v0, :kaorios_secure_stock",
+        *[f"    {line}" for line in target.enabled_return],
+        "",
+        "    :kaorios_secure_stock",
+    ]
+    return "\n".join(body) + "\n"
+
+
+def patch_target(path: Path, target: Target, check_only: bool) -> bool:
+    text = path.read_text(encoding="utf-8")
+    start, end = method_span(text, target.signature)
+    block = text[start:end]
+    snippet = expected_snippet(target)
+    if HOOK in block:
+        if snippet.rstrip() not in block:
+            raise PatchError(f"{path}: unexpected pre-existing Kaorios hook in {target.signature}")
+        return False
+    if check_only:
+        raise PatchError(f"{path}: missing Kaorios hook in {target.signature}")
+    if ":kaorios_secure_stock" in block:
+        raise PatchError(f"{path}: label collision in {target.signature}")
+    offset = insertion_offset(block, target.signature)
+    updated = block[:offset] + snippet + block[offset:]
+    path.write_text(text[:start] + updated + text[end:], encoding="utf-8")
+    return True
+
+
+def run(root: Path, check_only: bool) -> int:
+    device_policy = find_unique(root, TARGETS[0].relative_class)
+    if device_policy is None:
+        raise PatchError("DevicePolicyCacheImpl.smali not found")
+    patch_target(device_policy, TARGETS[0], check_only)
+
+    window_patched = 0
+    for target in TARGETS[1:]:
+        path = find_unique(root, target.relative_class)
+        if path is None:
+            continue
+        try:
+            changed = patch_target(path, target, check_only)
+        except PatchError as exc:
+            if "expected exactly one method" in str(exc) and "found 0" in str(exc):
+                continue
+            raise
+        window_patched += 1
+        if changed:
+            print(f"KAORIOS: patched {target.signature} in {path.name}")
+    if window_patched == 0:
+        raise PatchError("no supported WindowState/WindowStateAnimator secure method found")
+    print("KAORIOS: runtime Secure Flag hooks verified" if check_only else "KAORIOS: runtime Secure Flag hooks applied")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("root", type=Path)
+    parser.add_argument("--check-only", action="store_true")
+    args = parser.parse_args()
+    try:
+        return run(args.root, args.check_only)
+    except (OSError, PatchError, ValueError) as exc:
+        print(f"KAORIOS: Secure Flag patch failed: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

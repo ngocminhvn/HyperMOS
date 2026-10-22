@@ -43,6 +43,23 @@ def modify_file(file_path):
         "setSecure": re.compile(r'\.method setSecure\(Z\)V')
     }
 
+    signature_methods = {
+        "matchSignatureInSystem", "matchSignaturesCompat", "matchSignaturesRecover",
+        "canSkipForcedPackageVerification", "checkDowngrade", "compareSignatures",
+        "isApkVerityEnabled", "isDowngradePermitted", "verifySignatures",
+        "isVerificationEnabled", "doesSignatureMatchForPermissions",
+    }
+    secure_flag_methods = {
+        "isScreenCaptureAllowed", "getScreenCaptureDisabled",
+        "setScreenCaptureDisabled", "isSecureLocked", "setSecure",
+    }
+    if os.environ.get("COREPATCH_DISABLE_SIGNATURE_VERIFICATION", "1") != "1":
+        for method in signature_methods:
+            method_patterns.pop(method, None)
+    if os.environ.get("COREPATCH_DISABLE_SECURE_FLAG", "1") != "1":
+        for method in secure_flag_methods:
+            method_patterns.pop(method, None)
+
     for line in lines:
         if in_method:
             if line.strip() == '.end method':

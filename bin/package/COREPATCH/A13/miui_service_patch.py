@@ -169,11 +169,13 @@ def modify_smali_files(directories):
                     replace_string_in_file(file_path, search_string, replace_string)
 
                 # Patch notAllowCaptureDisplay
-                if class_file == 'com/android/server/wm/WindowManagerServiceImpl.smali':
+                if (class_file == 'com/android/server/wm/WindowManagerServiceImpl.smali'
+                        and os.environ.get("COREPATCH_DISABLE_SECURE_FLAG", "1") == "1"):
                     modify_not_allow_capture_display(file_path)
 
                 # Patch checkSysAppCrack & checkAppSignature
-                if class_file == 'com/miui/server/SecurityManagerService.smali':
+                if (class_file == 'com/miui/server/SecurityManagerService.smali'
+                        and os.environ.get("COREPATCH_DISABLE_SIGNATURE_VERIFICATION", "1") == "1"):
                     modify_checksysappcrack(file_path)
                     modify_checkappsignature(file_path)
             else:

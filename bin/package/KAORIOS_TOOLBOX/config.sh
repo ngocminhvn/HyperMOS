@@ -20,6 +20,14 @@ KAORIOS_ENABLE_INSTALLER_SOURCE="${KAORIOS_ENABLE_INSTALLER_SOURCE:-true}"
 KAORIOS_ENABLE_DEVSTATUS="${KAORIOS_ENABLE_DEVSTATUS:-true}"
 KAORIOS_ENABLE_BUILD_SPOOF="${KAORIOS_ENABLE_BUILD_SPOOF:-true}"
 
+# Runtime Toolbox switch for bypassing FLAG_SECURE. This uses KaoriosHook and
+# keeps the stock path intact while the switch is off.
+KAORIOS_ENABLE_SECURE_FLAG="${KAORIOS_ENABLE_SECURE_FLAG:-true}"
+
+# Build-time CorePatch/signature-verification bypass. Android cannot safely
+# make package signature verification a per-app runtime Toolbox preference.
+KAORIOS_ENABLE_COREPATCH="${KAORIOS_ENABLE_COREPATCH:-true}"
+
 # Install the runtime Toolbox app and its privapp permission XML.
 KAORIOS_INSTALL_TOOLBOX="${KAORIOS_INSTALL_TOOLBOX:-true}"
 

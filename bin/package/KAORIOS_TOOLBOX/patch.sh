@@ -4,9 +4,9 @@ set -euo pipefail
 # HyperMOS integration for Kaorios Toolbox.
 # Upstream-owned scripts are vendored byte-for-byte from Kaorios upstream.
 # MOD-only behavior is kept outside those files in mod-kaorios-adapter.py.
-# Upstream script snapshot: 8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4
-# Intentionally DOES NOT implement Kaorios FLAG_SECURE or CorePatch.
-# HyperMOS owns those patches already.
+# Upstream script snapshot: 9a50d37fbe160279925218703653122c0671f383
+# CorePatch/signature bypass remains a build-time HyperMOS patch. This stage
+# adds the Kaorios runtime FLAG_SECURE hooks used by the Toolbox switch.
 #
 # Applied Kaorios features (per the upstream Patch_Guide_2.0.6.1_VI):
 #   - process/context initialisation (ActivityThread + Instrumentation);
@@ -16,7 +16,7 @@ set -euo pipefail
 #   - ComputerEngine package visibility + installer-source hooks;
 #   - Settings$NameValueCache dev-status hook (hide Developer options / ADB);
 #   - Android 17 Build / Build$VERSION spoof (Android 17 only, like upstream).
-# Skipped on purpose: FLAG_SECURE, CorePatch, and SELinux policy mutation.
+# CorePatch is selected before this stage; SELinux policy mutation is skipped.
 # The upstream AdvancedPolicy SELinux checker is kept for diagnostics only.
 
 work_dir=$(pwd)
@@ -35,6 +35,7 @@ PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
 DEVSTATUS_PATCHER="$MOD_DIR/patch-settings-namevaluecache.py"
 BUILD_SPOOF_VERIFIER="$MOD_DIR/verify-build-spoof-a17.py"
+SECURE_FLAG_PATCHER="$MOD_DIR/patch-secure-flag.py"
 CONFIG="$KAORIOS_DIR/config.sh"
 
 if [[ ! -f "$CONFIG" ]]; then
@@ -74,6 +75,8 @@ for flag in \
   KAORIOS_ENABLE_INSTALLER_SOURCE \
   KAORIOS_ENABLE_DEVSTATUS \
   KAORIOS_ENABLE_BUILD_SPOOF \
+  KAORIOS_ENABLE_SECURE_FLAG \
+  KAORIOS_ENABLE_COREPATCH \
   KAORIOS_INSTALL_TOOLBOX \
   KAORIOS_VALIDATE_KEYBOX \
   KAORIOS_DEVSTATUS_STRICT \
@@ -96,7 +99,13 @@ framework_callsite_features_enabled() {
 services_features_enabled() {
   is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER" ||
   is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" ||
-  is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"
+  is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE" ||
+  is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"
+}
+
+system_server_hook_needed() {
+  is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER" ||
+  is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"
 }
 
 framework_driver_needed() {
@@ -118,8 +127,10 @@ archive_patch_needed() {
   services_features_enabled
 }
 
-# Pin only the Toolbox APK. classes.dex is intentionally updateable without a Git blob pin.
-TOOLBOX_GIT_BLOB="671ac1357400a54adfc442c58496bd69e1d4d60c"
+# Pin both reviewed v2.0.6.1 release payloads. Updating either asset requires an
+# explicit integration update instead of silently changing a ROM build.
+DRIVER_GIT_BLOB="391745ecb46a6d8576d98d2a5380f666fb1409fd"
+TOOLBOX_GIT_BLOB="182c355137aa6cb8f0bb2942ad3e95ec88514960"
 
 # Set to 1 once the dev-status hook is confirmed present in the framework smali,
 # so final artifact verification knows whether that target must be checked.
@@ -170,6 +181,9 @@ fi
 if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
   require_file "$DEVSTATUS_PATCHER" "dev-status patcher"
 fi
+if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+  require_file "$SECURE_FLAG_PATCHER" "Secure Flag patcher"
+fi
 if build_spoof_enabled_for_target; then
   require_file "$BUILD_SPOOF_VERIFIER" "Build spoof verifier"
 fi
@@ -200,6 +214,9 @@ verify_git_blob() {
 
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
   verify_git_blob "$TOOLBOX_APK" "$TOOLBOX_GIT_BLOB" "Toolbox APK"
+fi
+if framework_driver_needed; then
+  verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework driver DEX"
 fi
 
 TEMP_ROOT="$work_dir/jar_temp/kaorios-v2060"
@@ -305,8 +322,11 @@ require_services_targets() {
   if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
     require_one_target "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine"
   fi
-  if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+  if system_server_hook_needed; then
     require_one_target "$root" "com/android/server/SystemServer.smali" "SystemServer"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+    require_one_target "$root" "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali" "DevicePolicyCacheImpl"
   fi
 }
 
@@ -374,8 +394,11 @@ patch_selected_targets() {
       if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
         patch_computer_engine "$root"
       fi
-      if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+      if system_server_hook_needed; then
         patch_target_file "$root" "com/android/server/SystemServer.smali" "SystemServer" 1
+      fi
+      if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+        python3 "$SECURE_FLAG_PATCHER" "$root"
       fi
       ;;
     *)
@@ -559,7 +582,7 @@ verify_framework_final() {
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "driver system-feature implementation"
     fi
-    if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+    if system_server_hook_needed; then
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'initSystemServer()V' "driver SystemServer implementation"
     fi
@@ -574,6 +597,10 @@ verify_framework_final() {
     if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z' "driver dev-status implementation"
+    fi
+    if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'isSecureFlag()Z' "driver Secure Flag implementation"
     fi
 
     if [[ "$ANDROID_VER" == "17" ]]; then
@@ -639,13 +666,21 @@ verify_services_final() {
     fi
   fi
 
-  if is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"; then
+  if system_server_hook_needed; then
     verify_hook "$root" "com/android/server/SystemServer.smali" \
       'KaoriosHook;->initSystemServer()V' "SystemServer init"
     python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$root" >/dev/null || {
       error "KAORIOS: final verification failed: SystemServer hook verifier"
       return 1
     }
+  fi
+
+  if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+    python3 "$SECURE_FLAG_PATCHER" "$root" --check-only >/dev/null || {
+      error "KAORIOS: final verification failed: runtime Secure Flag hooks"
+      return 1
+    }
+    info "KAORIOS: runtime Secure Flag hooks verified"
   fi
 
   info "KAORIOS: enabled services features verified"
@@ -756,12 +791,13 @@ validate_optional_keybox_input() {
   fi
 }
 
-mods "Kaorios Toolbox upstream 2.0.6.1 integration (payload pinned separately; HyperMOS owns FLAG_SECURE/CorePatch)"
+mods "Kaorios Toolbox upstream 2.0.6.1 integration (runtime FLAG_SECURE + build-time CorePatch)"
 
 info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
 info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
 info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
 info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
+info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=$KAORIOS_ENABLE_COREPATCH (applied before Kaorios)"
 
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   validate_optional_keybox_input
