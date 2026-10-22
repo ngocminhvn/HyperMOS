@@ -23,11 +23,6 @@ on:
         options:
           - root
           - stock
-      enable_app_privacy:
-        description: 'EU/other: optional Android 16 TNM App Privacy; China: always mandatory'
-        required: true
-        type: boolean
-        default: true
       upload_method:
         description: 'Upload ROM to'
         required: true
@@ -138,7 +133,6 @@ jobs:
         env:
           INPUT_URL: ${{ inputs.input_url }}
           ROOT_MODE: ${{ inputs.root_mode }}
-          TNM_ENABLE_APP_PRIVACY: ${{ inputs.enable_app_privacy && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -215,23 +209,12 @@ jobs:
           set -euo pipefail
           # Check final TNM LOCK staging within Pack ROM; no separate Actions step.
           echo "::group::TNM LOCK pre-pack sanity check"
-          if ! sudo -E bash bin/package/TNM/lock.sh --check 2>&1 | tee -a build_action.log; then
+          if ! sudo -E bash bin/package/TNM/patch.sh --check-lock 2>&1 | tee -a build_action.log; then
             echo "::endgroup::"
             echo "::error title=TNM LOCK validation failed::Refusing to package inconsistent LOCK staging."
             exit 1
           fi
           echo "::endgroup::"
-          # The China image must have all six TNM hide-app hooks, not just a
-          # successful build log. EU keeps its previous optional behavior.
-          if [[ "$(tr -d '\r\n' < bin/ddevice/rom_source.txt)" == "china" ]]; then
-            echo "::group::TNM App Privacy mandatory pre-pack audit (China)"
-            if ! sudo -E bash bin/package/TNM/patch_app_privacy.sh --check 2>&1 | tee -a build_action.log; then
-              echo "::endgroup::"
-              echo "::error title=TNM hide-app audit failed::China ROM lacks verified TNM App Privacy hooks."
-              exit 1
-            fi
-            echo "::endgroup::"
-          fi
           python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log

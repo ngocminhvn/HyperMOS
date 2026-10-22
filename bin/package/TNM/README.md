@@ -1,9 +1,10 @@
 # TNM build-time integrations
 
-This package combines mandatory post-fs property reporting (formerly in
-`bin/package/LOCK`) with the optional Android 16 App Privacy framework patch.
-The `TNM_ENABLE_APP_PRIVACY=0` switch disables **only** App Privacy; it never
-disables the post-fs stage.
+This package combines mandatory post-fs property reporting with the Android 16
+Hide App List patch, which is **required on both China and Xiaomi.eu**.
+The `TNM_ENABLE_APP_PRIVACY` override is honored for `other` ROM sources only.
+China/EU do not have an opt-out; incompatible inputs fail during patching.
+The on-device feature remains controlled by TNM App, not by the build input.
 
 ## App Privacy (Android 16)
 
@@ -12,16 +13,14 @@ six Hide App List call sites proven in the supplied ProjectRYU framework. It doe
 not copy RYU binaries and does not touch Kaorios, Keybox, Activation, developer
 options, notifications, battery or thermal code.
 
-For ROMs identified as `china` in `bin/ddevice/rom_source.txt`, Android 16
-TNM App Privacy is **mandatory**, regardless of `TNM_ENABLE_APP_PRIVACY`.
-An absent/unsupported framework or conflicting RYU hook fails the China build
-instead of silently producing a ROM without the feature. The staged framework
-must pass a six-API DEX audit after patching and again before packing. This
-does not assert boot/runtime compatibility or coverage of direct Binder calls.
-For `xiaomi_eu` and `other`, the previous optional, compatibility-gated behavior
-remains; `TNM_ENABLE_APP_PRIVACY=0` can opt those ROMs out. Android versions
-other than 16 are not claimed to be supported by this patch. A successful
-patch writes
+On both `china` and `xiaomi_eu`, an absent/unsupported framework or
+conflicting RYU hook stops the build instead of silently omitting Hide App List.
+All six APM call sites and the helper are checked directly after patching.
+The redundant *pre-pack* Hide App List audit is removed, but the separate
+pre-pack LOCK staging check remains. This does not establish boot/runtime
+compatibility or direct Binder/query-API filtering. Only Android 16 is
+validated at present; an Android 17 port needs its own compatibility work.
+Successful Android 16 patching writes
 `/system/etc/tnm/app-privacy-v1`; TNM App exposes controls only when that marker
 and its on-demand backend capability are available.
 
@@ -46,8 +45,8 @@ The installed mode is 0755, fs_config ownership 0:2000 and SELinux context
 writes. The native init verifier runs when available. Exact repeat installs
 are idempotent; changed or partial managed blocks require a clean image.
 
-`update.sh --check` validates final image staging before packing. Production
-validation lives in `sepolicy.py`; the temporary comparison workflows and
+`TNM/patch.sh --check-lock` validates final LOCK staging before packing. Production
+validation is consolidated into `integrate_lock.py`; the temporary comparison workflows and
 offline test suite have been removed. Rebuild from clean images after this
 rename; previously staged helper paths and managed policy blocks are obsolete.
 
@@ -56,7 +55,8 @@ physically lock a bootloader, sign AVB images or change hardware attestation.
 Policy compilation and file checks do not establish runtime compatibility;
 full-build, boot, linker namespace and AVC checks remain separate requirements.
 
-The staging implementation now lives in `TNM/integrate_lock.py` and
-`TNM/lock_sepolicy.py`; the original managed init/CIL markers and helper bytes
-remain unchanged. `TNM/lock.sh --check` validates the staged ROM in the Pack
-ROM workflow. Reports are written to `build/reports/tnm/lock`.
+The LOCK staging and SELinux helpers are consolidated into
+`TNM/integrate_lock.py`; original managed init/CIL markers and helper bytes
+are unchanged. `TNM/patch.sh --check-lock` validates LOCK staging during Pack
+ROM. The six-API verifier now lives in `TNM/patch_app_privacy.py --verify`.
+Reports are written to `build/reports/tnm/lock`.

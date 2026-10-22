@@ -1,29 +1,42 @@
 #!/usr/bin/env bash
-# TNM package entry point: preserve the mandatory property integration even
-# when the optional A16 App Privacy patch is disabled or unsupported.
+# TNM entry: mandatory property integration + A16 Hide App List on CN and EU.
 set -euo pipefail
-
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
 base="$work_dir/bin/package/TNM"
 
-bash "$base/lock.sh"
+lock_action() {
+  python3 "$base/integrate_lock.py" \
+    --images "$work_dir/build/baserom/images" \
+    --binary "$base/system_ext/xbin/tnm_helper" \
+    --report "$work_dir/build/reports/tnm/lock" "$@"
+}
 
-# China ROM must always carry the TNM visibility backend, regardless of
-# workflow opt-out inputs; EU/other sources retain the existing optional path.
+# Keep LOCK staging pre-pack sanity check; the duplicate Hide App List
+# pre-pack audit was removed. Hide App List validates as part of patching.
+if [[ "${1:-}" == "--check-lock" && "$#" -eq 1 ]]; then
+  lock_action --check
+  exit 0
+fi
+[[ "$#" -eq 0 ]] || { error "TNM: unknown arguments"; exit 2; }
+
+lock_action
+mods "TNM LOCK: post-fs property integration and SELinux staging verified"
+info "TNM LOCK: property reporting configured; no hardware bootloader/TEE operation performed"
+
 source_file="$work_dir/bin/ddevice/rom_source.txt"
 [[ -s "$source_file" ]] || { error "TNM App Privacy: missing ROM source"; exit 1; }
 rom_source="$(tr -d '\r\n' < "$source_file")"
 case "$rom_source" in
-  china)
-    info "TNM App Privacy: mandatory on China ROM (override cannot disable)"
+  china|xiaomi_eu)
+    info "TNM App Privacy: mandatory on $rom_source (no opt-out)"
     bash "$base/patch_app_privacy.sh"
     ;;
-  xiaomi_eu|other)
+  other)
     if [[ "${TNM_ENABLE_APP_PRIVACY:-1}" == "1" ]]; then
       bash "$base/patch_app_privacy.sh"
     else
-      info "TNM App Privacy: disabled explicitly for $rom_source"
+      info "TNM App Privacy: disabled for other ROM source"
     fi
     ;;
   *)
@@ -31,4 +44,3 @@ case "$rom_source" in
     exit 1
     ;;
 esac
-

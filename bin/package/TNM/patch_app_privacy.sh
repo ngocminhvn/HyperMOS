@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Android 16 TNM App Privacy: mandatory and audited on China, optional on EU/other.
+# Android 16 TNM App Privacy: mandatory on both China and Xiaomi.eu, optional on other.
 set -euo pipefail
 
 work_dir="$(pwd)"
@@ -16,15 +16,15 @@ rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
 rom_source="$(tr -d '\r\n' < "$rom_source_file")"
 strict=0
 case "$rom_source" in
-  china) strict=1 ;;
-  xiaomi_eu|other) ;;
+  china|xiaomi_eu) strict=1 ;;
+  other) ;;
   *) error "TNM App Privacy: invalid ROM source '$rom_source'"; exit 1 ;;
 esac
 
 fail_or_skip() {
   local message="$1"
   if [[ "$strict" == "1" ]]; then
-    error "TNM App Privacy [mandatory China]: $message"
+    error "TNM App Privacy [mandatory $rom_source]: $message"
     exit 1
   fi
   info "TNM App Privacy: $message; skipped"
@@ -34,7 +34,7 @@ fail_or_skip() {
 if [[ "$android_version" != "16" ]]; then
   fail_or_skip "Android $android_version has no validated TNM APM layout (supported: Android 16)"
 fi
-for file in "$baksmali" "$smali" "$base/patch_app_privacy.py" "$base/TnmAppPrivacy.smali" "$base/verify_app_privacy.py"; do
+for file in "$baksmali" "$smali" "$base/patch_app_privacy.py" "$base/TnmAppPrivacy.smali"; do
   [[ -s "$file" ]] || { error "TNM App Privacy: missing $file"; exit 1; }
 done
 for executable in java python3 unzip zip cmp; do
@@ -87,7 +87,7 @@ audit_staged() {
   mkdir -p "$audit/apm" "$audit/helper"
   if ! java -jar "$baksmali" d -a 36 "$apm_dex" -o "$audit/apm" >/dev/null ||
      ! java -jar "$baksmali" d -a 36 "$helper_dex" -o "$audit/helper" >/dev/null ||
-     ! python3 "$base/verify_app_privacy.py" \
+     ! python3 "$base/patch_app_privacy.py" --verify \
         "$audit/apm/android/app/ApplicationPackageManager.smali" \
         "$audit/helper/android/app/TnmAppPrivacy.smali"; then
     rm -rf "$audit"
@@ -98,10 +98,6 @@ audit_staged() {
   info "TNM App Privacy: six on-disk API hooks and helper verified"
 }
 
-if [[ "${1:-}" == "--check" ]]; then
-  audit_staged
-  exit 0
-fi
 if [[ "$#" != "0" ]]; then
   error "TNM App Privacy: unsupported arguments"
   exit 2
