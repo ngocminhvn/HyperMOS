@@ -12,12 +12,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Compile Python
         run: |
           python3 -m compileall -q bin/package/NOTIFICATION_FIX/A16/EU
       - name: Run unit tests
         run: |
           python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/EU/tests -v
+      - name: Verify real EU-to-ZK PowerKeeper method merge and DEX assembly
+        run: |
+          set -euo pipefail
+          dir=/tmp/zk304-pk-test
+          mkdir -p "$dir/eu" "$dir/zk"
+          zstd -q -d -f bin/package/NOTIFICATION_FIX/A16/CN/eu-powerkeeper.dex.zst -o "$dir/eu.dex"
+          zstd -q -d -f bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-powerkeeper.dex.zst -o "$dir/zk.dex"
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          a=Path('/tmp/zk304-pk-test/eu.dex').read_bytes()
+          assert hashlib.sha256(a).hexdigest()=='ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae'
+          PY
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dir/eu.dex" -o "$dir/eu"
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dir/zk.dex" -o "$dir/zk"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/zk304_powerkeeper_port_a16.py             --eu "$dir/eu" --zk "$dir/zk" --report "$dir/port-report.json"
+          java -jar bin/apktool/smaliv2.jar a --api 36 "$dir/eu" -o "$dir/merged.dex"
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dir/merged.dex" -o "$dir/verified"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/tmp/zk304-pk-test')
+          report=json.loads((p/'port-report.json').read_text())
+          assert report['ported_count']>0
+          assert (p/'merged.dex').stat().st_size>3_000_000
+          print('Merged methods:',report['ported_count'],'Rejected:',report['rejected_count'])
+          PY
       - name: Verify pinned ZK304 donor integrity
         run: |
           sudo apt-get update -qq
