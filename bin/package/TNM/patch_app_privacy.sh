@@ -138,8 +138,8 @@ if grep -q 'Landroid/app/TnmAppPrivacy;' "$apm"; then
   info "TNM App Privacy: existing verified hook retained"
   exit 0
 fi
-if grep -q 'ProjectRYUHook;->\(shouldHideAppList\|filterApplicationInfoList\|filterPackageInfoList\)' "$apm"; then
-  fail_or_skip "conflicting RYU visibility hook found in APM"
+if grep -Eq -- '->(shouldHideAppList|filterApplicationInfoList|filterPackageInfoList)\(' "$apm"; then
+  fail_or_skip "conflicting package-visibility hook found in APM"
 fi
 
 # The patcher validates every signature before writing its temporary smali tree.

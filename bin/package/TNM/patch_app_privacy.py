@@ -57,7 +57,13 @@ def add_locals(method: str, params: int) -> tuple[str, int]:
 
 
 def patch_method(method: str, kind: str, callback: str, params: int) -> str:
-    if HELPER in method or "ProjectRYUHook;->" in method:
+    # Reject competing visibility hooks by behavior, not by donor/vendor name.
+    known_visibility_hooks = (
+        "->shouldHideAppList(",
+        "->filterApplicationInfoList(",
+        "->filterPackageInfoList(",
+    )
+    if HELPER in method or any(hook in method for hook in known_visibility_hooks):
         raise RuntimeError("existing package-visibility hook in target method")
     modified, scratch = add_locals(method, params)
     first, second = f"v{scratch}", f"v{scratch + 1}"

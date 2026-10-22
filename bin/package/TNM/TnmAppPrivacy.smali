@@ -23,10 +23,6 @@
     invoke-virtual {v0, p0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
     move-result v1
     if-nez v1, :protected
-    const-string v0, "com.projectryu"
-    invoke-virtual {p0, v0}, Ljava/lang/String;->startsWith(Ljava/lang/String;)Z
-    move-result v1
-    if-nez v1, :protected
     const-string v0, "com.android.packageinstaller"
     invoke-virtual {p0, v0}, Ljava/lang/String;->startsWith(Ljava/lang/String;)Z
     move-result v1

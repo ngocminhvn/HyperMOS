@@ -14,7 +14,7 @@ not copy RYU binaries and does not touch Kaorios, Keybox, Activation, developer
 options, notifications, battery or thermal code.
 
 On both `china` and `xiaomi_eu`, an absent/unsupported framework or
-conflicting RYU hook stops the build instead of silently omitting Hide App List.
+conflicting package-visibility hook stops the build instead of silently omitting Hide App List.
 All six APM call sites and the helper are checked directly after patching.
 The redundant *pre-pack* Hide App List audit is removed, but the separate
 pre-pack LOCK staging check remains. This does not establish boot/runtime
