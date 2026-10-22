@@ -52,7 +52,7 @@ jobs:
           ./gradlew :app:assembleMiCTSDebug :app:assembleVISTriggerDebug --no-daemon --stacktrace
           find app/build/outputs/apk -name '*.apk' -printf '%p %s bytes\\n'
           mkdir -p "$GITHUB_WORKSPACE/micts-apk"
-          find app/build/outputs/apk -name '*MiCTS*debug*.apk' -type f -exec cp {} "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_TEST.apk" \;
+          find app/build/outputs/apk/MiCTS/debug -maxdepth 1 -name '*.apk' -type f -exec cp {} "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_TEST.apk" \;
           test -s "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_TEST.apk"
           find app/build/outputs/apk/VISTrigger/debug -name '*.apk' -type f -exec cp {} "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_Companion_TEST.apk" \;
           test -s "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_Companion_TEST.apk"
