@@ -4,14 +4,13 @@
 
 During EU #126 Messenger test, the notification log records repeated `Greezer Denial` for `com.google.android.c2dm.intent.RECEIVE` addressed to `com.facebook.orca` after screen-on. FCM is reaching Android's broadcast dispatch, but the receiver is restricted before delivery. The evidence is about *delayed/denied delivery*, not proof that FCM messages are permanently lost.
 
-## What the current EU patch actually changes
+## Corrected EU ZK304 parity patch (October 22, 2026)
 
-`A16/EU/eu_zk_global_greeze_broadcast_a16.py` changes **four** `IS_INTERNATIONAL_BUILD` reads in `BroadcastQueueModernStubImpl` to local true and the final `PolicyManager.CN_MODEL` assignment to false. The patch is **global** across app packages, broadcast actions and screen states. `A16/EU/ContentCatcher_EU.sh` runs both patchers in one decode/rebuild pass.
+`A16/EU/eu_zk_broadcast_greeze_parity_a16.py` **does not force** an international build or a non-CN region. It verifies the four BroadcastQueue method reads and `PolicyManager.<clinit>` and retains:
+- `sget-boolean ..., Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z`
+- `CN_MODEL = (ro.miui.region == "CN")`
 
-It does *not* modify:
-- `GreezeManagerService.isAllowBroadcast` or `isRestrictReceiver`
-- `services.jar` BroadcastQueueImpl
-- PowerKeeper, Doze, Millet, network policy or frozen-UID bookkeeping
+These are **semantically identical** to the observed ZK304 donor and original EU309. If the exact donor alias `IS_ZK_BUILD` is encountered in a supported BroadcastQueue method, it is normalized to the native `IS_INTERNATIONAL_BUILD` field, without hard-coding a branch value. The previous forced true/false gates have been removed from active builds. This change alone cannot solve EU #126 FCM delivery, because those five gates were already aligned in the original Xiaomi.eu 309 JAR.
 
 ## Relevant ZK 304 observed bytecode
 
@@ -32,3 +31,15 @@ Collect before/after logs with identical test timing and at least several notifi
 4. Power consumption and effects on unrelated broadcasts.
 
 If `Greezer Denial` persists, the next investigation belongs in the actual `GreezeManagerService.isAllowBroadcast/isRestrictReceiver` and broadcast cache/thaw path; do not assume changing more build flags will solve it.
+
+## ZK donor freeze-path delta and battery warning
+
+Normalized DEX instruction comparisons found the following changes in ZK304 relative to EU309:
+
+- `GreezeManagerService.freezeUids`: EU has an `isUpdateScreenStatus` early-return check; ZK lacks it. Porting ZK blindly could remove EU's screen-update protection and **increase** freezes, rather than cure the FCM delay.
+- `GreezeManagerService.freezeAction`: EU adds a null-info log/guard and additional checks; differences are not a proven cause of cached FCM.
+- `GreezeManagerService.isAllowBroadcast`: EU adds a Xiaomi Mi Push (`com.xiaomi.xmsf` / `com.xiaomi.mipush.RECEIVE_MESSAGE`) branch; core Google FCM checks exist in both.
+- `GreezeManagerService.isRestrictReceiver` and `isNeedCachedBroadcast`: normalized instruction flows are identical.
+- `InternationalPolicyManager.getImportantApps`: ZK reuses a cached list if nonempty; EU recomputes it. This does not establish FCM delivery correctness.
+
+No changes were made to these runtime Greeze methods without a proved targeted mechanism. Screen-on cached FCM denials require validation of freeze/thaw and broadcast deferral on the real ROM. Testing should measure per-app denial count, notification latency and idle battery before importing any additional ZK behavior.
