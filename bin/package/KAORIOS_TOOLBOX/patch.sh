@@ -330,6 +330,11 @@ require_services_targets() {
   fi
 }
 
+require_miui_services_targets() {
+  local root="$1"
+  require_one_target "$root" "com/android/server/wm/WindowManagerServiceImpl.smali" "WindowManagerServiceImpl"
+}
+
 find_target_file() {
   local root="$1" rel="$2" label="$3" file
   require_one_target "$root" "$rel" "$label" || return 1
@@ -398,8 +403,11 @@ patch_selected_targets() {
         patch_target_file "$root" "com/android/server/SystemServer.smali" "SystemServer" 1
       fi
       if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-        python3 "$SECURE_FLAG_PATCHER" "$root"
+        python3 "$SECURE_FLAG_PATCHER" "$root" --archive services
       fi
+      ;;
+    miui-services)
+      python3 "$SECURE_FLAG_PATCHER" "$root" --archive miui-services
       ;;
     *)
       error "KAORIOS: unknown patch kind: $kind"
@@ -676,7 +684,7 @@ verify_services_final() {
   fi
 
   if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-    python3 "$SECURE_FLAG_PATCHER" "$root" --check-only >/dev/null || {
+    python3 "$SECURE_FLAG_PATCHER" "$root" --archive services --check-only >/dev/null || {
       error "KAORIOS: final verification failed: runtime Secure Flag hooks"
       return 1
     }
@@ -684,6 +692,16 @@ verify_services_final() {
   fi
 
   info "KAORIOS: enabled services features verified"
+}
+
+verify_miui_services_final() {
+  local root="$1"
+  require_miui_services_targets "$root"
+  python3 "$SECURE_FLAG_PATCHER" "$root" --archive miui-services --check-only >/dev/null || {
+    error "KAORIOS: final verification failed: Xiaomi runtime Secure Flag hook"
+    return 1
+  }
+  info "KAORIOS: Xiaomi runtime Secure Flag hook verified"
 }
 
 verify_candidate() {
@@ -694,6 +712,7 @@ verify_candidate() {
   case "$kind" in
     framework) verify_framework_final "$smali" ;;
     services) verify_services_final "$smali" ;;
+    miui-services) verify_miui_services_final "$smali" ;;
     *) error "KAORIOS: unsupported archive kind: $kind"; return 1 ;;
   esac
 }
@@ -711,6 +730,23 @@ find_unique_artifact() {
     return 1
   fi
   printf '%s\n' "${matches[0]}"
+}
+
+find_optional_unique_artifact() {
+  local name="$1" preferred="$2"
+  if [[ -n "$preferred" && -f "$preferred" ]]; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+  local matches=()
+  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$work_dir/build/baserom/images" -type f -name "$name" -print0)
+  if (( ${#matches[@]} > 1 )); then
+    error "KAORIOS: expected at most one $name, found ${#matches[@]}"
+    return 1
+  fi
+  if (( ${#matches[@]} == 1 )); then
+    printf '%s\n' "${matches[0]}"
+  fi
 }
 
 patch_archive() {
@@ -733,6 +769,7 @@ patch_archive() {
       fi
       ;;
     services) require_services_targets "$smali" ;;
+    miui-services) require_miui_services_targets "$smali" ;;
     *) error "KAORIOS: unsupported archive kind: $kind"; return 1 ;;
   esac
 
@@ -812,6 +849,15 @@ fi
 if services_features_enabled; then
   SERVICES_JAR=$(find_unique_artifact "services.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar")
   patch_archive "$SERVICES_JAR" services
+fi
+
+if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+  MIUI_SERVICES_JAR=$(find_optional_unique_artifact "miui-services.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar") || exit 1
+  if [[ -n "$MIUI_SERVICES_JAR" ]]; then
+    patch_archive "$MIUI_SERVICES_JAR" miui-services
+  else
+    info "KAORIOS: miui-services.jar not present; Xiaomi-specific Secure Flag hook skipped"
+  fi
 fi
 
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then

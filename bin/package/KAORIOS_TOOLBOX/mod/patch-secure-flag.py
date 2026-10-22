@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add or verify Kaorios runtime FLAG_SECURE hooks in services smali."""
+"""Add or verify MOD-local Kaorios runtime FLAG_SECURE hooks."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class Target:
     enabled_return: tuple[str, ...]
 
 
-TARGETS = (
+SERVICES_REQUIRED_TARGETS = (
     Target(
         "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali",
         "isScreenCaptureAllowed(I)Z",
@@ -47,6 +47,43 @@ TARGETS = (
         ("return-void",),
     ),
 )
+
+# Android 13 used additional setters/getters. They are optional because newer
+# releases removed or relocated them, but when present they must use the same
+# Kaorios runtime switch instead of a permanent CorePatch return value.
+SERVICES_OPTIONAL_TARGETS = (
+    Target(
+        "com/android/server/devicepolicy/DevicePolicyManagerService.smali",
+        "getScreenCaptureDisabled(Landroid/content/ComponentName;IZ)Z",
+        ("const/4 v0, 0x0", "return v0"),
+    ),
+    Target(
+        "com/android/server/devicepolicy/DevicePolicyManagerService.smali",
+        "setScreenCaptureDisabled(I)V",
+        ("return-void",),
+    ),
+    Target(
+        "com/android/server/wm/WindowState.smali",
+        "setSecure(Z)V",
+        ("return-void",),
+    ),
+    Target(
+        "com/android/server/wm/WindowSurfaceController.smali",
+        "setSecure(Z)V",
+        ("return-void",),
+    ),
+)
+
+MIUI_SERVICES_TARGETS = (
+    Target(
+        "com/android/server/wm/WindowManagerServiceImpl.smali",
+        "notAllowCaptureDisplay(Lcom/android/server/wm/RootWindowContainer;I)Z",
+        ("const/4 v0, 0x0", "return v0"),
+    ),
+)
+
+# Backward-compatible alias used by existing tests and external callers.
+TARGETS = SERVICES_REQUIRED_TARGETS
 
 
 class PatchError(RuntimeError):
@@ -161,39 +198,74 @@ def patch_target(path: Path, target: Target, check_only: bool) -> bool:
     return True
 
 
-def run(root: Path, check_only: bool) -> int:
-    device_policy = find_unique(root, TARGETS[0].relative_class)
+def patch_if_supported(root: Path, target: Target, check_only: bool) -> bool:
+    path = find_unique(root, target.relative_class)
+    if path is None:
+        return False
+    try:
+        changed = patch_target(path, target, check_only)
+    except PatchError as exc:
+        if "expected exactly one method" in str(exc) and "found 0" in str(exc):
+            return False
+        raise
+    if changed:
+        print(f"KAORIOS: patched {target.signature} in {path.name}")
+    return True
+
+
+def run_services(root: Path, check_only: bool) -> int:
+    device_policy = find_unique(root, SERVICES_REQUIRED_TARGETS[0].relative_class)
     if device_policy is None:
         raise PatchError("DevicePolicyCacheImpl.smali not found")
-    patch_target(device_policy, TARGETS[0], check_only)
+    patch_target(device_policy, SERVICES_REQUIRED_TARGETS[0], check_only)
 
     window_patched = 0
-    for target in TARGETS[1:]:
-        path = find_unique(root, target.relative_class)
-        if path is None:
-            continue
-        try:
-            changed = patch_target(path, target, check_only)
-        except PatchError as exc:
-            if "expected exactly one method" in str(exc) and "found 0" in str(exc):
-                continue
-            raise
-        window_patched += 1
-        if changed:
-            print(f"KAORIOS: patched {target.signature} in {path.name}")
+    for target in SERVICES_REQUIRED_TARGETS[1:]:
+        if patch_if_supported(root, target, check_only):
+            window_patched += 1
     if window_patched == 0:
         raise PatchError("no supported WindowState/WindowStateAnimator secure method found")
+
+    optional_patched = 0
+    for target in SERVICES_OPTIONAL_TARGETS:
+        if patch_if_supported(root, target, check_only):
+            optional_patched += 1
+    if optional_patched:
+        print(f"KAORIOS: verified {optional_patched} optional Android 13 Secure Flag hooks")
     print("KAORIOS: runtime Secure Flag hooks verified" if check_only else "KAORIOS: runtime Secure Flag hooks applied")
     return 0
+
+
+def run_miui_services(root: Path, check_only: bool) -> int:
+    target = MIUI_SERVICES_TARGETS[0]
+    path = find_unique(root, target.relative_class)
+    if path is None:
+        raise PatchError("WindowManagerServiceImpl.smali not found in miui-services")
+    patch_target(path, target, check_only)
+    print(
+        "KAORIOS: Xiaomi Secure Flag hook verified"
+        if check_only
+        else "KAORIOS: Xiaomi Secure Flag hook applied"
+    )
+    return 0
+
+
+def run(root: Path, check_only: bool, archive: str = "services") -> int:
+    if archive == "services":
+        return run_services(root, check_only)
+    if archive == "miui-services":
+        return run_miui_services(root, check_only)
+    raise PatchError(f"unsupported archive kind: {archive}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
     parser.add_argument("--check-only", action="store_true")
+    parser.add_argument("--archive", choices=("services", "miui-services"), default="services")
     args = parser.parse_args()
     try:
-        return run(args.root, args.check_only)
+        return run(args.root, args.check_only, args.archive)
     except (OSError, PatchError, ValueError) as exc:
         print(f"KAORIOS: Secure Flag patch failed: {exc}", file=sys.stderr)
         return 1
