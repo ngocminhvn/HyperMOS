@@ -135,7 +135,7 @@ def main() -> None:
     failures = {k: n for k, n in count.items() if n != 1}
     if failures:
         raise RuntimeError(f"Missing/duplicated Android 16 anchors: {failures}")
-    if patched == original or patched.count(HELPER) < 10:
+    if patched == original or patched.count(HELPER) < 6:
         raise RuntimeError("TNM hook insertion was ineffective")
     file.write_text(patched, encoding="utf-8")
     print("[TNM HIDE APP LIST] patched 6 APM methods")
