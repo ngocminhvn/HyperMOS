@@ -23,11 +23,6 @@ on:
         options:
           - root
           - stock
-      enable_app_privacy:
-        description: 'Enable the signature-gated Android 16 TNM App Privacy patch'
-        required: true
-        type: boolean
-        default: true
       upload_method:
         description: 'Upload ROM to'
         required: true
@@ -138,7 +133,6 @@ jobs:
         env:
           INPUT_URL: ${{ inputs.input_url }}
           ROOT_MODE: ${{ inputs.root_mode }}
-          TNM_ENABLE_APP_PRIVACY: ${{ inputs.enable_app_privacy && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail
