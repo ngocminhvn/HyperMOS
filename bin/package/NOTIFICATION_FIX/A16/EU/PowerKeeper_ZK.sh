@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Merge compatible ZK304 power-management methods into the original EU APK DEX.
 # Never substitute the whole ZK APK or remove EU-only ABI methods.
+# Keep original EU APK resources and META-INF entries; no signing or apksigner checks.
 set -euo pipefail
 w="$(pwd)"
 source "$w/functions.sh"
 d="$w/bin/package/NOTIFICATION_FIX/A16/EU"
-cn="$w/bin/package/NOTIFICATION_FIX/A16/CN"
 archive="$d/ZK304/zk304-powerkeeper.dex.zst"
 manifest="$d/ZK304/manifest.json"
 report="$w/build/reports/zk304-powerkeeper-eu"
@@ -25,8 +25,6 @@ grep -Fq "sdkVersion:'36'" <<< "$badging" || exit 1
 tmp="$(mktemp -d "$w/zk304-powerkeeper.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/eu" "$tmp/zk" "$report"
-python3 "$cn/preserve_powerkeeper_identity.py" --check-base --apk "$apk" --reference "$apk" \
-  --apksigner "$w/bin/apktool/apksigner.jar" --report "$report/stock.json"
 unzip -p "$apk" classes.dex > "$tmp/eu.dex"
 zstd -d -q -f "$archive" -o "$tmp/zk.dex"
 python3 - "$tmp/zk.dex" "$manifest" <<'PY'
@@ -43,22 +41,18 @@ java -jar "$w/bin/apktool/smaliv2.jar" a --api 36 "$tmp/eu" -o "$tmp/classes.dex
 java -jar "$w/bin/apktool/baksmaliv2.jar" d --api 36 "$tmp/classes.dex" \
   -o "$tmp/verified" >/dev/null
 ! grep -R -F -q 'Lmiui/zk/Build;->IS_ZK_BUILD:Z' "$tmp/verified" || exit 1
-python3 "$cn/powerkeeper.py" prepare-donor --stock-apk "$apk" \
-  --dex-file "$tmp/classes.dex" --output "$tmp/wrapper.apk"
-python3 "$cn/preserve_powerkeeper_identity.py" --base "$apk" --patched "$tmp/wrapper.apk" \
-  --reference "$apk" --apksigner "$w/bin/apktool/apksigner.jar" \
-  --apk "$tmp/preserved.apk" --report "$report/metadata.json"
+# Package just the rebuilt DEX, retaining all original EU APK ZIP members.
+# Do not verify or re-sign Xiaomi's cryptographic signature: it is invalidated
+# by the changed DEX. Keep all source META-INF bytes as requested.
+python3 "$d/eu_powerkeeper_keep_metadata.py" \
+  --base "$apk" --dex "$tmp/classes.dex" --output "$tmp/preserved.apk" \
+  --report "$report/preserve-metadata.json"
 zipalign -p -f 4 "$tmp/preserved.apk" "$tmp/aligned.apk"
 zipalign -c -p 4 "$tmp/aligned.apk"
-python3 "$cn/preserve_powerkeeper_identity.py" --apk "$tmp/aligned.apk" \
-  --reference "$apk" --report "$report/final.json"
-python3 - "$tmp/aligned.apk" "$tmp/classes.dex" <<'PY'
-import sys,zipfile
-from pathlib import Path
-with zipfile.ZipFile(sys.argv[1]) as z:
-    assert not z.testzip()
-    assert z.read("classes.dex")==Path(sys.argv[2]).read_bytes()
-PY
+python3 "$d/eu_powerkeeper_keep_metadata.py" \
+  --base "$apk" --dex "$tmp/classes.dex" --output "$tmp/aligned.apk" \
+  --verify-only --report "$report/final-metadata.json"
+# Mutate ROM image only after the fully verified candidate exists.
 cp -f "$tmp/aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "EU: ZK304 PowerKeeper policies merged into EU APK; EU ABI kept; original APK signature invalid"
+mods "EU: ZK304 PowerKeeper methods merged; original META-INF/non-DEX preserved, no APK signing"
