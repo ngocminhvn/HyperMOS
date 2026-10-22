@@ -94,9 +94,23 @@ class LaunchTileService : TileService() {
                     report("Cửa sổ đã thay đổi trong lúc đóng Control Center; hủy yêu cầu.")
                     return@Thread
                 }
-                val ok = triggerCircleToSearch(1, this@LaunchTileService, false)
-                Log.i(TAG, "invoke returned=$ok, foreground=$foreground")
-                if (!ok) report("MiCTS/CSService không chấp nhận yêu cầu.")
+                if (BuildConfig.APP_NAME == "VISTrigger") {
+                    // Installable companion flavor: retains the untouched
+                    // system MiCTS package/signature. The official MiCTS
+                    // Activity performs the authenticated services.jar call.
+                    val delegate = rootCommand(
+                        "/system/bin/am start --user 0 -n com.parallelc.micts/.ui.activity.MainActivity",
+                        6000L
+                    )
+                    Log.i(TAG, "companion delegate rc=${delegate.first}, focus=$foreground")
+                    if (delegate.first != 0) {
+                        report("Không khởi chạy được MiCTS gốc: ${delegate.second.take(120)}")
+                    }
+                } else {
+                    val ok = triggerCircleToSearch(1, this@LaunchTileService, false)
+                    Log.i(TAG, "invoke returned=$ok, foreground=$foreground")
+                    if (!ok) report("MiCTS/CSService không chấp nhận yêu cầu.")
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "tile failed", e)
                 report("MiCTS Tile gặp lỗi; xem logcat -s MiCTSTileFix:* MiCTSBridge:*")
@@ -156,6 +170,18 @@ def main():
         if content.count(old)!=1: raise SystemExit("Unexpected Gradle version field: "+old)
     content=content.replace('versionCode = commitCount','versionCode = 2601001')
     content=content.replace('versionName = latestTag','versionName = "2.6-tilefix-test1"')
+    # Side-by-side QS Tile test flavor. It delegates to the ORIGINAL, signer-
+    # verified MiCTS after the panel is closed, avoiding APK signer conflicts.
+    if 'applicationId = "com.parallelc.vistrigger"' not in content:
+        raise SystemExit("Missing VISTrigger flavor")
+    content=content.replace(
+        'applicationId = "com.parallelc.vistrigger"',
+        'applicationId = "com.parallelc.micts.tiletest"',
+    )
+    content=content.replace('resValue("string", "app_name", "VISTrigger")',
+                            'resValue("string", "app_name", "MiCTS Tile Test")')
+    content=content.replace('resValue("string", "tile_label", "VIS")',
+                            'resValue("string", "tile_label", "CTS Test")')
     tile.write_text(TILE,encoding="utf-8")
     gradle.write_text(content,encoding="utf-8")
     print("MiCTS v2.6 root-only Quick Settings tile fix staged.")
