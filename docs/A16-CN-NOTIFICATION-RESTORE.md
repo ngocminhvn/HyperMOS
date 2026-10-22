@@ -8,11 +8,11 @@ The old HyperMOS --cn-notification-fix switch and its broad class/region
 rewrites have been removed from the Android 16 CorePatch engine.
 
 The existing NOTIFICATION_FIX dispatcher runs:
-1. A16/CN/FrameworkPatcher.sh
-2. A16/CN/PowerKeeper.sh
+1. A16/patch.sh (selects China method patch)
+2. A16/CN/PowerKeeper.sh (called from A16/patch.sh on China)
 
 FrameworkPatcher A16 port:
-- bin/package/NOTIFICATION_FIX/A16/CN/FrameworkPatcher.sh
+- bin/package/NOTIFICATION_FIX/A16/patch.sh
 - bin/package/NOTIFICATION_FIX/A16/CN/frameworkpatcher_cn_a16.py
 
 Reference: https://github.com/FrameworksForge/FrameworkPatcher/blob/master/scripts/patcher_a16.sh

@@ -1,7 +1,13 @@
 # Android 16 notification and power policy — CN / Xiaomi.eu
 
-- `CN/`: existing China FrameworkPatcher and PowerKeeper workflow, unchanged.
-- `EU/`: `ContentCatcher_EU.sh` retains the ZK304 Greeze/notification framework port. **The extra `PowerKeeper_ZK.sh` 61-method APK port is temporarily disabled by default** to preserve the working #181 PowerKeeper behavior. The script and original donor remain available but are not invoked.
+`A16/patch.sh` is the shared A16 entrypoint and JAR lifecycle.
+It selects the original China or Xiaomi.eu Python patchers by `rom_source.txt`,
+while preserving their distinct donor hashes, methods, reports and policy checks.
+For A17, `A17/patch.sh` now exposes the same version-entrypoint convention
+without importing any Android 16 donor or policy code.
+
+- `CN/`: existing China FrameworkPatcher Python policy and PowerKeeper workflow; the previous FrameworkPatcher shell wrapper is merged into `A16/patch.sh`.
+- `EU/`: `A16/patch.sh` retains the ZK304 Greeze/notification framework port. **The extra `PowerKeeper_ZK.sh` 61-method APK port is temporarily disabled by default** to preserve the working #181 PowerKeeper behavior. The script and original donor remain available but are not invoked.
 - `EU/ZK304/`: SHA256-pinned original ZK304 `miui-services.jar` and PowerKeeper DEX reference. Build always verifies donor checksums.
 
 EU workflow:
@@ -26,6 +32,6 @@ The [donor-based EU309/ZK304 preflight](https://github.com/ngocminhvn/HyperMOS/a
 
 **Cryptographic limitation:** the original certificate file content is preserved, but replacing classes.dex invalidates the original digital signature, and any v2/v3 signing block is not reconstructed. The result requires the ROM runtime to accept the modified APK. Metadata preservation does not prove package integrity or boot compatibility; successful APK packaging alone does not prove runtime loading, standby battery, or notification delivery.
 
-**TNM App Privacy is independent** from this PowerKeeper path and has not been changed as part of the updated EU APK port.
+**TNM App Privacy is independent** from this PowerKeeper path and is required for CN and Xiaomi.eu Android 16 by `bin/package/TNM`.
 
-**Current main safety choice:** EU Android 16 still ports ZK304 notification/Greeze framework methods, but does not call `EU/PowerKeeper_ZK.sh`. The China A16 PowerKeeper path is unchanged, and TNM App Privacy is unchanged. This temporary pause does not undo the existing #181 PowerKeeper integration from the normal build/mod stages.
+**Current main safety choice:** EU Android 16 still ports ZK304 notification/Greeze framework methods, but does not call `EU/PowerKeeper_ZK.sh`. The China A16 PowerKeeper path is unchanged, and TNM App Privacy is managed independently. This temporary pause does not undo the existing #181 PowerKeeper integration from the normal build/mod stages.

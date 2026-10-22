@@ -1,25 +1,29 @@
 WORK_DIR=$(pwd)
 source $WORK_DIR/functions.sh
 
-# Android 16 uses separate CN/ and EU/ notification patch directories.
-# Never port China-only FrameworkPatcher, notification DEX or EU donor PowerKeeper.
-rom_source_file="$WORK_DIR/bin/ddevice/rom_source.txt"
-if [[ -s "$rom_source_file" ]]; then
-    rom_source="$(tr -d '\r\n' < "$rom_source_file")"
-    if [[ "$rom_source" == "xiaomi_eu" ]]; then
-        # Xiaomi.eu Android 16 keeps ZK304 framework Greeze/notification policy.
-        # TEMPORARILY DISABLED: ZK304 PowerKeeper 61-method APK port.
-        # Keep PowerKeeper exactly as in the working #181 build path; do not
-        # re-sign, repack or overwrite its APK here.
-        if [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/androidver.txt")" == "16" ]]; then
-            bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/ContentCatcher_EU.sh" || exit 1
-            info "EU ZK304 PowerKeeper APK port: temporarily disabled (keeping #181 behavior)"
-        fi
-        exit 0
+# Android 16 is routed to a single version-specific entrypoint. The two
+# policy variants remain separate inside the version directory.
+source_file="$WORK_DIR/bin/ddevice/rom_source.txt"
+rom_source=""
+if [[ -s "$source_file" ]]; then
+    rom_source="$(tr -d '\r\n' < "$source_file")"
+fi
+android_version="$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/androidver.txt")"
+region_type="$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/device_type.txt")"
+if [[ "$android_version" == "16" ]]; then
+    if [[ "$rom_source" == "xiaomi_eu" || "$region_type" != *"Global"* ]]; then
+        bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/patch.sh" || exit 1
+    else
+        warn "No Support Global ROM! Skipping notification fix..."
     fi
+    exit 0
+fi
+# Xiaomi.eu non-A16 builds do not borrow China-only methods/donors.
+if [[ "$rom_source" == "xiaomi_eu" ]]; then
+    exit 0
 fi
 
-info "PATCH 4/6: Notification"
+info "Notification policy: Android $android_version"
 AndroidVER=$(cat $WORK_DIR/bin/ddevice/androidver.txt)
 regionTYPE=$(cat $WORK_DIR/bin/ddevice/device_type.txt)
 
@@ -38,14 +42,8 @@ elif [[ $AndroidVER == "14" ]];then
 elif [[ $AndroidVER == "15" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A15/SystemUI.sh
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh
-elif [[ $AndroidVER == "16" ]];then
-    # FrameworkPatcher A16 CN notification gates are kept separate from COREPATCH.
-    bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/CN/FrameworkPatcher.sh" || exit 1
-    bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/CN/PowerKeeper.sh" || exit 1
-    # Keep the stock Android 16 MiuiSystemUI.apk untouched.
 elif [[ $AndroidVER == "17" ]];then
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A17/SystemUI.sh
+    bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A17/patch.sh" || exit 1
 fi
 
 fi
