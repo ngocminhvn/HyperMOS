@@ -24,7 +24,7 @@ on:
           - root
           - stock
       enable_app_privacy:
-        description: 'Enable the signature-gated Android 16 TNM App Privacy patch'
+        description: 'EU/other: optional Android 16 TNM App Privacy; China: always mandatory'
         required: true
         type: boolean
         default: true
@@ -221,6 +221,17 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
+          # The China image must have all six TNM hide-app hooks, not just a
+          # successful build log. EU keeps its previous optional behavior.
+          if [[ "$(tr -d '\r\n' < bin/ddevice/rom_source.txt)" == "china" ]]; then
+            echo "::group::TNM App Privacy mandatory pre-pack audit (China)"
+            if ! sudo -E bash bin/package/TNM/patch_app_privacy.sh --check 2>&1 | tee -a build_action.log; then
+              echo "::endgroup::"
+              echo "::error title=TNM hide-app audit failed::China ROM lacks verified TNM App Privacy hooks."
+              exit 1
+            fi
+            echo "::endgroup::"
+          fi
           python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log

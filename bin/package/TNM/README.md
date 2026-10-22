@@ -12,10 +12,16 @@ six Hide App List call sites proven in the supplied ProjectRYU framework. It doe
 not copy RYU binaries and does not touch Kaorios, Keybox, Activation, developer
 options, notifications, battery or thermal code.
 
-The package stage enables the feature by default. Set
-`TNM_ENABLE_APP_PRIVACY=0` only to opt out. Unknown method layouts and an
-existing RYU hook are reported and skipped before the framework image is
-changed. A successful patch writes
+For ROMs identified as `china` in `bin/ddevice/rom_source.txt`, Android 16
+TNM App Privacy is **mandatory**, regardless of `TNM_ENABLE_APP_PRIVACY`.
+An absent/unsupported framework or conflicting RYU hook fails the China build
+instead of silently producing a ROM without the feature. The staged framework
+must pass a six-API DEX audit after patching and again before packing. This
+does not assert boot/runtime compatibility or coverage of direct Binder calls.
+For `xiaomi_eu` and `other`, the previous optional, compatibility-gated behavior
+remains; `TNM_ENABLE_APP_PRIVACY=0` can opt those ROMs out. Android versions
+other than 16 are not claimed to be supported by this patch. A successful
+patch writes
 `/system/etc/tnm/app-privacy-v1`; TNM App exposes controls only when that marker
 and its on-demand backend capability are available.
 

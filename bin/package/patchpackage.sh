@@ -41,9 +41,9 @@ if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   exit 1
 fi
 
-# TNM owns both mandatory post-fs property reporting and compatibility-gated
-# App Privacy. Its patch.sh handles the App Privacy opt-out independently.
-info "PATCH 5/5: TNM (post-fs property reporting + App Privacy)"
+# TNM owns mandatory post-fs property reporting and China-mandatory App
+# Privacy. On EU/other, TNM preserves the previous compatibility-gated opt-out.
+info "PATCH 5/5: TNM (post-fs + China-mandatory App Privacy)"
 bash "$target_dir/TNM/patch.sh" || exit 1
 
 
