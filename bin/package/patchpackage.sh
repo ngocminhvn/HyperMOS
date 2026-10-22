@@ -35,14 +35,11 @@ if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   exit 1
 fi
 
-# Enabled by default. The patcher still skips unsupported layouts before changing
-# framework.jar. Set TNM_ENABLE_APP_PRIVACY=0 only for an explicit opt-out build.
-info "PATCH 6/6: TNM App Privacy (compatibility-gated)"
-if [[ "${TNM_ENABLE_APP_PRIVACY:-1}" == "1" ]]; then
-  bash "$target_dir/TNM/patch.sh" || exit 1
-else
-  info "TNM App Privacy: disabled explicitly with TNM_ENABLE_APP_PRIVACY=0"
-fi
+# Always apply TNM App Privacy for supported Android 16 framework layouts.
+# The patch itself verifies all six ApplicationPackageManager entry points
+# before modifying framework.jar. Unsupported layouts are left unchanged.
+info "PATCH 6/6: TNM App Privacy (A16, enabled by default)"
+bash "$target_dir/TNM/patch.sh" || exit 1
 
 
 # Keep CorePatch / Kaorios output unmodified by MiCTS. MiCTS is only an APK
