@@ -1,4 +1,4 @@
-name: EU #170 vs #176 - Extract Changed IMG
+name: 'EU #170 vs #176 - Extract Changed IMG and ColorOS'
 
 on:
   workflow_dispatch:
@@ -60,8 +60,18 @@ jobs:
           set -euo pipefail
           BUILD_176_SHA=7bcb48c52c7b895c96589a58e71b48239982876e
           git fetch --no-tags --depth=1 origin "$BUILD_176_SHA"
-          mapfile -t matches < <(git ls-tree -r --name-only "$BUILD_176_SHA" -- bin/modfile/ModApp/Kashi/ \
-            | grep -E '^bin/modfile/ModApp/Kashi/ColorOS_plugin_mod_.*\.zip        shell: bash
+          archive_path='bin/modfile/ModApp/Kashi/ColorOS_plugin_mod_V4@kashis_cringey_stuffs.zip'
+          git cat-file -e "$BUILD_176_SHA:$archive_path"
+          git show "$BUILD_176_SHA:$archive_path" > "$WORK/coloros-v176.zip"
+          unzip -tqq "$WORK/coloros-v176.zip"
+          python3 bin/audit/extract_coloros_os3.py plan \
+            --modzip "$WORK/coloros-v176.zip" \
+            --output "$WORK/coloros-plan.json"
+          rm -f "$WORK/coloros-v176.zip"
+          echo 'ColorOS V4 manifest pinned to the exact build 176 commit'
+
+      - name: Download build 170 from the original Drive file ID
+        shell: bash
         env:
           RCLONE_CONFIG_URL: ${{ secrets.RCLONE_TOKEN_PATH }}
         run: |
