@@ -7,13 +7,13 @@ rom_source_file="$WORK_DIR/bin/ddevice/rom_source.txt"
 if [[ -s "$rom_source_file" ]]; then
     rom_source="$(tr -d '\r\n' < "$rom_source_file")"
     if [[ "$rom_source" == "xiaomi_eu" ]]; then
-        # Xiaomi.eu: donor-verified ZK304 notification policy and guarded PowerKeeper method port.
+        # Xiaomi.eu Android 16 keeps ZK304 framework Greeze/notification policy.
+        # TEMPORARILY DISABLED: ZK304 PowerKeeper 61-method APK port.
+        # Keep PowerKeeper exactly as in the working #181 build path; do not
+        # re-sign, repack or overwrite its APK here.
         if [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/androidver.txt")" == "16" ]]; then
             bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/ContentCatcher_EU.sh" || exit 1
-            # EU ZK304 PowerKeeper policy is part of every EU Android 16 build.
-            # Preserve the source APK's META-INF and every non-DEX entry;
-            # changing DEX does not create a valid cryptographic signature.
-            bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper_ZK.sh" || exit 1
+            info "EU ZK304 PowerKeeper APK port: temporarily disabled (keeping #181 behavior)"
         fi
         exit 0
     fi
