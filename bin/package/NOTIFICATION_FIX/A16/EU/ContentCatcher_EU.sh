@@ -61,10 +61,16 @@ done
 python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/EU/zk304_notification_policy_a16.py" \
     "$decoded" "$zk_tmp/decoded" \
     --report "$work_dir/build/reports/frameworkpatcher-a16/eu-zk304-notification-policy.json"
+# Port the actual ZK304 Greeze freeze/thaw, broadcast and Doze methods.
+# Preserve Xiaomi.eu-specific constructors, callbacks and class ABI.
+# Unexpected methods or references are hard errors; never guess a port.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/EU/zk304_greeze_policy_port_a16.py" \
+    "$decoded" "$zk_tmp/decoded" \
+    --report "$work_dir/build/reports/frameworkpatcher-a16/eu-zk304-greeze-doze.json"
 recompile_jar "$jar" >/dev/null
 if [[ ! -s "$output" ]] || ! unzip -t "$output" >/dev/null 2>&1; then
     echo "[EU CONTENTCATCHER A16] rebuilt JAR invalid" >&2
     exit 1
 fi
 mv -f "$output" "$jar"
-log "[EU A16] ContentCatcher + pinned-ZK304 NotificationManager static policy + Greeze gate parity"
+log "[EU A16] ContentCatcher + pinned ZK304 NotificationManager, Greeze freeze/thaw and Doze method ports"
