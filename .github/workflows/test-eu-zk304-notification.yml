@@ -1,0 +1,35 @@
+name: EU ZK304 notification patch tests
+on:
+  push:
+    paths:
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/**'
+      - '.github/workflows/test-eu-zk304-notification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python
+        run: |
+          python3 -m compileall -q bin/package/NOTIFICATION_FIX/A16/EU
+      - name: Run unit tests
+        run: |
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/EU/tests -v
+      - name: Verify pinned ZK304 donor integrity
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+          zstd -q -d -f bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-miui-services.jar.zst -o /tmp/zk304.jar
+          zstd -q -d -f bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-powerkeeper.dex.zst -o /tmp/zk304-powerkeeper.dex
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          m=json.loads(Path('bin/package/NOTIFICATION_FIX/A16/EU/ZK304/manifest.json').read_text())
+          checks={'miui-services.jar':'/tmp/zk304.jar','classes.dex':'/tmp/zk304-powerkeeper.dex'}
+          for key,source in checks.items():
+              assert hashlib.sha256(Path(source).read_bytes()).hexdigest()==m['files'][key],key
+          print('Verified original ZK304 JAR + PowerKeeper policy donor hashes')
+          PY
