@@ -35,7 +35,7 @@ assert hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest()==expected
 PY
 java -jar "$w/bin/apktool/baksmaliv2.jar" d --api 36 "$tmp/eu.dex" -o "$tmp/eu" >/dev/null
 java -jar "$w/bin/apktool/baksmaliv2.jar" d --api 36 "$tmp/zk.dex" -o "$tmp/zk" >/dev/null
-python3 "$d/zk304_powerkeeper_port_a16.py" \
+python3 "$d/donor_powerkeeper_port_a16.py" \
   --eu "$tmp/eu" --zk "$tmp/zk" --report "$report/methods.json"
 java -jar "$w/bin/apktool/smaliv2.jar" a --api 36 "$tmp/eu" -o "$tmp/classes.dex" >/dev/null
 java -jar "$w/bin/apktool/baksmaliv2.jar" d --api 36 "$tmp/classes.dex" \

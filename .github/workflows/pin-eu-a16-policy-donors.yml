@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/pin-zk304-policy-donors.yml'
+      - '.github/workflows/pin-eu-a16-policy-donors.yml'
 
 permissions:
   contents: write

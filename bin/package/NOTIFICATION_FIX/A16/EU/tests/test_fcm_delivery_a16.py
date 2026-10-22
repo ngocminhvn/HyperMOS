@@ -4,7 +4,7 @@ import unittest
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from eu_zk_fcm_delivery_a16 import patch_source, OWNER, SIGNATURE
+from verify_fcm_delivery_a16 import patch_source, OWNER, SIGNATURE
 
 SOURCE = f'''.class public {OWNER}
 .method {SIGNATURE}

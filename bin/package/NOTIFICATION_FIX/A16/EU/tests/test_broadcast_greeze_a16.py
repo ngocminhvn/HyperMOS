@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from eu_zk_broadcast_greeze_parity_a16 import patch_broadcast, patch_policy
+from verify_broadcast_greeze_a16 import patch_broadcast, patch_policy
 
 NAMES = ("checkApplicationAutoStart", "checkReceiverAppDealBroadcast",
          "isInternationalSpecialAction", "updateBlockBroadcast")
@@ -36,7 +36,7 @@ POLICY = """.method static constructor <clinit>()V
 .end method
 """
 
-class ZkParityTests(unittest.TestCase):
+class DonorParityTests(unittest.TestCase):
     def test_donor_equivalent_is_unchanged(self):
         out, changes = patch_broadcast(BROADCAST)
         self.assertEqual(out, BROADCAST)

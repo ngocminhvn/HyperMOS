@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from zk304_powerkeeper_port_a16 import dependencies_ok, transform, index
+from donor_powerkeeper_port_a16 import dependencies_ok, transform, index
 
 def cls(owner, name, body):
     return f""".class public {owner}
@@ -17,7 +17,7 @@ def cls(owner, name, body):
 .end method
 """
 
-class ZkPowerPolicyTests(unittest.TestCase):
+class DonorPowerPolicyTests(unittest.TestCase):
     def test_zk_build_flag_is_native(self):
         original="sget-boolean v0, Lmiui/zk/Build;->IS_ZK_BUILD:Z"
         self.assertEqual(transform(original),

@@ -3,7 +3,7 @@ on:
   push:
     paths:
       - 'bin/package/NOTIFICATION_FIX/A16/EU/**'
-      - '.github/workflows/test-eu-zk304-notification.yml'
+      - '.github/workflows/test-eu-a16-notification.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -38,7 +38,7 @@ jobs:
           PY
           java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dir/eu.dex" -o "$dir/eu"
           java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dir/zk.dex" -o "$dir/zk"
-          python3 bin/package/NOTIFICATION_FIX/A16/EU/zk304_powerkeeper_port_a16.py             --eu "$dir/eu" --zk "$dir/zk" --report "$dir/port-report.json"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/donor_powerkeeper_port_a16.py             --eu "$dir/eu" --zk "$dir/zk" --report "$dir/port-report.json"
           java -jar bin/apktool/smaliv2.jar a --api 36 "$dir/eu" -o "$dir/merged.dex"
           java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dir/merged.dex" -o "$dir/verified"
           python3 - <<'PY'
@@ -86,8 +86,8 @@ jobs:
               java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex"                 -o "$d/$origin/disasm/$group"
             done
           done
-          python3 bin/package/NOTIFICATION_FIX/A16/EU/zk304_greeze_policy_port_a16.py             "$d/eu/disasm" "$d/zk/disasm" --report "$d/greeze.json"
-          python3 bin/package/NOTIFICATION_FIX/A16/EU/zk304_notification_policy_a16.py             "$d/eu/disasm" "$d/zk/disasm" --report "$d/notification.json"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/donor_greeze_policy_port_a16.py             "$d/eu/disasm" "$d/zk/disasm" --report "$d/greeze.json"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/donor_notification_policy_a16.py             "$d/eu/disasm" "$d/zk/disasm" --report "$d/notification.json"
           for dex in "$d/eu/disasm"/classes*.dex; do
             stem="$(basename "$dex" .dex)"
             group=smali

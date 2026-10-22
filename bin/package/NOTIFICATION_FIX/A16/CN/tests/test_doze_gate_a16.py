@@ -12,7 +12,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-class TestRyuDozeGate(unittest.TestCase):
+class TestDozeGate(unittest.TestCase):
     SOURCE = """.class public Lcom/android/server/DeviceIdleControllerStubImpl;
 .method static constructor <clinit>()V
     .registers 1
@@ -32,7 +32,7 @@ class TestRyuDozeGate(unittest.TestCase):
 """
 
     def test_forces_false_at_final_assignment_only(self):
-        patched = module.patch_ryu_doze_flag(self.SOURCE)
+        patched = module.patch_doze_flag(self.SOURCE)
         self.assertIn(
             ":done\n    const/4 v0, 0x0\n    sput-boolean v0,",
             patched,
@@ -42,7 +42,7 @@ class TestRyuDozeGate(unittest.TestCase):
 
     def test_absent_field_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "expected one low-power flag write"):
-            module.patch_ryu_doze_flag(self.SOURCE.replace("mIsLowPowerDozeDevice", "otherFlag"))
+            module.patch_doze_flag(self.SOURCE.replace("mIsLowPowerDozeDevice", "otherFlag"))
 
     def test_duplicate_field_write_fails_closed(self):
         repeated = self.SOURCE.replace(
@@ -51,11 +51,11 @@ class TestRyuDozeGate(unittest.TestCase):
             1,
         )
         with self.assertRaisesRegex(ValueError, "expected one low-power flag write"):
-            module.patch_ryu_doze_flag(repeated)
+            module.patch_doze_flag(repeated)
 
     def test_missing_initializer_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "expected one <clinit>"):
-            module.patch_ryu_doze_flag(self.SOURCE.replace("<clinit>", "notClinit"))
+            module.patch_doze_flag(self.SOURCE.replace("<clinit>", "notClinit"))
 
 
 if __name__ == "__main__":

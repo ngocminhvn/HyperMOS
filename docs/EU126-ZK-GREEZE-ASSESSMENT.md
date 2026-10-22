@@ -6,7 +6,7 @@ During EU #126 Messenger test, the notification log records repeated `Greezer De
 
 ## Corrected EU ZK304 parity patch (October 22, 2026)
 
-`A16/EU/eu_zk_broadcast_greeze_parity_a16.py` **does not force** an international build or a non-CN region. It verifies the four BroadcastQueue method reads and `PolicyManager.<clinit>` and retains:
+`A16/EU/verify_broadcast_greeze_a16.py` **does not force** an international build or a non-CN region. It verifies the four BroadcastQueue method reads and `PolicyManager.<clinit>` and retains:
 - `sget-boolean ..., Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z`
 - `CN_MODEL = (ro.miui.region == "CN")`
 

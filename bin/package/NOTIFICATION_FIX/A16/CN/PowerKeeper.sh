@@ -50,9 +50,9 @@ eu_hash="$(sha256sum "$tmp/classes.dex" | cut -d ' ' -f1)"
 # Apply the same seven previously audited gates without carrying ZKOS DEX.
 # Six method identities, EU/ZK gate counts and SHA pins live in a small JSON
 # manifest. Exact EU input and resulting DEX hashes are both verified.
-gate_manifest="$base_dir/zk_gate_reference_a16.json"
+gate_manifest="$base_dir/gate_reference_a16.json"
 [[ -s "$gate_manifest" ]] || { error "PowerKeeper: gate audit manifest missing"; exit 1; }
-python3 "$base_dir/eu_zk_scoped_gates.py" \
+python3 "$base_dir/eu_scoped_gates.py" \
   --eu "$tmp/classes.dex" --gate-manifest "$gate_manifest" \
   --output "$tmp/eu-scoped.dex" --report "$report_dir/eu-scoped-gates.json"
 scoped_hash="$(sha256sum "$tmp/eu-scoped.dex" | cut -d ' ' -f1)"

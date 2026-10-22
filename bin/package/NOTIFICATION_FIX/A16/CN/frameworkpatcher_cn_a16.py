@@ -26,13 +26,13 @@ TARGETS = (
 )
 # Select audited RYU international branches, except the single CN ContentCatcher
 # whitelist branch in ProcessPolicy (false). Preserve all other CN instructions.
-RYU_ENABLED_READS = {
+SCOPED_ENABLED_READS = {
     "com/android/server/am/PreStartFeedbackImpl.smali": 1,
     "com/android/server/am/ProcessPolicy.smali": 3,  # plus one CN ContentCatcher false gate
 }
 # RYU leaves these exact international-build reads untouched. They must remain
 # in the clean decoded input; do not replace them with either true or false.
-RYU_PRESERVED_READS = {
+SCOPED_PRESERVED_READS = {
     "com/android/server/alarm/AlarmManagerServiceStubImpl.smali": 1,
     "com/android/server/AppOpsServiceStubImpl.smali": 4,
 }
@@ -117,7 +117,7 @@ def patch_process_policy(source: str):
     if staged.replace(changed_method, method, 1) != source:
         raise ValueError("ProcessPolicy: unexpected edit outside ContentCatcher method")
     remaining = len(REGION_READ.findall(staged))
-    if remaining != RYU_ENABLED_READS[PROCESS_POLICY]:
+    if remaining != SCOPED_ENABLED_READS[PROCESS_POLICY]:
         raise ValueError(
             f"ProcessPolicy: expected 3 remaining RYU reads, got {remaining}")
     changed, replaced = force_international_true(staged)
@@ -193,7 +193,7 @@ def patch_eu_force_stop(source: str):
     }
 
 
-def patch_ryu_doze_flag(source: str):
+def patch_doze_flag(source: str):
     """Match RYU's low-power Doze device classification, not all its policies.
 
     RYU's <clinit> yields mIsLowPowerDozeDevice=false when IS_RYU_BUILD=true.
@@ -225,7 +225,7 @@ def patch(root: Path):
     details = {}
     total = 0
     preserved = {}
-    for cls, expected in {**RYU_ENABLED_READS, **RYU_PRESERVED_READS}.items():
+    for cls, expected in {**SCOPED_ENABLED_READS, **SCOPED_PRESERVED_READS}.items():
         file = locate(root, cls)
         if file is None:
             raise ValueError(f"RYU gate target missing: {cls}")
@@ -234,7 +234,7 @@ def patch(root: Path):
         if count != audited_expected:
             raise ValueError(
                 f"{cls}: expected {audited_expected} original region reads, got {count}")
-        if cls in RYU_PRESERVED_READS:
+        if cls in SCOPED_PRESERVED_READS:
             preserved[cls] = {"present": True, "original_region_reads": count,
                               "replaced": 0, "policy": "original_international_flag_like_RYU"}
     for cls in TARGETS:
@@ -275,14 +275,14 @@ def patch(root: Path):
     if doze is None:
         raise ValueError("DeviceIdleControllerStubImpl missing; cannot apply RYU Doze gate")
     original_doze = doze.read_text(encoding="utf-8")
-    patched_doze = patch_ryu_doze_flag(original_doze)
+    patched_doze = patch_doze_flag(original_doze)
     doze.write_text(patched_doze, encoding="utf-8")
     return {
         "source": "FrameworksForge/FrameworkPatcher + scoped RYU A16 gate selection",
         "target_jar": "miui-services.jar",
         "gates_replaced": total,
         "target_classes": details,
-        "ryu_enabled_region_reads": RYU_ENABLED_READS,
+        "ryu_enabled_region_reads": SCOPED_ENABLED_READS,
         "process_policy_contentcatcher_false": True,
         "ryu_preserved_region_reads": preserved,
         "ryu_build_dependency_injected": False,

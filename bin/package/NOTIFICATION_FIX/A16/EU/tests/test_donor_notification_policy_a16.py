@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from zk304_notification_policy_a16 import patch_clinit
+from donor_notification_policy_a16 import patch_clinit
 
 DONOR = """.method static constructor <clinit>()V
     .registers 4
@@ -14,7 +14,7 @@ EU = DONOR.replace("    return-void", """    sget-boolean v2, Lmiui/os/Build;->I
     sput-boolean v2, Lcom/android/server/notification/NotificationManagerServiceImpl;->IS_INTERNATIONAL_BUILD:Z
     return-void""")
 
-class Zk304InitializerTests(unittest.TestCase):
+class DonorInitializerTests(unittest.TestCase):
     def test_method_port_exact_and_idempotent(self):
         modified, status = patch_clinit(EU, DONOR)
         self.assertEqual(status, "ported_zk304")

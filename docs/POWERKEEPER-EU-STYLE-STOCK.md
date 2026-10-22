@@ -20,7 +20,7 @@ at build time. The runtime DEX is unchanged by this packaging cleanup.
 
 Exactly seven build flag reads in six **previously audited against ZKOS**
 methods are adjusted in-place. The previous comparison results are frozen in
-`bin/package/NOTIFICATION_FIX/A16/CN/zk_gate_reference_a16.json`.
+`bin/package/NOTIFICATION_FIX/A16/CN/gate_reference_a16.json`.
 At build time the exact EU DEX, method inventory, counts, EU output checksum
 and original EU KillProcessController fingerprint are verified. The old
 4,074,428-byte ZKOS `classes.dex` is no longer required:
