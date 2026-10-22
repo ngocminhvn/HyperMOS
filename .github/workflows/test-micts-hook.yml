@@ -40,3 +40,25 @@ jobs:
         shell: bash
         run: |
           python3 bin/package/MICTS/test_compile.py
+
+      - name: Build experimental MiCTS v2.6 QS tile APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --branch v2.6 --depth 1 https://github.com/parallelcc/MiCTS.git "$RUNNER_TEMP/micts-test-src"
+          python3 bin/package/MICTS/patch_tile_test.py --source "$RUNNER_TEMP/micts-test-src"
+          cd "$RUNNER_TEMP/micts-test-src"
+          chmod +x gradlew
+          ./gradlew :app:assembleMiCTSDebug --no-daemon --stacktrace
+          find app/build/outputs/apk -name '*.apk' -printf '%p %s bytes\\n'
+          mkdir -p "$GITHUB_WORKSPACE/micts-apk"
+          find app/build/outputs/apk -name '*MiCTS*debug*.apk' -type f -exec cp {} "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_TEST.apk" \;
+          test -s "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_TEST.apk"
+
+      - name: Upload unsigned-upstream-identity signed debug MiCTS test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiCTS-2.6-TileFix-TEST-debug-signed
+          path: micts-apk/MiCTS_2.6_TileFix_TEST.apk
+          if-no-files-found: error
+          retention-days: 7
