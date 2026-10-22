@@ -43,3 +43,7 @@ Normalized DEX instruction comparisons found the following changes in ZK304 rela
 - `InternationalPolicyManager.getImportantApps`: ZK reuses a cached list if nonempty; EU recomputes it. This does not establish FCM delivery correctness.
 
 No changes were made to these runtime Greeze methods without a proved targeted mechanism. Screen-on cached FCM denials require validation of freeze/thaw and broadcast deferral on the real ROM. Testing should measure per-app denial count, notification latency and idle battery before importing any additional ZK behavior.
+
+## Experimental EU-only FCM delivery improvement
+
+The next controlled patch checks the actual Google Play services caller (`com.google.android.gms`) and FCM broadcast action (`com.google.android.c2dm.intent.RECEIVE`) inside `GreezeManagerService.isAllowBroadcast`. It allows this specific flow for any receiving app, both screen states; the existing `isRestrictReceiver -> thawUidAsync` chain is unchanged. The ZK donor has the same thaw structure, but **the new FCM exception is an intentional HyperMOS EU adaptation, not a transplant from ZK**. All other broadcasts and the regional Greeze/Doze/PowerKeeper policies are retained. It may increase notification-driven app wakeups and standby battery consumption. Confirm successful ROM build, boot, Greezer Denial count, app delivery latency, and idle drain. Build #170/#176 had the same Xiaomi.eu OS3.0.309 base, so their difference is not established as a Greeze code regression.
