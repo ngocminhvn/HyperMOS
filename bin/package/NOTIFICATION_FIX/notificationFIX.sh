@@ -10,14 +10,10 @@ if [[ -s "$rom_source_file" ]]; then
         # Xiaomi.eu: donor-verified ZK304 notification policy and guarded PowerKeeper method port.
         if [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/androidver.txt")" == "16" ]]; then
             bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/ContentCatcher_EU.sh" || exit 1
-            # Donor methods compile, but EU309 source PowerKeeper.apk did not
-            # pass the original-package signature check in production build.
-            # Preserve EU APK by default rather than ship an unverified APK.
-            if [[ "${HYPERMOS_EU_ZK304_PK_EXPERIMENTAL:-0}" == "1" ]]; then
-                bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper_ZK.sh" || exit 1
-            else
-                warn "EU ZK304 PowerKeeper port NOT applied: original EU APK verification blocked full ROM build; preserving stock APK"
-            fi
+            # EU ZK304 PowerKeeper policy is part of every EU Android 16 build.
+            # Preserve the source APK's META-INF and every non-DEX entry;
+            # changing DEX does not create a valid cryptographic signature.
+            bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper_ZK.sh" || exit 1
         fi
         exit 0
     fi
