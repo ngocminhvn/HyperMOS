@@ -1,4 +1,4 @@
-name: Extract latest ZK HAOTIAN ROM JARs and PowerKeeper
+name: Extract oldest ZK HAOTIAN ROM JARs and PowerKeeper
 
 on:
   workflow_dispatch:
@@ -80,7 +80,7 @@ jobs:
             sleep 10
           done
 
-      - name: Select highest version and extract five original files
+      - name: Select lowest ROM version and extract five original files
         shell: bash
         run: |
           set -euo pipefail
@@ -110,15 +110,15 @@ jobs:
               print('[ZIP VERSIONS]', json.dumps(choices, indent=2), flush=True)
               if any(x['version'] is None for x in choices):
                   raise RuntimeError('Unknown nested ROM version; will not guess from timestamps')
-              highest = max(x['version'] for x in choices)
-              winners = [i for i in members if version(i.filename) == highest]
+              oldest = min(x['version'] for x in choices)
+              winners = [i for i in members if version(i.filename) == oldest]
               if len(winners) != 1:
-                  raise RuntimeError('Multiple inner ZIPs tie for newest ROM version')
+                  raise RuntimeError('Multiple inner ZIPs tie for oldest ROM version')
               chosen = winners[0]
               if chosen.flag_bits & 1 or chosen.filename.startswith('/') or '\\' in chosen.filename or '..' in Path(chosen.filename).parts:
                   raise RuntimeError('Unsafe or encrypted nested ZIP name')
               if shutil.disk_usage(work).free < chosen.file_size + 2 * 1024**3:
-                  raise RuntimeError('Not enough disk for newest nested ZIP')
+                  raise RuntimeError('Not enough disk for oldest nested ZIP')
               with z.open(chosen) as src, nested.open('wb') as dest:
                   shutil.copyfileobj(src, dest, 8 * 1024 * 1024)
           if nested.stat().st_size != chosen.file_size or not zipfile.is_zipfile(nested):
@@ -131,12 +131,12 @@ jobs:
                   if n.startswith('/') or '\\' in n or '..' in Path(n).parts:
                       raise RuntimeError('Unsafe filename inside nested ZIP')
               if not any(re.fullmatch(r'(?:.*/)?super\.img(?:\.\d+)?', n) for n in names):
-                  raise RuntimeError('Newest nested ZIP has no super.img or super.img.N flash images')
+                  raise RuntimeError('Oldest nested ZIP has no super.img or super.img.N flash images')
           selection = {'drive_file_id': os.environ['DRIVE_ID'], 'outer_zip': outer.name,
                        'available_inner_zips': choices, 'selected_inner_zip': chosen.filename,
-                       'selected_version': highest, 'selected_bytes': chosen.file_size}
+                       'selection_policy': 'oldest_version', 'selected_version': oldest, 'selected_bytes': chosen.file_size}
           (out / 'selected-rom.json').write_text(json.dumps(selection, indent=2) + '\n')
-          print('[SELECTED]', chosen.filename, highest, flush=True)
+          print('[SELECTED OLDEST VERSION]', chosen.filename, oldest, flush=True)
           outer.unlink()  # release ~16.5 GB before super.img expansion
 
           sys.path.insert(0, str(Path('bin/audit').resolve()))
@@ -167,8 +167,8 @@ jobs:
           (out / 'manifest.json').write_text(json.dumps(
               {'selection': selection, 'scanned_partitions': scanned,
                'unaltered_and_unsigned_by_extractor': True, 'files': files}, indent=2) + '\n')
-          lines = ['# Latest ZK HAOTIAN ROM references', '',
-                   f"Selected nested ZIP: `{chosen.filename}` (OS {'.'.join(map(str, highest))})", '',
+          lines = ['# Oldest ZK HAOTIAN ROM references', '',
+                   f"Selected oldest nested ZIP: `{chosen.filename}` (OS {'.'.join(map(str, oldest))})", '',
                    '| File | Source partition:path | SHA-256 |', '| --- | --- | --- |']
           lines += [f"| `{n}` | `{files[n]['source']}` | `{files[n]['sha256']}` |" for n in wanted]
           lines += ['', 'Files were copied unchanged; no APK patch or re-signing.']
@@ -192,7 +192,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: zk-haotian-latest-framework-powerkeeper-${{ github.run_id }}
+          name: zk-haotian-oldest-framework-powerkeeper-${{ github.run_id }}
           path: ${{ env.WORK }}/output/
           if-no-files-found: warn
           retention-days: 7
