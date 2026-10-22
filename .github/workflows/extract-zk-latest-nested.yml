@@ -1,0 +1,199 @@
+name: Extract latest ZK HAOTIAN ROM JARs and PowerKeeper
+
+on:
+  workflow_dispatch:
+    inputs:
+      drive_file_id:
+        description: 'Google Drive ID of outer ZIP containing two versioned flash ZIP files'
+        type: string
+        required: true
+        default: '15tzXbZvcSwP23bnbeGlMjT9Eh4KOD275'
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      DRIVE_ID: ${{ inputs.drive_file_id }}
+      WORK: /tmp/zk-haotian-${{ github.run_id }}
+    steps:
+      - name: Checkout extraction scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Prepare environment and disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/output"
+          [[ "$DRIVE_ID" =~ ^[A-Za-z0-9_-]{10,128}$ ]] || exit 1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc \
+            /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq android-sdk-libsparse-utils e2fsprogs erofs-utils python3-venv
+          python3 -m venv "$WORK/venv"
+          "$WORK/venv/bin/pip" install --quiet 'gdown==5.2.0'
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_ryu_eu_reference.py
+          command -v simg2img
+          command -v fsck.erofs
+          command -v debugfs
+          df -h /
+          free=$(df -PB1 "$WORK" | awk 'NR==2 {print $4}')
+          if (( free < 28 * 1024 * 1024 * 1024 )); then
+            echo "::error::Requires at least 28 GiB free for nested archive processing"
+            exit 1
+          fi
+
+      - name: Download outer Google Drive archive (16.5 GB)
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$WORK/zk_haotian-outer.zip"
+          for attempt in 1 2 3; do
+            if "$WORK/venv/bin/gdown" "$DRIVE_ID" --output "$archive" --continue 2>&1 | tee "$WORK/output/download.log"; then
+              if python3 - "$archive" <<'PY'
+          import sys, zipfile
+          p = sys.argv[1]
+          if not zipfile.is_zipfile(p):
+              raise SystemExit('Invalid outer ZIP')
+          with zipfile.ZipFile(p) as z:
+              inner = [i for i in z.infolist() if not i.is_dir() and i.filename.lower().endswith('.zip')]
+              print('[NESTED]', [(x.filename, x.file_size) for x in inner])
+              if len(inner) < 2:
+                  raise SystemExit('Outer ZIP must contain at least two nested ZIPs')
+          PY
+              then
+                echo '[DOWNLOAD] Outer ZIP valid'
+                exit 0
+              fi
+            fi
+            if grep -Eiq 'quota exceeded|too many users have viewed|permission denied' "$WORK/output/download.log"; then
+              echo '::error::Google Drive quota/permissions blocked this download'
+              exit 1
+            fi
+            (( attempt < 3 )) || exit 1
+            sleep 10
+          done
+
+      - name: Select highest version and extract five original files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, re, shutil, sys, zipfile
+          from pathlib import Path
+
+          work = Path(os.environ['WORK'])
+          out = work / 'output'
+          outer = work / 'zk_haotian-outer.zip'
+          nested = work / 'selected-rom.zip'
+          version_re = re.compile(r'(?:^|[^A-Za-z0-9])(?:HyperOS|OS)[_-]?(\d+\.\d+\.\d+(?:\.\d+)?)', re.I)
+          fallback_re = re.compile(r'(?<!\d)(\d+\.\d+\.\d+\.\d+)(?!\d)')
+
+          def version(name):
+              match = version_re.search(name) or fallback_re.search(name)
+              if not match:
+                  return None
+              parts = tuple(int(x) for x in match.group(1).split('.'))
+              return parts + (0,) * (4 - len(parts))
+
+          with zipfile.ZipFile(outer) as z:
+              members = [i for i in z.infolist() if not i.is_dir() and i.filename.lower().endswith('.zip')]
+              if len(members) < 2:
+                  raise RuntimeError('Expected at least two inner ROM ZIPs')
+              choices = [{'name': i.filename, 'version': version(i.filename), 'size': i.file_size} for i in members]
+              print('[ZIP VERSIONS]', json.dumps(choices, indent=2), flush=True)
+              if any(x['version'] is None for x in choices):
+                  raise RuntimeError('Unknown nested ROM version; will not guess from timestamps')
+              highest = max(x['version'] for x in choices)
+              winners = [i for i in members if version(i.filename) == highest]
+              if len(winners) != 1:
+                  raise RuntimeError('Multiple inner ZIPs tie for newest ROM version')
+              chosen = winners[0]
+              if chosen.flag_bits & 1 or chosen.filename.startswith('/') or '\\' in chosen.filename or '..' in Path(chosen.filename).parts:
+                  raise RuntimeError('Unsafe or encrypted nested ZIP name')
+              if shutil.disk_usage(work).free < chosen.file_size + 2 * 1024**3:
+                  raise RuntimeError('Not enough disk for newest nested ZIP')
+              with z.open(chosen) as src, nested.open('wb') as dest:
+                  shutil.copyfileobj(src, dest, 8 * 1024 * 1024)
+          if nested.stat().st_size != chosen.file_size or not zipfile.is_zipfile(nested):
+              raise RuntimeError('Selected nested ZIP was truncated')
+          with zipfile.ZipFile(nested) as z:
+              names = [i.filename for i in z.infolist() if not i.is_dir()]
+              if len(names) != len(set(names)):
+                  raise RuntimeError('Duplicate file names in nested ZIP')
+              for n in names:
+                  if n.startswith('/') or '\\' in n or '..' in Path(n).parts:
+                      raise RuntimeError('Unsafe filename inside nested ZIP')
+              if not any(re.fullmatch(r'(?:.*/)?super\.img(?:\.\d+)?', n) for n in names):
+                  raise RuntimeError('Newest nested ZIP has no super.img or super.img.N flash images')
+          selection = {'drive_file_id': os.environ['DRIVE_ID'], 'outer_zip': outer.name,
+                       'available_inner_zips': choices, 'selected_inner_zip': chosen.filename,
+                       'selected_version': highest, 'selected_bytes': chosen.file_size}
+          (out / 'selected-rom.json').write_text(json.dumps(selection, indent=2) + '\n')
+          print('[SELECTED]', chosen.filename, highest, flush=True)
+          outer.unlink()  # release ~16.5 GB before super.img expansion
+
+          sys.path.insert(0, str(Path('bin/audit').resolve()))
+          import extract_ryu_eu_reference as extractor
+          extractor.PARTITIONS = ('product', 'system', 'system_ext', 'mi_ext', 'mi_product')
+          extractor.FRAMEWORK = {k: v for k, v in extractor.FRAMEWORK.items()
+                                  if k in ('framework.jar', 'services.jar', 'miui-framework.jar', 'miui-services.jar')}
+          extractor.APPS = {'PowerKeeper': 'powerkeeper.apk'}
+          extractor.APP_DIRS = {'PowerKeeper': ('PowerKeeper', 'MIUIPowerKeeper', 'PowerKeeperT')}
+          entries = []
+          scanned = extractor.extract_fastboot(nested, work, out, Path('bin/lpunpack.py').resolve(), entries)
+          wanted = ('framework.jar', 'services.jar', 'miui-framework.jar', 'miui-services.jar', 'PowerKeeper.apk')
+          files = {}
+          for name in wanted:
+              found = [e for e in entries if e['category'] in ('framework', 'apps')
+                       and Path(e['file']).name.lower() == name.lower()]
+              if len(found) != 1:
+                  raise RuntimeError(f'{name}: expected one original file, found {len(found)}')
+              item = found[0]
+              target = out / name
+              shutil.copyfile(out / item['file'], target)
+              files[name] = {'source': item['partition'] + ':' + item['original_path'],
+                             'bytes': item['bytes'], 'sha256': item['sha256']}
+          for folder in ('apps', 'framework', 'build-props'):
+              shutil.rmtree(out / folder, ignore_errors=True)
+          (out / 'SHA256SUMS.txt').write_text(''.join(
+              f"{files[n]['sha256']}  {n}\n" for n in wanted))
+          (out / 'manifest.json').write_text(json.dumps(
+              {'selection': selection, 'scanned_partitions': scanned,
+               'unaltered_and_unsigned_by_extractor': True, 'files': files}, indent=2) + '\n')
+          lines = ['# Latest ZK HAOTIAN ROM references', '',
+                   f"Selected nested ZIP: `{chosen.filename}` (OS {'.'.join(map(str, highest))})", '',
+                   '| File | Source partition:path | SHA-256 |', '| --- | --- | --- |']
+          lines += [f"| `{n}` | `{files[n]['source']}` | `{files[n]['sha256']}` |" for n in wanted]
+          lines += ['', 'Files were copied unchanged; no APK patch or re-signing.']
+          (out / 'report.md').write_text('\n'.join(lines) + '\n')
+          print('\n'.join(lines), flush=True)
+          PY
+          (cd "$WORK/output" && sha256sum -c SHA256SUMS.txt)
+          cat "$WORK/output/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Include extraction diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '## ZK archive extraction failed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Check the job logs; the selection refuses ambiguous ROM versions.' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$WORK/output/selected-rom.json" ]; then
+            cat "$WORK/output/selected-rom.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload five original files, hashes and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zk-haotian-latest-framework-powerkeeper-${{ github.run_id }}
+          path: ${{ env.WORK }}/output/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
