@@ -236,9 +236,12 @@ if [[ "$rom_source" == "xiaomi_eu" ]]; then
     bash "$work_dir/bin/modfile/EU/verify.sh" || exit 1
 fi
 
-# Preserve the Xiaomi vendor/ODM thermal and performance configuration.
-# No RYU PerfHook/GPU-permission overlay or legacy profile verifier is run.
-info "EU PowerKeeper: exact EU donor plus seven ZK-proven build gates; no RYU PerfHook"
+# Preserve Xiaomi vendor/ODM thermal and performance configuration.
+# EU16 PowerKeeper comes from the ZK304 method-level merge in NOTIFICATION_FIX.
+# Its original EU APK META-INF/non-DEX content is retained; no APK re-signing.
+if [[ "$rom_source" == "xiaomi_eu" ]]; then
+    info "EU PowerKeeper: ZK304 method port + original APK metadata preserved; not re-signed"
+fi
 
 find "$work_dir/build/baserom/images/" -exec touch -t 200901010000.00 {} + 2> /dev/null || true
 ok "ROM modification stage completed"
