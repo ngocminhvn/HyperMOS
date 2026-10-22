@@ -213,11 +213,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Check the final LOCK staging within Pack ROM; no separate Actions step.
-          echo "::group::LOCK pre-pack sanity check"
-          if ! sudo -E bash bin/package/LOCK/update.sh --check 2>&1 | tee -a build_action.log; then
+          # Check final TNM LOCK staging within Pack ROM; no separate Actions step.
+          echo "::group::TNM LOCK pre-pack sanity check"
+          if ! sudo -E bash bin/package/TNM/lock.sh --check 2>&1 | tee -a build_action.log; then
             echo "::endgroup::"
-            echo "::error title=LOCK validation failed::Refusing to package inconsistent LOCK staging."
+            echo "::error title=TNM LOCK validation failed::Refusing to package inconsistent LOCK staging."
             exit 1
           fi
           echo "::endgroup::"

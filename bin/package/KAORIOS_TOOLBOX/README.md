@@ -56,12 +56,11 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 
 1. HyperMOS CorePatch/signature bypass (controlled by `KAORIOS_ENABLE_COREPATCH`); CorePatch no longer contains a separate Secure Flag implementation
 2. DISABLE_AVB
-3. LOCK/TNM post-fs integration
-4. notification fix
-5. Kaorios upstream 2.0.6.1 integration
-6. TNM App Privacy (compatibility-gated)
+3. notification fix
+4. Kaorios upstream 2.0.6.1 integration
+5. TNM: post-fs property reporting + App Privacy (compatibility-gated)
 
-Kaorios patches after CorePatch and the notification fix, so its framework/services hooks are applied to their resulting artifacts. TNM App Privacy then runs with its own compatibility checks and skips unsupported layouts before changing `framework.jar`.
+Kaorios patches after CorePatch and the notification fix, so its framework/services hooks are applied to their resulting artifacts. TNM then installs the post-fs integration and runs App Privacy with its own compatibility checks; unsupported App Privacy layouts are skipped before changing `framework.jar`.
 
 ## Safety / verification
 

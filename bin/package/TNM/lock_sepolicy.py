@@ -1,4 +1,4 @@
-"""Native policy and init validation used by the LOCK installer."""
+"""Native policy and init validation used by TNM post-fs integration."""
 import shutil
 import subprocess
 import tempfile

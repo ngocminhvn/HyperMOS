@@ -11,7 +11,7 @@ import stat
 import subprocess
 import tempfile
 
-from sepolicy import verify_init, verify_policy
+from lock_sepolicy import verify_init, verify_policy
 
 HASH = '6d82fc8e92089ce24226636ec4d24deb15655d7a7473d37d24fa4ae53588c1df'
 RUNTIME = '/system_ext/xbin/tnm_helper'
