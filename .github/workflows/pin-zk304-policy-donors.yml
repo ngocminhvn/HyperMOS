@@ -1,0 +1,90 @@
+name: Pin verified ZK304 policy donors
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/pin-zk304-policy-donors.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  pin-zk304:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Fetch pinned donor artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/zk304-input
+          gh run download 39751679932 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name zk-haotian-304-framework-powerkeeper-39751679932 \
+            --dir /tmp/zk304-input
+          test -s /tmp/zk304-input/PowerKeeper.apk
+          test -s /tmp/zk304-input/miui-services.jar
+          echo '1407fc5a5595b1acf011289a65cb8e4055831c1be2b70e56a18ee7130ab50a47  /tmp/zk304-input/PowerKeeper.apk' | sha256sum -c -
+          echo '1c29f7a2be1853d973d4998c2598e3baf5fd6cd5861a281deec321bd4caeda8e  /tmp/zk304-input/miui-services.jar' | sha256sum -c -
+
+      - name: Pin original class/method donors
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bin/package/NOTIFICATION_FIX/A16/EU/ZK304
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, zipfile
+          input_dir = Path('/tmp/zk304-input')
+          output = Path('bin/package/NOTIFICATION_FIX/A16/EU/ZK304')
+          with zipfile.ZipFile(input_dir/'PowerKeeper.apk') as src:
+              if src.testzip() or [x for x in src.namelist() if x.startswith('classes') and x.endswith('.dex')] != ['classes.dex']:
+                  raise RuntimeError('unexpected ZK PowerKeeper DEX layout')
+              dex = src.read('classes.dex')
+          digest = hashlib.sha256(dex).hexdigest()
+          if digest != '439ed4b5fe3dfaa8d0c539bdbc90c54b049e9cf5143fe5664aee1e1becd6b2bf':
+              raise RuntimeError('ZK304 PowerKeeper classes.dex SHA-256 mismatch')
+          (output/'zk304-powerkeeper.dex').write_bytes(dex)
+          manifest = {
+              'rom': 'ZKOS_HAOTIAN_OS3.0.304.0.WOBCNXM_EU260623',
+              'source_workflow_run_id': 39751679932,
+              'source_artifact_name': 'zk-haotian-304-framework-powerkeeper-39751679932',
+              'files': {
+                  'miui-services.jar': '1c29f7a2be1853d973d4998c2598e3baf5fd6cd5861a281deec321bd4caeda8e',
+                  'PowerKeeper.apk': '1407fc5a5595b1acf011289a65cb8e4055831c1be2b70e56a18ee7130ab50a47',
+                  'classes.dex': digest,
+              },
+              'warning': 'ZK 304 donor only. Do not replace EU 309 JAR or APK without ABI checks.'
+          }
+          (output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+          PY
+          zstd --ultra -19 -f -q /tmp/zk304-input/miui-services.jar \
+            -o bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-miui-services.jar.zst
+          zstd --ultra -19 -f -q bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-powerkeeper.dex \
+            -o bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-powerkeeper.dex.zst
+          rm bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-powerkeeper.dex
+          printf '## ZK304 pinned inputs\n\n' >> "$GITHUB_STEP_SUMMARY"
+          sha256sum bin/package/NOTIFICATION_FIX/A16/EU/ZK304/* >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit verified reusable donors to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bin/package/NOTIFICATION_FIX/A16/EU/ZK304/
+          if git diff --cached --quiet; then
+            echo 'Pinned ZK304 inputs already match.'
+            exit 0
+          fi
+          git commit -m "chore(EU A16): pin original ZK304 policy donors, do not replace stock binaries"
+          git push origin HEAD:main
