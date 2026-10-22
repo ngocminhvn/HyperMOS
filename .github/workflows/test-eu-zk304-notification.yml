@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   unit:
     runs-on: ubuntu-latest
@@ -57,6 +58,52 @@ jobs:
           path: /tmp/zk304-pk-test/port-report.json
           retention-days: 7
           if-no-files-found: warn
+      - name: Test ZK304 Greeze and Doze donor merge against actual EU309
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=/tmp/zk304-miui-test
+          mkdir -p "$d/zk" "$d/eu"
+          gh run download 39452530513 --repo "$GITHUB_REPOSITORY"             --name xiaomieu-original-miui-services-39452530513             --dir "$d/eu"
+          test -s "$d/eu/miui-services.jar"
+          zstd -q -d -f bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-miui-services.jar.zst             -o "$d/zk/miui-services.jar"
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          m=json.loads(Path('bin/package/NOTIFICATION_FIX/A16/EU/ZK304/manifest.json').read_text())
+          raw=Path('/tmp/zk304-miui-test/zk/miui-services.jar').read_bytes()
+          assert hashlib.sha256(raw).hexdigest()==m['files']['miui-services.jar']
+          PY
+          for origin in zk eu; do
+            mkdir -p "$d/$origin/disasm"
+            unzip -q "$d/$origin/miui-services.jar" 'classes*.dex' -d "$d/$origin/disasm"
+            for dex in "$d/$origin/disasm"/classes*.dex; do
+              stem="$(basename "$dex" .dex)"
+              group=smali
+              [[ "$stem" == classes ]] || group="smali_$stem"
+              java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex"                 -o "$d/$origin/disasm/$group"
+            done
+          done
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/zk304_greeze_policy_port_a16.py             "$d/eu/disasm" "$d/zk/disasm" --report "$d/greeze.json"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/zk304_notification_policy_a16.py             "$d/eu/disasm" "$d/zk/disasm" --report "$d/notification.json"
+          for dex in "$d/eu/disasm"/classes*.dex; do
+            stem="$(basename "$dex" .dex)"
+            group=smali
+            [[ "$stem" == classes ]] || group="smali_$stem"
+            java -jar bin/apktool/smaliv2.jar a --api 36               "$d/eu/disasm/$group" -o "$d/eu/$stem.dex"
+          done
+          cat "$d/greeze.json"
+          cat "$d/notification.json"
+      - name: Upload Greeze ABI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zk304-eu-greeze-policy-audit
+          path: /tmp/zk304-miui-test/*.json
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Verify pinned ZK304 donor integrity
         run: |
           sudo apt-get update -qq
