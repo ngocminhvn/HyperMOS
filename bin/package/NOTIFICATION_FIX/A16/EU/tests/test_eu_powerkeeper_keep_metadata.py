@@ -77,6 +77,7 @@ class PowerKeeperMetadataTests(unittest.TestCase):
         module.pack(self.base, self.dex, self.final)
         tmp = self.root / "bad.apk"
         with zipfile.ZipFile(self.final) as source, zipfile.ZipFile(tmp, "w") as dest:
+            dest.comment = source.comment
             for name in source.namelist():
                 data = (b"modified manifest" if name == "AndroidManifest.xml"
                         else source.read(name))
