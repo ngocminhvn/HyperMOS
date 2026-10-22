@@ -1,10 +1,10 @@
-name: Extract oldest ZK HAOTIAN ROM JARs and PowerKeeper
+name: Extract ZKOS HAOTIAN OS3.0.304.0 reference files
 
 on:
   workflow_dispatch:
     inputs:
       drive_file_id:
-        description: 'Google Drive ID of outer ZIP containing two versioned flash ZIP files'
+        description: 'Google Drive ID of zk_haotian.zip (contains ZKOS_HAOTIAN_OS3.0.304.0.WOBCNXM_EU260623 folder)'
         type: string
         required: true
         default: '15tzXbZvcSwP23bnbeGlMjT9Eh4KOD275'
@@ -38,14 +38,14 @@ jobs:
           sudo apt-get install -y -qq android-sdk-libsparse-utils e2fsprogs erofs-utils python3-venv
           python3 -m venv "$WORK/venv"
           "$WORK/venv/bin/pip" install --quiet 'gdown==5.2.0'
-          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_ryu_eu_reference.py
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/extract_ryu_eu_reference.py bin/audit/select_zk_haotian_304.py
           command -v simg2img
           command -v fsck.erofs
           command -v debugfs
           df -h /
           free=$(df -PB1 "$WORK" | awk 'NR==2 {print $4}')
           if (( free < 28 * 1024 * 1024 * 1024 )); then
-            echo "::error::Requires at least 28 GiB free for nested archive processing"
+            echo "::error::Requires at least 28 GiB free for combined ROM archive processing"
             exit 1
           fi
 
@@ -59,13 +59,14 @@ jobs:
               if python3 - "$archive" <<'PY'
           import sys, zipfile
           p = sys.argv[1]
+          target = 'ZKOS_HAOTIAN_OS3.0.304.0.WOBCNXM_EU260623'
           if not zipfile.is_zipfile(p):
-              raise SystemExit('Invalid outer ZIP')
+              raise SystemExit('Invalid combined archive: not a ZIP')
           with zipfile.ZipFile(p) as z:
-              inner = [i for i in z.infolist() if not i.is_dir() and i.filename.lower().endswith('.zip')]
-              print('[NESTED]', [(x.filename, x.file_size) for x in inner])
-              if len(inner) < 2:
-                  raise SystemExit('Outer ZIP must contain at least two nested ZIPs')
+              paths = [x.filename for x in z.infolist()]
+              if not any(target.lower() in x.lower().split('/') for x in paths):
+                  raise SystemExit('Required 304 ROM folder not found in outer ZIP')
+              print(f'[ARCHIVE] {len(paths)} members; required 304 folder detected')
           PY
               then
                 echo '[DOWNLOAD] Outer ZIP valid'
@@ -80,64 +81,24 @@ jobs:
             sleep 10
           done
 
-      - name: Select lowest ROM version and extract five original files
+      - name: Select exact OS3.0.304.0 folder and extract five original files
         shell: bash
         run: |
           set -euo pipefail
+          python3 bin/audit/select_zk_haotian_304.py \
+            "$WORK/zk_haotian-outer.zip" \
+            "$WORK/selected-rom.zip" \
+            "$WORK/output/selected-rom.json"
+          rm -f "$WORK/zk_haotian-outer.zip"
           python3 - <<'PY'
-          import hashlib, json, os, re, shutil, sys, zipfile
+          import json, os, shutil, sys
           from pathlib import Path
-
           work = Path(os.environ['WORK'])
           out = work / 'output'
-          outer = work / 'zk_haotian-outer.zip'
           nested = work / 'selected-rom.zip'
-          version_re = re.compile(r'(?:^|[^A-Za-z0-9])(?:HyperOS|OS)[_-]?(\d+\.\d+\.\d+(?:\.\d+)?)', re.I)
-          fallback_re = re.compile(r'(?<!\d)(\d+\.\d+\.\d+\.\d+)(?!\d)')
-
-          def version(name):
-              match = version_re.search(name) or fallback_re.search(name)
-              if not match:
-                  return None
-              parts = tuple(int(x) for x in match.group(1).split('.'))
-              return parts + (0,) * (4 - len(parts))
-
-          with zipfile.ZipFile(outer) as z:
-              members = [i for i in z.infolist() if not i.is_dir() and i.filename.lower().endswith('.zip')]
-              if len(members) < 2:
-                  raise RuntimeError('Expected at least two inner ROM ZIPs')
-              choices = [{'name': i.filename, 'version': version(i.filename), 'size': i.file_size} for i in members]
-              print('[ZIP VERSIONS]', json.dumps(choices, indent=2), flush=True)
-              if any(x['version'] is None for x in choices):
-                  raise RuntimeError('Unknown nested ROM version; will not guess from timestamps')
-              oldest = min(x['version'] for x in choices)
-              winners = [i for i in members if version(i.filename) == oldest]
-              if len(winners) != 1:
-                  raise RuntimeError('Multiple inner ZIPs tie for oldest ROM version')
-              chosen = winners[0]
-              if chosen.flag_bits & 1 or chosen.filename.startswith('/') or '\\' in chosen.filename or '..' in Path(chosen.filename).parts:
-                  raise RuntimeError('Unsafe or encrypted nested ZIP name')
-              if shutil.disk_usage(work).free < chosen.file_size + 2 * 1024**3:
-                  raise RuntimeError('Not enough disk for oldest nested ZIP')
-              with z.open(chosen) as src, nested.open('wb') as dest:
-                  shutil.copyfileobj(src, dest, 8 * 1024 * 1024)
-          if nested.stat().st_size != chosen.file_size or not zipfile.is_zipfile(nested):
-              raise RuntimeError('Selected nested ZIP was truncated')
-          with zipfile.ZipFile(nested) as z:
-              names = [i.filename for i in z.infolist() if not i.is_dir()]
-              if len(names) != len(set(names)):
-                  raise RuntimeError('Duplicate file names in nested ZIP')
-              for n in names:
-                  if n.startswith('/') or '\\' in n or '..' in Path(n).parts:
-                      raise RuntimeError('Unsafe filename inside nested ZIP')
-              if not any(re.fullmatch(r'(?:.*/)?super\.img(?:\.\d+)?', n) for n in names):
-                  raise RuntimeError('Oldest nested ZIP has no super.img or super.img.N flash images')
-          selection = {'drive_file_id': os.environ['DRIVE_ID'], 'outer_zip': outer.name,
-                       'available_inner_zips': choices, 'selected_inner_zip': chosen.filename,
-                       'selection_policy': 'oldest_version', 'selected_version': oldest, 'selected_bytes': chosen.file_size}
-          (out / 'selected-rom.json').write_text(json.dumps(selection, indent=2) + '\n')
-          print('[SELECTED OLDEST VERSION]', chosen.filename, oldest, flush=True)
-          outer.unlink()  # release ~16.5 GB before super.img expansion
+          selection = json.loads((out / 'selected-rom.json').read_text(encoding='utf-8'))
+          if selection['selected_version'] != '3.0.304.0':
+              raise RuntimeError('Refusing to extract a ROM other than OS3.0.304.0')
 
           sys.path.insert(0, str(Path('bin/audit').resolve()))
           import extract_ryu_eu_reference as extractor
@@ -167,8 +128,8 @@ jobs:
           (out / 'manifest.json').write_text(json.dumps(
               {'selection': selection, 'scanned_partitions': scanned,
                'unaltered_and_unsigned_by_extractor': True, 'files': files}, indent=2) + '\n')
-          lines = ['# Oldest ZK HAOTIAN ROM references', '',
-                   f"Selected oldest nested ZIP: `{chosen.filename}` (OS {'.'.join(map(str, oldest))})", '',
+          lines = ['# ZKOS HAOTIAN OS3.0.304.0 ROM references', '',
+                   f"Selected ROM folder: `{selection['selected_folder']}` (OS {selection['selected_version']})", '',
                    '| File | Source partition:path | SHA-256 |', '| --- | --- | --- |']
           lines += [f"| `{n}` | `{files[n]['source']}` | `{files[n]['sha256']}` |" for n in wanted]
           lines += ['', 'Files were copied unchanged; no APK patch or re-signing.']
@@ -183,7 +144,7 @@ jobs:
         shell: bash
         run: |
           echo '## ZK archive extraction failed' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Check the job logs; the selection refuses ambiguous ROM versions.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Check the job logs; the selector requires the exact ZKOS HAOTIAN OS3.0.304.0 folder.' >> "$GITHUB_STEP_SUMMARY"
           if [ -f "$WORK/output/selected-rom.json" ]; then
             cat "$WORK/output/selected-rom.json" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -192,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: zk-haotian-oldest-framework-powerkeeper-${{ github.run_id }}
+          name: zk-haotian-304-framework-powerkeeper-${{ github.run_id }}
           path: ${{ env.WORK }}/output/
           if-no-files-found: warn
           retention-days: 7
