@@ -21,7 +21,7 @@ ensure_tools
 # Never replace the ROM JAR until all patch/compile/ZIP checks have passed.
 trap 'rm -rf "$decoded" "$work_dir/miui-services" "$output"' EXIT
 decompile_jar "$jar" >/dev/null
-python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/frameworkpatcher_cn_a16.py" \
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/CN/frameworkpatcher_cn_a16.py" \
   "$decoded" --report "$report"
 recompile_jar "$jar" >/dev/null
 if [ ! -s "$output" ] || ! unzip -t "$output" >/dev/null 2>&1; then

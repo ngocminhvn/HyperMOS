@@ -6,7 +6,7 @@ set -euo pipefail
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
 image_root="$work_dir/build/baserom/images"
-base_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16"
+base_dir="$work_dir/bin/package/NOTIFICATION_FIX/A16/CN"
 report_dir="$work_dir/build/reports/powerkeeper-a16"
 tmp="$work_dir/apk_temp/powerkeeper-eu-dex"
 archive="$base_dir/eu-powerkeeper.dex.zst"
