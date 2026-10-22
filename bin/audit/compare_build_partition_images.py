@@ -6,6 +6,7 @@ Uses bundled lpunpack plus fsck.erofs / debugfs. Does not flash or modify source
 import argparse
 import hashlib
 import json
+import tarfile
 import os
 import shutil
 import stat
@@ -95,10 +96,60 @@ def compare(base, target, part, scratch):
         raise RuntimeError("Different filesystem types for " + part)
     a, b = file_index(scratch / "base-tree"), file_index(scratch / "new-tree")
     differences = [p for p in sorted(a.keys() | b.keys()) if a.get(p) != b.get(p)]
+    details = [{"path": name, "change": ("added" if name not in a else
+                                       "removed" if name not in b else "modified"),
+                "before": a.get(name), "after": b.get(name)}
+               for name in differences]
     info.update(status="file_tree_changed" if differences else "repacked_metadata_only",
                 changed=bool(differences), changed_path_count=len(differences),
-                changed_paths=differences[:50], filesystem=new_type)
+                changed_paths=differences[:50], changes=details, filesystem=new_type)
     return info, new_image
+
+
+def coloros_paths_from_plan(plan_file):
+    if not plan_file:
+        return set()
+    plan = json.loads(plan_file.read_text(encoding="utf-8"))
+    entries = plan.get("files", [])
+    if not entries:
+        raise ValueError("ColorOS OS3 plan has no system-tree files")
+    out = set()
+    for entry in entries:
+        partition, path = entry["partition"], entry["path"]
+        if partition not in ("product", "system", "system_ext"):
+            raise ValueError("Unexpected module partition: " + partition)
+        if path.startswith("/") or ".." in Path(path).parts:
+            raise ValueError("Unsafe module path: " + path)
+        out.add((partition + "_a", path))
+        if partition == "system":
+            out.add((partition + "_a", "system/" + path))
+    return out
+
+
+def collect_coloros(partition, changes, scratch, archive, planned):
+    result = []
+    for entry in changes:
+        rel = entry["path"]
+        low = rel.lower()
+        if ((partition, rel) not in planned
+                and "miuisystemuiplugin" not in low
+                and "miui.systemui.plugin" not in low
+                and "coloros" not in low):
+            continue
+        record = {"partition": partition, "path": rel, "change": entry["change"]}
+        target = scratch / "new-tree" / rel
+        if entry["change"] != "removed" and (target.is_file() or target.is_symlink()):
+            if target.is_symlink():
+                link = os.readlink(target)
+                if os.path.isabs(link) or ".." in Path(link).parts:
+                    raise ValueError("Unsafe symlink in module payload: " + rel)
+            archive.add(target, arcname=partition + "/" + rel, recursive=False)
+            record["archived"] = True
+        else:
+            record["archived"] = False
+        result.append(record)
+        print("[COLOROS DELTA] {} {}".format(entry["change"], partition + "/" + rel), flush=True)
+    return result
 
 
 def main():
@@ -108,6 +159,7 @@ def main():
     p.add_argument("--work", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
     p.add_argument("--include-product", action="store_true")
+    p.add_argument("--coloros-plan", type=Path, default=None)
     args = p.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     args.work.mkdir(parents=True, exist_ok=True)
@@ -118,12 +170,23 @@ def main():
                            + ", target=" + repr(new_names))
     if not {"system_a", "system_ext_a"}.issubset(set(new_names)):
         raise RuntimeError("Not the expected HAOTIAN V-AB super partition layout")
-    rows, exported = [], []
+    rows, exported, coloros_changes = [], [], []
+    planned = coloros_paths_from_plan(args.coloros_plan)
+    coloros_tar = args.output / "coloros-changed-files.tar.gz"
+    archive = tarfile.open(coloros_tar, "w:gz")
     for idx, part in enumerate(new_names, 1):
         print("[COMPARE {}/{}] {}".format(idx, len(new_names), part), flush=True)
         scratch = args.work / "partition-compare"
         try:
             row, target_image = compare(args.base_super, args.new_super, part, scratch)
+            coloros_changes.extend(collect_coloros(
+                part, row.get("changes", []), scratch, archive, planned))
+            if part == "product_a":
+                product_changes = row.get("changes", [])
+                (args.output / "product-16-changes.json").write_text(
+                    json.dumps(product_changes, indent=2) + "\n", encoding="utf-8")
+                for item in product_changes:
+                    print("[PRODUCT PATH] {} {}".format(item["change"], item["path"]), flush=True)
             if row["changed"] and (args.include_product or part != "product_a"):
                 dst = args.output / (part + ".img")
                 shutil.move(str(target_image), str(dst))
@@ -139,11 +202,18 @@ def main():
             print("[RESULT] {}: {} (export={})".format(part, row["status"], row["exported"]), flush=True)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
+    archive.close()
+    if not coloros_changes:
+        coloros_tar.unlink(missing_ok=True)
+    (args.output / "coloros-changes.json").write_text(
+        json.dumps(coloros_changes, indent=2) + "\n", encoding="utf-8")
     report = {
         "base": "HyperMOS EU #170", "target": "HyperMOS EU #176",
         "source_firmware": "HAOTIAN OS3.0.309.0.WOBCNXM",
         "product_included": args.include_product,
         "exported": exported, "partitions": rows,
+        "coloros_changed_paths": coloros_changes,
+        "coloros_archive": coloros_tar.name if coloros_changes else None,
         "warning": "Comparisons exclude some filesystem metadata/xattrs. A matching base ROM "
                    "does not guarantee that cross-build partition mixes will boot. "
                    "Verify active slot, dynamic partition size and rollback plan."
@@ -161,7 +231,13 @@ def main():
             row.get("changed_path_count", 0)))
     md += ["", "## Output IMG", ""]
     md += ["- " + x + ".img" for x in exported] or ["- No changed partitions selected"]
-    md += ["", "By default product_a.img is omitted to let the user install MiCTS APK.",
+    md += ["", "## ColorOS Control Center changes", "",
+           "Changed ColorOS paths: " + str(len(coloros_changes)),
+           "Changed ColorOS files (if present): coloros-changed-files.tar.gz",
+           "Full ColorOS changes: coloros-changes.json",
+           "All product changes: product-16-changes.json",
+           "ColorOS TAR is for inspection, not fastboot flash.",
+           "", "By default product_a.img is omitted to let the user install MiCTS APK.",
            "This also omits unrelated product changes, as detailed in comparison.json.",
            "All other changed image files are copied unmodified from build #176.",
            "This does not compare every SELinux label or xattr. Not boot-tested.",
