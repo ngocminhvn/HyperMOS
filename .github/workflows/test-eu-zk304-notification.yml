@@ -47,8 +47,16 @@ jobs:
           report=json.loads((p/'port-report.json').read_text())
           assert report['ported_count']>0
           assert (p/'merged.dex').stat().st_size>3_000_000
-          print('Merged methods:',report['ported_count'],'Rejected:',report['rejected_count'])
+          print('Merged methods:',report['ported_count'],'Rejected:',report['rejected_count'], 'EU-retained signatures:',len(report['eu_missing_donor_signatures']))
           PY
+      - name: Upload PowerKeeper policy ABI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zk304-eu-powerkeeper-methods
+          path: /tmp/zk304-pk-test/port-report.json
+          retention-days: 7
+          if-no-files-found: warn
       - name: Verify pinned ZK304 donor integrity
         run: |
           sudo apt-get update -qq
