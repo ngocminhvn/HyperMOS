@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Compare the real file contents of two built super images and export only changed .img files.
+"""Export ALL logical partition images whose FILE CONTENT differs: EU #170 -> #176.
 
-Uses bundled lpunpack plus fsck.erofs / debugfs. Does not flash or modify sources.
+Both full built super images are compared offline. No flashing is performed.
+Image-level metadata/xattrs may differ even when extracted file trees match.
 """
 import argparse
 import hashlib
 import json
-import tarfile
 import os
 import shutil
 import stat
@@ -16,242 +16,157 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "bin/audit"))
-from audit_xiaomi_eu_apps import filesystem, read_partition_names  # noqa: E402
+from audit_xiaomi_eu_apps import filesystem, read_partition_names
 
 
-def run(*args):
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def cmd(*args):
     print("[CMD]", " ".join(map(str, args)), flush=True)
     subprocess.run([str(x) for x in args], check=True)
 
 
-def sha256(path):
-    hasher = hashlib.sha256()
-    with path.open("rb") as handle:
-        for part in iter(lambda: handle.read(4 * 1024 * 1024), b""):
-            hasher.update(part)
-    return hasher.hexdigest()
+def names(super_image):
+    parts = read_partition_names(super_image, REPO / "bin/lpunpack.py")
+    # V-AB #170/#176 have zero-sized _b placeholders; compare populated _a only.
+    return sorted(x for x in parts if x.endswith("_a"))
 
 
-def partition_names(super_file):
-    names = read_partition_names(super_file, REPO / "bin/lpunpack.py")
-    # V-AB images contain unpopulated, zero-extent _b entries.
-    return sorted(n for n in names if not n.endswith("_b"))
-
-
-def extract_image(super_file, part, dest):
+def unpack(super_image, name, dest):
     dest.mkdir(parents=True, exist_ok=True)
-    run(sys.executable, REPO / "bin/lpunpack.py", "-p", part, super_file, dest)
-    image = dest / (part + ".img")
-    if not image.is_file() or image.stat().st_size < 4096:
-        raise RuntimeError("Partition missing or empty: " + part)
-    return image
+    cmd(sys.executable, REPO / "bin/lpunpack.py", "-p", name, super_image, dest)
+    img = dest / (name + ".img")
+    if not img.is_file() or img.stat().st_size < 4096:
+        raise RuntimeError("Missing/nonpopulated logical partition: " + name)
+    return img
 
 
-def extract_tree(image, dest):
+def extract(img, dest):
     dest.mkdir(parents=True, exist_ok=True)
-    kind = filesystem(image)
-    if kind == "erofs":
-        run("fsck.erofs", "--extract=" + str(dest), image)
-    elif kind == "ext4":
-        run("debugfs", "-R", "rdump / " + str(dest), image)
+    typ = filesystem(img)
+    if typ == "erofs":
+        cmd("fsck.erofs", "--extract=" + str(dest), img)
+    elif typ == "ext4":
+        cmd("debugfs", "-R", "rdump / " + str(dest), img)
     else:
-        raise RuntimeError("Unsupported filesystem for " + str(image))
-    return kind
+        raise RuntimeError("Unsupported filesystem: " + typ)
+    return typ
 
 
-def file_index(root):
-    # Ignore build timestamps but compare file names/bytes/types/modes/links.
-    # Filesystem xattrs and SELinux labels are not exhaustively checked.
-    records = {}
+def walk(root):
+    out = {}
     for directory, dirs, files in os.walk(root, followlinks=False):
-        here = Path(directory)
         for name in sorted(dirs + files):
-            full = here / name
-            relative = full.relative_to(root).as_posix()
-            st = full.lstat()
-            perm = format(stat.S_IMODE(st.st_mode), "o")
+            item = Path(directory) / name
+            rel = item.relative_to(root).as_posix()
+            st = item.lstat()
+            mode = format(stat.S_IMODE(st.st_mode), "o")
             if stat.S_ISLNK(st.st_mode):
-                records[relative] = ["symlink", os.readlink(full), perm]
+                out[rel] = ["link", os.readlink(item), mode]
             elif stat.S_ISREG(st.st_mode):
-                records[relative] = ["file", st.st_size, perm, sha256(full)]
+                out[rel] = ["file", st.st_size, mode, sha256(item)]
             elif stat.S_ISDIR(st.st_mode):
-                records[relative] = ["directory", perm]
+                out[rel] = ["dir", mode]
             else:
-                records[relative] = ["special", stat.S_IFMT(st.st_mode), perm]
-    return records
-
-
-def compare(base, target, part, scratch):
-    old_image = extract_image(base, part, scratch / "base-image")
-    new_image = extract_image(target, part, scratch / "new-image")
-    old_hash, new_hash = sha256(old_image), sha256(new_image)
-    info = {"partition": part, "base_sha256": old_hash,
-            "target_sha256": new_hash, "bytes": new_image.stat().st_size}
-    if old_hash == new_hash:
-        info.update(status="identical_image", changed=False, changed_paths=[])
-        return info, new_image
-    old_type = extract_tree(old_image, scratch / "base-tree")
-    new_type = extract_tree(new_image, scratch / "new-tree")
-    if old_type != new_type:
-        raise RuntimeError("Different filesystem types for " + part)
-    a, b = file_index(scratch / "base-tree"), file_index(scratch / "new-tree")
-    differences = [p for p in sorted(a.keys() | b.keys()) if a.get(p) != b.get(p)]
-    details = [{"path": name, "change": ("added" if name not in a else
-                                       "removed" if name not in b else "modified"),
-                "before": a.get(name), "after": b.get(name)}
-               for name in differences]
-    info.update(status="file_tree_changed" if differences else "repacked_metadata_only",
-                changed=bool(differences), changed_path_count=len(differences),
-                changed_paths=differences[:50], changes=details, filesystem=new_type)
-    return info, new_image
-
-
-def coloros_paths_from_plan(plan_file):
-    if not plan_file:
-        return set()
-    plan = json.loads(plan_file.read_text(encoding="utf-8"))
-    entries = plan.get("files", [])
-    if not entries:
-        raise ValueError("ColorOS OS3 plan has no system-tree files")
-    out = set()
-    for entry in entries:
-        partition, path = entry["partition"], entry["path"]
-        if partition not in ("product", "system", "system_ext"):
-            raise ValueError("Unexpected module partition: " + partition)
-        if path.startswith("/") or ".." in Path(path).parts:
-            raise ValueError("Unsafe module path: " + path)
-        out.add((partition + "_a", path))
-        if partition == "system":
-            out.add((partition + "_a", "system/" + path))
+                out[rel] = ["special", stat.S_IFMT(st.st_mode), mode]
     return out
 
 
-def collect_coloros(partition, changes, scratch, archive, planned):
-    result = []
-    for entry in changes:
-        rel = entry["path"]
-        low = rel.lower()
-        if ((partition, rel) not in planned
-                and "miuisystemuiplugin" not in low
-                and "miui.systemui.plugin" not in low
-                and "coloros" not in low):
-            continue
-        record = {"partition": partition, "path": rel, "change": entry["change"]}
-        target = scratch / "new-tree" / rel
-        if entry["change"] != "removed" and (target.is_file() or target.is_symlink()):
-            if target.is_symlink():
-                link = os.readlink(target)
-                if os.path.isabs(link) or ".." in Path(link).parts:
-                    raise ValueError("Unsafe symlink in module payload: " + rel)
-            archive.add(target, arcname=partition + "/" + rel, recursive=False)
-            record["archived"] = True
-        else:
-            record["archived"] = False
-        result.append(record)
-        print("[COLOROS DELTA] {} {}".format(entry["change"], partition + "/" + rel), flush=True)
-    return result
+def diff(base_super, target_super, part, tmp, output):
+    old = unpack(base_super, part, tmp / "old-img")
+    new = unpack(target_super, part, tmp / "new-img")
+    old_hash, new_hash = sha256(old), sha256(new)
+    row = {"name": part, "base_sha256": old_hash,
+           "target_sha256": new_hash, "size": new.stat().st_size}
+    if old_hash == new_hash:
+        row.update(status="identical", modified_count=0, modified_paths=[])
+        return row
+    if extract(old, tmp / "old-files") != extract(new, tmp / "new-files"):
+        raise RuntimeError("Filesystem format changed for " + part)
+    a, b = walk(tmp / "old-files"), walk(tmp / "new-files")
+    changes = [{"path": p, "change": (
+                    "added" if p not in a else "removed" if p not in b else "modified")}
+               for p in sorted(a.keys() | b.keys()) if a.get(p) != b.get(p)]
+    row.update(
+        status="content_changed" if changes else "metadata_only",
+        modified_count=len(changes),
+        modified_paths=changes
+    )
+    if changes:
+        path = output / (part + ".img")
+        shutil.copyfile(new, path)
+        if sha256(path) != new_hash:
+            raise RuntimeError("Exported image digest mismatch: " + part)
+        row["exported"] = str(path.name)
+        print("[EXPORT]", path, flush=True)
+    return row
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--base-super", required=True, type=Path)
-    p.add_argument("--new-super", required=True, type=Path)
-    p.add_argument("--work", required=True, type=Path)
-    p.add_argument("--output", required=True, type=Path)
-    p.add_argument("--include-product", action="store_true")
-    p.add_argument("--coloros-plan", type=Path, default=None)
-    args = p.parse_args()
-    args.output.mkdir(parents=True, exist_ok=True)
-    args.work.mkdir(parents=True, exist_ok=True)
-    old_names = partition_names(args.base_super)
-    new_names = partition_names(args.new_super)
-    if set(old_names) != set(new_names):
-        raise RuntimeError("Different partition sets: base=" + repr(old_names)
-                           + ", target=" + repr(new_names))
-    if not {"system_a", "system_ext_a"}.issubset(set(new_names)):
-        raise RuntimeError("Not the expected HAOTIAN V-AB super partition layout")
-    rows, exported, coloros_changes = [], [], []
-    planned = coloros_paths_from_plan(args.coloros_plan)
-    coloros_tar = args.output / "coloros-changed-files.tar.gz"
-    archive = tarfile.open(coloros_tar, "w:gz")
-    for idx, part in enumerate(new_names, 1):
-        print("[COMPARE {}/{}] {}".format(idx, len(new_names), part), flush=True)
-        scratch = args.work / "partition-compare"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base-super", type=Path, required=True)
+    parser.add_argument("--new-super", type=Path, required=True)
+    parser.add_argument("--work", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    opt = parser.parse_args()
+    opt.output.mkdir(parents=True, exist_ok=True)
+    opt.work.mkdir(parents=True, exist_ok=True)
+    base, new = names(opt.base_super), names(opt.new_super)
+    if base != new or not {"system_a", "system_ext_a", "product_a"}.issubset(set(base)):
+        raise RuntimeError("Unexpected mismatch in populated V-AB partition metadata: "
+                           + repr(base) + " vs " + repr(new))
+    rows = []
+    for number, name in enumerate(new, 1):
+        print("[COMPARE {}/{}] {}".format(number, len(new), name), flush=True)
+        tmp = opt.work / "compare"
         try:
-            row, target_image = compare(args.base_super, args.new_super, part, scratch)
-            coloros_changes.extend(collect_coloros(
-                part, row.get("changes", []), scratch, archive, planned))
-            if part == "product_a":
-                product_changes = row.get("changes", [])
-                (args.output / "product-16-changes.json").write_text(
-                    json.dumps(product_changes, indent=2) + "\n", encoding="utf-8")
-                for item in product_changes:
-                    print("[PRODUCT PATH] {} {}".format(item["change"], item["path"]), flush=True)
-            if row["changed"] and (args.include_product or part != "product_a"):
-                dst = args.output / (part + ".img")
-                shutil.move(str(target_image), str(dst))
-                row["exported"] = True
-                exported.append(part)
-            else:
-                row["exported"] = False
-                if row["changed"] and part == "product_a":
-                    row["reason"] = "Excluded product: install MiCTS APK manually; other product updates omitted"
-                elif row["status"] == "repacked_metadata_only":
-                    row["reason"] = "File contents same; image metadata/xattrs not completely compared"
+            row = diff(opt.base_super, opt.new_super, name, tmp, opt.output)
             rows.append(row)
-            print("[RESULT] {}: {} (export={})".format(part, row["status"], row["exported"]), flush=True)
+            print("[RESULT] {} {} {} changed paths".format(
+                name, row["status"], row["modified_count"]), flush=True)
         finally:
-            shutil.rmtree(scratch, ignore_errors=True)
-    archive.close()
-    if not coloros_changes:
-        coloros_tar.unlink(missing_ok=True)
-    (args.output / "coloros-changes.json").write_text(
-        json.dumps(coloros_changes, indent=2) + "\n", encoding="utf-8")
-    report = {
-        "base": "HyperMOS EU #170", "target": "HyperMOS EU #176",
-        "source_firmware": "HAOTIAN OS3.0.309.0.WOBCNXM",
-        "product_included": args.include_product,
-        "exported": exported, "partitions": rows,
-        "coloros_changed_paths": coloros_changes,
-        "coloros_archive": coloros_tar.name if coloros_changes else None,
-        "warning": "Comparisons exclude some filesystem metadata/xattrs. A matching base ROM "
-                   "does not guarantee that cross-build partition mixes will boot. "
-                   "Verify active slot, dynamic partition size and rollback plan."
+            shutil.rmtree(tmp, ignore_errors=True)
+    exported = [row["exported"] for row in rows if row.get("exported")]
+    if not exported:
+        raise RuntimeError("No changed partition images; wrong ROM archives?")
+    result = {
+        "base": "HyperMOS EU build #170",
+        "target": "HyperMOS EU build #176",
+        "same_original_firmware": "Xiaomi.eu HAOTIAN OS3.0.309.0.WOBCNXM",
+        "exported_logical_images": exported,
+        "comparisons": rows,
+        "important": "Full partitions, not isolated MiCTS/ColorOS changes. "
+                     "File-level comparison ignores some filesystem metadata/xattrs. "
+                     "Do not mix slots and do not flash without backups and rollback."
     }
-    (args.output / "comparison.json").write_text(json.dumps(report, indent=2) + "\n")
-    md = [
-        "# HyperMOS EU #170 to #176 - changed partition images", "",
-        "Filesystem contents compared to avoid treating repack timestamps as changes.",
-        "", "| Partition | Comparison | Exported | File changes |",
-        "|---|---|---|---:|"
-    ]
+    (opt.output / "logical-differences.json").write_text(json.dumps(result, indent=2) + "\n")
+    lines = ["## Logical partition changes, HyperMOS EU #170 to #176",
+             "", "| Partition | Changed files | Exported? |",
+             "|---|---:|---|"]
     for row in rows:
-        md.append("| {} | {} | {} | {} |".format(
-            row["partition"], row["status"], "yes" if row["exported"] else "no",
-            row.get("changed_path_count", 0)))
-    md += ["", "## Output IMG", ""]
-    md += ["- " + x + ".img" for x in exported] or ["- No changed partitions selected"]
-    md += ["", "## ColorOS Control Center changes", "",
-           "Changed ColorOS paths: " + str(len(coloros_changes)),
-           "Changed ColorOS files (if present): coloros-changed-files.tar.gz",
-           "Full ColorOS changes: coloros-changes.json",
-           "All product changes: product-16-changes.json",
-           "ColorOS TAR is for inspection, not fastboot flash.",
-           "", "By default product_a.img is omitted to let the user install MiCTS APK.",
-           "This also omits unrelated product changes, as detailed in comparison.json.",
-           "All other changed image files are copied unmodified from build #176.",
-           "This does not compare every SELinux label or xattr. Not boot-tested.",
-           "Do not flash an entire super image for this narrowly-scoped test.", ""]
-    report_md = "\n".join(md)
-    (args.output/"comparison.md").write_text(report_md)
+        lines.append("| {} | {} | {} |".format(
+            row["name"], row["modified_count"],
+            row.get("exported", "no")))
+    lines += ["", "Actual paths are in logical-differences.json.",
+              "APK/ColorOS/MICTS differences in product_a are INCLUDED.",
+              "This is a full-partition image comparison, NOT a boot compatibility test.",
+              ""]
+    report = "\n".join(lines)
+    (opt.output / "logical-differences.md").write_text(report)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as handle:
-            handle.write(report_md + "\n")
-    print("[SUCCESS] Exported: " + (", ".join(exported) or "none"), flush=True)
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
+            stream.write(report + "\n")
+    print("[SUCCESS] Logical IMG: " + ", ".join(exported), flush=True)
 
 
 if __name__ == "__main__":
     try:
         main()
     except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as error:
-        sys.exit("[ERROR] Partition comparison failed: " + str(error))
+        sys.exit("[ERROR] Logical IMG comparison failed: " + str(error))
