@@ -670,20 +670,6 @@ $method_head_escaped\\
   echo "Signature verification patches applied to framework.jar"
 }
 
-# Apply disable secure flag patches to framework.jar
-apply_framework_disable_secure_flag() {
-  local decompile_dir="$1"
-
-  echo "Applying disable secure flag patches to framework.jar..."
-
-  # Note: For Android 15, disable secure flag does not require framework.jar patches
-  # Only services.jar and miui-services.jar are affected
-  echo "Disable secure flag: No framework.jar patches required for Android 15"
-
-  echo "Disable secure flag patches applied to framework.jar"
-}
-
-
 
 # Main framework patching function
 patch_framework() {
@@ -824,20 +810,6 @@ ${indent}const/4 v12, 0x1" "$file"
   echo "Signature verification patches applied to services.jar"
 }
 
-# Apply disable secure flag patches to services.jar
-apply_services_disable_secure_flag() {
-  local decompile_dir="$1"
-
-  echo "Applying disable secure flag patches to services.jar..."
-
-  # Android 15: Patch WindowState.isSecureLocked()
-  echo "Patching WindowState.isSecureLocked()..."
-  local method_body="    .registers 6\n\n    const/4 v0, 0x0\n\n    return v0"
-  replace_entire_method "isSecureLocked()Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowState"
-
-  echo "Disable secure flag patches applied to services.jar"
-}
-
 # Main services patching function
 patch_services() {
   local services_path="$work_dir/build/baserom/images/system/system/framework/services.jar"
@@ -915,20 +887,6 @@ apply_miui_services_floating() {
   for i in "$decompile_dir/"*"/com/android/server/wm/MiuiFreeFormStackDisplayStrategy.smali"; do
     patch_method_in_file "getMaxMiuiFreeFormStackCount(Ljava/lang/String;Lcom/android/server/wm/MiuiFreeFormActivityStack;)I" 6 "$i"
   done
-}
-
-# Apply disable secure flag patches to miui-services.jar
-apply_miui_services_disable_secure_flag() {
-  local decompile_dir="$1"
-
-  echo "Applying disable secure flag patches to miui-services.jar..."
-
-  # Android 15: Patch WindowManagerServiceImpl.notAllowCaptureDisplay()
-  echo "Patching WindowManagerServiceImpl.notAllowCaptureDisplay()..."
-  local method_body="    .registers 9\n\n    const/4 v0, 0x0\n\n    return v0"
-  replace_entire_method "notAllowCaptureDisplay(Lcom/android/server/wm/RootWindowContainer;I)Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowManagerServiceImpl"
-
-  echo "Disable secure flag patches applied to miui-services.jar"
 }
 
 # Main miui-services patching function
@@ -1013,7 +971,6 @@ patch_miui_framework() {
 # Main function
 # Initialize environment and check tools
 FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}"
-FEATURE_DISABLE_SECURE_FLAG="${COREPATCH_DISABLE_SECURE_FLAG:-1}"
 init_env
 ensure_tools || exit 1
 

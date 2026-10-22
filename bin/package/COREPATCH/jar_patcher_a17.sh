@@ -17,7 +17,6 @@ API_LEVEL=37
 # Feature Flags (set by command-line arguments)
 # ============================================
 FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}"
-FEATURE_DISABLE_SECURE_FLAG="${COREPATCH_DISABLE_SECURE_FLAG:-1}"
 
 # ----------------------------------------------
 # Internal helpers (python-powered transformations)
@@ -759,19 +758,6 @@ $decompile_dir/smali*/miui/util/font/MultiLangHelper.smali
   cp -rf "$SCRIPT_DIR/miui" "$decompile_dir/smali"
 }
 
-# Apply disable secure flag patches to framework.jar (Android 17)
-apply_framework_disable_secure_flag() {
-  local decompile_dir="$1"
-
-  log "Applying disable secure flag patches to framework.jar (Android 17)..."
-
-  # Note: For Android 16, disable secure flag does not require framework.jar patches
-  # Only services.jar and miui-services.jar are affected
-  log "Disable secure flag: No framework.jar patches required for Android 16"
-
-  log "Disable secure flag patches applied to framework.jar (Android 17)"
-}
-
 # Main framework patching function (Android 17)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
@@ -907,20 +893,6 @@ apply_services_signature_patches() {
   log "Signature verification patches applied to services.jar (Android 17)"
 }
 
-# Apply disable secure flag patches to services.jar (Android 17)
-apply_services_disable_secure_flag() {
-  local decompile_dir="$1"
-
-  log "Applying disable secure flag patches to services.jar (Android 17)..."
-
-  # Android 16: Patch WindowState.isSecureLocked()
-  log "Patching WindowState.isSecureLocked()..."
-  local method_body="    .registers 6\n\n    const/4 v0, 0x0\n\n    return v0"
-  replace_entire_method "isSecureLocked()Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowState"
-
-  log "Disable secure flag patches applied to services.jar (Android 17)"
-}
-
 # Main services patching function (Android 17)
 patch_services() {
   local services_path="$work_dir/build/baserom/images/system/system/framework/services.jar"
@@ -952,7 +924,6 @@ patch_services() {
 
   # Apply feature-specific patches based on flags
   #apply_services_signature_patches "$decompile_dir"
-  #apply_services_disable_secure_flag "$decompile_dir"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -987,20 +958,6 @@ apply_miui_services_signature_patches() {
   grep -s -R -n --include='*.smali' '^[[:space:]]*\.method.*canBeUpdate' "$decompile_dir" | head -n 5 || true
 
   log "Signature verification patches applied to miui-services.jar (Android 17)"
-}
-
-# Apply disable secure flag patches to miui-services.jar (Android 17)
-apply_miui_services_disable_secure_flag() {
-  local decompile_dir="$1"
-
-  log "Applying disable secure flag patches to miui-services.jar (Android 17)..."
-
-  # Android 16: Patch WindowManagerServiceImpl.notAllowCaptureDisplay()
-  log "Patching WindowManagerServiceImpl.notAllowCaptureDisplay()..."
-  local method_body="    .registers 9\n\n    const/4 v0, 0x0\n\n    return v0"
-  replace_entire_method "notAllowCaptureDisplay(Lcom/android/server/wm/RootWindowContainer;I)Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowManagerServiceImpl"
-
-  log "Disable secure flag patches applied to miui-services.jar (Android 17)"
 }
 
 # Apply Gboard patches
@@ -1151,7 +1108,6 @@ patch_miui_framework() {
 # Main function
 # Initialize environment and check tools
 FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}"
-FEATURE_DISABLE_SECURE_FLAG="${COREPATCH_DISABLE_SECURE_FLAG:-1}"
 init_env
 ensure_tools || exit 1
 

@@ -13,8 +13,25 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(PATCHER)
 
 
-class Android13FeatureFlagTest(unittest.TestCase):
-    def test_runtime_secure_flag_does_not_get_overwritten(self):
+class CorePatchScopeTest(unittest.TestCase):
+    def test_corepatch_has_no_secure_flag_implementation(self):
+        corepatch_root = Path(__file__).parents[1]
+        forbidden = (
+            "COREPATCH_DISABLE_SECURE_FLAG",
+            "FEATURE_DISABLE_SECURE_FLAG",
+            "--disable-secure-flag",
+            "notAllowCaptureDisplay",
+            "isSecureLocked",
+            "setSecureLocked",
+        )
+        for path in corepatch_root.rglob("*"):
+            if path == Path(__file__) or path.suffix not in {".py", ".sh"}:
+                continue
+            content = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                self.assertNotIn(token, content, f"{token} remains in {path}")
+
+    def test_signature_patch_keeps_unrelated_methods(self):
         source = """.class public Ltest/Fixture;
 .method public static verifySignatures(Lcom/android/server/pm/PackageSetting;Lcom/android/server/pm/SharedUserSetting;Lcom/android/server/pm/PackageSetting;Landroid/content/pm/SigningDetails;ZZZ)Z
     .registers 8
@@ -29,10 +46,8 @@ class Android13FeatureFlagTest(unittest.TestCase):
 .end method
 """
         old_signature = os.environ.get("COREPATCH_DISABLE_SIGNATURE_VERIFICATION")
-        old_secure = os.environ.get("COREPATCH_DISABLE_SECURE_FLAG")
         try:
             os.environ["COREPATCH_DISABLE_SIGNATURE_VERIFICATION"] = "1"
-            os.environ["COREPATCH_DISABLE_SECURE_FLAG"] = "0"
             with tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "Fixture.smali"
                 path.write_text(source, encoding="utf-8")
@@ -46,10 +61,6 @@ class Android13FeatureFlagTest(unittest.TestCase):
                 os.environ.pop("COREPATCH_DISABLE_SIGNATURE_VERIFICATION", None)
             else:
                 os.environ["COREPATCH_DISABLE_SIGNATURE_VERIFICATION"] = old_signature
-            if old_secure is None:
-                os.environ.pop("COREPATCH_DISABLE_SECURE_FLAG", None)
-            else:
-                os.environ["COREPATCH_DISABLE_SECURE_FLAG"] = old_secure
 
 
 if __name__ == "__main__":

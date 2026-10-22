@@ -4,8 +4,8 @@ source $work_dir/functions.sh
 phase "System patch stage"
 target_dir="$work_dir/bin/package/"
 
-# CorePatch/signature bypass is build-time. When the Kaorios runtime Secure
-# Flag hook is enabled, do not permanently force the stock secure path off.
+# CorePatch owns only the build-time signature bypass. Kaorios exclusively
+# owns the runtime Secure Flag implementation.
 # shellcheck source=/dev/null
 source "$target_dir/KAORIOS_TOOLBOX/config.sh"
 case "${KAORIOS_ENABLE_COREPATCH,,}" in
@@ -13,22 +13,6 @@ case "${KAORIOS_ENABLE_COREPATCH,,}" in
   0|false|no|off) export COREPATCH_DISABLE_SIGNATURE_VERIFICATION=0 ;;
   *) error "KAORIOS: invalid boolean KAORIOS_ENABLE_COREPATCH=$KAORIOS_ENABLE_COREPATCH"; exit 1 ;;
 esac
-case "${KAORIOS_MASTER,,}" in
-  1|true|yes|on) kaorios_master_enabled=1 ;;
-  0|false|no|off) kaorios_master_enabled=0 ;;
-  *) error "KAORIOS: invalid boolean KAORIOS_MASTER=$KAORIOS_MASTER"; exit 1 ;;
-esac
-case "${KAORIOS_ENABLE_SECURE_FLAG,,}" in
-  1|true|yes|on) kaorios_secure_flag_enabled=1 ;;
-  0|false|no|off) kaorios_secure_flag_enabled=0 ;;
-  *) error "KAORIOS: invalid boolean KAORIOS_ENABLE_SECURE_FLAG=$KAORIOS_ENABLE_SECURE_FLAG"; exit 1 ;;
-esac
-if [[ "$kaorios_master_enabled" == "1" && "$kaorios_secure_flag_enabled" == "1" ]]; then
-  export COREPATCH_DISABLE_SECURE_FLAG=0
-else
-  export COREPATCH_DISABLE_SECURE_FLAG=1
-fi
-
 # FrameworkPatcher A16 CN handles 4 ProcessPolicy gates: ContentCatcher=false
 # and 3 RYU=true; do not consume a source read before notification stage.
 # Standalone CorePatch and Global builds retain their original behavior.

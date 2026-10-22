@@ -35,12 +35,7 @@ def modify_file(file_path):
         "isVerificationEnabled": re.compile(
             r'\.method private isVerificationEnabled\(Landroid/content/pm/PackageInfoLite;I\)Z'),
         "doesSignatureMatchForPermissions": re.compile(
-            r'\.method private doesSignatureMatchForPermissions\(Ljava/lang/String;Lcom/android/server/pm/parsing/pkg/ParsedPackage;I\)Z'),
-        "isScreenCaptureAllowed": re.compile(r'\.method public isScreenCaptureAllowed\(I\)Z'),
-        "getScreenCaptureDisabled": re.compile(r'\.method public getScreenCaptureDisabled\(Landroid/content/ComponentName;IZ\)Z'),
-        "setScreenCaptureDisabled": re.compile(r'\.method private setScreenCaptureDisabled\(I\)V'),
-        "isSecureLocked": re.compile(r'\.method isSecureLocked\(\)Z'),
-        "setSecure": re.compile(r'\.method setSecure\(Z\)V')
+            r'\.method private doesSignatureMatchForPermissions\(Ljava/lang/String;Lcom/android/server/pm/parsing/pkg/ParsedPackage;I\)Z')
     }
 
     signature_methods = {
@@ -49,15 +44,8 @@ def modify_file(file_path):
         "isApkVerityEnabled", "isDowngradePermitted", "verifySignatures",
         "isVerificationEnabled", "doesSignatureMatchForPermissions",
     }
-    secure_flag_methods = {
-        "isScreenCaptureAllowed", "getScreenCaptureDisabled",
-        "setScreenCaptureDisabled", "isSecureLocked", "setSecure",
-    }
     if os.environ.get("COREPATCH_DISABLE_SIGNATURE_VERIFICATION", "1") != "1":
         for method in signature_methods:
-            method_patterns.pop(method, None)
-    if os.environ.get("COREPATCH_DISABLE_SECURE_FLAG", "1") != "1":
-        for method in secure_flag_methods:
             method_patterns.pop(method, None)
 
     for line in lines:
@@ -129,29 +117,6 @@ def modify_file(file_path):
                     modified_lines.append("    .registers 11\n")
                     modified_lines.append("    const/4 v0, 0x1\n")
                     modified_lines.append("    return v0\n")
-                elif method_type == "isScreenCaptureAllowed":
-                    logging.info(f"Modifying method body for {method_type}")
-                    modified_lines.append("    .registers 4\n")
-                    modified_lines.append("    const/4 v0, 0x1\n")
-                    modified_lines.append("    return v0\n")
-                elif method_type == "getScreenCaptureDisabled":
-                    logging.info(f"Modifying method body for {method_type}")
-                    modified_lines.append("    .registers 5\n")
-                    modified_lines.append("    const/4 v0, 0x1\n")
-                    modified_lines.append("    return v0\n")
-                elif method_type == "setScreenCaptureDisabled":
-                    logging.info(f"Modifying method body for {method_type}")
-                    modified_lines.append("    .registers 6\n")
-                    modified_lines.append("    return-void\n")
-                elif method_type == "isSecureLocked":
-                    logging.info(f"Modifying method body for {method_type}")
-                    modified_lines.append("    .registers 6\n")
-                    modified_lines.append("    const/4 v0, 0x0\n")
-                    modified_lines.append("    return v0\n")
-                elif method_type == "setSecure":
-                    logging.info(f"Modifying method body for {method_type}")
-                    modified_lines.append("    .registers 14\n")
-                    modified_lines.append("    return-void\n")
                 in_method = False
                 method_type = None
             else:
@@ -235,10 +200,6 @@ def modify_smali_files(directories):
         verification_params = os.path.join(directory, 'com/android/server/pm/VerificationParams.smali')
         parsing_package_utils = os.path.join(directory, 'com/android/server/pm/pkg/parsing/ParsingPackageUtils.smali')
         package_info_utils = os.path.join(directory, 'com/android/server/pm/InstallPackageHelper.smali')
-        device_policy_cache_impl = os.path.join(directory, 'com/android/server/devicepolicy/DevicePolicyCacheImpl.smali')
-        device_policy_manager_service = os.path.join(directory, 'com/android/server/devicepolicy/DevicePolicyManagerService.smali')
-        window_state = os.path.join(directory, 'com/android/server/wm/WindowState.smali')
-        window_surface_controller = os.path.join(directory, 'com/android/server/wm/WindowSurfaceController.smali')
 
         if os.path.exists(package_manager_service_utils):
             logging.info(f"Found file: {package_manager_service_utils}")
@@ -270,29 +231,6 @@ def modify_smali_files(directories):
         else:
             logging.warning(f"File not found: {package_info_utils}")
 
-        if os.path.exists(device_policy_cache_impl):
-            logging.info(f"Found file: {device_policy_cache_impl}")
-            modify_file(device_policy_cache_impl)
-        else:
-            logging.warning(f"File not found: {device_policy_cache_impl}")
-
-        if os.path.exists(device_policy_manager_service):
-            logging.info(f"Found file: {device_policy_manager_service}")
-            modify_file(device_policy_manager_service)
-        else:
-            logging.warning(f"File not found: {device_policy_manager_service}")
-
-        if os.path.exists(window_state):
-            logging.info(f"Found file: {window_state}")
-            modify_file(window_state)
-        else:
-            logging.warning(f"File not found: {window_state}")
-
-        if os.path.exists(window_surface_controller):
-            logging.info(f"Found file: {window_surface_controller}")
-            modify_file(window_surface_controller)
-        else:
-            logging.warning(f"File not found: {window_surface_controller}")
 
 
 if __name__ == "__main__":

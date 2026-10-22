@@ -54,7 +54,7 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 
 `bin/package/patchpackage.sh` runs:
 
-1. HyperMOS CorePatch/signature bypass (controlled by `KAORIOS_ENABLE_COREPATCH`); its old unconditional FLAG_SECURE patch is skipped while the Kaorios runtime hook is enabled
+1. HyperMOS CorePatch/signature bypass (controlled by `KAORIOS_ENABLE_COREPATCH`); CorePatch no longer contains a separate Secure Flag implementation
 2. DISABLE_AVB
 3. LOCK/TNM post-fs integration
 4. notification fix
