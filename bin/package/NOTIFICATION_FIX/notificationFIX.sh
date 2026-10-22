@@ -7,9 +7,10 @@ rom_source_file="$WORK_DIR/bin/ddevice/rom_source.txt"
 if [[ -s "$rom_source_file" ]]; then
     rom_source="$(tr -d '\r\n' < "$rom_source_file")"
     if [[ "$rom_source" == "xiaomi_eu" ]]; then
-        # Xiaomi.eu: ContentCatcher plus ZK-inspired BroadcastQueue/Greeze gates for all apps.
+        # Xiaomi.eu: donor-verified ZK304 notification policy and guarded PowerKeeper method port.
         if [[ "$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/androidver.txt")" == "16" ]]; then
             bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/ContentCatcher_EU.sh" || exit 1
+            bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper_ZK.sh" || exit 1
         fi
         exit 0
     fi
