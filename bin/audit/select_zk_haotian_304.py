@@ -14,14 +14,14 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 TARGET_FOLDER = "ZKOS_HAOTIAN_OS3.0.304.0.WOBCNXM_EU260623"
-SUPER_NAME = re.compile(r"super\\.img(?:\\.(0|[1-9][0-9]*))?", re.I)
+SUPER_NAME = re.compile(r"super\.img(?:\.(0|[1-9][0-9]*))?", re.I)
 GIB = 1024 ** 3
 
 
 def select(outer: Path, dest: Path, manifest: Path, target: str = TARGET_FOLDER) -> dict:
     if not outer.is_file() or not zipfile.is_zipfile(outer):
         raise RuntimeError("Outer Google Drive archive is not a valid ZIP")
-    if not re.fullmatch(r"ZKOS_HAOTIAN_OS3\\.0\\.304\\.0\\.WOBCNXM_EU260623", target, re.I):
+    if not re.fullmatch(r"ZKOS_HAOTIAN_OS3\.0\.304\.0\.WOBCNXM_EU260623", target, re.I):
         raise RuntimeError("Refusing to select any ROM folder other than ZKOS HAOTIAN 304")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -30,7 +30,7 @@ def select(outer: Path, dest: Path, manifest: Path, target: str = TARGET_FOLDER)
     try:
         with zipfile.ZipFile(outer) as source:
             for item in source.infolist():
-                if item.filename.startswith("/") or "\\\\" in item.filename or ".." in PurePosixPath(item.filename).parts:
+                if item.filename.startswith("/") or "\\" in item.filename or ".." in PurePosixPath(item.filename).parts:
                     raise RuntimeError("Unsafe ZIP member name: " + item.filename)
                 parts = PurePosixPath(item.filename.rstrip("/")).parts
                 for part in parts:
