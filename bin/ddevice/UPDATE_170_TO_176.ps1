@@ -1,6 +1,7 @@
 # HyperMOS EU HAOTIAN #170 -> #176: unattended, non-wiping update.
 # Requires images and SHA256SUMS from the exact comparison artifact.
 # Launch through UPDATE_170_TO_176.bat from BOOTLOADER fastboot, not fastbootd.
+# Keeps the existing #170 init_boot_a and SukiSU root untouched.
 # Does not format data, erase partitions, or change active slot.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -9,9 +10,11 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $expected = @(
     'system_a.img',
     'system_ext_a.img',
-    'product_a.img',
-    'firmware/init_boot.img'
+    'product_a.img'
 )
+# The original artifact includes an init_boot image, but this update deliberately
+# ignores it: both builds use the same stock init_boot and pinned SukiSU source.
+$manifestImages = @($expected) + @('firmware/init_boot.img')
 $fastbootCandidates = @(
     (Join-Path $Root 'fastboot.exe'),
     (Join-Path $Root 'platform-tools/fastboot.exe')
@@ -87,8 +90,11 @@ function Verify-Images {
         if ($known.ContainsKey($key)) { throw ('Duplicate hash: ' + $key) }
         $known[$key] = $Matches[1].ToLowerInvariant()
     }
-    if ($known.Count -ne $expected.Count) {
-        throw 'Unexpected IMG count. This script is pinned to the 4 changes verified for builds #170 -> #176.'
+    if ($known.Count -ne $manifestImages.Count) {
+        throw 'Unexpected manifest IMG count. Expected 3 logical images plus the ignored init_boot entry from build #176.'
+    }
+    foreach ($name in $manifestImages) {
+        if (-not $known.ContainsKey($name)) { throw ('Unexpected or missing entry in SHA256SUMS: ' + $name) }
     }
     foreach ($name in $expected) {
         if (-not $known.ContainsKey($name)) { throw ('IMG absent from manifest: ' + $name) }
@@ -101,7 +107,7 @@ function Verify-Images {
         Write-Host ('[SHA256 OK] ' + $name)
     }
     foreach ($name in $known.Keys) {
-        if ($expected -notcontains $name) { throw ('Unrecognized IMG: ' + $name) }
+        if ($manifestImages -notcontains $name) { throw ('Unrecognized IMG in manifest: ' + $name) }
     }
 }
 
@@ -125,6 +131,7 @@ function Check-PartitionSize([string] $Partition, [string] $Filename) {
 Write-Host 'HyperMOS EU HAOTIAN #170 -> #176 (data-preserving attempt)'
 Write-Host 'Requires unlocked bootloader, matching #170 ROM, and a tested #170 rollback.'
 Write-Host 'No userdata erase, no metadata erase, no slot switching.'
+Write-Host '[ROOT] Keep existing #170 init_boot_a; skip #176 init_boot image.'
 Verify-Images
 
 Write-Host '[CHECK] Bootloader fastboot / HAOTIAN / active slot A'
@@ -158,16 +165,7 @@ foreach ($partition in @('system_a', 'system_ext_a', 'product_a')) {
     Invoke-Fastboot -Arguments @('flash', $partition, $img) | Out-Null
 }
 
-Write-Host '[MODE] Returning to bootloader fastboot for init_boot'
-Invoke-Fastboot -Arguments @('reboot', 'bootloader') | Out-Null
-Wait-ForFastboot 'no'
-if ((Read-FastbootVar 'product') -ne 'haotian' -or
-    (Read-FastbootVar 'current-slot') -ne 'a') {
-    throw 'Unexpected device/slot before init_boot flash. Stop.'
-}
-Write-Host '[FLASH] Updating init_boot_a from build #176'
-Invoke-Fastboot -Arguments @('flash', 'init_boot_a',
-    (Join-Path $Root 'firmware/init_boot.img')) | Out-Null
-Write-Host '[DONE] All 4 image flashes reported success. Rebooting without wiping.'
+Write-Host '[DONE] All 3 logical IMG flashed. init_boot_a intentionally NOT touched.'
+Write-Host '[REBOOT] Leaving fastbootd without formatting userdata.'
 Invoke-Fastboot -Arguments @('reboot') | Out-Null
 Write-Host 'Completed. First boot may take longer. This is not a guarantee of boot compatibility.'
