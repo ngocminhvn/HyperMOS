@@ -1,190 +1,109 @@
 #!/usr/bin/env python3
-"""Patch upstream MiCTS v2.6 Quick Settings tile for rooted HyperOS tests.
+"""MiCTS v2.6 experimental rootless TileFix test.
 
-Keep the upstream applicationId com.parallelc.micts and its CSService request
-marker intact. This changes the tile path only: do not open MainActivity
-while the shade is being dismissed. It must NOT be treated as a vendor-signed
-drop-in replacement: custom builds have a different signing certificate.
+Keep the ORIGINAL MiCTS package so the HyperMOS services.jar bridge continues
+to match caller UID -> com.parallelc.micts. Do not start su, use adb, or use a
+long-running service. The tile asks Android to collapse Quick Settings via
+TileService.startActivityAndCollapse, launches a transparent *trampoline*, and
+finishes that Activity BEFORE dispatching the Circle to Search request.
+
+The APK is debug-signed, not signed with the official author's certificate.
+It can only replace the official APK if installation policy allows it.
 """
-from pathlib import Path
 import argparse
+from pathlib import Path
 
 TILE = r'''package com.parallelc.micts
 
+import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Build
 import android.service.quicksettings.TileService
-import android.os.SystemClock
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.widget.Toast
-import com.parallelc.micts.ui.activity.triggerCircleToSearch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import com.parallelc.micts.ui.activity.MainActivity
 
-/**
- * Experimental MiCTS Tile for rooted HyperMOS.
- * Unlike the upstream Tile it never launches a foreground Activity.
- * A foreground application must be observed twice before invoking CTS.
- * No background daemon; this process only runs on direct tile taps.
- */
+/** No su or root, no Xposed dependency, no permanent background process. */
 class LaunchTileService : TileService() {
-    companion object {
-        private const val TAG = "MiCTSTileFix"
-        private val running = AtomicBoolean(false)
-    }
-
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
-        if (!running.compareAndSet(false, true)) return
-        Thread({
-            try {
-                val collapse = rootCommand("/system/bin/cmd statusbar collapse", 6000L)
-                if (collapse.first != 0) {
-                    report("Không đóng được Control Center: hãy cấp root cho MiCTS.")
-                    return@Thread
-                }
-
-                // A fixed 400/1000 ms delay alone is unreliable on HyperOS.
-                // Wait for a non-shade focused window to return, then observe
-                // the same target on a second pass. The extra 350 ms allows
-                // panel close animation to settle after the final focus change.
-                var previous = ""
-                var consecutive = 0
-                var foreground = ""
-                for (attempt in 0 until 10) {
-                    SystemClock.sleep(170L)
-                    val probe = rootCommand(
-                        "/system/bin/dumpsys window | /system/bin/grep -m 1 mCurrentFocus",
-                        5000L
-                    )
-                    if (probe.first != 0) {
-                        report("Không lấy được cửa sổ đang mở; xem quyền root.")
-                        return@Thread
-                    }
-                    val focus = probe.second.trim().substringAfter("mCurrentFocus=", "")
-                    val isTarget = focus.isNotBlank() &&
-                        !focus.contains("null", true) &&
-                        !focus.contains("systemui", true) &&
-                        !focus.contains("ControlCenter", true) &&
-                        !focus.contains("StatusBar", true) &&
-                        !focus.contains("NotificationShade", true) &&
-                        !focus.contains("com.parallelc.micts", true) &&
-                        !focus.contains("com.google.android.googlequicksearchbox", true)
-                    Log.i(TAG, "focus[$attempt] ready=$isTarget $focus")
-                    consecutive = if (isTarget && focus == previous) consecutive + 1
-                        else if (isTarget) 1 else 0
-                    previous = focus
-                    if (consecutive >= 2) {
-                        foreground = focus
-                        break
-                    }
-                }
-                if (foreground.isEmpty()) {
-                    report("Chưa xác nhận Control Center đã đóng. Không kích hoạt nhầm màn hình.")
-                    return@Thread
-                }
-
-                SystemClock.sleep(350L)
-                // Re-check after the animation guard; do not trust a stale app.
-                val finalProbe = rootCommand(
-                    "/system/bin/dumpsys window | /system/bin/grep -m 1 mCurrentFocus",
-                    5000L
-                )
-                if (finalProbe.first != 0 || !finalProbe.second.contains(foreground)) {
-                    report("Cửa sổ đã thay đổi trong lúc đóng Control Center; hủy yêu cầu.")
-                    return@Thread
-                }
-                if (BuildConfig.APP_NAME == "VISTrigger") {
-                    // Installable companion flavor: retains the untouched
-                    // system MiCTS package/signature. The official MiCTS
-                    // Activity performs the authenticated services.jar call.
-                    val delegate = rootCommand(
-                        "/system/bin/am start --user 0 -n com.parallelc.micts/.ui.activity.MainActivity",
-                        6000L
-                    )
-                    Log.i(TAG, "companion delegate rc=${delegate.first}, focus=$foreground")
-                    if (delegate.first != 0) {
-                        report("Không khởi chạy được MiCTS gốc: ${delegate.second.take(120)}")
-                    }
-                } else {
-                    val ok = triggerCircleToSearch(1, this@LaunchTileService, false)
-                    Log.i(TAG, "invoke returned=$ok, foreground=$foreground")
-                    if (!ok) report("MiCTS/CSService không chấp nhận yêu cầu.")
-                }
-            } catch (e: Throwable) {
-                Log.e(TAG, "tile failed", e)
-                report("MiCTS Tile gặp lỗi; xem logcat -s MiCTSTileFix:* MiCTSBridge:*")
-            } finally {
-                running.set(false)
-            }
-        }, "MiCTS-tile-test").start()
-    }
-
-    private fun rootCommand(cmd: String, timeout: Long): Pair<Int, String> {
-        val process = ProcessBuilder("su", "-c", cmd)
-            .redirectErrorStream(true)
-            .start()
-        val text = StringBuilder()
-        val drain = Thread {
-            try {
-                process.inputStream.bufferedReader().use { reader ->
-                    // Output is deliberately bounded by grep or short cmd.
-                    reader.forEachLine { line ->
-                        if (text.length < 4096) text.append(line).append('\n')
-                    }
-                }
-            } catch (_: Exception) { }
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra("tilefix_finish_before_trigger", true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
         }
-        drain.isDaemon = true
-        drain.start()
-        val exited = process.waitFor(timeout, TimeUnit.MILLISECONDS)
-        if (!exited) process.destroyForcibly()
-        drain.join(500L)
-        return (if (exited) process.exitValue() else 124) to text.toString()
-    }
-
-    private fun report(message: String) {
-        Log.w(TAG, message)
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+        try {
+            Log.i("MiCTSTileFix", "tile tap; requesting shade collapse through Android API")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val pending = PendingIntent.getActivity(
+                    this, 22602, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                startActivityAndCollapse(pending)
+            } else {
+                startActivityAndCollapse(intent)
+            }
+        } catch (e: Throwable) {
+            Log.e("MiCTSTileFix", "System rejected tile launch", e)
         }
     }
 }
 '''
+
+ACTIVITY_INJECTION = r'''        if (intent.getBooleanExtra("tilefix_finish_before_trigger", false)) {
+            // Unlike upstream, leave the window stack BEFORE calling Google:
+            // a still-running transparent Activity can appear as the top app.
+            val appContext = applicationContext
+            Log.i("MiCTSTileFix", "trampoline entered; finishing before CTS")
+            finish()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val success = triggerCircleToSearch(1, appContext, false)
+                Log.i("MiCTSTileFix", "CTS dispatched after Activity.finish(): $success")
+                if (!success) {
+                    android.widget.Toast.makeText(
+                        appContext, "Circle to Search chưa được chấp nhận",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }, 850L)
+            return
+        }
+'''
+
 def main():
-    parser=argparse.ArgumentParser()
-    parser.add_argument("--source",type=Path,required=True)
-    a=parser.parse_args()
-    src=a.source
-    tile=src/"app/src/main/java/com/parallelc/micts/LaunchTileService.kt"
-    gradle=src/"app/build.gradle.kts"
-    before=tile.read_text(encoding="utf-8")
-    if "startActivityAndCollapse(pendingIntent)" not in before:
-        raise SystemExit("Unsupported upstream Tile: expected MiCTS v2.6 LaunchTileService")
-    if "fun triggerCircleToSearch" not in (
-        src/"app/src/main/java/com/parallelc/micts/ui/activity/MainActivity.kt"
-    ).read_text():
-        raise SystemExit("Missing original MiCTS trigger API")
-    content=gradle.read_text(encoding="utf-8")
-    for old in ('versionCode = commitCount','versionName = latestTag'):
-        if content.count(old)!=1: raise SystemExit("Unexpected Gradle version field: "+old)
-    content=content.replace('versionCode = commitCount','versionCode = 2601001')
-    content=content.replace('versionName = latestTag','versionName = "2.6-tilefix-test1"')
-    # Side-by-side QS Tile test flavor. It delegates to the ORIGINAL, signer-
-    # verified MiCTS after the panel is closed, avoiding APK signer conflicts.
-    if 'applicationId = "com.parallelc.vistrigger"' not in content:
-        raise SystemExit("Missing VISTrigger flavor")
-    content=content.replace(
-        'applicationId = "com.parallelc.vistrigger"',
-        'applicationId = "com.parallelc.micts.tiletest"',
+    p = argparse.ArgumentParser()
+    p.add_argument("--source", type=Path, required=True)
+    a = p.parse_args()
+    root = a.source
+    tile = root / "app/src/main/java/com/parallelc/micts/LaunchTileService.kt"
+    activity = root / "app/src/main/java/com/parallelc/micts/ui/activity/MainActivity.kt"
+    gradle = root / "app/build.gradle.kts"
+    original_tile = tile.read_text(encoding="utf-8")
+    original_activity = activity.read_text(encoding="utf-8")
+    old = "        super.onCreate(savedInstanceState)\n        enableEdgeToEdge()"
+    if "startActivityAndCollapse(pendingIntent)" not in original_tile:
+        raise SystemExit("MiCTS Tile does not match pinned v2.6 upstream")
+    if original_activity.count(old) != 1:
+        raise SystemExit("MiCTS MainActivity.onCreate does not match pinned v2.6 upstream")
+    if "fun triggerCircleToSearch" not in original_activity:
+        raise SystemExit("MiCTS trigger API missing")
+    content = gradle.read_text(encoding="utf-8")
+    for marker in ('versionCode = commitCount', 'versionName = latestTag'):
+        if content.count(marker) != 1:
+            raise SystemExit("MiCTS Gradle version field differs: " + marker)
+    tile.write_text(TILE, encoding="utf-8")
+    activity.write_text(
+        original_activity.replace(old,
+            "        super.onCreate(savedInstanceState)\n" + ACTIVITY_INJECTION +
+            "        enableEdgeToEdge()"),
+        encoding="utf-8"
     )
-    content=content.replace('resValue("string", "app_name", "VISTrigger")',
-                            'resValue("string", "app_name", "MiCTS Tile Test")')
-    content=content.replace('resValue("string", "tile_label", "VIS")',
-                            'resValue("string", "tile_label", "CTS Test")')
-    tile.write_text(TILE,encoding="utf-8")
-    gradle.write_text(content,encoding="utf-8")
-    print("MiCTS v2.6 root-only Quick Settings tile fix staged.")
-    print("Package is com.parallelc.micts; official certificate is NOT preserved.")
-    print("Only use test APK after planning for signing conflicts with ROM preload.")
-if __name__=="__main__": main()
+    content = content.replace('versionCode = commitCount', 'versionCode = 2601002')
+    content = content.replace('versionName = latestTag', 'versionName = "2.6-tilefix-test2"')
+    gradle.write_text(content, encoding="utf-8")
+    print("MiCTS 2.6 TileFix TEST2: no-su, close QS, finish Activity first.")
+    print("Retains package com.parallelc.micts for existing HyperMOS bridge.")
+    print("Debug certificate differs from official MiCTS; do NOT blindly uninstall system app.")
+
+if __name__ == "__main__":
+    main()
