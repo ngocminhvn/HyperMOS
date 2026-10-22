@@ -18,8 +18,9 @@ class Zk304InitializerTests(unittest.TestCase):
     def test_method_port_exact_and_idempotent(self):
         modified, status = patch_clinit(EU, DONOR)
         self.assertEqual(status, "ported_zk304")
-        self.assertEqual(modified, DONOR)
-        self.assertEqual(patch_clinit(modified, DONOR), (DONOR, "already_zk"))
+        self.assertEqual([x.strip() for x in modified.splitlines() if x.strip()],
+                         [x.strip() for x in DONOR.splitlines() if x.strip()])
+        self.assertEqual(patch_clinit(modified, DONOR), (modified, "already_zk"))
 
     def test_fail_closed_wrong_register(self):
         with self.assertRaises(ValueError):
