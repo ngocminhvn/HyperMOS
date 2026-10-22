@@ -1,0 +1,164 @@
+name: EU #170 vs #176 - Extract Changed IMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_drive_id:
+        description: "ROM #170 file ID on Google Drive"
+        required: true
+        type: string
+        default: "1iL_cm52QLJ0KzCkkpV0xUUd6jSE4r-pW"
+      target_pixeldrain_id:
+        description: "ROM #176 file ID on Pixeldrain"
+        required: true
+        type: string
+        default: "z9mjqzdg"
+      include_product:
+        description: "Include changed product_a.img (contains preloaded MiCTS APK)"
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Compare real partition files and export changed IMG
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      WORK: /tmp/rom-170-to-176-${{ github.run_id }}
+      DRIVE_ID: ${{ inputs.base_drive_id }}
+      PIXELDRAIN_ID: ${{ inputs.target_pixeldrain_id }}
+      INCLUDE_PRODUCT: ${{ inputs.include_product }}
+    steps:
+      - name: Checkout repository tools
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Free disk and install image tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y -qq rclone curl unzip android-sdk-libsparse-utils e2fsprogs erofs-utils
+          for cmd in rclone curl unzip simg2img fsck.erofs debugfs; do
+            command -v "$cmd"
+          done
+          mkdir -p "$WORK/base" "$WORK/target" "$WORK/output" "$WORK/scratch"
+          python3 -m py_compile bin/lpunpack.py bin/audit/audit_xiaomi_eu_apps.py bin/audit/compare_build_partition_images.py
+          df -h /
+
+      - name: Download build 170 from the original Drive file ID
+        shell: bash
+        env:
+          RCLONE_CONFIG_URL: ${{ secrets.RCLONE_TOKEN_PATH }}
+        run: |
+          set -euo pipefail
+          [[ "$DRIVE_ID" =~ ^[a-zA-Z0-9_-]{10,100}$ ]] || { echo "::error::Invalid Drive file ID"; exit 1; }
+          [ -n "$RCLONE_CONFIG_URL" ] || { echo "::error::Missing RCLONE_TOKEN_PATH secret"; exit 1; }
+          case "$RCLONE_CONFIG_URL" in
+            https://*) config_url="$RCLONE_CONFIG_URL" ;;
+            //*) config_url="https:$RCLONE_CONFIG_URL" ;;
+            *) config_url="https://$RCLONE_CONFIG_URL" ;;
+          esac
+          conf="$RUNNER_TEMP/hypermos-compare-rclone.conf"
+          trap 'rm -f "$conf"' EXIT
+          curl -fsSL --retry 4 --retry-all-errors "$config_url" -o "$conf"
+          chmod 600 "$conf"
+          remote="$(rclone --config "$conf" listremotes | head -n 1)"
+          [ -n "$remote" ] || { echo "::error::Drive remote not configured"; exit 1; }
+          rclone --config "$conf" --retries 3 backend copyid "$remote" \
+            "$DRIVE_ID" "$WORK/base/rom170.zip"
+          test -s "$WORK/base/rom170.zip"
+          unzip -tqq "$WORK/base/rom170.zip"
+          ls -lh "$WORK/base/rom170.zip"
+
+      - name: Extract only super.img from 170 and delete ROM ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,sys
+          from pathlib import Path
+          sys.path.insert(0,"bin/audit")
+          from audit_xiaomi_eu_apps import make_super
+          folder=Path(os.environ["WORK"])/"base"
+          image=make_super(folder/"rom170.zip",folder)
+          assert image.is_file() and image.stat().st_size > 1000000000
+          print("[BASE SUPER]",image,image.stat().st_size)
+          PY
+          df -h /
+
+      - name: Download build 176 from Pixeldrain
+        shell: bash
+        env:
+          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$PIXELDRAIN_ID" =~ ^[a-zA-Z0-9]{5,32}$ ]] || { echo "::error::Invalid Pixeldrain file ID"; exit 1; }
+          auth=()
+          if [ -n "$PIXELDRAIN_API_KEY" ]; then
+            auth=(-u ":$PIXELDRAIN_API_KEY")
+          fi
+          curl -fL --retry 4 --retry-all-errors --connect-timeout 30 \
+            "${auth[@]}" "https://pixeldrain.com/api/file/$PIXELDRAIN_ID" \
+            -o "$WORK/target/rom176.zip"
+          test -s "$WORK/target/rom176.zip"
+          unzip -tqq "$WORK/target/rom176.zip"
+          ls -lh "$WORK/target/rom176.zip"
+
+      - name: Extract only super.img from 176 and delete ROM ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,sys
+          from pathlib import Path
+          sys.path.insert(0,"bin/audit")
+          from audit_xiaomi_eu_apps import make_super
+          folder=Path(os.environ["WORK"])/"target"
+          image=make_super(folder/"rom176.zip",folder)
+          assert image.is_file() and image.stat().st_size > 1000000000
+          print("[TARGET SUPER]",image,image.stat().st_size)
+          PY
+          df -h /
+
+      - name: Compare partitions by file content and export only modified IMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          opts=()
+          if [ "$INCLUDE_PRODUCT" = "true" ]; then
+            opts+=(--include-product)
+          fi
+          python3 bin/audit/compare_build_partition_images.py \
+            --base-super "$WORK/base/super.raw.img" \
+            --new-super "$WORK/target/super.raw.img" \
+            --work "$WORK/scratch" --output "$WORK/output" "${opts[@]}"
+          cat "$WORK/output/comparison.md"
+          ls -lh "$WORK/output"
+          df -h /
+
+      - name: Upload only changed IMG and comparison report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eu-170-to-176-changed-img
+          path: ${{ env.WORK }}/output/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 4
+
+      - name: Failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          df -h /
+          test ! -f "$WORK/output/comparison.md" || cat "$WORK/output/comparison.md"
+          echo "No image is validated until the comparison job succeeds."
