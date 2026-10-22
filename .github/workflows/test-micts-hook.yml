@@ -49,16 +49,18 @@ jobs:
           python3 bin/package/MICTS/patch_tile_test.py --source "$RUNNER_TEMP/micts-test-src"
           cd "$RUNNER_TEMP/micts-test-src"
           chmod +x gradlew
-          ./gradlew :app:assembleMiCTSDebug --no-daemon --stacktrace
+          ./gradlew :app:assembleMiCTSDebug :app:assembleVISTriggerDebug --no-daemon --stacktrace
           find app/build/outputs/apk -name '*.apk' -printf '%p %s bytes\\n'
           mkdir -p "$GITHUB_WORKSPACE/micts-apk"
           find app/build/outputs/apk -name '*MiCTS*debug*.apk' -type f -exec cp {} "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_TEST.apk" \;
           test -s "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_TEST.apk"
+          find app/build/outputs/apk/VISTrigger/debug -name '*.apk' -type f -exec cp {} "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_Companion_TEST.apk" \;
+          test -s "$GITHUB_WORKSPACE/micts-apk/MiCTS_2.6_TileFix_Companion_TEST.apk"
 
       - name: Upload unsigned-upstream-identity signed debug MiCTS test APK
         uses: actions/upload-artifact@v4
         with:
           name: MiCTS-2.6-TileFix-TEST-debug-signed
-          path: micts-apk/MiCTS_2.6_TileFix_TEST.apk
+          path: micts-apk/*.apk
           if-no-files-found: error
           retention-days: 7
