@@ -1,0 +1,62 @@
+name: TEMP - inspect Google Velvet and CTS APK metadata
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audit-velvet-apks-temp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          fetch-depth: 1
+      - name: Fetch only two binary Google APKs through Git LFS
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs install --local
+          git lfs pull --include="bin/modfile/Universal/gmsservices16/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk,bin/modfile/Universal/gmsservices16/product/priv-app/Velvet/Velvet.apk" --exclude="*"
+          test "$(stat -c %s bin/modfile/Universal/gmsservices16/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk)" -eq 304900809
+          test "$(stat -c %s bin/modfile/Universal/gmsservices16/product/priv-app/Velvet/Velvet.apk)" -eq 355972497
+      - name: Install APK inspection utilities
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aapt apksigner
+      - name: Inspect both APKs (metadata only, no APK modifications)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p velvet-analysis
+          for item in GoogleVelvet_CTS Velvet; do
+            apk="bin/modfile/Universal/gmsservices16/product/priv-app/$item/$item.apk"
+            out="velvet-analysis/$item.txt"
+            {
+              echo "APK=$apk"
+              echo "SIZE=$(stat -c %s "$apk")"
+              sha256sum "$apk"
+              echo "=== AAPT BADGING ==="
+              aapt dump badging "$apk" | head -n 100 || true
+              echo "=== PACKAGE AND FEATURES ==="
+              aapt dump permissions "$apk" | head -n 90 || true
+              echo "=== SIGNATURE INFO ==="
+              apksigner verify --print-certs "$apk" 2>&1 | head -n 100 || true
+              echo "=== CTS CONTEXTUAL SERVICES AND RECEIVERS (manifest) ==="
+              aapt dump xmltree "$apk" AndroidManifest.xml | grep -iE -C 3 'contextual|voiceinteraction|assistant|omnient|overlay|quicksearch|screen.?search|startcontextual' | head -n 220 || true
+            } >"$out" 2>&1
+          done
+          cat velvet-analysis/GoogleVelvet_CTS.txt velvet-analysis/Velvet.txt | head -n 220
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Google-Velvet-CTS-Metadata-Only
+          path: velvet-analysis/*.txt
+          if-no-files-found: error
+          retention-days: 7
