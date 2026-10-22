@@ -36,17 +36,36 @@ if (-not $Fastboot) {
 
 function Invoke-Fastboot {
     param([string[]] $Arguments, [switch] $AllowFailure, [switch] $Silent)
-    # On Windows PowerShell 5.1, fastboot's getvar writes normally to STDERR.
-    # Temporarily allowing stderr prevents a misleading NativeCommandError.
-    $previousPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = 'Continue'
-        $response = (& $Fastboot @Arguments 2>&1 | Out-String)
-        $exitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $previousPreference
+    # fastboot getvar prints its values to STDERR even on success.
+    # Windows PowerShell 5.1 may wrap that output as NativeCommandError.
+    # Redirect both process pipes without using PowerShell's native STDERR pipe.
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $Fastboot
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $escaped = foreach ($argument in $Arguments) {
+        if ($null -eq $argument -or $argument.Contains('"')) {
+            throw 'Invalid fastboot argument'
+        }
+        '"' + $argument + '"'
     }
-    if (-not $Silent -and $response.Trim()) { Write-Host $response.Trim() }
+    $start.Arguments = $escaped -join ' '
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $start
+    try {
+        if (-not $process.Start()) { throw 'Cannot start fastboot.exe' }
+        # Read both streams concurrently to avoid deadlocks for large output.
+        $outputTask = $process.StandardOutput.ReadToEndAsync()
+        $errorTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $exitCode = $process.ExitCode
+        $response = (($outputTask.Result, $errorTask.Result) -join [Environment]::NewLine).Trim()
+    } finally {
+        $process.Dispose()
+    }
+    if (-not $Silent -and $response) { Write-Host $response }
     if (-not $AllowFailure -and $exitCode -ne 0) {
         throw ('fastboot ' + ($Arguments -join ' ') + ' failed (exit ' + $exitCode + ')')
     }
