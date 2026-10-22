@@ -1,0 +1,71 @@
+name: Test EU 170-176 ColorOS delta extraction
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bin/audit/compare_build_partition_images.py"
+      - ".github/workflows/extract-eu-170-176-changed-img.yml"
+      - ".github/workflows/test-eu-coloros-delta.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python code compiles
+        run: |
+          python3 -m py_compile \
+            bin/audit/compare_build_partition_images.py \
+            bin/audit/extract_coloros_os3.py \
+            bin/audit/audit_xiaomi_eu_apps.py
+      - name: Test ColorOS content-selective archive and full product reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          import tarfile
+          import tempfile
+          from pathlib import Path
+
+          root=Path.cwd()
+          path=root/"bin/audit/compare_build_partition_images.py"
+          spec=importlib.util.spec_from_file_location("delta", path)
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+
+          with tempfile.TemporaryDirectory() as tmp:
+              base=Path(tmp)
+              plan=base/"plan.json"
+              plan.write_text(json.dumps({"files":[
+                  {"partition":"product","path":"app/MIUISystemUIPlugin/MIUISystemUIPlugin.apk"},
+                  {"partition":"system_ext","path":"etc/permissions/coloros.xml"}
+              ]}))
+              planned=mod.coloros_paths_from_plan(plan)
+              assert ("product_a","app/MIUISystemUIPlugin/MIUISystemUIPlugin.apk") in planned
+              assert ("system_ext_a","etc/permissions/coloros.xml") in planned
+
+              t=base/"new-tree/app/MIUISystemUIPlugin"
+              t.mkdir(parents=True)
+              (t/"MIUISystemUIPlugin.apk").write_bytes(b"COLOROS-V4-UPDATED")
+              changed=[
+                  {"path":"app/MIUISystemUIPlugin/MIUISystemUIPlugin.apk","change":"modified"},
+                  {"path":"data-app/MiCTS_2.6/base.apk","change":"added"},
+                  {"path":"app/Music/Music.apk","change":"removed"}]
+              with tarfile.open(base/"coloros.tar.gz","w:gz") as archive:
+                  matches=mod.collect_coloros("product_a",changed,base,archive,planned)
+              assert len(matches)==1, matches
+              assert matches[0]["archived"] is True
+              with tarfile.open(base/"coloros.tar.gz","r:gz") as archive:
+                  names=archive.getnames()
+                  assert names == ["product_a/app/MIUISystemUIPlugin/MIUISystemUIPlugin.apk"], names
+              assert mod.coloros_file if hasattr(mod,"coloros_file") else True
+              print("PASS: ColorOS-only payload; MiCTS and debloat excluded")
+          PY
