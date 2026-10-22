@@ -24,10 +24,13 @@ trap 'rm -rf "$decoded" "$work_dir/miui-services" "$output"' EXIT
 decompile_jar "$jar" >/dev/null
 python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/contentcatcher_eu_a16.py" \
     "$decoded" --report "$report"
+# Scoped FCM test: original Greeze allow/thaw path, Messenger only, screen-on.
+python3 "$work_dir/bin/package/NOTIFICATION_FIX/A16/greeze_eu_fcm_guard_a16.py" \
+    "$decoded" --report "$work_dir/build/reports/frameworkpatcher-a16/eu-greeze-fcm.json"
 recompile_jar "$jar" >/dev/null
 if [[ ! -s "$output" ]] || ! unzip -t "$output" >/dev/null 2>&1; then
     echo "[EU CONTENTCATCHER A16] rebuilt JAR invalid" >&2
     exit 1
 fi
 mv -f "$output" "$jar"
-log "[EU CONTENTCATCHER A16] Only ProcessPolicy ContentCatcher gate changed"
+log "[EU A16] ContentCatcher + Messenger-only screen-on Greeze FCM guard; other policies unchanged"
