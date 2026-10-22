@@ -8,12 +8,12 @@ The old HyperMOS --cn-notification-fix switch and its broad class/region
 rewrites have been removed from the Android 16 CorePatch engine.
 
 The existing NOTIFICATION_FIX dispatcher runs:
-1. A16/FrameworkPatcher.sh
-2. A16/PowerKeeper.sh
+1. A16/CN/FrameworkPatcher.sh
+2. A16/CN/PowerKeeper.sh
 
 FrameworkPatcher A16 port:
-- bin/package/NOTIFICATION_FIX/A16/FrameworkPatcher.sh
-- bin/package/NOTIFICATION_FIX/A16/frameworkpatcher_cn_a16.py
+- bin/package/NOTIFICATION_FIX/A16/CN/FrameworkPatcher.sh
+- bin/package/NOTIFICATION_FIX/A16/CN/frameworkpatcher_cn_a16.py
 
 Reference: https://github.com/FrameworksForge/FrameworkPatcher/blob/master/scripts/patcher_a16.sh
 
@@ -134,8 +134,8 @@ HAOTIAN idle/notificaton tests are still required to establish runtime parity.
 The PowerKeeper EU build no longer requires an uploaded ZKOS `classes.dex`.
 Its six originally compared methods and seven gate counts, the removed
 ZK Git blob ID, EU source/output SHA-256 and KillProcessController fingerprint
-are pinned in `bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
-`eu_zk_scoped_gates.py` now verifies this manifest, patches EU source only,
+are pinned in `bin/package/NOTIFICATION_FIX/A16/CN/zk_gate_reference_a16.json`.
+`A16/CN/eu_zk_scoped_gates.py` now verifies this manifest, patches EU source only,
 then checks exact output bytes with the audited SHA-256. The older donor
 remains recoverable from Git history, not from the current checkout.
 

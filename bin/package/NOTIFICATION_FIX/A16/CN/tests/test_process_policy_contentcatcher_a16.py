@@ -1,6 +1,6 @@
 """Regression checks: ProcessPolicy CN ContentCatcher and 3 RYU gates.
 
-Run: python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/tests -v
+Run: python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/CN/tests -v
 """
 import importlib.util
 from pathlib import Path

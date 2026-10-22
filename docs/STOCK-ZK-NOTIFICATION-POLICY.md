@@ -8,7 +8,7 @@
 > The ZKOS reference `A16/classes.dex` was deleted from the current tree;
 > the six audited method signatures, seven gate counts, source Git blob SHA,
 > EU input hash and scoped EU output hash are frozen in
-> `bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
+> `bin/package/NOTIFICATION_FIX/A16/CN/zk_gate_reference_a16.json`.
 > The binary is no longer read in normal builds (historical copies remain in Git history).
 
 # HAOTIAN mixed PowerKeeper policy: guarded UID cleanup + preserved GMS / thermal (Android 16)

@@ -20,7 +20,7 @@ at build time. The runtime DEX is unchanged by this packaging cleanup.
 
 Exactly seven build flag reads in six **previously audited against ZKOS**
 methods are adjusted in-place. The previous comparison results are frozen in
-`bin/package/NOTIFICATION_FIX/A16/zk_gate_reference_a16.json`.
+`bin/package/NOTIFICATION_FIX/A16/CN/zk_gate_reference_a16.json`.
 At build time the exact EU DEX, method inventory, counts, EU output checksum
 and original EU KillProcessController fingerprint are verified. The old
 4,074,428-byte ZKOS `classes.dex` is no longer required:
@@ -80,10 +80,7 @@ have been deleted from the current A16 directory: `zk_full_powerkeeper_a16.py`,
 `guard_gms_uid_kill_a16.py`, and `rebuild_powerkeeper_dex.py`.
 They remain available through historical Git commits for retrospective audits.
 
-The active A16 directory retains only the notification patch entrypoints,
-their Python helpers, the seven-gate audit JSON, and the EU binary delta plus
-the RYU compression dictionary needed to reconstruct the pinned EU DEX.
-No retired source code is imported into PowerKeeper's installed classes.dex.
+The active `A16/CN/` directory contains the CN FrameworkPatcher entrypoint and the CN-executed PowerKeeper wrapper, including its EU-derived DEX archive, helpers and seven-gate manifest. `A16/EU/` holds Xiaomi.eu-specific notification code and tests. No retired source code is imported into PowerKeeper's installed classes.dex.
 
 ### What the ROM ships
 
