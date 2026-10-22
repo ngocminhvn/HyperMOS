@@ -1,17 +1,19 @@
-# Android 16 notification patch folders
+# Android 16 notification and power policy — CN / Xiaomi.eu
 
-- `CN/`: used only for Android 16 China builds: `FrameworkPatcher.sh`, `PowerKeeper.sh`, and their source/data/test dependencies. The CN PowerKeeper script internally uses an EU-derived DEX archive, but **the patch executes only on CN ROMs**.
-- `EU/`: used only for Android 16 Xiaomi.eu builds: `ContentCatcher_EU.sh` and the ZK304 exact BroadcastQueue/Greeze gate-parity helper, with their tests.
+- `CN/`: existing China FrameworkPatcher and PowerKeeper workflow, unchanged.
+- `EU/`: `ContentCatcher_EU.sh` plus verified ZK304 notification initialization, and `PowerKeeper_ZK.sh` to merge compatible ZK304 power policy **methods** into the EU-supplied APK, preserving EU-only classes and method signatures.
+- `EU/ZK304/`: SHA256-pinned original ZK304 `miui-services.jar` and PowerKeeper DEX reference. Build always verifies donor checksums.
 
-The route is selected in `../notificationFIX.sh`.
+EU workflow:
 
-Run tests separately:
+1. Preserve the original EU ContentCatcher behavior as previously requested.
+2. Verify native `IS_INTERNATIONAL_BUILD` references in 10 broadcast/Doze/process/notification methods, without injecting a fictitious `IS_ZK_BUILD` class or hardcoding region values.
+3. Port the verified ZK304 `NotificationManagerServiceImpl.<clinit>` difference: remove the extra EU cached build-flag assignment, while comparing the result with the real ZK304 donor.
+4. Use the ZK PowerKeeper donor to replace only ABI-compatible original EU methods in the selected `GmsObserver`, `DeviceIdleController`, `ActiveStateController` and `KillProcessController` controllers; report every method ported, skipped, or missing. Recompile/verify the resulting EU DEX before APK replacement.
+5. Retain Android's original freezer, Greeze, Doze, thermal limits and EU PowerKeeper package resources. Do not replace entire ZK JAR or blindly remove EU-only APIs.
 
-```bash
-python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/CN/tests -v
-python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/EU/tests -v
-```
+**This is a guarded policy port, not byte-identical full ZKOS.** Methods requiring missing ZK-private APIs are excluded; their names and reasons are written to `build/reports/zk304-powerkeeper-eu/methods.json`. The previous HyperMOS-specific FCM override was disabled in the ZK-parity build because it does not exist in the ZK donor.
 
-**Important:** ZK304 and stock EU309 have identical decision logic in the 4 BroadcastQueue methods and the Greeze PolicyManager region gate. We explicitly preserve these original dynamic gates; the previous constant-true/false override is removed. This parity check is not a fix for all `Greezer Denial` events. `GreezeManagerService.isRestrictReceiver` and `isAllowBroadcast` remain unchanged. Verify runtime notification delivery and battery independently.
+**Risk:** Replacing `classes.dex` invalidates the original Xiaomi APK's cryptographic signature. The current firmware relies on its separate signature policy. Build-time smali assembly does not prove Android service boot or runtime notification delivery. Imported ZK background-activity policies can change standby battery or freezing behavior. Before normal use, verify PowerKeeper starts, `Greezer Denial` counts, notification latency and idle drain.
 
-The EU FCM delivery guard (`EU/eu_zk_fcm_delivery_a16.py`) is a **new scoped EU workaround**, not part of original ZK bytecode. It returns allow only for Google Play services `com.google.android.c2dm.intent.RECEIVE` to **any receiving app**; the original Greeze `isRestrictReceiver`/`thawUidAsync` chain handles the wake. This may cause additional app wakeups and idle drain. Build and real-device A/B measurement are required.
+Test: `python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/EU/tests -v`; a GitHub Actions workflow also merges real DEX inputs and recompiles them.
