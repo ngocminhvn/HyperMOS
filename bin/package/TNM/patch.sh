@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Always-on Android 16 TNM App Privacy patch. Gate unsupported layouts before editing framework.jar.
+# Opt-in Android 16 TNM App Privacy patch. Fail/skip before touching framework.jar.
 set -euo pipefail
 
 work_dir="$(pwd)"
