@@ -1,0 +1,91 @@
+name: Audit useful ZK304 policy differences
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bin/audit/zk304_candidate_audit.py'
+      - '.github/workflows/audit-zk304-candidates.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare original ZK304, EU309 and Global303 donor JAR/APK DEX
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root=/tmp/zk304-audit
+          mkdir -p "$root"
+          for side in zk eu global; do
+            mkdir -p "$root/$side/jar" "$root/$side/power"
+          done
+          archive=bin/package/NOTIFICATION_FIX/A16/EU/backupzk.zip
+          test -s "$archive"
+          echo "[ZK BACKUP] checking archive"
+          unzip -t "$archive" >/dev/null
+          prefix=bin/package/NOTIFICATION_FIX/A16/EU/ZK304
+          unzip -p "$archive" "$prefix/zk304-miui-services.jar.zst" | zstd -d -q -c > "$root/zk/jar.jar"
+          unzip -p "$archive" "$prefix/zk304-powerkeeper.dex.zst" | zstd -d -q -c > "$root/zk/power.dex"
+          echo "[ZK BACKUP] extracted ZK304 framework donor"
+          gh run download 39452530513 --repo "$GITHUB_REPOSITORY" --name xiaomieu-original-miui-services-39452530513 --dir "$root/eu"
+          mv "$root/eu/miui-services.jar" "$root/eu/jar.jar"
+          zstd -d -q -c bin/package/NOTIFICATION_FIX/A16/CN/eu-powerkeeper.dex.zst > "$root/eu/power.dex"
+          gh run download 39936737623 --repo "$GITHUB_REPOSITORY" --name HyperMOS-dump-base-2 --dir "$root/global"
+          unzip -p "$root/global/HyperMOS-dump-base-2.zip" miui-services.jar > "$root/global/jar.jar"
+          zstd -d -q -c bin/package/NOTIFICATION_FIX/A16/EU/global-powerkeeper.dex.zst > "$root/global/power.dex"
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          import zipfile
+          archive='bin/package/NOTIFICATION_FIX/A16/EU/backupzk.zip'
+          pre='bin/package/NOTIFICATION_FIX/A16/EU/ZK304/'
+          with zipfile.ZipFile(archive) as f: obj=json.loads(f.read(pre+'manifest.json'))
+          for key,p in [('miui-services.jar','/tmp/zk304-audit/zk/jar.jar'),
+                        ('classes.dex','/tmp/zk304-audit/zk/power.dex')]:
+              got=hashlib.sha256(Path(p).read_bytes()).hexdigest()
+              assert got==obj['files'][key], f'{key} checksum mismatch'
+          print('[ZK BACKUP] original ZK304 donor SHA256 verified')
+          PY
+          for side in zk eu global; do
+            mkdir -p "$root/$side/jar" "$root/$side/power"
+            unzip -q "$root/$side/jar.jar" 'classes*.dex' -d "$root/$side"
+            for dex in "$root/$side"/classes*.dex; do
+              stem="$(basename "$dex" .dex)"
+              group=smali
+              if [[ "$stem" != classes ]]; then group="smali_$stem"; fi
+              java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex" -o "$root/$side/jar/$group" > /dev/null
+            done
+            java -jar bin/apktool/baksmaliv2.jar d --api 36 "$root/$side/power.dex" -o "$root/$side/power/smali" > /dev/null
+          done
+      - name: Compare ZK-only policies against EU and Global
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/audit/zk304_candidate_audit.py
+          mkdir -p /tmp/zk304-audit/report
+          for area in jar power; do
+            python3 bin/audit/zk304_candidate_audit.py \
+              --zk "/tmp/zk304-audit/zk/$area" \
+              --eu "/tmp/zk304-audit/eu/$area" \
+              --global "/tmp/zk304-audit/global/$area" \
+              --report "/tmp/zk304-audit/report/$area.json" \
+              --details "/tmp/zk304-audit/report/$area.md"
+          done
+          echo "[ZK304] Audit complete"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: zk304-vs-eu309-global303-policy-audit
+          path: /tmp/zk304-audit/report/
+          retention-days: 7
+          if-no-files-found: warn
