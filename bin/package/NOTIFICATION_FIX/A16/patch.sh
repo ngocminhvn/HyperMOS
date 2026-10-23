@@ -91,6 +91,8 @@ if [[ "$rom_source" == "china" ]]; then
   bash "$base/CN/PowerKeeper.sh"
 else
   log "[EU A16] ContentCatcher + pinned A16 donor NotificationManager, Greeze freeze/thaw and Doze method ports"
-  # The EU 61-method A16 donor PowerKeeper port is still intentionally disabled.
-  info "EU A16 donor PowerKeeper APK port: temporarily disabled (keeping #181 behavior)"
+  # Merge compatible ZK304 policy methods into the original Xiaomi.eu APK.
+  # PowerKeeper_donor.sh replaces classes.dex only, preserves every original
+  # non-DEX/META-INF member byte-for-byte, and never signs the resulting APK.
+  bash "$base/EU/PowerKeeper_donor.sh"
 fi

@@ -7,6 +7,9 @@ import zipfile
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent.parent / "eu_powerkeeper_keep_metadata.py"
+EU_DIR = SOURCE.parent
+A16_DRIVER = EU_DIR.parent / "patch.sh"
+POWERKEEPER_DRIVER = EU_DIR / "PowerKeeper_donor.sh"
 spec = importlib.util.spec_from_file_location("eu_powerkeeper_keep_metadata", SOURCE)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -99,6 +102,14 @@ class PowerKeeperMetadataTests(unittest.TestCase):
                 z.writestr("META-INF/CERT.SF", b"duplicate")
         with self.assertRaisesRegex(ValueError, "duplicate ZIP members"):
             module.pack(self.base, self.dex, self.final)
+
+    def test_a16_eu_enables_unsigned_metadata_preserving_port(self):
+        driver = A16_DRIVER.read_text(encoding="utf-8")
+        powerkeeper = POWERKEEPER_DRIVER.read_text(encoding="utf-8")
+        self.assertIn('bash "$base/EU/PowerKeeper_donor.sh"', driver)
+        self.assertIn("eu_powerkeeper_keep_metadata.py", powerkeeper)
+        self.assertNotIn("apksigner.jar", powerkeeper)
+        self.assertNotIn("jarsigner", powerkeeper)
 
 if __name__ == "__main__":
     unittest.main()
