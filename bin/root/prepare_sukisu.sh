@@ -12,8 +12,12 @@ commit="fd2a85151c8312fd9b4237db9ba827dcea692228"
 ddk_image="ghcr.io/ylarod/ddk-min:android15-6.6-20260828"
 
 die() { echo "::error title=SukiSU preparation::$*" >&2; exit 1; }
-[ "$(cat "$workdir/bin/ddevice/device_f.txt" 2>/dev/null)" = "haotian" ] ||
-  die "SukiSU root is limited to HAOTIAN"
+device="$(cat "$workdir/bin/ddevice/device_f.txt" 2>/dev/null || true)"
+device="${device,,}"
+case "$device" in
+  haotian|xuanyuan) ;;
+  *) die "SukiSU root is supported only for HAOTIAN/XUANYUAN (got: ${device:-unknown})" ;;
+esac
 test -s "$images/boot.img" && test -s "$images/init_boot.img" ||
   die "Paired stock boot/init_boot images are missing"
 kmi="$(python3 "$workdir/bin/root/detect_kernel_kmi.py" \
@@ -23,7 +27,7 @@ kmi="$(python3 "$workdir/bin/root/detect_kernel_kmi.py" \
 # The DDK container below is the officially documented android15-6.6 toolchain.
 # Never substitute an unrelated LKM when stock KMI does not match.
 [ "$kmi" = "android15-6.6" ] ||
-  die "Detected KMI=$kmi is unsupported by the pinned HAOTIAN SukiSU builder"
+  die "Detected KMI=$kmi is unsupported by the pinned HAOTIAN/XUANYUAN SukiSU builder"
 command -v docker >/dev/null || die "Docker is required for upstream DDK build"
 command -v cargo >/dev/null || die "Cargo/Rust is required for upstream SukiSU build"
 command -v rustup >/dev/null || die "rustup is required for upstream SukiSU build"
@@ -75,6 +79,7 @@ install -m 0755 "$source_dir/target/x86_64-unknown-linux-gnu/release/ksud" "$out
 for part in kernelsu.ko ksuinit ksud; do
   test -s "$out/$part" || die "Missing upstream-built $part"
 done
+printf '%s\n' "$device" > "$out/device.txt"
 printf '%s\n' "$kmi" > "$out/kmi.txt"
 printf '%s\n' "$head" > "$out/source-commit.txt"
 echo "[ROOT] SukiSU Ultra $tag LKM, ksuinit and host ksud ready"
