@@ -49,6 +49,30 @@ jobs:
           python3 -m py_compile bin/audit/global_a16_jar_audit.py
           python3 bin/audit/global_a16_jar_audit.py --global-root /tmp/jar-audit/global/smali --eu-root /tmp/jar-audit/eu/smali --report /tmp/jar-audit/report.json --diff-text /tmp/jar-audit/method-diffs.md
           sed -n '/## Focused changes/,$p' /tmp/jar-audit/method-diffs.md | head -n 220
+      - name: Inspect PerfShielder dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/jar-audit/perf
+          for side in global eu; do
+            for cls in PerfShielderService WMServiceConnection; do
+              source="$(find "/tmp/jar-audit/$side/smali" -path "*/com/miui/server/$cls.smali" -print -quit)"
+              if [[ -n "$source" ]]; then
+                cp "$source" "/tmp/jar-audit/perf/$side-$cls.smali"
+              fi
+            done
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          folder=Path('/tmp/jar-audit/perf')
+          for file in sorted(folder.glob('*.smali')):
+              src=file.read_text()
+              members=re.findall(r'(?m)^\\.(?:method|field) [^\\n]+',src)
+              print('[PERF AUDIT]',file.name,'size',len(src),'members',len(members))
+              references=sorted(set(re.findall(r'L(?:com/miui|com/xiaomi|android/miui)/[A-Za-z0-9_/$]+;',src)))
+              print(' refs:',', '.join(references[:100]))
+          PY
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -56,5 +80,6 @@ jobs:
           path: |
             /tmp/jar-audit/report.json
             /tmp/jar-audit/method-diffs.md
+            /tmp/jar-audit/perf/
           retention-days: 7
           if-no-files-found: warn
