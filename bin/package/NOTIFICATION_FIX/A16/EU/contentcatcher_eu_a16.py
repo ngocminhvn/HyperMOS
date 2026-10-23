@@ -14,8 +14,12 @@ READ = re.compile(
     r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z([ \t]*(?:#.*)?)$"
 )
 ALREADY = re.compile(
-    r"(?m)^[ \t]*const/4[ \t]+v0,[ \t]+0x0[ \t]*(?:#.*)?\n"
-    r"[ \t]*if-(?:eqz|nez)[ \t]+v0,[ \t]+:[^\n]+$"
+    r"(?m)^[ \t]*const/4[ \t]+([vp]\d+),[ \t]+0x0[ \t]*(?:#.*)?$\n"
+    # Baksmali inserts a blank line between instructions after CorePatch
+    # reassembles this JAR. Accept only blank/comment lines, then require the
+    # conditional to consume the exact same register.
+    r"(?:^[ \t]*(?:#.*)?$\n)*"
+    r"^[ \t]*if-(?:eqz|nez)[ \t]+\1,[ \t]+:[^\n]+$"
 )
 
 

@@ -32,6 +32,19 @@ class TestEuContentCatcher(unittest.TestCase):
         self.assertIn("sget-boolean v2, Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z", patched)
         self.assertEqual(mod.patch_source(patched), (patched, "already_false"))
 
+    def test_corepatch_baksmali_roundtrip_is_idempotent(self):
+        # A rebuilt/redecoded JAR has a blank line between smali instructions.
+        # This is the exact shape that failed in build run 39903876723.
+        corepatch_roundtrip = SOURCE.replace(
+            "    sget-boolean v0, Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z\n"
+            "    if-eqz v0, :continue",
+            "    const/4 v0, 0x0\n\n    if-eqz v0, :continue",
+        )
+        self.assertEqual(
+            mod.patch_source(corepatch_roundtrip),
+            (corepatch_roundtrip, "already_false"),
+        )
+
     def test_fail_closed(self):
         samples = [
             SOURCE.replace("updateContentCatcherWhitelist", "renamed"),
