@@ -11,6 +11,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -19,6 +20,14 @@ PINNED_ID = 12494258310
 EXPECTED_APK = "56f0a7e02a9966e47441dee60d78f4d99e93700b1e912f45617d3d0d29c52eda"
 EXPECTED_DEX = "21c20b3ddbaab981276bab60ab6c2a0f62587ea6d87b84bc54aa33def6df25bf"
 API = "https://api.github.com/repos/" + REPO
+
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward the Actions API Bearer token to Azure artifact storage."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected and urllib.parse.urlsplit(req.full_url).hostname != urllib.parse.urlsplit(newurl).hostname:
+            redirected.remove_header("Authorization")
+        return redirected
 
 def request(url):
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -30,7 +39,8 @@ def request(url):
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "HyperMOS-Global303-A16",
     })
-    with urllib.request.urlopen(req, timeout=150) as response:
+    opener = urllib.request.build_opener(SafeRedirect)
+    with opener.open(req, timeout=150) as response:
         return response.read()
 
 def latest_ids():
@@ -62,9 +72,12 @@ def get_apk(data):
 
 def run(output):
     ids = [PINNED_ID]
-    # The pin job normally commits the DEX to main; only a fresh build
-    # without the pinned blob needs the short-lived Actions artifact.
-    ids.extend(i for i in latest_ids() if i != PINNED_ID)
+    # The first pinned extraction remains preferred; discover later runs only
+    # when it expires, so an unavailable discovery API cannot block a valid pin.
+    try:
+        ids.extend(i for i in latest_ids() if i != PINNED_ID)
+    except (urllib.error.URLError, ValueError, KeyError):
+        pass
     errors = []
     for artifact_id in ids:
         try:

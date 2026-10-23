@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/pin-global-a16.yml
+      - bin/package/GLOBAL_A16/fetch_donor.py
   workflow_dispatch:
 
 permissions:
