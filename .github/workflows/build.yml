@@ -142,6 +142,7 @@ jobs:
         env:
           INPUT_URL: ${{ inputs.input_url }}
           ROOT_MODE: ${{ inputs.root_mode }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail

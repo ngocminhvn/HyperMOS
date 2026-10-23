@@ -926,6 +926,13 @@ apply_miui_services_gboard() {
 # Apply ContentExtension patches
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
+  # Original EU policy matches Global303 in the audited target methods.
+  # Its ContentCatcher region gate must not be overridden by the old
+  # HyperMOS/ZK profile when testing the Global FULL A16 build.
+  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+    echo "[GLOBAL A16] preserve original EU ContentCatcher gate"
+    return 0
+  fi
   # When the full CN A16 ROM pipeline runs, the later FrameworkPatcher step
   # handles all 4 ProcessPolicy reads: ContentCatcher CN=false and 3 RYU=true.
   # Do not consume one read here (which led to 3/4 and failed build #160).

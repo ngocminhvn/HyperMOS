@@ -1,3 +1,9 @@
+> **Current Xiaomi.eu A16 main route:** Global303 policy. The historical
+> ZK304 donor port described below is disabled for EU builds; see
+> [Global A16 policy](../../../GLOBAL_A16/PowerKeeper.sh) and
+> [policy documentation](../../../../docs/GLOBAL-A16-FULL.md).
+> China A16 remains on its existing separate branch.
+
 # Android 16 notification and power policy — CN / Xiaomi.eu
 
 `A16/patch.sh` is the shared A16 entrypoint and JAR lifecycle.

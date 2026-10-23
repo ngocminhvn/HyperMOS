@@ -15,6 +15,16 @@ case "$rom_source" in
   *) error "A16 Notification: unsupported ROM source $rom_source"; exit 1 ;;
 esac
 
+# Global FULL EU profile: Global303 and original Xiaomi.eu share the audited
+# BroadcastQueue/Greeze/Doze policy method bodies. Leave the stock EU JAR
+# alone and replace PowerKeeper DEX with exact Global303 after ABI checks.
+# Historical ZK304/RYU routines below remain for non-EU builds only.
+if [[ "$rom_source" == "xiaomi_eu" ]]; then
+  log "[GLOBAL A16] bypassing all EU ZK304 notification/Greeze/Doze ports"
+  bash "$work_dir/bin/package/GLOBAL_A16/PowerKeeper.sh" || exit 1
+  exit 0
+fi
+
 source "$work_dir/bin/package/COREPATCH/helper.sh"
 WORK_DIR="$work_dir"
 TOOLS_DIR="$work_dir/bin/apktool"

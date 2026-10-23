@@ -245,11 +245,11 @@ if [[ "$rom_source" == "xiaomi_eu" ]]; then
     bash "$work_dir/bin/modfile/EU/verify.sh" || exit 1
 fi
 
-# Preserve Xiaomi vendor/ODM thermal and performance configuration.
-# EU16 PowerKeeper comes from the ZK304 method-level merge in NOTIFICATION_FIX.
-# Its original EU APK META-INF/non-DEX content is retained; no APK re-signing.
-if [[ "$rom_source" == "xiaomi_eu" ]]; then
-    info "EU PowerKeeper: ZK304 method port + original APK metadata preserved; not re-signed"
+# Preserve vendor/ODM thermal and performance policy.
+# Xiaomi.eu A16 carries the byte-exact Global303 PowerKeeper DEX, with all
+# original EU APK non-DEX members and META-INF preserved (not re-signed).
+if [[ "$rom_source" == "xiaomi_eu" && "$android_version" == "16" ]]; then
+    info "EU A16: Global303 PowerKeeper DEX + original EU resources/META-INF, no signing"
 fi
 
 find "$work_dir/build/baserom/images/" -exec touch -t 200901010000.00 {} + 2> /dev/null || true
