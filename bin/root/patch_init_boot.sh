@@ -1,99 +1,109 @@
 #!/usr/bin/env bash
-# HyperMOS HAOTIAN/XUANYUAN SukiSU Ultra v4.2.1 LKM integration.
-# Only init_boot is patched. Stock boot and init_boot backups are retained.
+# Offline SukiSU Ultra LKM integration for a detected, compatible GKI ROM.
+# Stock boot images are backed up; never flash a device in CI.
 set -euo pipefail
 
 workdir="$(pwd)"
 images="$workdir/build/baserom/images"
-input="$images/init_boot.img"
-scratch="${RUNNER_TEMP:-/tmp}/hypermos-sukisu-v4.2.1"
-tag="v4.2.1"
-manager_name="SukiSU_v4.2.1_40994-release.apk"
-manager_url="https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/download/$tag/$manager_name"
-manager_sha256="c7f69280cf468e8415c585ff31f963d0147386831217a1e89b822afddc5f40ed"
-
+scratch="${RUNNER_TEMP:-/tmp}/hypermos-sukisu"
+magiskboot="$workdir/bin/Linux/x86_64/magiskboot"
 die() { echo "::error title=SukiSU root::$*" >&2; exit 1; }
-[ "${ROOT_MODE:-root}" = "root" ] || die "Only root mode may patch init_boot"
-device="$(cat "$workdir/bin/ddevice/device_f.txt" 2>/dev/null || true)"
+
+[ "${ROOT_MODE:-root}" = "root" ] || die "Only root mode may patch boot images"
+device="$(tr -d '\r\n' < "$workdir/bin/ddevice/device_f.txt" 2>/dev/null || true)"
 device="${device,,}"
-case "$device" in
-  haotian|xuanyuan) ;;
-  *) die "Root patch restricted to HAOTIAN/XUANYUAN (got: ${device:-unknown})" ;;
-esac
-test -s "$input" && test -s "$images/boot.img" ||
-  die "Paired stock init_boot.img / boot.img missing"
-[ "$(head -c 8 "$input")" = "ANDROID!" ] || die "Stock init_boot has invalid header"
+[[ "$device" =~ ^[a-z0-9_-]+$ ]] || die "Missing or invalid device codename"
+[ "$(cat "$scratch/device.txt" 2>/dev/null)" = "$device" ] ||
+  die "Prepared SukiSU source is for a different device"
+tag="$(cat "$scratch/tag.txt" 2>/dev/null)" || die "Missing official release tag"
+[[ "$tag" =~ ^v[0-9][0-9A-Za-z._-]*$ ]] || die "Invalid prepared SukiSU release"
+[[ "$(cat "$scratch/source-commit.txt" 2>/dev/null)" =~ ^[a-f0-9]{40}$ ]] ||
+  die "Missing checked upstream source commit"
+test -s "$images/boot.img" || die "Stock boot.img missing"
+test -x "$magiskboot" || die "magiskboot binary missing"
 
 kmi="$(python3 "$workdir/bin/root/detect_kernel_kmi.py" \
   --boot-image "$images/boot.img" \
-  --magiskboot "$workdir/bin/Linux/x86_64/magiskboot" \
+  --magiskboot "$magiskboot" \
   --images-dir "$images")" || die "Stock KMI detection failed"
-[ "$kmi" = "android15-6.6" ] || die "Unexpected ${device^^} KMI=$kmi"
-[ "$(cat "$scratch/device.txt" 2>/dev/null)" = "$device" ] ||
-  die "Prepared SukiSU target device does not match $device"
 [ "$(cat "$scratch/kmi.txt" 2>/dev/null)" = "$kmi" ] ||
-  die "Prepared LKM KMI does not match stock"
-[ "$(cat "$scratch/source-commit.txt" 2>/dev/null)" = "fd2a85151c8312fd9b4237db9ba827dcea692228" ] ||
-  die "SukiSU source commit has not been verified"
-for part in kernelsu.ko ksuinit ksud; do
-  test -s "$scratch/$part" || die "Missing official source-built $part"
+  die "Prepared LKM KMI does not match stock ($kmi)"
+for item in kernelsu.ko ksuinit ksud RootManager.apk release-metadata.json; do
+  test -s "$scratch/$item" || die "Missing official SukiSU asset: $item"
 done
+python3 - "$scratch/release-metadata.json" "$tag" "$kmi" <<'PYVERIFY' ||
+  die "Prepared release metadata mismatch"
+import json, sys
+info = json.load(open(sys.argv[1], encoding="utf-8"))
+if info.get("tag") != sys.argv[2] or info.get("kmi") != sys.argv[3]:
+    raise SystemExit("release/KMI mismatch")
+PYVERIFY
 
-# Back up exactly the image provided by the Xiaomi firmware.
-cp -f "$input" "$workdir/build/baserom/root-stock-init_boot.img"
-sha256sum "$workdir/build/baserom/root-stock-init_boot.img"
+# Choose an actual boot partition with a usable ramdisk. Prefer init_boot
+# on newer Android, then boot for older devices. Do not invent partitions.
+probe_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/hypermos-root-probe.XXXXXX")"
+trap 'rm -rf "$probe_dir"' EXIT
+partition=""
+for candidate in init_boot boot; do
+  candidate_file="$images/$candidate.img"
+  [ -s "$candidate_file" ] || continue
+  [ "$(head -c 8 "$candidate_file")" = "ANDROID!" ] || continue
+  mkdir -p "$probe_dir/$candidate"
+  if (cd "$probe_dir/$candidate" && "$magiskboot" unpack "$candidate_file" >/dev/null 2>&1) &&
+     [ -s "$probe_dir/$candidate/ramdisk.cpio" ]; then
+    partition="$candidate"
+    break
+  fi
+done
+[ -n "$partition" ] ||
+  die "No supported boot/init_boot image with ramdisk; device needs an explicit kernel integration"
+input="$images/$partition.img"
+stock_backup="$workdir/build/baserom/root-stock-$partition.img"
+cp -f "$input" "$stock_backup"
+cmp -s "$input" "$stock_backup" || die "Could not preserve exact stock $partition"
+printf '%s\n' "$partition" > "$workdir/build/baserom/root-partition.txt"
+sha256sum "$stock_backup"
 
-manager="$scratch/$manager_name"
-if [ ! -s "$manager" ]; then
-  curl --fail --silent --show-error --location --retry 5 --retry-delay 3 \
-    --connect-timeout 20 --max-time 180 "$manager_url" -o "$manager" ||
-    die "Cannot download the official $tag manager"
-fi
-printf '%s  %s\n' "$manager_sha256" "$manager" | sha256sum -c - ||
-  die "Official manager APK SHA-256 mismatch"
-unzip -tq "$manager" || die "Official SukiSU manager is not a valid APK"
-
-patched="$scratch/patched_init_boot.img"
+patched="$scratch/patched_$partition.img"
 rm -f "$patched"
-echo "[ROOT] provider=SukiSU-Ultra tag=$tag KMI=$kmi target=init_boot.img"
+echo "[ROOT] device=$device KMI=$kmi SukiSU=$tag target=$partition"
 "$scratch/ksud" boot-patch \
   --boot "$input" \
   --module "$scratch/kernelsu.ko" \
   --init "$scratch/ksuinit" \
   --kmi "$kmi" \
-  --out "$scratch" --out-name patched_init_boot.img ||
-  die "SukiSU v4.2.1 ksud boot-patch failed"
-test -s "$patched" || die "No SukiSU patched image created"
-[ "$(head -c 8 "$patched")" = "ANDROID!" ] || die "Patched init_boot has invalid header"
-cmp -s "$input" "$patched" && die "SukiSU returned an unchanged init_boot"
-
-magiskboot="$workdir/bin/Linux/x86_64/magiskboot"
-test -x "$magiskboot" || die "magiskboot validation binary unavailable"
+  --out "$scratch" --out-name "patched_$partition.img" ||
+  die "SukiSU $tag boot-patch failed on $partition"
+test -s "$patched" || die "No SukiSU-patched image created"
+[ "$(head -c 8 "$patched")" = "ANDROID!" ] ||
+  die "Patched $partition has an invalid Android boot header"
+cmp -s "$input" "$patched" && die "SukiSU returned an unchanged image"
+rm -rf "$scratch/validate"
 mkdir -p "$scratch/validate"
 (cd "$scratch/validate" && "$magiskboot" unpack "$patched" >/dev/null) ||
-  die "Patched init_boot cannot be unpacked"
+  die "Patched $partition cannot be unpacked"
 test -s "$scratch/validate/ramdisk.cpio" ||
-  die "Patched init_boot contains no ramdisk"
+  die "Patched $partition contains no ramdisk"
 "$magiskboot" cpio "$scratch/validate/ramdisk.cpio" "exists kernelsu.ko" >/dev/null ||
-  die "Patched init_boot ramdisk missing SukiSU LKM"
+  die "Patched $partition ramdisk has no SukiSU LKM"
 "$magiskboot" cpio "$scratch/validate/ramdisk.cpio" "exists init" >/dev/null ||
-  die "Patched init_boot ramdisk missing SukiSU init"
+  die "Patched $partition ramdisk has no init"
 mv -f "$patched" "$input"
 
-# The manager APK is packaged in the flashable ZIP for optional manual
-# installation with adb install (normal /data/app user app).
-# Never stage an init trigger or perform any boot-time package checks.
+# Manager is provided for manual installation in /data/app, not as a system app.
 mkdir -p "$workdir/build/baserom/root-package"
-install -m 0644 "$manager" "$workdir/build/baserom/root-package/RootManager.apk"
+install -m 0644 "$scratch/RootManager.apk" \
+  "$workdir/build/baserom/root-package/RootManager.apk"
 {
   printf 'HyperMOS %s ROOT_PROVIDER=SukiSU-Ultra\n' "${device^^}"
   printf 'ROOT_KMI=%s\nROOT_VERSION=%s\n' "$kmi" "$tag"
+  printf 'PATCHED_PARTITION=%s\n' "$partition"
   printf 'MANAGER_PACKAGE=com.sukisu.ultra\n'
   printf 'MANAGER_INSTALL=manual-user-app-only\n'
-  printf 'MANAGER_RELEASE=%s\n' "$manager_name"
   printf 'ROOT_SOURCE_COMMIT=%s\n' "$(cat "$scratch/source-commit.txt")"
-  printf 'Patched partition: init_boot (LKM); stock boot left unchanged\n'
-  sha256sum "$workdir/build/baserom/root-stock-init_boot.img" "$input"
+  printf 'ROOT_RELEASE=%s\n' "https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/tag/$tag"
+  printf 'Stock backup and patched %s SHA-256:\n' "$partition"
+  sha256sum "$stock_backup" "$input"
   sha256sum "$workdir/build/baserom/root-package/RootManager.apk"
 } > "$workdir/build/baserom/root-package/ROOT-INFO.txt"
-echo "[ROOT] SukiSU v4.2.1 patched init_boot; signed manager APK bundled for manual installation"
+echo "[ROOT] SukiSU $tag patched $partition; stock backup and manager packaged separately"
