@@ -96,42 +96,37 @@ elif [[ "${baserom_type}" == "eu_super" ]]; then
     echo "[REPACK] - Xiaomi.eu fastboot images staged (super + ${#eu_firmware[@]} firmware images)"
 fi
 
-# Bundle the SukiSU manager, root metadata and pristine init_boot together
-# in Root/ (not as loose top-level files or a separate RootBackup/).
+# Bundle the official SukiSU manager, metadata and exactly matching stock
+# boot/init_boot rollback image. Root mode requires a validated patched image.
 if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
     package_dir="$work_dir/out/${os_type}_${device_code}_${base_rom_code}"
     root_dir="$package_dir/Root"
-    test -s "$work_dir/build/baserom/root-stock-init_boot.img" || {
-        echo "[ERROR] SukiSU Ultra v4.2.1 stock init_boot backup missing"
-        exit 1
-    }
-    test -s "$work_dir/build/baserom/root-package/RootManager.apk" || {
-        echo "[ERROR] SukiSU Ultra v4.2.1 manager APK missing"
-        exit 1
-    }
-    test -s "$work_dir/build/baserom/root-package/ROOT-INFO.txt" || {
-        echo "[ERROR] SukiSU Ultra v4.2.1 metadata missing"
-        exit 1
-    }
-    test -s "$package_dir/images/init_boot.img" || {
-        echo "[ERROR] SukiSU Ultra v4.2.1 patched init_boot.img missing from ROM output"
-        exit 1
-    }
+    root_part="$(cat "$work_dir/build/baserom/root-partition.txt" 2>/dev/null || true)"
+    case "$root_part" in
+        boot|init_boot) ;;
+        *) echo "[ERROR] Unknown SukiSU root partition: $root_part" >&2; exit 1 ;;
+    esac
+    src_stock="$work_dir/build/baserom/root-stock-$root_part.img"
+    src_manager="$work_dir/build/baserom/root-package/RootManager.apk"
+    src_info="$work_dir/build/baserom/root-package/ROOT-INFO.txt"
+    for path in "$src_stock" "$src_manager" "$src_info" "$package_dir/images/$root_part.img"; do
+        test -s "$path" || { echo "[ERROR] Missing SukiSU payload: $path" >&2; exit 1; }
+    done
     mkdir -p "$root_dir"
-    cp -f "$work_dir/build/baserom/root-stock-init_boot.img" "$root_dir/init_boot.stock.img"
-    cp -f "$work_dir/build/baserom/root-package/RootManager.apk" "$root_dir/RootManager.apk"
-    cp -f "$work_dir/build/baserom/root-package/ROOT-INFO.txt" "$root_dir/ROOT-INFO.txt"
-    for root_file in init_boot.stock.img RootManager.apk ROOT-INFO.txt; do
+    cp -f "$src_stock" "$root_dir/$root_part.stock.img"
+    cp -f "$src_manager" "$root_dir/RootManager.apk"
+    cp -f "$src_info" "$root_dir/ROOT-INFO.txt"
+    for root_file in "$root_part.stock.img" RootManager.apk ROOT-INFO.txt; do
         test -s "$root_dir/$root_file" || {
-            echo "[ERROR] Missing packaged Root/$root_file"
+            echo "[ERROR] Missing packaged Root/$root_file" >&2
             exit 1
         }
     done
-    # Remove obsolete layout from any previously reused staging directory.
     rm -rf "$package_dir/RootBackup"
     rm -f "$package_dir/RootManager.apk" "$package_dir/ROOT-INFO.txt"
-    echo "[ROOT] SukiSU v4.2.1 assets packaged under Root/ (manager remains manual-install only)"
+    echo "[ROOT] Verified SukiSU assets and stock $root_part backup packaged in Root/"
 fi
+
 cp -rf "$work_dir/bin/script2flash/cust.img" "$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images/" 2>/dev/null || true
 # Legacy *.install is only a metadata file; FLASH.bat does not use it.
 # Do not include HAOTIAN.install (or other device .install files) in the ROM ZIP.
