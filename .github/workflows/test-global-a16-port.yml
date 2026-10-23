@@ -1,0 +1,41 @@
+name: Verify Global303 seven-method PowerKeeper port
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - bin/package/GLOBAL_A16/PowerKeeper.sh
+      - bin/package/GLOBAL_A16/port_global_powerkeeper.py
+      - .github/workflows/test-global-a16-port.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify method port in real DEX (no full ROM build)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/package/GLOBAL_A16/PowerKeeper.sh
+          python3 -m py_compile bin/package/GLOBAL_A16/port_global_powerkeeper.py
+          command -v zstd >/dev/null || sudo apt-get install -y -qq zstd
+          zstd -d -q -f bin/package/NOTIFICATION_FIX/A16/CN/eu-powerkeeper.dex.zst -o /tmp/eu.dex
+          zstd -d -q -f bin/package/GLOBAL_A16/global-powerkeeper.dex.zst -o /tmp/global.dex
+          test "$(sha256sum /tmp/eu.dex | cut -d' ' -f1)" = ad30c2d2aa6d474c1b975bce8fb0f8816fc4dafe19fc825ff23022a5016f73ae
+          test "$(sha256sum /tmp/global.dex | cut -d' ' -f1)" = 21c20b3ddbaab981276bab60ab6c2a0f62587ea6d87b84bc54aa33def6df25bf
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 /tmp/eu.dex -o /tmp/eu-smali >/dev/null
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 /tmp/global.dex -o /tmp/global-smali >/dev/null
+          cp -a /tmp/eu-smali /tmp/eu-original
+          python3 bin/package/GLOBAL_A16/port_global_powerkeeper.py --eu /tmp/eu-smali --global-donor /tmp/global-smali
+          java -jar bin/apktool/smaliv2.jar a --api 36 /tmp/eu-smali -o /tmp/merged.dex >/dev/null
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 /tmp/merged.dex -o /tmp/merged-smali >/dev/null
+          python3 bin/package/GLOBAL_A16/port_global_powerkeeper.py --eu /tmp/merged-smali --global-donor /tmp/global-smali --verify-original /tmp/eu-original

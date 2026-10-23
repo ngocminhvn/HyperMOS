@@ -1,3 +1,5 @@
+> **Active Xiaomi.eu A16 PowerKeeper:** Port only seven changed Global303 method bodies onto original EU DEX (not full Global DEX replacement). See `docs/GLOBAL-A16-FULL.md`.
+
 > **Current Xiaomi.eu A16 main route:** Global303 policy. The historical
 > ZK304 donor port described below is disabled for EU builds; see
 > [Global A16 policy](../../../GLOBAL_A16/PowerKeeper.sh) and
