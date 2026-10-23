@@ -6,6 +6,7 @@ Mirror performance is measured FROM THE GITHUB ACTIONS RUNNER, not the user's PC
 """
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import re
 import signal
@@ -23,6 +24,19 @@ MIRRORS = (
 )
 SAMPLE_BYTES = 1024 * 1024
 MIN_SAMPLE_BYTES = 128 * 1024
+
+# Xiaomi's official stock-ROM download domains (plus its documented Azure CDN).
+# Keep full path/filename unchanged when switching mirrors.
+XIAOMI_CDNS = (
+    "cdn-ota.azureedge.net",
+    "cdnorg.d.miui.com",
+    "bn.d.miui.com",
+    "ultimateota.d.miui.com",
+    "hugeota.d.miui.com",
+    "bigota.d.miui.com",
+)
+XIAOMI_MIN_FAST_BPS = 512 * 1024
+XIAOMI_ATTEMPT_TIMEOUT = 900  # Prevent a single slow ~8 GiB mirror using all job time.
 
 
 def normalize(url):
@@ -178,6 +192,61 @@ def probe(item):
         except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
             return {"mirror": name, "status": "unavailable", "reason": "probe failed"}
 
+def xiaomi_candidates(original_url):
+    """Probe alternate Xiaomi stock-ROM CDNs from the same Actions runner.
+
+    Range probing is advisory: CDN nodes rejecting HTTP 206 are unverified,
+    not necessarily dead, and are retained as bounded fallback downloads.
+    Only the host is changed, keeping ROM version and filename identical.
+    """
+    parts = urlsplit(original_url)
+    if parts.scheme != "https" or (parts.hostname or "").lower() not in XIAOMI_CDNS:
+        return [], []
+    paths = [urlunsplit(("https", host, parts.path, parts.query, "")) for host in XIAOMI_CDNS]
+    candidates = list(zip(XIAOMI_CDNS, paths))
+    print(f"[XIAOMI] Testing {len(candidates)} CDN hosts with bounded 1 MiB ranges", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        probes = list(pool.map(probe, candidates))
+    for result in probes:
+        if result["status"] == "ok":
+            print(f"[XIAOMI] {result['mirror']}: "
+                  f"{result['speed_mib_s']} MiB/s via {result['serving_host']}", flush=True)
+        else:
+            print(f"[XIAOMI] {result['mirror']}: "
+                  f"{result.get('reason', 'unavailable')} (probe only)", flush=True)
+    speeds = {p["mirror"]: p.get("speed_bps", 0)
+              for p in probes if p["status"] == "ok"}
+    fast = sorted(
+        ((host, link) for host, link in candidates
+         if speeds.get(host, 0) >= XIAOMI_MIN_FAST_BPS),
+        key=lambda pair: speeds[pair[0]], reverse=True,
+    )
+    # If a range test is rejected, still allow a full GET; try likely
+    # CDN alternatives before known-slow bigota. Deprioritize measured-slow
+    # hosts until the faster or unverified mirrors are exhausted.
+    unverified = [(host, link) for host, link in candidates if host not in speeds]
+    slow = sorted(
+        ((host, link) for host, link in candidates
+         if host in speeds and speeds[host] < XIAOMI_MIN_FAST_BPS),
+        key=lambda pair: speeds[pair[0]], reverse=True,
+    )
+    ordered = fast + unverified + slow
+    print("[XIAOMI] Download priority: " + ", ".join(name for name, _ in ordered),
+          flush=True)
+    return ordered, probes
+
+
+def check_md5(path, expected):
+    if not expected:
+        return True
+    digest = hashlib.md5()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    observed = digest.hexdigest()
+    print(f"[VERIFY] ROM MD5 expected={expected}, observed={observed}", flush=True)
+    return observed.lower() == expected.lower()
+
 
 def benchmark(canonical, mirrors=MIRRORS):
     sf = normalize(canonical)
@@ -284,7 +353,7 @@ def download(url, output, connections=8, attempt_timeout=0):
         return False
 
 
-def valid_zip(output):
+def valid_zip(output, expected_md5=''):
     """Validate the entire downloaded archive before declaring mirror success."""
     if not output.is_file() or output.stat().st_size < 1024 or not zipfile.is_zipfile(output):
         return False
@@ -294,7 +363,7 @@ def valid_zip(output):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=600, check=False
         )
-        return test.returncode == 0
+        return test.returncode == 0 and check_md5(output, expected_md5)
     except (OSError, subprocess.TimeoutExpired):
         return False
 
@@ -313,11 +382,15 @@ def main():
     ap.add_argument("--max-mirror-attempts", type=int, default=0,
                     help="Limit total mirror attempts (0 retains old unlimited fallback)")
     ap.add_argument("--connections", type=int, default=8)
+    ap.add_argument("--expected-md5", default="",
+                    help="Optional 32-hex expected full ROM MD5 for authenticity check")
     args = ap.parse_args()
     if not (1 <= args.parallel_mirrors <= 5 and 1 <= args.connections <= 16):
         ap.error("parallel-mirrors must be 1..5 and connections must be 1..16")
     if args.attempt_timeout_seconds < 0 or args.max_mirror_attempts < 0:
         ap.error("attempt timeout and maximum mirror attempts must be nonnegative")
+    if args.expected_md5 and not re.fullmatch(r"[a-fA-F0-9]{32}", args.expected_md5):
+        ap.error("--expected-md5 must contain exactly 32 hexadecimal characters")
     sf = normalize(args.url)
     output = args.output.resolve()
     started = time.monotonic()
@@ -353,11 +426,18 @@ def main():
             print("[MIRROR] 0 verified speed samples; using SourceForge "
                   "router/fallback (no fastest mirror could be determined)", flush=True)
     else:
-        print("[DOWNLOAD] Non-SourceForge URL: using original direct download", flush=True)
         project = None
         file_path = None
-        probed = []
-        urls = [("direct", args.url)]
+        urls, probed = xiaomi_candidates(args.url)
+        if urls:
+            print("[DOWNLOAD] Xiaomi stock ROM CDN fallback enabled", flush=True)
+            if not args.attempt_timeout_seconds:
+                args.attempt_timeout_seconds = XIAOMI_ATTEMPT_TIMEOUT
+            if args.connections == 8:
+                args.connections = 12
+        else:
+            print("[DOWNLOAD] Non-SourceForge URL: using original direct download", flush=True)
+            urls = [("direct", args.url)]
     # aria2 accepts several HTTP URIs as mirrors of the SAME file; it can
     # spread 16 connections across distinct SourceForge servers. For RYU-EU,
     # prioritize the measured URLs as a single parallel attempt before
@@ -381,21 +461,26 @@ def main():
         if success:
             print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
                   flush=True)
-        if success and valid_zip(output):
+        if success and valid_zip(output, args.expected_md5):
             print(f"[DOWNLOAD] ZIP received from {name} ({output.stat().st_size} bytes)", flush=True)
             attempts.append({"mirror": name, "result": "ok"})
-            selection_method = classify_mirror_selection(name, probed) if sf else "direct"
+            selection_method = (classify_mirror_selection(name, probed) if sf else
+                                ("xiaomi_range_measured" if any(
+                                    p["status"] == "ok" and p["mirror"] == name
+                                    for p in probed) else "xiaomi_fallback")
+                                if probed else "direct")
             verified_speed_samples = sum(item.get("status") == "ok" for item in probed)
             if sf:
                 print(f"[MIRROR] Selection: {mirror_selection_label(selection_method)} "
                       f"| verified speed samples: {verified_speed_samples}", flush=True)
             report = {
-                "type": "SourceForge" if sf else "direct",
+                "type": "SourceForge" if sf else ("XiaomiCDN" if probed else "direct"),
                 "project": project, "file": file_path,
                 "selected_mirror": name,
                 "selection_method": selection_method,
                 "speed_benchmark_verified": selection_method in (
-                    "range_measured", "bounded_get_measured", "parallel_measured"),
+                    "range_measured", "bounded_get_measured", "parallel_measured",
+                    "xiaomi_range_measured"),
                 "verified_speed_samples": verified_speed_samples,
                 "verified_range_probes": sum(p.get("status") == "ok" and
                                              p.get("probe_method", "range") != "bounded_get"
@@ -408,7 +493,8 @@ def main():
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(json.dumps(report, indent=2) + "\n")
             return
-        print(f"[WARN] {name} failed or returned non-ZIP content; trying next mirror", flush=True)
+        print(f"[WARN] {name} failed, timed out, checksum mismatched or was not a ZIP; "
+              "trying next mirror", flush=True)
         attempts.append({"mirror": name, "result": "failed"})
         control = Path(str(output) + ".aria2")
         # aria2's sidecar tracks downloaded pieces. Reuse only when an
