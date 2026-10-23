@@ -1,0 +1,60 @@
+name: Audit Global303 vs EU309 JAR policy
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bin/audit/global_a16_jar_audit.py'
+      - '.github/workflows/audit-global-a16-jars.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Fetch Global303 and original EU309
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/jar-audit/global /tmp/jar-audit/eu
+          gh run download 39936737623 --repo "$GITHUB_REPOSITORY" --name HyperMOS-dump-base-2 --dir /tmp/jar-audit/global
+          inner=/tmp/jar-audit/global/HyperMOS-dump-base-2.zip
+          test -s "$inner"
+          unzip -p "$inner" miui-services.jar > /tmp/jar-audit/global/miui-services.jar
+          echo "38d2c75826fd64c623c2dcbdd02d709a803a6929c116ce2df9980a2f16949b6a  /tmp/jar-audit/global/miui-services.jar" | sha256sum -c -
+          gh run download 39452530513 --repo "$GITHUB_REPOSITORY" --name xiaomieu-original-miui-services-39452530513 --dir /tmp/jar-audit/eu
+          test -s /tmp/jar-audit/eu/miui-services.jar
+          for side in global eu; do
+            mkdir -p "/tmp/jar-audit/$side/smali"
+            unzip -q "/tmp/jar-audit/$side/miui-services.jar" 'classes*.dex' -d "/tmp/jar-audit/$side"
+            for dex in /tmp/jar-audit/"$side"/classes*.dex; do
+              stem="$(basename "$dex" .dex)"
+              out="smali"
+              if [[ "$stem" != "classes" ]]; then out="smali_$stem"; fi
+              java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex" -o "/tmp/jar-audit/$side/smali/$out" >/dev/null
+            done
+          done
+      - name: Audit changed methods
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/audit/global_a16_jar_audit.py
+          python3 bin/audit/global_a16_jar_audit.py --global-root /tmp/jar-audit/global/smali --eu-root /tmp/jar-audit/eu/smali --report /tmp/jar-audit/report.json --diff-text /tmp/jar-audit/method-diffs.md
+          sed -n '/## Focused changes/,$p' /tmp/jar-audit/method-diffs.md | head -n 220
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: global303-original-eu309-jar-audit
+          path: |
+            /tmp/jar-audit/report.json
+            /tmp/jar-audit/method-diffs.md
+          retention-days: 7
+          if-no-files-found: warn
