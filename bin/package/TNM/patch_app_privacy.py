@@ -135,6 +135,69 @@ def main() -> None:
     print("[TNM APP PRIVACY] patched six verified ApplicationPackageManager methods")
 
 
+def has_single_hide_guard(method: str) -> bool:
+    """Verify the actual guard instructions after DEX round-trip.
+
+    Baksmali regenerates label names (for example :cond_0), so the
+    source-only :tnm_app_privacy_continue name must not be required.
+    """
+    body = []
+    for raw in method.splitlines():
+        line = raw.partition("#")[0].strip()
+        if line and (line.startswith(":") or not line.startswith(".")):
+            body.append(line)
+
+    signature = f"{HELPER}->shouldHide(Landroid/content/Context;Ljava/lang/String;)Z"
+    calls = [i for i, insn in enumerate(body) if signature in insn]
+    if len(calls) != 1:
+        return False
+    pos = calls[0]
+    if pos < 2 or pos + 6 >= len(body):
+        return False
+
+    context = re.fullmatch(
+        rf"iget-object\s+(v\d+),\s*p0,\s*{re.escape(FIELD)}", body[pos - 2]
+    )
+    name = re.fullmatch(r"move-object/from16\s+(v\d+),\s*p1", body[pos - 1])
+    invocation = re.fullmatch(
+        rf"invoke-static/range\s+\{{(v\d+)\s*\.\.\s*(v\d+)\}},\s*{re.escape(signature)}",
+        body[pos],
+    )
+    if not context or not name or not invocation:
+        return False
+    context_reg, name_reg = context.group(1), name.group(1)
+    if invocation.groups() != (context_reg, name_reg):
+        return False
+
+    exception = "Landroid/content/pm/PackageManager$NameNotFoundException;"
+    result = re.fullmatch(r"move-result\s+(v\d+)", body[pos + 1])
+    branch = re.fullmatch(r"if-eqz\s+(v\d+),\s*(:[\w$-]+)", body[pos + 2])
+    allocation = re.fullmatch(
+        rf"new-instance\s+(v\d+),\s*{re.escape(exception)}", body[pos + 3]
+    )
+    constructor = re.fullmatch(
+        rf"invoke-direct/range\s+\{{(v\d+)\s*\.\.\s*(v\d+)\}},\s*"
+        rf"{re.escape(exception)}-><init>\(Ljava/lang/String;\)V",
+        body[pos + 4],
+    )
+    thrown = re.fullmatch(r"throw\s+(v\d+)", body[pos + 5])
+    if not (result and branch and allocation and constructor and thrown):
+        return False
+
+    # Several labels may point to the same instruction after disassembly.
+    labels = []
+    for line in body[pos + 6:]:
+        if not line.startswith(":"):
+            break
+        labels.append(line)
+    return (
+        result.group(1) == context_reg == branch.group(1)
+        == allocation.group(1) == thrown.group(1)
+        and constructor.groups() == (context_reg, name_reg)
+        and branch.group(2) in labels
+    )
+
+
 def verify(apm_file: Path, helper_file: Path) -> None:
     apm = apm_file.read_text(encoding="utf-8")
     helper = helper_file.read_text(encoding="utf-8")
@@ -160,10 +223,7 @@ def verify(apm_file: Path, helper_file: Path) -> None:
         expected = callback if kind == "list" else "shouldHide"
         if f"{HELPER}->{expected}(" not in method:
             raise ValueError(f"TNM hook missing in method {signature}")
-        if kind == "single" and (
-            "Landroid/content/pm/PackageManager$NameNotFoundException;" not in method
-            or ":tnm_app_privacy_continue" not in method
-        ):
+        if kind == "single" and not has_single_hide_guard(method):
             raise ValueError(f"TNM hide guard incomplete: {signature}")
     print("[TNM APP PRIVACY] verified six APM call sites and helper in staged DEX")
 
