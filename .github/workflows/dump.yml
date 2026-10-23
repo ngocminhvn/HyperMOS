@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: base
+      expected_md5:
+        description: 'Optional 32-character MD5 for ROM ZIP integrity verification'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       rom_url:
@@ -39,6 +44,11 @@ on:
         options:
           - base
           - full
+      expected_md5:
+        description: 'Optional known full ROM ZIP MD5 (32 hex characters)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -93,7 +103,8 @@ jobs:
           python3 bin/dump/sourceforge_download.py \
             --url "$ROM_URL" \
             --output "$RUNNER_TEMP/hypermos-dump/source.zip" \
-            --report "$RUNNER_TEMP/hypermos-dump/mirror-report.json"
+            --report "$RUNNER_TEMP/hypermos-dump/mirror-report.json" \
+            --expected-md5 "${{ inputs.expected_md5 }}"
           unzip -tq "$RUNNER_TEMP/hypermos-dump/source.zip" >/dev/null
 
       - name: Unpack ROM without mod or repack
