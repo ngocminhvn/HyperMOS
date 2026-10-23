@@ -1,0 +1,6 @@
+name = "hypermos-build-telegram"
+main = "telegram_build_worker.js"
+compatibility_date = "2026-10-23"
+
+# DO NOT put tokens or Telegram user IDs here.
+# Set Worker secrets using "npx wrangler secret put <NAME>".
