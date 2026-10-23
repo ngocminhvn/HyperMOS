@@ -1,82 +1,68 @@
-# HyperMOS HAOTIAN / XUANYUAN — SukiSU Ultra v4.2.1 (LKM)
+# HyperMOS — SukiSU Ultra newest stable LKM (GKI, guarded)
 
-The HyperMOS ROM builder supports two modes, selected in `.github/workflows/build.yml`:
-- `root_mode=root` (default): use SukiSU Ultra **v4.2.1** from pinned upstream source, patch stock `init_boot.img`, and **bundle the matching SukiSU manager APK for manual installation**.
-- `root_mode=stock`: preserve stock `init_boot.img` and do not insert the SukiSU manager.
+The Actions build input root_mode=root resolves the newest stable OFFICIAL
+SukiSU Ultra release at build time, fetches verified aarch64 LKM/ksuinit/
+manager assets, builds the matching Linux host ksud from that release's Git tag,
+and patches an actual stock boot image. root_mode=stock preserves stock images.
 
-## Root source, KMI and integrity
+## Compatibility (no unconditional "all phones" claim)
 
-Source: https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/tag/v4.2.1
+No device-code allowlist. Every target must meet these requirements:
 
-The Actions job builds from the pinned signed upstream tag `v4.2.1` at commit
-`fd2a85151c8312fd9b4237db9ba827dcea692228`, not its mutable `main` branch.
+1. Extracted original boot.img contains a detectable GKI KMI. The detection
+   corroborates vendor/odm module vermagic where available.
+2. SukiSU release ships an official aarch64 LKM for the *exact* KMI:
+   android12-5.10, android13-5.10, android13-5.15, android14-5.15,
+   android14-6.1, android15-6.6, android16-6.12, android17-6.18.
+3. A usable ramdisk is present in original init_boot.img (preferred) or
+   original boot.img. Unsupported layouts, mismatched KMI, missing assets,
+   invalid signatures/digests or an invalid patched image FAIL the build.
+4. Xiaomi-compatible ROM extraction, fastboot packaging and image flashing
+   must already be supported by HyperMOS for that specific codename.
+   Merely finding a GKI KMI is not proof that root boots on that device.
 
-The stock ROM kernel KMI is detected from `boot.img` and vendor/odm module
-metadata using `bin/root/detect_kernel_kmi.py`. Root mode accepts only `haotian`
-and `xuanyuan`, and requires the extracted ROM's verified `android15-6.6` KMI.
-The preparation stage writes the target codename so the patch stage can reject
-cross-device reuse. A different or undetectable KMI aborts without patching.
-Static KMI validation alone does not establish device boot compatibility.
+Non-GKI/vendor-specific kernel integration, unsupported CPU architectures, and
+vendor_boot-only boot layouts are NOT automatically patched. Such phones need
+a separately reviewed implementation, not blindly reused ARM64 LKMs.
 
-`bin/root/prepare_sukisu.sh` compiles:
-- `kernelsu.ko`: ARM64 GKI `android15-6.6` using the upstream DDK image for matching HAOTIAN/XUANYUAN ROMs.
-- `ksuinit`: ARM64 Android from the same upstream tag.
-- `ksud`: Linux x86_64 from that tag for offline image patching.
+## Latest official release and provenance
 
-This intentionally costs more build time than using prebuilt KernelSU Next assets,
-but avoids mixing the SukiSU **v4.2.1 manager** with a mismatched older kernel
-module. Version identifiers in `ksud` rely on upstream Git history and must not
-be synthesized with a shallow clone.
+bin/root/fetch_sukisu_latest.py reads:
+https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/releases/latest
 
-The SukiSU manager is pinned to official asset
-`SukiSU_v4.2.1_40994-release.apk`. Its SHA-256 is verified against the
-official release metadata:
+The helper checks draft/prerelease flags, official release URLs and the
+GitHub-provided sha256 digest of the selected LKM, ksuinit and manager APK.
+Missing checksums fail rather than using unchecked binaries. It requires that
+the latest stable release contain the exact KMI asset; it never silently falls
+back to an older release or another device's module.
 
-`c7f69280cf468e8415c585ff31f963d0147386831217a1e89b822afddc5f40ed`
+bin/root/prepare_sukisu.sh clones the matching official release TAG with full
+Git history, records the actual source commit and builds the x86_64 Linux
+host ksud from the same source tag. Only officially sourced and SHA-256
+verified release binaries enter the boot image. No external unsigned mirror
+or invented KMI fallback is allowed.
 
-The builder preserves stock `boot.img` and patches **only** `init_boot.img`,
-using upstream `ksud boot-patch --module --init`. It unpacks the result and
-refuses to package an empty, unchanged, or unreadable image.
+New upstream versions can change asset naming, build dependencies or patch
+semantics; fail-closed is deliberate. A successful CI build does not prove
+hardware runtime bootability; a first physical boot test is still needed.
 
-## Manager APK — no automatic installation or boot-time checks
+## Boot image handling and recovery
 
-The manager is pinned to the official SukiSU Ultra v4.2.1 release and
-packaged as `Root/RootManager.apk` inside the ROM ZIP.
-The installer deliberately does **not** run at startup. There is no
-`sys.boot_completed` trigger, `/data/adb` hook, package query, APK install
-attempt, background service, or automatic reinstall after removal.
+bin/root/patch_init_boot.sh chooses init_boot when it has a valid ramdisk,
+otherwise boot when it has a valid ramdisk. It backs up the original partition,
+patches only that partition, re-unpacks the result, verifies the LKM and init
+inside the resulting ramdisk and only then replaces the staged image.
 
-To install it as an ordinary user app after flashing the rooted ROM,
-extract `Root/RootManager.apk` from the ROM ZIP to your current directory and run:
+Root/ inside the output ZIP contains:
+- boot.stock.img OR init_boot.stock.img (the matching original firmware image)
+- RootManager.apk (official manager, manually installed as a user app)
+- ROOT-INFO.txt (target partition, release, KMI, commit, hashes)
 
-```sh
-adb install -r RootManager.apk
-adb shell pm path --user 0 com.sukisu.ultra
-```
+The selected patched image is written to images/boot.img or images/init_boot.img.
+The other boot image remains untouched. No root manager is preinstalled into
+system/product partitions. Stock-only builds have no Root directory and do not
+append _SUKISU to the ZIP filename.
 
-The installed path must start with `/data/app/` (not `/product/app/`);
-the SukiSU kernel/root provider remains integrated in patched `init_boot.img`
-independently of the APK's installation status.
-## ZIP output and recovery
-
-Root ZIPs end in `_SUKISU.zip`; stock ZIP names are unchanged. A rooted
-ROM ZIP has these top-level entries:
-- `FLASH.bat` — Windows fastboot script (does not use legacy `.install` metadata);
-- `Root/` — contains `init_boot.stock.img` (original firmware backup),
-  `ROOT-INFO.txt` (root build metadata), and `RootManager.apk` (official SukiSU
-  v4.2.1 manager for manual installation as a user app);
-- `images/` — includes SukiSU-patched `init_boot.img` and other firmware images;
-- `META-INF/` — bundled flash tools/metadata;
-- `super/` — contains `super.img`.
-
-The legacy `HAOTIAN.install` file is not generated or included. The old
-`RootBackup/` directory and loose `RootManager.apk` / `ROOT-INFO.txt`
-at the ZIP root are not included.
-
-This integration does **not** include SUSFS, a custom GKI kernel replacement,
-KPM, changed bootloader state, or app/identity spoofing.
-
-**Bootability and runtime root require testing on both Xiaomi 15 Pro and Xiaomi 15 Ultra.**
-A successful build, KMI detection, and static ramdisk validation do not prove
-that either device boots with the module. Keep the exact ROM-matched stock
-`init_boot.img` and a rollback plan before testing root on hardware.
+IMPORTANT: Preserve the stock image, do not flash an image from a different
+device/ROM version, and test a rollback procedure before testing an unverified
+root integration on hardware.
