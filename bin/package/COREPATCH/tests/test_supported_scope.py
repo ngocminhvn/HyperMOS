@@ -88,6 +88,23 @@ class SupportedScopeTest(unittest.TestCase):
             self.assertIn("apply_miui_services_global_patch", patcher)
             self.assertIn("apply_miui_services_gboard", patcher)
 
+    def test_contentextension_and_floating_apply_to_all_roms(self):
+        for version in ("15", "16", "17"):
+            patcher = (COREPATCH / f"jar_patcher_a{version}.sh").read_text(
+                encoding="utf-8"
+            )
+            contentextension = patcher.split(
+                "apply_miui_services_contentextension() {", 1
+            )[1].split("\n}", 1)[0]
+            self.assertIn("IS_INTERNATIONAL_BUILD", contentextension)
+            self.assertNotIn("HYPERMOS_PRESERVE_EU_FRAMEWORK", contentextension)
+
+            extras = patcher.split(
+                'if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then', 1
+            )[1]
+            self.assertIn('apply_miui_services_floating "$decompile_dir"', extras)
+            self.assertIn('apply_miui_services_contentextension "$decompile_dir"', extras)
+
     def test_corepatch_does_not_reimplement_kaorios_secure_flag(self):
         forbidden = (
             "COREPATCH_DISABLE_SECURE_FLAG",

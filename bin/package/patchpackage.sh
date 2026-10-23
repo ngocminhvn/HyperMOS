@@ -17,12 +17,12 @@ hypermos_corepatch_args=()
 if [[ "$kaorios_corepatch" == "1" ]]; then
   hypermos_corepatch_args+=(--kaorios)
 fi
-# FrameworkPatcher A16 CN handles 4 ProcessPolicy gates: ContentCatcher=false
-# and 3 RYU=true; do not consume a source read before notification stage.
-# Standalone CorePatch and Global builds retain their original behavior.
+# ContentExtension=false and floating-window extras apply to every ROM.
+# FrameworkPatcher A16 CN alone handles its 4 coupled ProcessPolicy gates:
+# ContentCatcher=false and 3 RYU=true, avoiding the historical 3/4 mismatch.
 info "PATCH 1/6: HyperMOS CorePatch (non-overlapping patches)"
-# China defers its ProcessPolicy gate to NOTIFICATION_FIX/FrameworkPatcher.
-# Xiaomi.eu skips that stage and preserves its existing Gboard / notification / ProcessPolicy code.
+# China A16 defers only its coupled ProcessPolicy gate to FrameworkPatcher.
+# Xiaomi.eu still preserves its other Gboard and regional policy variables.
 rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
 if [[ -s "$rom_source_file" ]] &&
    [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then

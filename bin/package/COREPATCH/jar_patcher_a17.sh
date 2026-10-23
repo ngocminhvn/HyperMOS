@@ -980,9 +980,6 @@ apply_miui_services_gboard() {
 # Apply ContentExtension patches
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
-  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-    return 0
-  fi
   replace_line_contains_in_smali_method "IS_INTERNATIONAL_BUILD" "updateContentCatcherWhitelist()V" "    const/4 v0, 0x0" "$decompile_dir/smali/com/android/server/am/ProcessPolicy.smali"
   echo "ContentExtension patches applied to miui-services.jar"
 }

@@ -12,7 +12,8 @@ without importing any Android 16 donor or policy code.
 
 EU workflow:
 
-1. Preserve the original EU ContentCatcher behavior as previously requested.
+1. Keep the HyperMOS CorePatch ContentCatcher=false result (the EU patcher is
+   idempotent and verifies that exact result).
 2. Verify native `IS_INTERNATIONAL_BUILD` references in 10 broadcast/Doze/process/notification methods, without injecting a fictitious `IS_ZK_BUILD` class or hardcoding region values.
 3. Port the verified ZK304 `NotificationManagerServiceImpl.<clinit>` difference, verifying its result against the original ZK donor. Then copy eight donor method bodies covering `GreezeManagerService.freezeAction`, `freezeUids`, `isAllowBroadcast`, `updateDynamicIsLandInfo`, two `InternationalPolicyManager` handlers, `DeviceIdleControllerStubImpl.isLowPowerDozeEnable` and `ProcessManagerService.notifyProcessStarted`, preserving EU-only callbacks and constructors.
 4. The 61-method ZK304 PowerKeeper donor transplant into `GmsObserver`, `DeviceIdleController`, `ActiveStateController`, and `KillProcessController` is **temporarily disabled** in the default EU Android 16 build. The existing #181 APK handling stays unchanged. The method-merger remains available for future controlled testing.
