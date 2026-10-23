@@ -96,6 +96,24 @@ elif [[ "${baserom_type}" == "eu_super" ]]; then
     echo "[REPACK] - Xiaomi.eu fastboot images staged (super + ${#eu_firmware[@]} firmware images)"
 fi
 
+# ROMs extracted from a fastboot folder stage firmware-update separately.
+# Overlay only the verified patched boot image; otherwise the ZIP would flash
+# the original image despite a successful root patch in images/.
+if [[ "${ROOT_MODE:-stock}" == "root" && "${baserom_type}" == "br" ]]; then
+    stage_dir="$work_dir/out/${os_type}_${device_code}_${base_rom_code}/images"
+    root_part="$(cat "$work_dir/build/baserom/root-partition.txt" 2>/dev/null || true)"
+    case "$root_part" in boot|init_boot) ;; *) echo "[ERROR] Invalid root partition" >&2; exit 1 ;; esac
+    test -s "$work_dir/build/baserom/images/$root_part.img" || {
+        echo "[ERROR] Missing patched $root_part image from ROM stage" >&2
+        exit 1
+    }
+    cp -f "$work_dir/build/baserom/images/$root_part.img" "$stage_dir/$root_part.img"
+    cmp -s "$work_dir/build/baserom/images/$root_part.img" "$stage_dir/$root_part.img" || {
+        echo "[ERROR] Failed to stage patched $root_part for fastboot ROM" >&2
+        exit 1
+    }
+fi
+
 # Bundle the official SukiSU manager, metadata and exactly matching stock
 # boot/init_boot rollback image. Root mode requires a validated patched image.
 if [[ "${ROOT_MODE:-stock}" == "root" ]]; then
