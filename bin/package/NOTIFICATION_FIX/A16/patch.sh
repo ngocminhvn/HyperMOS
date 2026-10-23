@@ -21,7 +21,7 @@ esac
 # Historical ZK304/RYU routines below remain for non-EU builds only.
 if [[ "$rom_source" == "xiaomi_eu" ]]; then
   log "[GLOBAL A16] bypassing all EU ZK304 notification/Greeze/Doze ports"
-  bash "$work_dir/bin/package/GLOBAL_A16/PowerKeeper.sh" || exit 1
+  bash "$base/EU/patch.sh" || exit 1
   exit 0
 fi
 
