@@ -78,10 +78,14 @@ jobs:
           begin=contents.index(headers[0])
           end=contents.index(".end method",begin)
           body=contents[begin:end]
-          # Comments disappear in compiled DEX. Check reassembled instructions.
-          assert body.count('"com.google.android.c2dm.intent.RECEIVE"')==1,body
-          assert body.count('"com.google.android.gms"')==1,body
+          # Comments disappear in compiled DEX; verify the new early-return
+          # guard before the original EU whitelist. The original method may
+          # also contain C2DM strings later, outside this injected guard.
           assert "mBroadcastTargetWhiteList" in body
+          guard=body.split("mBroadcastTargetWhiteList",1)[0]
+          assert guard.count('"com.google.android.c2dm.intent.RECEIVE"')==1,guard
+          assert guard.count('"com.google.android.gms"')==1,guard
+          assert "return v0" in guard
           assert "IS_ZK_BUILD" not in contents
           print("Recompiled EU JAR contains one GMS FCM guard, with original whitelist")
           PY
