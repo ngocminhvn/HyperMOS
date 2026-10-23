@@ -26,7 +26,7 @@ Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xi
 ## Per-feature config
 
 Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. 
-Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/update.sh`. Set `HYPERMOS_CUSTOM_BOOTANIMATION=false` in the build environment to preserve the base ROM animation for diagnostics.
+Custom boot animation is disabled for all builds: the module entrypoint has been renamed to `bin/modfile/UpdateFile/Boot/update.sh.0`, which the `insupdate.sh` scanner skips. Rename it back to `update.sh` to re-enable the module.
 
 | Switch | Effect |
 |---|---|
