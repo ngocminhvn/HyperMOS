@@ -59,6 +59,27 @@ class SecureFlagPatcherTest(unittest.TestCase):
         self.assertIn(".registers 3", path.read_text(encoding="utf-8"))
         self.assertFalse(PATCHER.patch_target(path, PATCHER.TARGETS[0], True))
 
+    def test_verify_ignores_roundtrip_debug_directives(self):
+        path = self.write(
+            "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali",
+            ".class public Lcom/android/server/devicepolicy/DevicePolicyCacheImpl;\n"
+            ".method public isScreenCaptureAllowed(I)Z\n"
+            "    .locals 1\n\n"
+            "    .line 42\n"
+            "    const/4 v0, 0x1\n"
+            "    .line 43\n"
+            "    return v0\n"
+            ".end method\n",
+        )
+        self.assertFalse(PATCHER.patch_target(path, PATCHER.TARGETS[0], True))
+
+        body = path.read_text(encoding="utf-8").replace(
+            "    .line 43\n", "    invoke-static {}, Ljava/lang/System;->gc()V\n"
+        )
+        path.write_text(body, encoding="utf-8")
+        with self.assertRaises(PATCHER.PatchError):
+            PATCHER.patch_target(path, PATCHER.TARGETS[0], True)
+
     def test_window_state_animator_fallback(self):
         self.write(
             "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali",

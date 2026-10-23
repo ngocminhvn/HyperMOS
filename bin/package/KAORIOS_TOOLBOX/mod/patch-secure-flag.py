@@ -174,15 +174,45 @@ def static_method(block: str, target: Target) -> str:
     return prefix + body + ".end method"
 
 
+def executable_instructions(block: str) -> tuple[str, ...]:
+    """Return opcodes while ignoring baksmali's non-semantic metadata.
+
+    A smali assemble/disassemble round trip may move ``.line``, ``.param`` and
+    annotation directives between otherwise identical instructions. Final
+    artifact verification must validate the bypass behavior, not require the
+    regenerated text to match our pre-assembly text byte for byte.
+    """
+    instructions = []
+    annotation_depth = 0
+    for line in block.splitlines()[1:]:
+        stripped = line.strip()
+        if stripped.startswith((".annotation", ".subannotation")):
+            annotation_depth += 1
+            continue
+        if stripped.startswith((".end annotation", ".end subannotation")):
+            annotation_depth = max(0, annotation_depth - 1)
+            continue
+        if annotation_depth or not stripped:
+            continue
+        if stripped.startswith(("#", ".", ":")):
+            continue
+        instructions.append(stripped)
+    return tuple(instructions)
+
+
+def has_static_return(block: str, target: Target) -> bool:
+    return executable_instructions(block) == target.static_return
+
+
 def patch_target(path: Path, target: Target, check_only: bool) -> bool:
     text = path.read_text(encoding="utf-8")
     start, end = method_span(text, target.signature)
     block = text[start:end]
-    desired = static_method(block, target)
-    if block == desired:
+    if has_static_return(block, target):
         return False
     if check_only:
         raise PatchError(f"{path}: missing permanent bypass in {target.signature}")
+    desired = static_method(block, target)
     path.write_text(text[:start] + desired + text[end:], encoding="utf-8")
     return True
 

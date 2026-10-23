@@ -35,7 +35,9 @@ PY
         python3 "$work_dir/bin/dump/sourceforge_download.py" \
             --url "$baserom" \
             --output "$work_dir/$sf_zip_name" \
-            --report "$work_dir/build/sourceforge-mirror-report.json" || {
+            --report "$work_dir/build/sourceforge-mirror-report.json" \
+            --attempt-timeout-seconds 300 \
+            --max-mirror-attempts 6 || {
                 error "SourceForge ROM download/ZIP verification failed"
                 return 1
             }
@@ -56,7 +58,9 @@ PY
         python3 "$work_dir/bin/dump/sourceforge_download.py" \
             --url "$baserom" \
             --output "$work_dir/$eu_basename" \
-            --report "$work_dir/build/eu-mirror-report.json" || {
+            --report "$work_dir/build/eu-mirror-report.json" \
+            --attempt-timeout-seconds 300 \
+            --max-mirror-attempts 6 || {
                 error "EU: source ZIP download failed"
                 return 1
             }
