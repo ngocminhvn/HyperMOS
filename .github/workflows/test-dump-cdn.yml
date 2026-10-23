@@ -1,0 +1,23 @@
+name: Verify Xiaomi ROM CDN downloader
+
+on:
+  push:
+    paths:
+      - 'bin/dump/sourceforge_download.py'
+      - 'bin/dump/tests/test_xiaomi_cdn.py'
+      - '.github/workflows/test-dump-cdn.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python syntax
+        run: python3 -m py_compile bin/dump/sourceforge_download.py bin/dump/tests/test_xiaomi_cdn.py
+      - name: Test CDN mirror ranking and checksum validation (offline)
+        run: python3 -m unittest discover -s bin/dump/tests -p 'test_xiaomi_cdn.py' -v
