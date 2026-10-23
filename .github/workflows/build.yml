@@ -16,7 +16,7 @@ on:
         default: false
         type: boolean
       root_mode:
-        description: 'SukiSU Ultra v4.2.1 root (stock KMI, manager APK bundled)'
+        description: 'Latest stable SukiSU Ultra root (GKI KMI-matched, verified assets)'
         required: true
         type: choice
         default: 'root'
@@ -167,23 +167,16 @@ jobs:
             exit 1
           fi
 
-      - name: Set up SukiSU Android NDK
-        if: ${{ inputs.root_mode == 'root' }}
-        id: sukisu_ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r29
-
-      - name: Prepare SukiSU Ultra v4.2.1
+      - name: Prepare latest stable SukiSU Ultra
         if: ${{ inputs.root_mode == 'root' }}
         shell: bash
-        env:
-          ANDROID_NDK_HOME: ${{ steps.sukisu_ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
+          python3 bin/root/fetch_sukisu_latest.py --self-test
+          bash -n bin/root/prepare_sukisu.sh bin/root/patch_init_boot.sh
           bash bin/root/prepare_sukisu.sh 2>&1 | tee -a build_action.log
 
-      - name: Patch SukiSU Ultra into init_boot
+      - name: Patch SukiSU Ultra into boot image
         if: ${{ inputs.root_mode == 'root' }}
         shell: bash
         env:
