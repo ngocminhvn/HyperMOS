@@ -142,8 +142,8 @@ def run(out: Path, kmi: str) -> None:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--kmi", required=True)
-    p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--kmi")
+    p.add_argument("--out", type=Path)
     p.add_argument("--self-test", action="store_true")
     args = p.parse_args()
     if args.self_test:
@@ -152,6 +152,8 @@ def main() -> int:
         assert not HEX.fullmatch("sha256:no-digest")
         print("[ROOT] release resolver self-test PASS")
         return 0
+    if not args.kmi or args.out is None:
+        p.error("--kmi and --out are required outside --self-test")
     try:
         run(args.out, args.kmi)
     except (OSError, RuntimeError, ValueError, KeyError, urllib.error.URLError) as e:
