@@ -1,0 +1,79 @@
+name: Test EU Global303 with scoped GMS FCM delivery
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/fcm_greeze.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/jar_port.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/patch.sh'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/tests/test_fcm_greeze.py'
+      - '.github/workflows/test-eu-global-fcm.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Validate shell and FCM unit tests
+        run: |
+          set -euo pipefail
+          bash -n bin/package/NOTIFICATION_FIX/A16/EU/patch.sh
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/EU/tests -p 'test_fcm_greeze.py' -v
+      - name: Verify actual EU309 JAR method port and scoped Greeze FCM patch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          d=/tmp/eu-fcm-global
+          mkdir -p "$d/original" "$d/decoded" "$d/rebuilt" "$d/verified"
+          gh run download 39452530513 --repo "$GITHUB_REPOSITORY" --name xiaomieu-original-miui-services-39452530513 --dir "$d/original"
+          test -s "$d/original/miui-services.jar"
+          unzip -q "$d/original/miui-services.jar" 'classes*.dex' -d "$d/original"
+          for dex in "$d/original"/classes*.dex; do
+            stem="$(basename "$dex" .dex)"
+            group=smali
+            if [[ "$stem" != classes ]]; then group="smali_$stem"; fi
+            java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex" -o "$d/decoded/$group" > /dev/null
+          done
+          cp -a "$d/decoded" "$d/backup-decoded"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/jar_port.py "$d/decoded" bin/package/NOTIFICATION_FIX/A16/EU/global-battery.smali --report "$d/jar.json"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/fcm_greeze.py "$d/decoded" --report "$d/fcm.json"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/fcm_greeze.py "$d/decoded" --report "$d/fcm-repeat.json"
+          python3 - "$d/fcm.json" "$d/fcm-repeat.json" <<'PY'
+          import json,sys
+          one,two=(json.load(open(n)) for n in sys.argv[1:])
+          assert one["status"]=="patched",one
+          assert two["status"]=="already_patched",two
+          assert one["caller"]=="com.google.android.gms"
+          assert one["action"]=="com.google.android.c2dm.intent.RECEIVE"
+          print("Selective Greeze FCM applied once and idempotent")
+          PY
+          for group in "$d/decoded"/smali*; do
+            stem="$(basename "$group")"
+            dex=classes
+            if [[ "$stem" != smali ]]; then dex="classes_$(echo "$stem" | sed 's/^smali_//')"; fi
+            java -jar bin/apktool/smaliv2.jar a --api 36 "$group" -o "$d/rebuilt/$dex.dex" > /dev/null
+            java -jar bin/apktool/baksmaliv2.jar d --api 36 "$d/rebuilt/$dex.dex" -o "$d/verified/$stem" > /dev/null
+          done
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/jar_port.py "$d/verified" bin/package/NOTIFICATION_FIX/A16/EU/global-battery.smali --original "$d/backup-decoded"
+          python3 - "$d/verified" <<'PY'
+          import sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          matches=list(root.glob("smali*/com/miui/server/greeze/GreezeManagerService.smali"))
+          assert len(matches)==1,len(matches)
+          text=matches[0].read_text()
+          assert text.count("HYPERMOS_EU_FCM_GREEZE_THAW_A16")==1
+          assert '"com.google.android.c2dm.intent.RECEIVE"' in text
+          assert '"com.google.android.gms"' in text
+          assert "IS_ZK_BUILD" not in text
+          print("Recompiled EU JAR contains exactly one selective FCM guard")
+          PY

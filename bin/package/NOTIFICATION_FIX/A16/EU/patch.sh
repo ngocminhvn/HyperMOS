@@ -21,10 +21,15 @@ trap 'rm -rf "$decoded" "$w/miui-services" "$output"' EXIT
 decompile_jar "$jar" >/dev/null
 python3 "$base/jar_port.py" "$decoded" "$base/global-battery.smali" \
   --report "$w/build/reports/global-a16/miui-battery.json"
+# Scoped FCM exception from the legacy EU patch (not wholesale ZK Greeze).
+# Allow Play Services C2DM receive through isAllowBroadcast; all other
+# freeze, thaw, cache, UID and region checks remain EU-original.
+python3 "$base/fcm_greeze.py" "$decoded" \
+  --report "$w/build/reports/global-a16/fcm-greeze.json"
 recompile_jar "$jar" >/dev/null
 [[ -s "$output" ]] && unzip -t "$output" >/dev/null || {
   error "Global A16: rebuilt JAR invalid"; exit 1;
 }
 mv -f "$output" "$jar"
-mods "[GLOBAL A16] miui-services.jar: three battery methods and MAP_APP field"
+mods "[GLOBAL A16] miui-services.jar: three battery methods + MAP_APP + scoped GMS FCM broadcast allow"
 bash "$base/PowerKeeper.sh"
