@@ -1,0 +1,106 @@
+name: Migrate EU ZK backup to Global303
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate-eu-global-a16.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Pin and verify Global303 battery JAR donor
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base=bin/package/NOTIFICATION_FIX/A16/EU
+          mkdir -p /tmp/policy/global /tmp/policy/eu
+          cp bin/package/GLOBAL_A16/global-powerkeeper.dex.zst "$base/global-powerkeeper.dex.zst"
+          gh run download 39936737623 --repo "$GITHUB_REPOSITORY" --name HyperMOS-dump-base-2 --dir /tmp/policy/global
+          unzip -p /tmp/policy/global/HyperMOS-dump-base-2.zip miui-services.jar > /tmp/policy/global/miui-services.jar
+          echo "38d2c75826fd64c623c2dcbdd02d709a803a6929c116ce2df9980a2f16949b6a  /tmp/policy/global/miui-services.jar" | sha256sum -c -
+          gh run download 39452530513 --repo "$GITHUB_REPOSITORY" --name xiaomieu-original-miui-services-39452530513 --dir /tmp/policy/eu
+          test -s /tmp/policy/eu/miui-services.jar
+          for side in global eu; do
+            mkdir -p "/tmp/policy/$side/decoded"
+            unzip -q "/tmp/policy/$side/miui-services.jar" 'classes*.dex' -d "/tmp/policy/$side"
+            for dex in /tmp/policy/"$side"/classes*.dex; do
+              stem="$(basename "$dex" .dex)"
+              dst=smali
+              if [[ "$stem" != classes ]]; then dst="smali_$stem"; fi
+              java -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex" -o "/tmp/policy/$side/decoded/$dst" >/dev/null
+            done
+          done
+          test "$(find /tmp/policy/global/decoded -name MiuiBatteryIntelligence.smali | wc -l)" = 1
+          cp "$(find /tmp/policy/global/decoded -name MiuiBatteryIntelligence.smali -print -quit)" "$base/global-battery.smali"
+          python3 -m py_compile "$base/jar_port.py"
+          cp -a /tmp/policy/eu/decoded /tmp/policy/eu/original
+          python3 "$base/jar_port.py" /tmp/policy/eu/decoded "$base/global-battery.smali"
+          changed="$(find /tmp/policy/eu/decoded -name MiuiBatteryIntelligence.smali -print -quit)"
+          root="$(dirname "$(dirname "$(dirname "$changed")")")"
+          java -jar bin/apktool/smaliv2.jar a --api 36 "$root" -o /tmp/policy/merged.dex >/dev/null
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 /tmp/policy/merged.dex -o /tmp/policy/verified/smali >/dev/null
+          python3 "$base/jar_port.py" /tmp/policy/verified "$base/global-battery.smali" --original /tmp/policy/eu/original
+      - name: Archive and remove old ZK source, enable new Global policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=bin/package/NOTIFICATION_FIX/A16/EU
+          old=e7dd5f2c8cc2c8828166a135821f0a16cfe6b862
+          tmp="$RUNNER_TEMP/eu-policy"
+          mkdir -p "$tmp/old" "$tmp/new"
+          git archive "$old" "$base" | tar -xf - -C "$tmp/old"
+          (cd "$tmp/old" && zip -q -9 -r "$GITHUB_WORKSPACE/$base/backupzk.zip" "$base")
+          unzip -t "$base/backupzk.zip" >/dev/null
+          for f in PowerKeeper.sh patch.sh jar_port.py port_global_powerkeeper.py eu_powerkeeper_keep_metadata.py fetch_donor.py global-powerkeeper.dex.zst global-battery.smali backupzk.zip; do
+            cp "$base/$f" "$tmp/new/$f"
+          done
+          git rm -r "$base"
+          mkdir -p "$base"
+          cp "$tmp/new/"* "$base/"
+          git rm -r bin/package/GLOBAL_A16
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("bin/package/NOTIFICATION_FIX/A16/patch.sh")
+          old='bash "$work_dir/bin/package/GLOBAL_A16/PowerKeeper.sh" || exit 1'
+          new='bash "$base/EU/patch.sh" || exit 1'
+          code=p.read_text()
+          if code.count(old)!=1: raise SystemExit("EU dispatch unexpectedly changed")
+          p.write_text(code.replace(old,new))
+          doc=Path("docs/GLOBAL-A16-FULL.md")
+          doc.write_text("""Xiaomi.eu A16 Global303 method-level policy
+
+          Historical ZK304 source backup: bin/package/NOTIFICATION_FIX/A16/EU/backupzk.zip
+          Active patch: bin/package/NOTIFICATION_FIX/A16/EU/patch.sh
+          JAR: original EU miui-services.jar with three Global303
+          MiuiBatteryIntelligence methods and matching MAP_APP field.
+          Greeze, BroadcastQueue, Doze remain original EU (verified Global-equivalent).
+          PerfShielder constructor is not imported: Global-only WMServiceConnection
+          class and field would be missing in EU.
+          PowerKeeper: original EU DEX, seven Global303 policy methods.
+          Original non-DEX APK members and META-INF retained. No signing.
+          CorePatch, Kaorios, TNM, China and thermal stay unchanged.
+          Real donor audit: GitHub Actions run 40001161352.
+          Host assembly does not establish on-device boot, heat or FCM delivery.
+          """.replace('          ',''))
+          PY
+          git rm .github/workflows/migrate-eu-global-a16.yml
+          git rm .github/workflows/test-global-a16-port.yml .github/workflows/pin-global-a16.yml
+          git add "$base" bin/package/NOTIFICATION_FIX/A16/patch.sh docs/GLOBAL-A16-FULL.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(eu-a16): backup legacy ZK and port Global303 JAR and PowerKeeper'
+          git push origin HEAD:main
