@@ -19,6 +19,7 @@ HyperMOS is a Xiaomi HyperOS ROM build and modification project designed to auto
 - **Project:** HyperMOS
 - **Current build script version:** `1.3PS`
 - **Platform:** Xiaomi HyperOS
+- **Supported Android versions:** **15, 16, and 17**
 - **Build sources:** **Xiaomi China (tested)** and **Xiaomi.eu fastboot ZIP (experimental)**
 - **Build environment:** GitHub Actions / Ubuntu
 - **Build input:** Xiaomi China ROM package URL or Xiaomi.eu fastboot ZIP URL

@@ -216,6 +216,15 @@ mods "Gathering device information"
 
 bash $work_dir/bin/ddevice/fetchINFO.sh
 
+android_version="$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")"
+case "$android_version" in
+    15|16|17) ;;
+    *)
+        error "Unsupported Android version: $android_version (supported: 15, 16, 17)"
+        exit 1
+        ;;
+esac
+
 # Gửi thông báo đang Build với đầy đủ Codename và Version
 python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_id"
 

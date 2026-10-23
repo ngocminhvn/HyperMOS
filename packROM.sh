@@ -11,6 +11,13 @@ device_code=$(cat $work_dir/bin/ddevice/device_f.txt)
 getvar=$(cat $work_dir/bin/ddevice/device_f.txt)
 PACK_TYPE=$(cat $work_dir/bin/ddevice/fstype.txt)
 
+case "$androidVER" in
+    15|16|17) ;;
+    *)
+        error "Repack: unsupported Android version: $androidVER (supported: 15, 16, 17)"
+        exit 1
+        ;;
+esac
 
 if [[ $(git branch --show-current) == "beta" ]]; then
     polyxver="$(cat Version)"
@@ -58,26 +65,15 @@ pack_partition() {
     [ -d "$part_dir" ] || return 0
 
     thisSize=$(du -sb "$part_dir" | awk '{print $1}')
-    if [[ "$androidVER" == "12" ]]; then
-        case "$pname" in
-            odm) addSize=104217728 ;;
-            system) addSize=114217728 ;;
-            vendor) addSize=104217728 ;;
-            system_ext) addSize=104217728 ;;
-            product) addSize=104217728 ;;
-            *) addSize=8054432 ;;
-        esac
-    else
-        case "$pname" in
-            mi_ext) addSize=100000000 ;;
-            odm) addSize=100000000 ;;
-            system) addSize=100000000 ;;
-            vendor) addSize=100000000 ;;
-            system_ext) addSize=100000000 ;;
-            product) addSize=100000000 ;;
-            *) addSize=8054432 ;;
-        esac
-    fi
+    case "$pname" in
+        mi_ext) addSize=100000000 ;;
+        odm) addSize=100000000 ;;
+        system) addSize=100000000 ;;
+        vendor) addSize=100000000 ;;
+        system_ext) addSize=100000000 ;;
+        product) addSize=100000000 ;;
+        *) addSize=8054432 ;;
+    esac
 
     thisSize=$((thisSize + addSize))
 

@@ -5,8 +5,8 @@ set -euo pipefail
 # Upstream-owned scripts are vendored byte-for-byte from Kaorios upstream.
 # MOD-only behavior is kept outside those files in mod-kaorios-adapter.py.
 # Upstream script snapshot: 9a50d37fbe160279925218703653122c0671f383
-# CorePatch/signature bypass remains a build-time HyperMOS patch. This stage
-# adds MOD-local static FLAG_SECURE bypasses without modifying the Toolbox APK.
+# The package driver applies Kaorios CorePatch immediately before this stage.
+# This stage adds Toolbox hooks and MOD-local static FLAG_SECURE bypasses.
 #
 # Applied Kaorios features (per the upstream Patch_Guide_2.0.6.1_VI):
 #   - process/context initialisation (ActivityThread + Instrumentation);
@@ -145,7 +145,7 @@ ANDROID_VER=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")
 SDK_LEVEL=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")
 
 case "$ANDROID_VER" in
-  13|14|15|16|17) ;;
+  15|16|17) ;;
   *)
     error "KAORIOS: unsupported Android version: $ANDROID_VER"
     exit 1
@@ -828,13 +828,13 @@ validate_optional_keybox_input() {
   fi
 }
 
-mods "Kaorios Toolbox upstream 2.0.6.1 integration (static FLAG_SECURE + build-time CorePatch)"
+mods "Kaorios Toolbox upstream 2.0.6.1 integration (CorePatch is a separate preceding pass)"
 
 info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
 info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
 info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
 info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
-info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=$KAORIOS_ENABLE_COREPATCH (applied before Kaorios)"
+info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=$KAORIOS_ENABLE_COREPATCH (separate preceding pass)"
 
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   validate_optional_keybox_input

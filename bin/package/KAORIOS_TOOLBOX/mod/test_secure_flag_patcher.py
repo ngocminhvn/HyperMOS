@@ -96,37 +96,6 @@ class SecureFlagPatcherTest(unittest.TestCase):
         self.assertIn("const/4 v0, 0x0", animator.read_text(encoding="utf-8"))
         self.assertEqual(PATCHER.run(self.root, True), 0)
 
-    def test_optional_android13_paths_are_statically_bypassed(self):
-        self.write(
-            "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali",
-            ".class public Lcom/android/server/devicepolicy/DevicePolicyCacheImpl;\n"
-            ".method public isScreenCaptureAllowed(I)Z\n"
-            "    .locals 1\n\n    const/4 v0, 0x0\n    return v0\n.end method\n",
-        )
-        self.write(
-            "com/android/server/wm/WindowState.smali",
-            ".class public Lcom/android/server/wm/WindowState;\n"
-            ".method isSecureLocked()Z\n    .locals 1\n\n    const/4 v0, 0x1\n    return v0\n.end method\n"
-            ".method setSecure(Z)V\n    .locals 1\n\n    return-void\n.end method\n",
-        )
-        policy = self.write(
-            "com/android/server/devicepolicy/DevicePolicyManagerService.smali",
-            ".class public Lcom/android/server/devicepolicy/DevicePolicyManagerService;\n"
-            ".method public getScreenCaptureDisabled(Landroid/content/ComponentName;IZ)Z\n"
-            "    .locals 1\n\n    const/4 v0, 0x1\n    return v0\n.end method\n"
-            ".method private setScreenCaptureDisabled(I)V\n"
-            "    .locals 1\n\n    return-void\n.end method\n",
-        )
-        surface = self.write(
-            "com/android/server/wm/WindowSurfaceController.smali",
-            ".class public Lcom/android/server/wm/WindowSurfaceController;\n"
-            ".method setSecure(Z)V\n    .locals 1\n\n    return-void\n.end method\n",
-        )
-        self.assertEqual(PATCHER.run(self.root, False), 0)
-        self.assertEqual(PATCHER.run(self.root, True), 0)
-        self.assertNotIn("KaoriosHook", policy.read_text(encoding="utf-8"))
-        self.assertNotIn("KaoriosHook", surface.read_text(encoding="utf-8"))
-
     def test_xiaomi_capture_gate_is_statically_bypassed(self):
         miui = self.write(
             "com/android/server/wm/WindowManagerServiceImpl.smali",

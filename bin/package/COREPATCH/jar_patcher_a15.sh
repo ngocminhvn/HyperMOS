@@ -6,6 +6,7 @@ WORK_DIR="$work_dir"
 BACKUP_DIR="$WORK_DIR/backup"
 SCRIPT_DIR="$work_dir/bin/package/COREPATCH"
 source "${SCRIPT_DIR}/helper.sh"
+regionTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
 INVOKE_DIR="$work_dir/bin/package/COREPATCH/INVOKE"
@@ -691,11 +692,13 @@ patch_framework() {
   # Decompile framework.jar
   decompile_jar "$framework_path"
 
-  # Apply invoke-custom patches (common to all features)
-  modify_invoke_custom_methods "$decompile_dir"
+  if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
+    modify_invoke_custom_methods "$decompile_dir"
+  fi
 
-  # Apply feature-specific patches based on flags
-  apply_framework_signature_patches "$decompile_dir"
+  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
+    apply_framework_signature_patches "$decompile_dir"
+  fi
 
 
 
@@ -833,9 +836,12 @@ patch_services() {
   # Decompile services.jar
   decompile_jar "$services_path"
 
-  # Apply feature-specific patches based on flags
-  # Modify invoke-custom methods (common to all features)
-  modify_invoke_custom_methods "$decompile_dir"
+  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
+    apply_services_signature_patches "$decompile_dir"
+  fi
+  if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
+    modify_invoke_custom_methods "$decompile_dir"
+  fi
 
   # Recompile services.jar
   recompile_jar "$services_path"
@@ -889,6 +895,9 @@ apply_miui_services_gboard() {
 # Apply ContentExtension patches
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
+  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+    return 0
+  fi
   replace_line_contains_in_smali_method "IS_INTERNATIONAL_BUILD" "updateContentCatcherWhitelist()V" "    const/4 v0, 0x0" "$decompile_dir/smali/com/android/server/am/ProcessPolicy.smali"
   echo "ContentExtension patches applied to miui-services.jar"
 }
@@ -1007,18 +1016,22 @@ patch_miui_services() {
   # Decompile miui-services.jar
   decompile_jar "$miui_services_path"
 
-  # Apply feature-specific patches based on flags
-  apply_miui_services_floating "$decompile_dir"
-  apply_miui_services_contentextension "$decompile_dir"
-  if [[ $regionTYPE == *"Global"* ]];then
-    apply_miui_services_global_patch "$decompile_dir"
-  else
-    apply_miui_services_cn_notification_fix "$decompile_dir"
-    apply_miui_services_gboard "$decompile_dir"
+  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
+    apply_miui_services_signature_patches "$decompile_dir"
   fi
-
-  # Modify invoke-custom methods (common to all features)
-  modify_invoke_custom_methods "$decompile_dir"
+  if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
+    apply_miui_services_floating "$decompile_dir"
+    apply_miui_services_contentextension "$decompile_dir"
+    if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+      : # Xiaomi.eu keeps its original Gboard and regional policy variables.
+    elif [[ $regionTYPE == *"Global"* ]];then
+      apply_miui_services_global_patch "$decompile_dir"
+    else
+      apply_miui_services_cn_notification_fix "$decompile_dir"
+      apply_miui_services_gboard "$decompile_dir"
+    fi
+    modify_invoke_custom_methods "$decompile_dir"
+  fi
 
   # Recompile miui-services.jar
   recompile_jar "$miui_services_path"
@@ -1061,12 +1074,13 @@ patch_miui_framework() {
   # Decompile miui-framework.jar
   decompile_jar "$miui_framework_path"
 
-  # Add Gboard
-  apply_miui_framework_gboard "$decompile_dir"
-
-  # Modify invoke-custom methods (common to all features)
-  modify_invoke_custom_methods "$decompile_dir"
-  apply_miui_framework_cn_notification_fix "$decompile_dir"
+  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
+    : # Xiaomi.eu keeps the original miui-framework behavior.
+  else
+    apply_miui_framework_gboard "$decompile_dir"
+    modify_invoke_custom_methods "$decompile_dir"
+    apply_miui_framework_cn_notification_fix "$decompile_dir"
+  fi
 
   # Recompile miui-framework.jar
   recompile_jar "$miui_framework_path"
@@ -1084,18 +1098,22 @@ patch_miui_framework() {
 
 # Main function
 # Initialize environment and check tools
-FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-1}"
+FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-0}"
 init_env
 ensure_tools || exit 1
 
 # Patch requested JARs
-patch_framework
-patch_services
-patch_miui_services
-patch_miui_framework
+patch_framework || exit 1
+patch_services || exit 1
+patch_miui_services || exit 1
+if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
+  patch_miui_framework || exit 1
+fi
 
 # Add patched JARs
 mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
 mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
 mv -f "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
-mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
+if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
+  mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
+fi

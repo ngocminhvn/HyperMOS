@@ -45,9 +45,6 @@ jar_util()
                         [[ -d "$dex.out" ]] && rm -rf $dex        
                     fi
                 done
-                # Create necessary directories and copy xBuild.smali
-                # mkdir -p $work_dir/jar_temp/$2.out/classes.dex.out/miuix/os
-                # cp $work_dir/bin/shPlugin/NOTIFICATION_FIX/A13/xBuild.smali $work_dir/jar_temp/$2.out/classes.dex.out/miuix/os/
             fi
         fi
     else 

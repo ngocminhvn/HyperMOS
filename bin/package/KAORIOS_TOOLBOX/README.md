@@ -19,7 +19,9 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - Android 17 `Build` / `Build$VERSION` spoof;
 - Toolbox APK as a `system_ext` priv-app.
 
-HyperMOS permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Android 13 legacy capture setters/getters are covered when their methods exist. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state. HyperMOS CorePatch/signature bypass remains a separate build-time patch in `bin/package/COREPATCH`.
+Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Its CorePatch pass owns the static signature/downgrade bypass. HyperMOS CorePatch runs first with those overlapping methods disabled and retains only its Xiaomi-specific patches. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state.
+
+`COREPATCH/update.sh` without an option remains the full standalone HyperMOS CorePatch. When `KAORIOS_ENABLE_COREPATCH=true`, the main package pipeline passes `--kaorios`, which disables only HyperMOS operations owned by Kaorios; it does not disable the remaining HyperMOS patch set. When the Kaorios CorePatch switch is false, the flag is omitted and HyperMOS runs its full profile instead.
 
 ## Per-feature config
 
@@ -38,8 +40,8 @@ Custom bootanimation is enabled by default in `bin/modfile/UpdateFile/Boot/updat
 | `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
 | `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
 | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
-| `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar`, optional Android 13 legacy paths, and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
-| `KAORIOS_ENABLE_COREPATCH` | Apply the build-time CorePatch/signature-verification bypass before Kaorios |
+| `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar` and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
+| `KAORIOS_ENABLE_COREPATCH` | Run the Kaorios CorePatch signature/downgrade pass after the non-overlapping HyperMOS CorePatch pass |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
 | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
 | `KAORIOS_DEVSTATUS_STRICT` | Fail instead of warning when the dev-status layout is unsupported |
@@ -54,13 +56,14 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 
 `bin/package/patchpackage.sh` runs:
 
-1. HyperMOS CorePatch/signature bypass (controlled by `KAORIOS_ENABLE_COREPATCH`); CorePatch no longer contains a separate Secure Flag implementation
+1. HyperMOS CorePatch with overlapping signature/downgrade and Secure Flag patches disabled
 2. DISABLE_AVB
 3. notification fix
-4. Kaorios upstream 2.0.6.1 integration
-5. TNM: post-fs property reporting + App Privacy (compatibility-gated)
+4. Kaorios CorePatch signature/downgrade pass (controlled by `KAORIOS_ENABLE_COREPATCH`)
+5. Kaorios upstream 2.0.6.1 hooks plus MOD-local static Secure Flag
+6. TNM: post-fs property reporting + App Privacy (compatibility-gated)
 
-Kaorios patches after CorePatch and the notification fix, so its framework/services hooks are applied to their resulting artifacts. TNM then installs the post-fs integration and runs App Privacy with its own compatibility checks; unsupported App Privacy layouts are skipped before changing `framework.jar`.
+Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notification fix, so they see the resulting artifacts without reapplying overlapping methods. TNM then installs the post-fs integration and runs App Privacy with its own compatibility checks; unsupported App Privacy layouts are skipped before changing `framework.jar`.
 
 ## Safety / verification
 
@@ -81,7 +84,6 @@ Required final feature checks include:
 - `hasSystemFeature` for system-feature spoofing;
 - static `DevicePolicyCacheImpl` and `WindowState`/`WindowStateAnimator` Secure Flag bypasses;
 - the static Xiaomi `WindowManagerServiceImpl.notAllowCaptureDisplay(...)` bypass when `miui-services.jar` is present;
-- static Android 13 legacy screen-capture getter/setter bypasses when those methods are present;
 
 The Secure Flag patcher replaces only the selected method bodies, allocates the minimum safe return register, then re-disassembles the saved candidate JAR and verifies every bypass before installation.
 

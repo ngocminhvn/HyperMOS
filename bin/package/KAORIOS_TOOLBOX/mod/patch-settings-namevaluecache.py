@@ -18,8 +18,8 @@ This module is deliberately HyperMOS-local: the maintained upstream
 ``kaorios_patcher.py`` documents this target as an optional, per-ROM manual patch
 (guide section 11), so keeping the logic in a separate fail-closed module avoids
 diverging from the upstream patcher and its verifier set. The injected block is
-identical in shape to the upstream Template_V2060/a1x reference smali for
-Android 13, 16 and 17.
+identical in shape to the upstream Template_V2060/a1x reference smali for the
+supported Android 15, 16 and 17 layouts.
 
 Exit codes
     0   patched, or already patched and structurally verified

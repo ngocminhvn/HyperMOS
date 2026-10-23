@@ -10,6 +10,13 @@ if [[ -s "$source_file" ]]; then
 fi
 android_version="$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/androidver.txt")"
 region_type="$(tr -d '\r\n' < "$WORK_DIR/bin/ddevice/device_type.txt")"
+case "$android_version" in
+    15|16|17) ;;
+    *)
+        error "Notification fix: unsupported Android version: $android_version (supported: 15, 16, 17)"
+        exit 1
+        ;;
+esac
 if [[ "$android_version" == "16" ]]; then
     if [[ "$rom_source" == "xiaomi_eu" || "$region_type" != *"Global"* ]]; then
         bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A16/patch.sh" || exit 1
@@ -31,19 +38,14 @@ if [[ $regionTYPE == *"Global"* ]]; then
 warn "No Support Global ROM!Skipping..."
 else
 patch "Start Notification FIX..."
-if [[ $AndroidVER == "13" ]];then
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A13/patchMIUIFramework.sh
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A13/patchMIUIServices.sh
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A13/PowerKeeper.sh
-elif [[ $AndroidVER == "14" ]];then
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A14/patchMIUIFramework.sh
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A14/patchMIUIServices.sh
-    bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A14/PowerKeeper.sh
-elif [[ $AndroidVER == "15" ]];then
+if [[ $AndroidVER == "15" ]];then
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/A15/SystemUI.sh
     bash $WORK_DIR/bin/package/NOTIFICATION_FIX/PowerKeeper.sh
 elif [[ $AndroidVER == "17" ]];then
     bash "$WORK_DIR/bin/package/NOTIFICATION_FIX/A17/patch.sh" || exit 1
+else
+    error "Notification fix: unsupported Android version: $AndroidVER (supported: 15, 16, 17)"
+    exit 1
 fi
 
 fi

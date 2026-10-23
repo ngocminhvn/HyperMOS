@@ -3,6 +3,15 @@ set -euo pipefail
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
+androidVER=$(cat "$work_dir/bin/ddevice/androidver.txt")
+
+case "$androidVER" in
+  15|16|17) ;;
+  *)
+    error "GMS: unsupported Android version: $androidVER (supported: 15, 16, 17)"
+    exit 1
+    ;;
+esac
 
 # Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
 if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
@@ -10,7 +19,6 @@ if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
     exit 0
 fi
 
-androidVER=$(cat "$work_dir/bin/ddevice/androidver.txt")
 regionTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 MAIN_FOLDER="$work_dir/build/baserom/images"
 GMS_SOURCE="$work_dir/bin/modfile/Universal/gmsservices"
@@ -131,13 +139,7 @@ if ! grep -q '^ro.miui.has_gmscore=1$' "$MAIN_FOLDER/system/system/build.prop"; 
   echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
 fi
 
-if [[ $androidVER == "13" ]]; then
-  cp -rf "$GMS_SOURCE/maps/A13/framework" "$MAIN_FOLDER/product/"
-elif [[ $androidVER == "14" ]]; then
-  cp -rf "$GMS_SOURCE/maps/A14/framework" "$MAIN_FOLDER/product/"
-else
-  cp -rf "$GMS_SOURCE/maps/A15/framework" "$MAIN_FOLDER/product/"
-fi
+cp -rf "$GMS_SOURCE/maps/A15/framework" "$MAIN_FOLDER/product/"
 
 for required in \
   "$MAIN_FOLDER/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk" \

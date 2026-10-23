@@ -10,7 +10,7 @@ repS="python3 $work_dir/bin/strRep.py"
 
 
 
-if [[ $androidVER == "16" ]]; then
+if [[ $androidVER == "15" ]]; then
 mods "Patching Notification Fix to SystemUI"
 #ready for patch
 mkdir -p $work_dir/apk_temp

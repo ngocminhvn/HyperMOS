@@ -24,8 +24,8 @@ KAORIOS_ENABLE_BUILD_SPOOF="${KAORIOS_ENABLE_BUILD_SPOOF:-true}"
 # so its visible runtime switch does not change this statically patched state.
 KAORIOS_ENABLE_SECURE_FLAG="${KAORIOS_ENABLE_SECURE_FLAG:-true}"
 
-# Build-time CorePatch/signature-verification bypass. Android cannot safely
-# make package signature verification a per-app runtime Toolbox preference.
+# Run Kaorios' build-time CorePatch after the non-overlapping HyperMOS pass.
+# Android cannot safely make package signature verification a per-app runtime preference.
 KAORIOS_ENABLE_COREPATCH="${KAORIOS_ENABLE_COREPATCH:-true}"
 
 # Install the runtime Toolbox app and its privapp permission XML.

@@ -65,7 +65,7 @@ backup_original_jar() {
 }
 
 # Decompile JAR using baksmali v2
-# Uses API_LEVEL if set (e.g. API_LEVEL=33 for Android 13)
+# Uses API_LEVEL if set (e.g. API_LEVEL=35 for Android 15)
 decompile_jar() {
   local jar_file="$1"
   local base_name
@@ -133,7 +133,7 @@ decompile_jar() {
 }
 
 # Recompile JAR using smali v2
-# Uses API_LEVEL if set (e.g. API_LEVEL=33 for Android 13)
+# Uses API_LEVEL if set (e.g. API_LEVEL=35 for Android 15)
 recompile_jar() {
   local jar_file="$1" # original jar file path (used only for name)
   local base_name

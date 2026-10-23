@@ -45,32 +45,6 @@ SERVICES_REQUIRED_TARGETS = (
     ),
 )
 
-# Android 13 used additional setters/getters. They are optional because newer
-# releases removed or relocated them, but when present they must use the same
-# build-time switch instead of keeping a second implementation in CorePatch.
-SERVICES_OPTIONAL_TARGETS = (
-    Target(
-        "com/android/server/devicepolicy/DevicePolicyManagerService.smali",
-        "getScreenCaptureDisabled(Landroid/content/ComponentName;IZ)Z",
-        ("const/4 v0, 0x0", "return v0"),
-    ),
-    Target(
-        "com/android/server/devicepolicy/DevicePolicyManagerService.smali",
-        "setScreenCaptureDisabled(I)V",
-        ("return-void",),
-    ),
-    Target(
-        "com/android/server/wm/WindowState.smali",
-        "setSecure(Z)V",
-        ("return-void",),
-    ),
-    Target(
-        "com/android/server/wm/WindowSurfaceController.smali",
-        "setSecure(Z)V",
-        ("return-void",),
-    ),
-)
-
 MIUI_SERVICES_TARGETS = (
     Target(
         "com/android/server/wm/WindowManagerServiceImpl.smali",
@@ -245,12 +219,6 @@ def run_services(root: Path, check_only: bool) -> int:
     if window_patched == 0:
         raise PatchError("no supported WindowState/WindowStateAnimator secure method found")
 
-    optional_patched = 0
-    for target in SERVICES_OPTIONAL_TARGETS:
-        if patch_if_supported(root, target, check_only):
-            optional_patched += 1
-    if optional_patched:
-        print(f"KAORIOS: verified {optional_patched} optional Android 13 Secure Flag bypasses")
     print("KAORIOS: static Secure Flag bypasses verified" if check_only else "KAORIOS: static Secure Flag bypasses applied")
     return 0
 
