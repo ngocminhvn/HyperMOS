@@ -1,0 +1,31 @@
+name: Extract Xiaomi 15 Global stock (dada A16)
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_method:
+        description: 'Save original JAR/APK dump to GitHub Artifacts or Google Drive'
+        required: true
+        type: choice
+        default: artifact
+        options:
+          - artifact
+          - drive
+
+permissions:
+  contents: read
+
+# Official Xiaomi 15 (dada) Global recovery ROM:
+# HyperOS OS3.0.303.0.WOCMIXM / Android 16
+# Filename: dada_global-ota_full-OS3.0.303.0.WOCMIXM-user-16.0-93266168a5.zip
+# Published MD5: 93266168a5e93d7b8f2ce3d8ba6120c0
+# This is read-only extraction. Do not flash dada components on haotian.
+jobs:
+  extract-global:
+    name: Extract five untouched stock JAR/APK files
+    uses: ./.github/workflows/dump.yml
+    with:
+      rom_url: https://bigota.d.miui.com/OS3.0.303.0.WOCMIXM/dada_global-ota_full-OS3.0.303.0.WOCMIXM-user-16.0-93266168a5.zip
+      upload_method: ${{ inputs.upload_method }}
+      dump_mode: base
+    secrets: inherit
