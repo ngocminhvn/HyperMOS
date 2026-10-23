@@ -70,20 +70,18 @@ jobs:
           root=Path(sys.argv[1])
           matches=list(root.glob("smali*/com/miui/server/greeze/GreezeManagerService.smali"))
           assert len(matches)==1,len(matches)
-          import re
-          text=matches[0].read_text()
-          methods=re.findall(r'(?ms)^\\.method[^\\n]*\\n.*?^\\.end method[ \\t]*
-          PY
-,text)
-          target='isAllowBroadcast(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z'
-          selected=[x for x in methods if x.splitlines()[0].strip().split()[-1]==target]
-          assert len(selected)==1,len(selected)
-          block=selected[0]
-          # Baksmali drops comments, so inspect the reassembled instructions,
-          # not the source-level marker from the patch script.
-          assert block.count('"com.google.android.c2dm.intent.RECEIVE"')==1,block
-          assert block.count('"com.google.android.gms"')==1,block
-          assert "mBroadcastTargetWhiteList" in block
-          assert "IS_ZK_BUILD" not in text
-          print("Recompiled EU JAR has one targeted GMS FCM guard; original whitelist preserved")
+          contents=matches[0].read_text()
+          target="isAllowBroadcast(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z"
+          headers=[line for line in contents.splitlines()
+                   if line.lstrip().startswith(".method ") and target in line]
+          assert len(headers)==1,headers
+          begin=contents.index(headers[0])
+          end=contents.index(".end method",begin)
+          body=contents[begin:end]
+          # Comments disappear in compiled DEX. Check reassembled instructions.
+          assert body.count('"com.google.android.c2dm.intent.RECEIVE"')==1,body
+          assert body.count('"com.google.android.gms"')==1,body
+          assert "mBroadcastTargetWhiteList" in body
+          assert "IS_ZK_BUILD" not in contents
+          print("Recompiled EU JAR contains one GMS FCM guard, with original whitelist")
           PY
