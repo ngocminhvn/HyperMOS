@@ -1,4 +1,4 @@
-# HyperMOS HAOTIAN — SukiSU Ultra v4.2.1 (LKM)
+# HyperMOS HAOTIAN / XUANYUAN — SukiSU Ultra v4.2.1 (LKM)
 
 The HyperMOS ROM builder supports two modes, selected in `.github/workflows/build.yml`:
 - `root_mode=root` (default): use SukiSU Ultra **v4.2.1** from pinned upstream source, patch stock `init_boot.img`, and **bundle the matching SukiSU manager APK for manual installation**.
@@ -12,11 +12,14 @@ The Actions job builds from the pinned signed upstream tag `v4.2.1` at commit
 `fd2a85151c8312fd9b4237db9ba827dcea692228`, not its mutable `main` branch.
 
 The stock ROM kernel KMI is detected from `boot.img` and vendor/odm module
-metadata using `bin/root/detect_kernel_kmi.py`. Currently only HAOTIAN's
-verified `android15-6.6` KMI is supported. Build aborts if detection differs.
+metadata using `bin/root/detect_kernel_kmi.py`. Root mode accepts only `haotian`
+and `xuanyuan`, and requires the extracted ROM's verified `android15-6.6` KMI.
+The preparation stage writes the target codename so the patch stage can reject
+cross-device reuse. A different or undetectable KMI aborts without patching.
+Static KMI validation alone does not establish device boot compatibility.
 
 `bin/root/prepare_sukisu.sh` compiles:
-- `kernelsu.ko`: ARM64 GKI `android15-6.6` using the upstream DDK image.
+- `kernelsu.ko`: ARM64 GKI `android15-6.6` using the upstream DDK image for matching HAOTIAN/XUANYUAN ROMs.
 - `ksuinit`: ARM64 Android from the same upstream tag.
 - `ksud`: Linux x86_64 from that tag for offline image patching.
 
@@ -73,7 +76,7 @@ at the ZIP root are not included.
 This integration does **not** include SUSFS, a custom GKI kernel replacement,
 KPM, changed bootloader state, or app/identity spoofing.
 
-**Bootability and runtime root require testing on the Xiaomi 15 Pro.** A successful
-build and static ramdisk validation do not prove the device boots. Keep the
-matching stock `init_boot.img` and know the stock recovery procedure before
-testing a new root provider.
+**Bootability and runtime root require testing on both Xiaomi 15 Pro and Xiaomi 15 Ultra.**
+A successful build, KMI detection, and static ramdisk validation do not prove
+that either device boots with the module. Keep the exact ROM-matched stock
+`init_boot.img` and a rollback plan before testing root on hardware.
