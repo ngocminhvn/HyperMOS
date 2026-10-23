@@ -1,0 +1,107 @@
+name: Stock ROM 5-file comparison (dada / haotian)
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_rom:
+        description: 'Official stock ROM to extract (Android 16, HyperOS 3)'
+        required: true
+        type: choice
+        default: dada_global
+        options:
+          - dada_global
+          - dada_eea
+          - dada_indonesia
+          - dada_china
+          - haotian_china
+      rom_url_override:
+        description: 'Optional alternate direct Xiaomi ROM ZIP URL (same exact filename as selected preset)'
+        required: false
+        type: string
+      upload_method:
+        description: 'Where to save the extracted 5 files'
+        required: true
+        type: choice
+        default: artifact
+        options:
+          - artifact
+          - drive
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-rom:
+    name: Resolve selected official Recovery ROM
+    runs-on: ubuntu-latest
+    outputs:
+      rom_url: ${{ steps.resolve.outputs.rom_url }}
+    steps:
+      - id: resolve
+        name: Pin expected device, version and filename
+        shell: bash
+        env:
+          STOCK_ROM: ${{ inputs.stock_rom }}
+          ROM_OVERRIDE: ${{ inputs.rom_url_override }}
+        run: |
+          set -euo pipefail
+          case "$STOCK_ROM" in
+            dada_global)
+              device=dada; region=Global; version=OS3.0.303.0.WOCMIXM
+              filename=dada_global-ota_full-OS3.0.303.0.WOCMIXM-user-16.0-93266168a5.zip
+              ;;
+            dada_eea)
+              device=dada; region=EEA; version=OS3.0.305.0.WOCEUXM
+              filename=dada_eea_global-ota_full-OS3.0.305.0.WOCEUXM-user-16.0-c9e2da12e4.zip
+              ;;
+            dada_indonesia)
+              device=dada; region=Indonesia; version=OS3.0.303.0.WOCIDXM
+              filename=dada_id_global-ota_full-OS3.0.303.0.WOCIDXM-user-16.0-feadd8b06c.zip
+              ;;
+            dada_china)
+              device=dada; region=China; version=OS3.0.307.0.WOCCNXM
+              filename=dada-ota_full-OS3.0.307.0.WOCCNXM-user-16.0-135abb5f28.zip
+              ;;
+            haotian_china)
+              device=haotian; region=China; version=OS3.0.309.0.WOBCNXM
+              filename=haotian-ota_full-OS3.0.309.0.WOBCNXM-user-16.0-f9387d12d7.zip
+              ;;
+            *)
+              echo "::error::Unknown stock ROM preset: $STOCK_ROM"
+              exit 1
+              ;;
+          esac
+          # Conventional Xiaomi stock Recovery ROM CDN path. A custom direct
+          # Xiaomi mirror URL may be supplied when the CDN route is unavailable.
+          rom_url="https://bigota.d.miui.com/$version/$filename"
+          if [[ -n "$ROM_OVERRIDE" ]]; then
+            if [[ "$ROM_OVERRIDE" != https://* || "$ROM_OVERRIDE" != *"$filename"* ]]; then
+              echo "::error::Override must be an HTTPS URL containing exact expected ROM filename: $filename"
+              exit 1
+            fi
+            rom_url="$ROM_OVERRIDE"
+          fi
+          echo "rom_url=$rom_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Stock ROM comparison source"
+            echo ""
+            echo "- Preset: \`$STOCK_ROM\`"
+            echo "- Device: \`$device\`"
+            echo "- Region: \`$region\`"
+            echo "- HyperOS: \`$version\` (Android 16)"
+            echo "- Expected package: \`$filename\`"
+            echo "- ZIP: $rom_url"
+            echo ""
+            echo "Read-only extraction only. Never flash cross-device system files."
+            echo "The reusable dump workflow validates ZIP format and writes SHA256/map metadata."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  extract:
+    name: Extract 5 unmodified JAR / APK files
+    needs: resolve-rom
+    uses: ./.github/workflows/dump.yml
+    with:
+      rom_url: ${{ needs.resolve-rom.outputs.rom_url }}
+      upload_method: ${{ inputs.upload_method }}
+      dump_mode: base
+    secrets: inherit
