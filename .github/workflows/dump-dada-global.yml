@@ -28,4 +28,5 @@ jobs:
       rom_url: https://bigota.d.miui.com/OS3.0.303.0.WOCMIXM/dada_global-ota_full-OS3.0.303.0.WOCMIXM-user-16.0-93266168a5.zip
       upload_method: ${{ inputs.upload_method }}
       dump_mode: base
+      expected_md5: '93266168a5e93d7b8f2ce3d8ba6120c0'
     secrets: inherit
