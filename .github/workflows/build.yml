@@ -78,6 +78,15 @@ jobs:
         with:
           lfs: true
 
+      - name: Check ROM root and Telegram bot sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/root/fetch_sukisu_latest.py
+          python3 bin/root/fetch_sukisu_latest.py --self-test
+          bash -n bin/root/prepare_sukisu.sh bin/root/patch_init_boot.sh
+          node --input-type=module --check < bot/telegram_build_worker.js
+
       - name: Java 17
         uses: actions/setup-java@v6
         with:
