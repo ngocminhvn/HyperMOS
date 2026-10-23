@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HyperMOS HAOTIAN SukiSU Ultra v4.2.1 LKM integration.
+# HyperMOS HAOTIAN/XUANYUAN SukiSU Ultra v4.2.1 LKM integration.
 # Only init_boot is patched. Stock boot and init_boot backups are retained.
 set -euo pipefail
 
@@ -14,8 +14,12 @@ manager_sha256="c7f69280cf468e8415c585ff31f963d0147386831217a1e89b822afddc5f40ed
 
 die() { echo "::error title=SukiSU root::$*" >&2; exit 1; }
 [ "${ROOT_MODE:-root}" = "root" ] || die "Only root mode may patch init_boot"
-[ "$(cat "$workdir/bin/ddevice/device_f.txt" 2>/dev/null)" = "haotian" ] ||
-  die "Root patch restricted to HAOTIAN"
+device="$(cat "$workdir/bin/ddevice/device_f.txt" 2>/dev/null || true)"
+device="${device,,}"
+case "$device" in
+  haotian|xuanyuan) ;;
+  *) die "Root patch restricted to HAOTIAN/XUANYUAN (got: ${device:-unknown})" ;;
+esac
 test -s "$input" && test -s "$images/boot.img" ||
   die "Paired stock init_boot.img / boot.img missing"
 [ "$(head -c 8 "$input")" = "ANDROID!" ] || die "Stock init_boot has invalid header"
@@ -24,7 +28,9 @@ kmi="$(python3 "$workdir/bin/root/detect_kernel_kmi.py" \
   --boot-image "$images/boot.img" \
   --magiskboot "$workdir/bin/Linux/x86_64/magiskboot" \
   --images-dir "$images")" || die "Stock KMI detection failed"
-[ "$kmi" = "android15-6.6" ] || die "Unexpected HAOTIAN KMI=$kmi"
+[ "$kmi" = "android15-6.6" ] || die "Unexpected ${device^^} KMI=$kmi"
+[ "$(cat "$scratch/device.txt" 2>/dev/null)" = "$device" ] ||
+  die "Prepared SukiSU target device does not match $device"
 [ "$(cat "$scratch/kmi.txt" 2>/dev/null)" = "$kmi" ] ||
   die "Prepared LKM KMI does not match stock"
 [ "$(cat "$scratch/source-commit.txt" 2>/dev/null)" = "fd2a85151c8312fd9b4237db9ba827dcea692228" ] ||
@@ -80,7 +86,7 @@ mv -f "$patched" "$input"
 mkdir -p "$workdir/build/baserom/root-package"
 install -m 0644 "$manager" "$workdir/build/baserom/root-package/RootManager.apk"
 {
-  printf 'HyperMOS HAOTIAN ROOT_PROVIDER=SukiSU-Ultra\n'
+  printf 'HyperMOS %s ROOT_PROVIDER=SukiSU-Ultra\n' "${device^^}"
   printf 'ROOT_KMI=%s\nROOT_VERSION=%s\n' "$kmi" "$tag"
   printf 'MANAGER_PACKAGE=com.sukisu.ultra\n'
   printf 'MANAGER_INSTALL=manual-user-app-only\n'
