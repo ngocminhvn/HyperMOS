@@ -1,85 +1,54 @@
 #!/usr/bin/env bash
-# Prepare SukiSU Ultra v4.2.1 LKM, ksuinit and Linux patcher from ONE verified source tag.
-# This runs as the Actions runner (not sudo); it deliberately never flashes a device.
+# Select the newest stable SukiSU-Ultra release and matching official GKI module.
+# Root is conditional on verified KMI and ramdisk, never on a codename allowlist.
 set -euo pipefail
 
 workdir="$(pwd)"
 images="$workdir/build/baserom/images"
-out="${RUNNER_TEMP:-/tmp}/hypermos-sukisu-v4.2.1"
-source_dir="$out/source"
-tag="v4.2.1"
-commit="fd2a85151c8312fd9b4237db9ba827dcea692228"
-ddk_image="ghcr.io/ylarod/ddk-min:android15-6.6-20260828"
+out="${RUNNER_TEMP:-/tmp}/hypermos-sukisu"
 
 die() { echo "::error title=SukiSU preparation::$*" >&2; exit 1; }
-device="$(cat "$workdir/bin/ddevice/device_f.txt" 2>/dev/null || true)"
+device="$(tr -d '\r\n' < "$workdir/bin/ddevice/device_f.txt" 2>/dev/null || true)"
 device="${device,,}"
-case "$device" in
-  haotian|xuanyuan) ;;
-  *) die "SukiSU root is supported only for HAOTIAN/XUANYUAN (got: ${device:-unknown})" ;;
-esac
-test -s "$images/boot.img" && test -s "$images/init_boot.img" ||
-  die "Paired stock boot/init_boot images are missing"
+[[ "$device" =~ ^[a-z0-9_-]+$ ]] || die "Missing or invalid device codename"
+test -s "$images/boot.img" || die "Stock boot.img required for kernel KMI detection"
+test -x "$workdir/bin/Linux/x86_64/magiskboot" || die "magiskboot unavailable"
 kmi="$(python3 "$workdir/bin/root/detect_kernel_kmi.py" \
   --boot-image "$images/boot.img" \
   --magiskboot "$workdir/bin/Linux/x86_64/magiskboot" \
-  --images-dir "$images")" || die "Stock kernel KMI detection failed"
-# The DDK container below is the officially documented android15-6.6 toolchain.
-# Never substitute an unrelated LKM when stock KMI does not match.
-[ "$kmi" = "android15-6.6" ] ||
-  die "Detected KMI=$kmi is unsupported by the pinned HAOTIAN/XUANYUAN SukiSU builder"
-command -v docker >/dev/null || die "Docker is required for upstream DDK build"
-command -v cargo >/dev/null || die "Cargo/Rust is required for upstream SukiSU build"
-command -v rustup >/dev/null || die "rustup is required for upstream SukiSU build"
-test -x "${ANDROID_NDK_HOME:-}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" ||
-  die "Android NDK r29 is not configured"
+  --images-dir "$images")" || die "Could not establish stock kernel KMI"
 
+case "$kmi" in
+  android12-5.10|android13-5.10|android13-5.15|android14-5.15|android14-6.1|android15-6.6|android16-6.12|android17-6.18) ;;
+  *) die "No supported official SukiSU LKM for KMI=$kmi (device=$device)" ;;
+esac
+
+command -v cargo >/dev/null || die "Cargo/Rust is needed to build upstream host ksud"
+command -v git >/dev/null || die "Git is needed to verify the matching release source"
 mkdir -p "$out"
-if [ ! -d "$source_dir/.git" ]; then
-  echo "[ROOT] Cloning pinned upstream SukiSU Ultra $tag source"
-  git clone --quiet --branch "$tag" --single-branch \
-    https://github.com/SukiSU-Ultra/SukiSU-Ultra.git "$source_dir" ||
-    die "SukiSU source checkout failed"
-fi
-head="$(git -C "$source_dir" rev-parse HEAD)" || die "Cannot inspect upstream commit"
-[ "$head" = "$commit" ] || die "Pinned tag checksum mismatch: $head"
-echo "[ROOT] Upstream SukiSU $tag commit $head; KMI=$kmi"
+python3 "$workdir/bin/root/fetch_sukisu_latest.py" --out "$out" --kmi "$kmi" ||
+  die "Latest official SukiSU release does not support $kmi or failed digest verification"
 
-# The upstream DDK workflow builds this exact module using CONFIG_KSU=m CC=clang.
-# Build only the detected HAOTIAN ARM64 KMI; never replace the stock boot kernel.
-docker run --rm --privileged \
-  -v "$source_dir:/workspace" -w /workspace/kernel "$ddk_image" \
-  bash -euo pipefail -c 'CONFIG_KSU=m CC=clang make -j2 && llvm-strip -d kernelsu.ko' ||
-  die "Official SukiSU v4.2.1 DDK LKM build failed"
-test -s "$source_dir/kernel/kernelsu.ko" || die "Kernel module build has no output"
-
-# Build a matching Android ARM64 init and a Linux x86_64 ksud patch tool.
-# Full Git history is essential: upstream embeds git commit count as versionCode.
-rustup target add aarch64-linux-android >/dev/null ||
-  die "Could not install Android Rust target"
+tag="$(cat "$out/tag.txt")"
+[[ "$tag" =~ ^v[0-9][0-9A-Za-z._-]*$ ]] || die "Invalid upstream release tag"
+source_dir="$out/source"
+# Clone the release tag, not mutable main. Full history retains upstream versioning.
+git clone --quiet --branch "$tag" --single-branch \
+  https://github.com/SukiSU-Ultra/SukiSU-Ultra.git "$source_dir" ||
+  die "Could not clone SukiSU upstream release $tag"
+head="$(git -C "$source_dir" rev-parse HEAD)" || die "Could not inspect upstream tag"
+test -n "$head" || die "Missing upstream commit"
+echo "[ROOT] Latest stable SukiSU $tag ($head) device=$device KMI=$kmi"
+# Official release binaries are SHA-256 verified; build the Linux host patcher
+# from the same release tag because Android ksud cannot run on the Linux runner.
 (
   cd "$source_dir"
-  # shellcheck source=/dev/null
-  source .github/scripts/setup-rust-build.sh aarch64-linux-android 26
-  BUILTINS="$("$CLANG_PATH" --print-resource-dir)/lib/linux/libclang_rt.builtins-aarch64-android.a"
-  test -s "$BUILTINS"
-  export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wno-unused-command-line-argument -C link-arg=$BUILTINS"
-  # Upstream v4.2.1 Cargo.lock is not fully synchronized with its manifests.
-  # Resolve it once during the first build; keep --locked for the host ksud build
-  # so both tools share the same dependency graph from this pinned source checkout.
-  cargo build --package ksuinit --target aarch64-linux-android --release
-) || die "SukiSU v4.2.1 ksuinit build failed"
-(
-  cd "$source_dir"
-  cargo build --locked --package ksud --target x86_64-unknown-linux-gnu --release
-) || die "SukiSU v4.2.1 Linux ksud build failed"
-install -m 0644 "$source_dir/kernel/kernelsu.ko" "$out/kernelsu.ko"
-install -m 0755 "$source_dir/target/aarch64-linux-android/release/ksuinit" "$out/ksuinit"
+  cargo build --package ksud --target x86_64-unknown-linux-gnu --release
+) || die "Could not build matching host ksud for release $tag"
 install -m 0755 "$source_dir/target/x86_64-unknown-linux-gnu/release/ksud" "$out/ksud"
-for part in kernelsu.ko ksuinit ksud; do
-  test -s "$out/$part" || die "Missing upstream-built $part"
+for item in kernelsu.ko ksuinit RootManager.apk ksud; do
+  test -s "$out/$item" || die "Missing validated SukiSU $item"
 done
 printf '%s\n' "$device" > "$out/device.txt"
-printf '%s\n' "$kmi" > "$out/kmi.txt"
 printf '%s\n' "$head" > "$out/source-commit.txt"
-echo "[ROOT] SukiSU Ultra $tag LKM, ksuinit and host ksud ready"
+echo "[ROOT] Prepared latest stable SukiSU $tag for $device ($kmi)"
