@@ -1,0 +1,291 @@
+name: dump
+
+on:
+  workflow_call:
+    inputs:
+      rom_url:
+        description: 'Direct ROM ZIP URL'
+        required: true
+        type: string
+      upload_method:
+        description: 'Save extracted dump to'
+        required: true
+        type: string
+        default: artifact
+      dump_mode:
+        description: 'base = 5 named JAR/APK files; full = complete target list'
+        required: false
+        type: string
+        default: base
+      expected_md5:
+        description: 'Optional 32-character MD5 for ROM ZIP integrity verification'
+        required: false
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Direct ROM ZIP URL (OTA, fastboot or modified ROM)'
+        required: true
+        type: string
+      upload_method:
+        description: 'Save extracted dump to'
+        required: true
+        type: choice
+        default: artifact
+        options:
+          - artifact
+          - drive
+      dump_mode:
+        description: 'Dump mode (base: 5 files, full: target list)'
+        required: true
+        type: choice
+        default: base
+        options:
+          - base
+          - full
+      expected_md5:
+        description: 'Optional known full ROM ZIP MD5 (32 hex characters)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DUMP_MODE: ${{ inputs.dump_mode }}
+    steps:
+      - name: Free runner space
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h .
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc /usr/local/share/powershell /usr/share/swift || true
+          df -h .
+
+      - name: Checkout HyperMOS tools
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: false
+          persist-credentials: false
+
+      - name: Preflight encrypted ROM check
+        id: preflight
+        shell: bash
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
+        run: |
+          set -euo pipefail
+          python3 bin/dump/preflight.py --url "$ROM_URL"
+
+      - name: Install extraction tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 curl unzip brotli zstd lz4 xz-utils erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
+          bash -n bin/dump/extract.sh
+          test -s bin/dump/targets.txt
+
+      - name: Download ROM
+        shell: bash
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hypermos-dump"
+          python3 bin/dump/sourceforge_download.py \
+            --url "$ROM_URL" \
+            --output "$RUNNER_TEMP/hypermos-dump/source.zip" \
+            --report "$RUNNER_TEMP/hypermos-dump/mirror-report.json" \
+            --expected-md5 "${{ inputs.expected_md5 }}"
+          unzip -tq "$RUNNER_TEMP/hypermos-dump/source.zip" >/dev/null
+
+      - name: Unpack ROM without mod or repack
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash bin/dump/extract.sh "$RUNNER_TEMP/hypermos-dump/source.zip" "$RUNNER_TEMP/hypermos-dump/work" "$DUMP_MODE"
+
+      - name: Save ZIP layout diagnostics on extraction failure
+        if: ${{ failure() && steps.preflight.conclusion == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: HyperMOS-dump-diagnostics-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/hypermos-dump/work/entries.txt
+            ${{ runner.temp }}/hypermos-dump/work/zip-layout.json
+            ${{ runner.temp }}/hypermos-dump/work/zip-layout.txt
+            ${{ runner.temp }}/hypermos-dump/work/updater-script.txt
+            ${{ runner.temp }}/hypermos-dump/mirror-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Copy files and create map
+        shell: bash
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
+        run: |
+          set -euo pipefail
+          case "$DUMP_MODE" in
+            base)
+              python3 bin/dump/base.py \
+                --images "$RUNNER_TEMP/hypermos-dump/work/images" \
+                --output "$RUNNER_TEMP/hypermos-dump/output" \
+                --source-url "$ROM_URL"
+              ;;
+            full)
+              python3 bin/dump/collect.py \
+                --images "$RUNNER_TEMP/hypermos-dump/work/images" \
+                --targets bin/dump/targets.txt \
+                --output "$RUNNER_TEMP/hypermos-dump/output" \
+                --source-url "$ROM_URL"
+              ;;
+            *)
+              echo "::error::Unsupported dump mode: $DUMP_MODE"
+              exit 1
+              ;;
+          esac
+          cp "$RUNNER_TEMP/hypermos-dump/mirror-report.json" \
+            "$RUNNER_TEMP/hypermos-dump/output/pack-meta/mirror-report.json"
+          if [[ -f "$RUNNER_TEMP/hypermos-dump/work/zip-layout.json" ]]; then
+            cp "$RUNNER_TEMP/hypermos-dump/work/zip-layout.json" \
+              "$RUNNER_TEMP/hypermos-dump/output/pack-meta/zip-layout.json"
+          fi
+          echo "Dump mode: $DUMP_MODE. map.tsv, map.json and mirror-report.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package dump ZIP
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/hypermos-dump/output"
+          src="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("source_file") or "")' "$RUNNER_TEMP/hypermos-dump/mirror-report.json" 2>/dev/null || true)"
+          name="$(basename "$src")"
+          case "$name" in
+            *.tar.gz) name="${name%.tar.gz}" ;;
+            *.tgz) name="${name%.tgz}" ;;
+            *.zip) name="${name%.zip}" ;;
+            *.7z) name="${name%.7z}" ;;
+            *.tar) name="${name%.tar}" ;;
+          esac
+          if [ -n "$name" ]; then out="DUMP_${name}.zip"; else out="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"; fi
+          echo "DUMP_OUT_NAME=$out" >> "$GITHUB_ENV"
+          zip -q -r -1 "$GITHUB_WORKSPACE/$out" .
+          ls -lh "$GITHUB_WORKSPACE/$out"
+      - name: Upload GitHub Artifact
+        if: ${{ inputs.upload_method == 'artifact' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: HyperMOS-dump-${{ inputs.dump_mode }}-${{ github.run_number }}
+          path: ${{ env.DUMP_OUT_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Google Drive using existing rclone config
+        if: ${{ inputs.upload_method == 'drive' }}
+        shell: bash
+        env:
+          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_TOKEN_PATH" || { echo '[ERROR] Missing RCLONE_TOKEN_PATH'; exit 1; }
+          config_url="$RCLONE_TOKEN_PATH"
+          case "$config_url" in https://*|http://*) ;; //*) config_url="https:$config_url" ;; *) config_url="https://$config_url" ;; esac
+          config="$RUNNER_TEMP/hypermos-dump/rclone.conf"
+          curl -fsSL --retry 4 "$config_url" -o "$config"
+          remote="$(rclone listremotes --config="$config" | head -1)"
+          test -n "$remote" || { echo '[ERROR] No configured remote'; exit 1; }
+          name="${DUMP_OUT_NAME:-HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip}"
+          rclone copyto "$name" "${remote}HyperMOS/dump/$name" \
+            --config="$config" --progress --transfers=1 --retries=6
+          download_url="$(rclone link "${remote}HyperMOS/dump/$name" --config="$config" 2>/dev/null || true)"
+          if [[ -n "$download_url" && "$download_url" == https://* ]]; then
+            echo "DUMP_DOWNLOAD_URL=$download_url" >> "$GITHUB_ENV"
+            echo "[DUMP] Download URL: $download_url"
+            {
+              echo "### Dump download"
+              echo ""
+              echo "[Google Drive]($download_url)"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Drive upload succeeded but rclone did not return a valid HTTPS download link."
+          fi
+
+      - name: Notify Telegram with final dump result
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          DUMP_JOB_STATUS: ${{ job.status }}
+          DUMP_UPLOAD_METHOD: ${{ inputs.upload_method }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import html
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          chat_id = os.environ.get("TELEGRAM_CHANNEL_ID", "").strip()
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          run_no = os.environ.get("GITHUB_RUN_NUMBER", "")
+          mode = os.environ.get("DUMP_MODE", "base")
+          method = os.environ.get("DUMP_UPLOAD_METHOD", "artifact")
+          status = os.environ.get("DUMP_JOB_STATUS", "failure")
+          url = os.environ.get("DUMP_DOWNLOAD_URL", "").strip()
+          run_url = f"https://github.com/{repo}/actions/runs/{run_id}"
+          uploaded = status == "success"
+          file_name = f"HyperMOS-dump-{mode}-{run_no}.zip"
+
+          lines = [
+              "<b>HyperMOS — ROM Dump</b>",
+              f"• <b>Trạng thái:</b> {'HOÀN TẤT' if uploaded else 'THẤT BẠI'}",
+              f"• <b>Chế độ:</b> <code>{html.escape(mode)}</code>",
+              f"• <b>File:</b> <code>{html.escape(file_name)}</code>" if uploaded else "• <b>Kết quả:</b> Chưa upload thành công.",
+          ]
+          if uploaded:
+              if method == "drive":
+                  if url.startswith("https://"):
+                      lines.append(f'• <b>Tải dump:</b> <a href="{html.escape(url, quote=True)}">Google Drive</a>')
+                  else:
+                      lines.append("• <b>Link tải:</b> Chưa lấy được link Drive (kiểm tra log).")
+              else:
+                  lines.append(f'• <b>Tải dump:</b> <a href="{run_url}#artifacts">GitHub Artifacts</a> (đăng nhập GitHub)')
+          lines.append(f'• <b>Actions:</b> <a href="{run_url}">Run #{html.escape(run_no)}</a>')
+          message = "\n".join(lines)
+          print("[DUMP] " + ("Completed" if uploaded else "Failed") + " - " + (url if url else run_url))
+          if not token or not chat_id:
+              print("::warning::Telegram secrets missing; final dump notification was skipped.")
+              sys.exit(0)
+          payload = json.dumps({
+              "chat_id": chat_id,
+              "text": message,
+              "parse_mode": "HTML",
+              "disable_web_page_preview": True,
+          }).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=25) as response:
+                  result = json.load(response)
+              if not result.get("ok"):
+                  raise RuntimeError("Telegram returned ok=false")
+              print("[DUMP] Final Telegram notification sent.")
+          except (urllib.error.URLError, ValueError, RuntimeError) as exc:
+              print("::warning::Could not send final Telegram notification: " + str(exc))
+          PY
