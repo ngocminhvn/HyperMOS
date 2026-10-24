@@ -22,10 +22,10 @@ def load(path):
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("format") != "hypermos_ryu_a16_policy_v1":
         raise ValueError("Unsupported RYU manifest format")
-    if set(data.get("groups", {})) != {"miui-services", "powerkeeper"}:
-        raise ValueError("Both policy groups must be present")
+    if set(data.get("groups", {})) != {"miui-services"}:
+        raise ValueError("Only miui-services method edits are supported")
     seen = set()
-    allowed = {"force_international", "force_cn_model_false", "stock_ryu_equal"}
+    allowed = {"force_international", "force_cn_model_false"}
     for group, entries in data["groups"].items():
         if not isinstance(entries, list) or not entries:
             raise ValueError("Empty group: " + group)
@@ -36,10 +36,6 @@ def load(path):
             seen.add(pair)
             if row["operation"] not in allowed:
                 raise ValueError("Unsupported operation")
-            if group == "powerkeeper" and row["operation"] != "stock_ryu_equal":
-                raise ValueError("RYU PowerKeeper delta depends on PerfHook/FPS/thermal")
-            if group == "miui-services" and row["operation"] == "stock_ryu_equal":
-                raise ValueError("JAR edits must be explicit")
             if row["operation"] == "force_international":
                 regs = row.get("registers")
                 if not isinstance(regs, list) or not regs or any(
@@ -55,6 +51,8 @@ def load(path):
                 raise ValueError("Method hash pins are forbidden")
             if any(alias in json.dumps(row) for alias in ALIASES):
                 raise ValueError("Forbidden RYU-only dependency")
+    if len(data["groups"]["miui-services"]) != 17:
+        raise ValueError("Expected exactly 17 selected RYU JAR methods")
     return data
 
 
@@ -75,10 +73,6 @@ def method_span(source, signature):
 
 def check_policy(row, body, verify):
     operation = row["operation"]
-    if operation == "stock_ryu_equal":
-        if any(alias in body for alias in ALIASES):
-            raise ValueError("Stock PowerKeeper contains forbidden RYU-only classes")
-        return body, "unchanged"
     if operation == "force_international":
         wanted = row["registers"]
         value = "0x1" if row["value"] else "0x0"
@@ -135,7 +129,7 @@ def run(root, manifest, group, verify, report):
             changes.append(entry["class"] + "->" + entry["signature"])
         out.append({"class": entry["class"], "method": entry["signature"], "status": status})
     payload = {"group": group, "verified": verify, "methods": out,
-               "modified": changes, "apk_resigned": False,
+               "modified": changes, "PowerKeeper_APK_modified": False,
                "donor_archives_required": False}
     if report:
         report.parent.mkdir(parents=True, exist_ok=True)
@@ -150,7 +144,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--group", required=True, choices=("miui-services", "powerkeeper"))
+    parser.add_argument("--group", required=True, choices=("miui-services",))
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--report", type=Path)
     a = parser.parse_args()
