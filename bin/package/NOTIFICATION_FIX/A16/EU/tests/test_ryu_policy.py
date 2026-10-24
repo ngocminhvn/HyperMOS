@@ -12,6 +12,14 @@ SPEC.loader.exec_module(RYU)
 
 
 class RyuPolicyTest(unittest.TestCase):
+    def test_eu_dispatch_uses_function_available_before_corepatch_helper(self):
+        dispatcher = (BASE.parent / "patch.sh").read_text(encoding="utf-8")
+        eu_branch = dispatcher.split(
+            'if [[ "$rom_source" == xiaomi_eu ]]; then', 1
+        )[1].split("fi", 1)[0]
+        self.assertIn('info "[EU A16]', eu_branch)
+        self.assertNotIn('log "[EU A16]', eu_branch)
+
     def test_manifest_contains_all_three_security_deltas(self):
         manifest = RYU.load(BASE / "ryu_policy.json")
         rows = manifest["groups"]["miui-services"]
