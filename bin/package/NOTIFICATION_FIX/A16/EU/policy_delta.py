@@ -13,7 +13,7 @@ from pathlib import Path
 METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
 IGNORE = ("#", ".line ", ".local ", ".end local", ".restart local",
           ".param ", ".end param", ".prologue", ".epilogue", ".source ")
-EXPECTED = {"eu-battery": 0, "global-power": 7, "zk-jar": 1, "zk-power": 4}
+EXPECTED = {"eu-battery": 0, "global-power": 7, "zk-jar": 1}
 ZK_MARKERS = ("Lmiui/zk/", "Lcom/zk/", "IS_ZK_BUILD", "zk_state", "Lcom/projectryu/")
 
 

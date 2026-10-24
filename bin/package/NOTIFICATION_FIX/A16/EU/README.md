@@ -15,14 +15,15 @@ binaries remain recoverable in Git history if an audit is ever required.
 - `GreezeManagerService.isAllowBroadcast`: existing HyperMOS scoped
   `com.google.android.gms` / `com.google.android.c2dm.intent.RECEIVE`
   exception. All other native EU Greeze, region and Doze logic remains.
-- `PowerKeeper.apk`: seven selected Global303 methods, ZK304
-  `GmsObserver.isGmsControlEnabled()` and
-  `ActiveStateController.dealNoRestrictApp()`. The two GmsObserver
-  enable/disable functions matched EU originally, so are not rewritten.
+- `PowerKeeper.apk`: seven selected Global303 methods only. Keep all original
+  EU GmsObserver (`isGmsControlEnabled`, `enableGms`, `disableGms`) and
+  ActiveStateController (`dealNoRestrictApp`) behavior without ZK bytecode edits.
+- ZK304: port **only** `InternationalPolicyManager.getImportantApps()` in
+  `miui-services.jar`. Keep `backupzk.zip` as a passive reference, never a build donor.
 - No change to EU KillProcessController, other Millet methods, thermal,
   stock vendor power limits, or any China ROM policy.
 
-The manifest is compiled directly onto the original EU Android 16 APK/JAR,
+The manifest is applied directly to the original EU Android 16 APK/JAR,
 never replaces an entire donor class. A mismatch to audited EU309 aborts.
 The APK's original META-INF data is copied but its original digital signature
 is not cryptographically valid after DEX modification. Firmware signature
