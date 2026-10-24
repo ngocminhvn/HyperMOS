@@ -5,6 +5,8 @@ on:
     paths:
       - 'bin/audit/zk304_candidate_audit.py'
       - 'bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/policy_delta.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/policy_deltas.json'
       - 'bin/package/NOTIFICATION_FIX/A16/EU/patch.sh'
       - 'bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper.sh'
       - '.github/workflows/audit-zk304-candidates.yml'
