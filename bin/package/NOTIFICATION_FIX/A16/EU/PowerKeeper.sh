@@ -29,15 +29,13 @@ unzip -p "$apk" classes.dex > "$tmp/original.dex"
 [[ -s "$tmp/original.dex" ]] || { error "EU A16 PowerKeeper DEX missing"; exit 1; }
 java -jar "$baksmali" d --api 36 "$tmp/original.dex" -o "$tmp/decoded/smali" >/dev/null
 python3 "$base/policy_delta.py" --root "$tmp/decoded" --manifest "$manifest" --policy global-power --report "$report/ported-methods.json"
-python3 "$base/policy_delta.py" --root "$tmp/decoded" --manifest "$manifest" --policy zk-power --report "$report/zk-gms-millet.json"
 java -jar "$smali" a --api 36 "$tmp/decoded/smali" -o "$tmp/patched.dex" >/dev/null
 java -jar "$baksmali" d --api 36 "$tmp/patched.dex" -o "$tmp/verified/smali" >/dev/null
 python3 "$base/policy_delta.py" --root "$tmp/verified" --manifest "$manifest" --policy global-power --verify
-python3 "$base/policy_delta.py" --root "$tmp/verified" --manifest "$manifest" --policy zk-power --verify
 python3 "$meta" --base "$apk" --dex "$tmp/patched.dex" --output "$tmp/preserved.apk" --report "$report/preserve-metadata.json"
 zipalign -p -f 4 "$tmp/preserved.apk" "$tmp/aligned.apk"
 zipalign -c -p 4 "$tmp/aligned.apk"
 python3 "$meta" --base "$apk" --dex "$tmp/patched.dex" --output "$tmp/aligned.apk" --verify-only
 cp -f "$tmp/aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "[EU A16] PowerKeeper: 7 Global303 + ZK304 GMS/Millet selected methods; EU metadata retained"
+mods "[EU A16] PowerKeeper: 7 Global303 methods; stock EU GMS/Millet retained; EU metadata retained"

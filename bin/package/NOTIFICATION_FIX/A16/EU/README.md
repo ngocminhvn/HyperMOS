@@ -15,14 +15,14 @@ binaries remain recoverable in Git history if an audit is ever required.
 - `GreezeManagerService.isAllowBroadcast`: existing HyperMOS scoped
   `com.google.android.gms` / `com.google.android.c2dm.intent.RECEIVE`
   exception. All other native EU Greeze, region and Doze logic remains.
-- `PowerKeeper.apk`: seven selected Global303 methods plus the four ZK304
-  selected entries `GmsObserver.isGmsControlEnabled`, `enableGms`,
-  `disableGms` and `ActiveStateController.dealNoRestrictApp`.
-  The two enable/disable methods are unchanged relative to EU; the other
-  ZK PowerKeeper differences are mostly string encoding and label changes,
-  so they are not proof of different GMS/Millet runtime behavior.
-- ZK304 also ports `InternationalPolicyManager.getImportantApps()` in
-  `miui-services.jar`. Keep `backupzk.zip` solely as a reference.
+- `PowerKeeper.apk`: seven selected Global303 methods only. ZK304
+  `GmsObserver.isGmsControlEnabled`, `enableGms`, `disableGms` and
+  `ActiveStateController.dealNoRestrictApp` are **not patched**: they match
+  original EU behavior (the bytecode differences are string opcode encoding
+  and jump-label offsets, or no differences at all). Keep stock EU GMS/Millet.
+- ZK304: only `InternationalPolicyManager.getImportantApps()` in
+  `miui-services.jar` changes behavior by reusing an existing nonempty app
+  list. Keep `backupzk.zip` as an inactive source/reference.
 - No change to EU KillProcessController, other Millet methods, thermal,
   stock vendor power limits, or any China ROM policy.
 
