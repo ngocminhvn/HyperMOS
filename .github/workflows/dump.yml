@@ -161,42 +161,31 @@ jobs:
           echo "Dump mode: $DUMP_MODE. map.tsv, map.json and mirror-report.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package dump ZIP
-        shell: bash
-        run: |
-            cd "$RUNNER_TEMP/hypermos-dump/output"
-            python3 - "$RUNNER_TEMP/hypermos-dump/mirror-report.json" <<'PY'
-            import json, sys
-            from pathlib import Path
-            try:
-                src = json.loads(Path(sys.argv[1]).read_text()).get("source_file")
-        except Exception:
-                src = None
-        if src:
-                name = Path(src).name
-                for ext in (".tar.gz", ".tgz", ".zip", ".7z", ".tar"):
-                    if name.lower().endswith(ext):
-                        name = name[: -len(ext)]
-                        break
-        out = f"DUMP_{name}.zip"
-else:
-    out = ""
-with open("/tmp/dump_out_name.txt", "w") as f:
-        f.write(out)
-            PY
-            out="$(cat /tmp/dump_out_name.txt)"
-            if [[ -z "$out" ]]; then out="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"; fi
-            echo "DUMP_OUT_NAME=$out" >> "$GITHUB_ENV"
-            zip -q -r -1 "$GITHUB_WORKSPACE/$out" .
-            ls -lh "$GITHUB_WORKSPACE/$out"
-        
-                      - name: Upload GitHub Artifact
-        if: ${{ inputs.upload_method == 'artifact' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: HyperMOS-dump-${{ inputs.dump_mode }}-${{ github.run_number }}
-          path: ${{ env.DUMP_OUT_NAME }}
-          if-no-files-found: error
-          retention-days: 7
+              shell: bash
+                      run: |
+                                cd "$RUNNER_TEMP/hypermos-dump/output"
+                                          src="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("source_file") or "")' "$RUNNER_TEMP/hypermos-dump/mirror-report.json" 2>/dev/null || true)"
+                                                    name="$(basename "$src")"
+                                                              case "$name" in
+                                                                          *.tar.gz) name="${name%.tar.gz}" ;;
+                                                                                      *.tgz) name="${name%.tgz}" ;;
+                                                                                                  *.zip) name="${name%.zip}" ;;
+                                                                                                              *.7z) name="${name%.7z}" ;;
+                                                                                                                          *.tar) name="${name%.tar}" ;;
+                                                                                                                                    esac
+                                                                                                                                              if [ -n "$name" ]; then out="DUMP_${name}.zip"; else out="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"; fi
+                                                                                                                                                        echo "DUMP_OUT_NAME=$out" >> "$GITHUB_ENV"
+                                                                                                                                                                  zip -q -r -1 "$GITHUB_WORKSPACE/$out" .
+                                                                                                                                                                            ls -lh "$GITHUB_WORKSPACE/$out"
+                                                                                                                                                                            
+                                                                                                                                                                                  - name: Upload GitHub Artifact
+                                                                                                                                                                                          if: ${{ inputs.upload_method == 'artifact' }}
+                                                                                                                                                                                                  uses: actions/upload-artifact@v4
+                                                                                                                                                                                                          with:
+                                                                                                                                                                                                                    name: HyperMOS-dump-${{ inputs.dump_mode }}-${{ github.run_number }}
+                                                                                                                                                                                                                              path: ${{ env.DUMP_OUT_NAME }}
+                                                                                                                                                                                                                                        if-no-files-found: error
+                                                                                                                                                                                                                                                  retention-days: 7
 
       - name: Upload Google Drive using existing rclone config
         if: ${{ inputs.upload_method == 'drive' }}
