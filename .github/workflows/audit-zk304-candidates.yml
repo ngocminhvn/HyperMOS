@@ -152,6 +152,49 @@ jobs:
             --component jar --eu-root "$both/jar-verified" --donor-root "$root/zk/jar" \
             --verify-original "$both/eu-jar-global-fcm"
           echo "[EU A16] Global303 + scoped FCM + selected ZK304 combined assembly verified"
+      - name: Verify ROM patches using only compact method deltas
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/tmp/zk304-audit
+          mini="$root/compact"
+          base=bin/package/NOTIFICATION_FIX/A16/EU
+          mkdir -p "$mini/jar" "$mini/power" "$mini/jar-assembled" "$mini/jar-verified"
+          cp -a "$root/eu/jar/." "$mini/jar/"
+          cp -a "$root/eu/power/." "$mini/power/"
+          for policy in global-jar zk-jar; do
+            python3 "$base/policy_delta.py" --root "$mini/jar" \
+              --manifest "$base/policy_deltas.json" --policy "$policy"
+          done
+          python3 "$base/fcm_greeze.py" "$mini/jar" --report "$mini/fcm.json"
+          for group in "$mini/jar"/smali*; do
+            [[ -d "$group" ]] || continue
+            stem="$(basename "$group")"
+            dex=classes
+            [[ "$stem" == smali ]] || dex="$(echo "$stem" | sed 's/^smali_//')"
+            java -jar bin/apktool/smaliv2.jar a --api 36 "$group" \
+              -o "$mini/jar-assembled/$dex.dex" > /dev/null
+            java -jar bin/apktool/baksmaliv2.jar d --api 36 "$mini/jar-assembled/$dex.dex" \
+              -o "$mini/jar-verified/$stem" > /dev/null
+          done
+          for policy in global-jar zk-jar; do
+            python3 "$base/policy_delta.py" --root "$mini/jar-verified" \
+              --manifest "$base/policy_deltas.json" --policy "$policy" --verify
+          done
+          for policy in global-power zk-power; do
+            python3 "$base/policy_delta.py" --root "$mini/power" \
+              --manifest "$base/policy_deltas.json" --policy "$policy"
+          done
+          java -jar bin/apktool/smaliv2.jar a --api 36 "$mini/power/smali" -o "$mini/power-final.dex" > /dev/null
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 "$mini/power-final.dex" -o "$mini/power-verified/smali" > /dev/null
+          for policy in global-power zk-power; do
+            python3 "$base/policy_delta.py" --root "$mini/power-verified" \
+              --manifest "$base/policy_deltas.json" --policy "$policy" --verify
+          done
+          bash -n "$base/patch.sh"
+          bash -n "$base/PowerKeeper.sh"
+          python3 -m unittest discover -s "$base/tests" -v
+          echo "[EU COMPACT] no Global/ZK donor DEX required by production patcher"
       - name: Export pinned method-level deltas instead of bundled DEX
         shell: bash
         run: |
