@@ -29,6 +29,9 @@ def digest(lines):
 def one_file(root, rel):
     # Original DEX may split a class between smali, smali_classes2, etc.
     found = list(root.glob("smali*/" + rel))
+    if not found:
+        # PowerKeeper places ActiveStateController in a different package.
+        found = list(root.rglob(rel.rsplit("/", 1)[-1]))
     if len(found) != 1:
         raise ValueError(f"{rel}: expected 1 smali class, got {len(found)}")
     return found[0]
