@@ -152,6 +152,81 @@ jobs:
             --component jar --eu-root "$both/jar-verified" --donor-root "$root/zk/jar" \
             --verify-original "$both/eu-jar-global-fcm"
           echo "[EU A16] Global303 + scoped FCM + selected ZK304 combined assembly verified"
+      - name: Export pinned method-level deltas instead of bundled DEX
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import difflib, hashlib, json, re
+          from pathlib import Path
+          root=Path("/tmp/zk304-audit")
+          METHODS={
+            "global-jar":[("com/android/server/MiuiBatteryIntelligence.smali",v)
+                          for v in ("<clinit>()V","<init>(Landroid/content/Context;)V","init(Landroid/content/Context;)V")],
+            "global-power":[
+              ("com/miui/powerkeeper/cloudcontrol/CloudUpdateReceiver.smali","onReceive(Landroid/content/Context;Landroid/content/Intent;)V"),
+              ("com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali","getCloudServer(Landroid/content/Context;)Ljava/lang/String;"),
+              ("com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali","setServerConfigurations(Landroid/content/Context;)V"),
+              ("com/miui/powerkeeper/utils/InternationalAdapter.smali","<clinit>()V"),
+              ("com/miui/powerkeeper/utils/PowerModeAdapter.smali","<clinit>()V"),
+              ("com/miui/powerkeeper/utils/Utils.smali","isSleepModeViewVisable()Z"),
+              ("f/h.smali","c(Landroid/content/Context;)Lf/j;")],
+            "zk-jar":[("com/miui/server/greeze/InternationalPolicyManager.smali","getImportantApps()Ljava/util/List;")],
+            "zk-power":[
+              ("com/miui/powerkeeper/utils/GmsObserver.smali","isGmsControlEnabled()Z"),
+              ("com/miui/powerkeeper/utils/GmsObserver.smali","enableGms()V"),
+              ("com/miui/powerkeeper/utils/GmsObserver.smali","disableGms()V"),
+              ("com/miui/powerkeeper/statemachine/ActiveStateController.smali","dealNoRestrictApp()V")],
+          }
+          METHOD=re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
+          IGNORE=("#",".line ", ".param ", ".end param", ".local ", ".end local",
+                  ".restart local", ".prologue", ".epilogue", ".source ")
+          def norm(body):
+            return [v for line in body.splitlines() if (v:=line.strip()) and not v.startswith(IGNORE)]
+          def sha(lines):
+            return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+          def find(root,rel,sig):
+            files=list(root.glob("smali*/"+rel))
+            if len(files)!=1:raise ValueError(f"expected one class {rel}: {files}")
+            source=files[0].read_text()
+            opts=[m.group() for m in METHOD.finditer(source)
+                  if m.group().splitlines()[0].strip().split()[-1] == sig]
+            if len(opts)!=1:raise ValueError(f"expected one method {rel}->{sig}: {len(opts)}")
+            return norm(opts[0])
+          obj={"format":"hypermos_a16_method_deltas_v1","methods":[],"fields":[]}
+          for bucket,items in METHODS.items():
+            donor,area=bucket.split("-")
+            if area=="jar":
+              eu=root/"eu"/"jar"
+              other=root/donor/"jar"
+            else:
+              eu=root/"eu"/"power"
+              other=root/donor/"power"
+            for rel,sig in items:
+              a,b=find(eu,rel,sig),find(other,rel,sig)
+              operations=[]
+              for tag,x1,x2,y1,y2 in difflib.SequenceMatcher(a=a,b=b,autojunk=False).get_opcodes():
+                if tag=="equal":continue
+                operations.append({"at":x1,"remove":a[x1:x2],"insert":b[y1:y2]})
+              obj["methods"].append({"bucket":bucket,"path":rel,"signature":sig,
+                 "before_sha256":sha(a),"after_sha256":sha(b),"changes":operations,
+                 "original_lines":len(a),"result_lines":len(b)})
+          pat=re.compile(r"(?m)^\.field[^\n]*MAP_APP:\[Ljava/lang/String;[^\n]*$")
+          rel="com/android/server/MiuiBatteryIntelligence.smali"
+          def one_field(side):
+            file=list((root/side/"jar").glob("smali*/"+rel))
+            assert len(file)==1,file
+            found=pat.findall(file[0].read_text())
+            assert len(found)==1,found
+            return found[0].strip()
+          obj["fields"]=[{"bucket":"global-jar","path":rel,
+             "before":one_field("eu"),"after":one_field("global")}]
+          out=root/"report"/"compact-policy-deltas.json"
+          out.write_text(json.dumps(obj,ensure_ascii=False,separators=(",",":"))+"\n")
+          print("[COMPACT SOURCE] donor delta JSON bytes:",out.stat().st_size)
+          for m in obj["methods"]:
+            print(m["bucket"],m["path"],m["signature"],"edits",len(m["changes"]))
+          PY
       - uses: actions/upload-artifact@v6
         if: always()
         with:
