@@ -7,7 +7,7 @@ backupzk.zip is an inactive historical reference.
 
 ## What is actually modified
 
-- miui-services.jar: exactly **17** selected method-level RYU-vs-EU309
+- miui-services.jar: exactly **20** selected method-level RYU-vs-EU309
   changes, using the original EU309 class/method signatures and smali
   instruction anchors rather than copying foreign APK/JAR/DEX archives.
 - Classes include BroadcastQueueModernStubImpl (4 methods),
@@ -16,6 +16,11 @@ backupzk.zip is an inactive historical reference.
   AlarmManagerServiceStubImpl, JobServiceContextImpl,
   ProcessPolicy.updateContentCatcherWhitelist and
   Greeze PolicyManager.<clinit> (CN_MODEL=false).
+- PackageManagerServiceImpl.canBeUpdate() and
+  PackageManagerServiceImpl.verifyIsolationViolation() are reduced to
+  return-void, matching the inspected RYU methods.
+- ActivitySecurityHelper.getMalwareBlockingIntent() forces its scoped
+  international-build read to true, matching the inspected RYU branch.
 - International branches use the original
   miui.os.Build.IS_INTERNATIONAL_BUILD checks as their anchors.
   No RYU-only IS_RYU_BUILD field or donor-only class is introduced.

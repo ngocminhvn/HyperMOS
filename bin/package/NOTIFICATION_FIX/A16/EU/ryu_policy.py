@@ -25,7 +25,7 @@ def load(path):
     if set(data.get("groups", {})) != {"miui-services"}:
         raise ValueError("Only miui-services method edits are supported")
     seen = set()
-    allowed = {"force_international", "force_cn_model_false"}
+    allowed = {"force_international", "force_cn_model_false", "ryu_return_void"}
     for group, entries in data["groups"].items():
         if not isinstance(entries, list) or not entries:
             raise ValueError("Empty group: " + group)
@@ -44,15 +44,22 @@ def load(path):
                     raise ValueError("Invalid forced register set")
                 if not isinstance(row.get("value"), bool):
                     raise ValueError("Missing international constant")
-            else:
+            elif row["operation"] == "force_cn_model_false":
                 if "registers" in row or "value" in row:
                     raise ValueError("Unexpected register override")
+            else:
+                if not row["signature"].endswith(")V"):
+                    raise ValueError("return-void operation requires a void method")
+                if not isinstance(row.get("anchor"), str) or not row["anchor"]:
+                    raise ValueError("return-void operation requires an original-code anchor")
+                if "registers" in row or "value" in row:
+                    raise ValueError("Unexpected return-void override")
             if "before_sha256" in row or "after_sha256" in row:
                 raise ValueError("Method hash pins are forbidden")
             if any(alias in json.dumps(row) for alias in ALIASES):
                 raise ValueError("Forbidden RYU-only dependency")
-    if len(data["groups"]["miui-services"]) != 17:
-        raise ValueError("Expected exactly 17 selected RYU JAR methods")
+    if len(data["groups"]["miui-services"]) != 20:
+        raise ValueError("Expected exactly 20 selected RYU JAR methods")
     return data
 
 
@@ -69,6 +76,14 @@ def method_span(source, signature):
     if len(matches) != 1:
         raise ValueError("Missing/ambiguous method %s (%d)" % (signature, len(matches)))
     return matches[0]
+
+
+def is_return_void_stub(body):
+    """Accept the minimal stub before or after a baksmali round trip."""
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    return (len(lines) == 4 and lines[0].startswith(".method ") and
+            re.fullmatch(r"\.(?:locals|registers) \d+", lines[1]) is not None and
+            lines[2] == "return-void" and lines[3] == ".end method")
 
 
 def check_policy(row, body, verify):
@@ -110,6 +125,16 @@ def check_policy(row, body, verify):
             return body, "verified"
         prefix = m.group(1) + "const/4 " + reg + ", 0x0\n"
         return body[:m.start()] + prefix + body[m.start():], "patched"
+    if operation == "ryu_return_void":
+        if is_return_void_stub(body):
+            return body, "verified" if verify else "already_patched"
+        if verify:
+            raise ValueError("Method is not a minimal return-void stub")
+        anchor = row["anchor"]
+        if body.count(anchor) != 1:
+            raise ValueError("Original return-void anchor must occur exactly once")
+        header = body.splitlines()[0]
+        return header + "\n    .locals 0\n\n    return-void\n.end method", "patched"
     raise ValueError("Unreachable operation")
 
 

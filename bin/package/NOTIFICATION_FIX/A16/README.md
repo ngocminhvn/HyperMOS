@@ -4,7 +4,9 @@ Entry point: bin/package/NOTIFICATION_FIX/A16/patch.sh.
 
 - China: CN/frameworkpatcher_cn_a16.py and CN/PowerKeeper.sh are unchanged.
 - Xiaomi.eu (main): EU/patch.sh, EU/ryu_policy.py, EU/ryu_policy.json.
-  Exactly 17 selected RYU EU309 method changes in miui-services.jar.
+  Exactly 20 selected RYU EU309 method changes in miui-services.jar,
+  including the two PackageManager no-op gates and the scoped
+  ActivitySecurityHelper malware-intent international gate.
 - Xiaomi.eu PowerKeeper.apk: **no RYU power/notification DEX deltas**
   distinct from the excluded PerfHook, custom thermal sysfs, and
   custom FPS-hook changes. Preserve original PowerKeeper completely,
