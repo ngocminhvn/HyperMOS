@@ -1,46 +1,26 @@
-> **Active Xiaomi.eu A16 PowerKeeper:** Port only seven changed Global303 method bodies onto original EU DEX (not full Global DEX replacement). See `docs/GLOBAL-A16-FULL.md`.
+# HyperMOS Android 16: independent China and Xiaomi.eu policies
 
-> **Current Xiaomi.eu A16 main route:** Global303 policy. The historical
-> ZK304 donor port described below is disabled for EU builds; see
-> [Global A16 policy](../../../GLOBAL_A16/PowerKeeper.sh) and
-> [policy documentation](../../../../docs/GLOBAL-A16-FULL.md).
-> China A16 remains on its existing separate branch.
+Entry: `bin/package/NOTIFICATION_FIX/A16/patch.sh`.
 
-# Android 16 notification and power policy — CN / Xiaomi.eu
+- China: `CN/frameworkpatcher_cn_a16.py` and `CN/PowerKeeper.sh`. The
+  existing China method gates and its separate EU-sourced PowerKeeper DEX
+  archive are deliberately left unchanged.
+- Xiaomi.eu: `EU/patch.sh`, `EU/PowerKeeper.sh`, `EU/fcm_greeze.py`,
+  `EU/policy_delta.py` and `EU/policy_deltas.json`.
+  The latter is a roughly 14 KB declarative list of **specific instruction
+  edits** derived from original EU309, Global303 and ZK304, not a whole
+  donor DEX, ZIP, JAR, or APK.
+- EU JAR: 3 Global MiuiBatteryIntelligence methods, MAP_APP field,
+  ZK getImportantApps caching method, plus the scoped Google FCM allow rule.
+- EU PowerKeeper: 7 Global method edits and selected ZK GmsObserver/
+  ActiveStateController edits. GmsObserver enableGms/disableGms were already
+  bytecode-equivalent and need no added code.
+- Scope is enforced by original EU method SHA-256 and exact changed instruction
+  spans. Unexpected ROM versions or method changes fail the build.
+- No all-app keepalive, thermal replacement, background daemon or runtime
+  download added. PowerKeeper non-DEX members and META-INF are preserved,
+  but changing DEX still invalidates the original APK cryptographic signature.
 
-`A16/patch.sh` is the shared A16 entrypoint and JAR lifecycle.
-It selects the original China or Xiaomi.eu Python patchers by `rom_source.txt`,
-while preserving their distinct donor hashes, methods, reports and policy checks.
-For A17, `A17/patch.sh` now exposes the same version-entrypoint convention
-without importing any Android 16 donor or policy code.
-
-- `CN/`: existing China FrameworkPatcher Python policy and PowerKeeper workflow; the previous FrameworkPatcher shell wrapper is merged into `A16/patch.sh`.
-- `EU/`: `A16/patch.sh` retains the ZK304 Greeze/notification framework port and runs the guarded `PowerKeeper_donor.sh` method-level APK port.
-- `EU/ZK304/`: SHA256-pinned original ZK304 `miui-services.jar` and PowerKeeper DEX reference. Build always verifies donor checksums.
-
-EU workflow:
-
-1. Keep the HyperMOS CorePatch ContentCatcher=false result (the EU patcher is
-   idempotent and verifies that exact result).
-2. Verify native `IS_INTERNATIONAL_BUILD` references in 10 broadcast/Doze/process/notification methods, without injecting a fictitious `IS_ZK_BUILD` class or hardcoding region values.
-3. Port the verified ZK304 `NotificationManagerServiceImpl.<clinit>` difference, verifying its result against the original ZK donor. Then copy eight donor method bodies covering `GreezeManagerService.freezeAction`, `freezeUids`, `isAllowBroadcast`, `updateDynamicIsLandInfo`, two `InternationalPolicyManager` handlers, `DeviceIdleControllerStubImpl.isLowPowerDozeEnable` and `ProcessManagerService.notifyProcessStarted`, preserving EU-only callbacks and constructors.
-4. Run the guarded ZK304 PowerKeeper donor transplant for compatible methods in `GmsObserver`, `DeviceIdleController`, `ActiveStateController`, and `KillProcessController`. Preserve the original Xiaomi.eu APK inventory and every non-DEX member; replace only `classes.dex`.
-5. Retain Android's original freezer, Greeze, Doze, thermal limits and EU PowerKeeper package resources. Do not replace entire ZK JAR or blindly remove EU-only APIs.
-
-**This is a guarded policy port, not byte-identical full ZKOS.** ZK and EU still have ABI differences in entire framework/services packages. The method-level transfer does not claim to reproduce all carrier/Google/APK integration, all supporting JARs, or tested runtime power draw. Methods requiring missing ZK-private APIs are excluded; their names and reasons are written to `build/reports/zk304-powerkeeper-eu/methods.json`. The previous HyperMOS-specific FCM override was disabled in the ZK-parity build because it does not exist in the ZK donor.
-
-**Risk:** Replacing `classes.dex` invalidates the original Xiaomi APK's cryptographic signature. The current firmware relies on its separate signature policy. Build-time smali assembly does not prove Android service boot or runtime notification delivery. Imported ZK background-activity policies can change standby battery or freezing behavior. Before normal use, verify PowerKeeper starts, `Greezer Denial` counts, notification latency and idle drain.
-
-Test: `python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/EU/tests -v`; a GitHub Actions workflow also merges real DEX inputs and recompiles them.
-
-## Actual CI verification on original donors
-
-The [donor-based EU309/ZK304 preflight](https://github.com/ngocminhvn/HyperMOS/actions/runs/39792507522) succeeded: eight additional Greeze/Doze/process method bodies were ported into original EU309 `miui-services.jar`, and both DEX were reassembled. The [PowerKeeper donor preflight](https://github.com/ngocminhvn/HyperMOS/actions/runs/39787201551) passed its method-level checks (61 changed, 98 equivalent).
-
-**Active PowerKeeper packaging path:** the previous [EU build failure](https://github.com/ngocminhvn/HyperMOS/actions/runs/39790269239) was caused by a strict original-Xiaomi-certificate verification step in the APK packer, which was not part of the intended metadata-preserving contract. The EU-only `eu_powerkeeper_keep_metadata.py` copies the entire original ZIP entry inventory, all original `META-INF` contents, manifest, resources, assets, JNI and all other non-DEX bytes unchanged, replacing `classes.dex` only. After zipalign the result is verified against the original, then installed. **There is no `apksigner` verification or signing step in the EU PowerKeeper port.** CN signature handling is unchanged.
-
-**Cryptographic limitation:** the original certificate file content is preserved, but replacing classes.dex invalidates the original digital signature, and any v2/v3 signing block is not reconstructed. The result requires the ROM runtime to accept the modified APK. Metadata preservation does not prove package integrity or boot compatibility; successful APK packaging alone does not prove runtime loading, standby battery, or notification delivery.
-
-**TNM App Privacy is independent** from this PowerKeeper path and is required for CN and Xiaomi.eu Android 16 by `bin/package/TNM`.
-
-**Current main behavior:** Xiaomi.eu Android 16 ports the guarded ZK304 notification/Greeze framework methods and calls `EU/PowerKeeper_donor.sh`. The China A16 PowerKeeper path is unchanged, and TNM App Privacy is managed independently.
+A pinned real-ROM preflight passed smali assembly and DEX reassembly at
+[GitHub Actions run 40056239788](https://github.com/ngocminhvn/HyperMOS/actions/runs/40056239788).
+This does not establish on-device boot, heat, battery drain or notification latency.
