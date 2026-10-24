@@ -72,6 +72,49 @@ def drive_download_url(url):
                        "/download", urlencode(query), ""))
 
 
+def source_filename(url, sf_file_path=None):
+    """Return the original ROM archive filename, or None.
+
+    The dump output is named DUMP_<original filename> (with a .zip
+    extension, since the dump itself is a ZIP), so this must be the
+    name of the file being downloaded, not the URL path in general:
+    - SourceForge / Xiaomi / direct links: the basename of the URL path.
+    - Google Drive: the URL only carries a file id, so the filename
+      comes from the Content-Disposition header of the confirmed
+      download (verified: it returns attachment; filename="...").
+    Returns None when no archive-like filename can be determined;
+    callers then fall back to the old HyperMOS-dump-<mode>-<run> name.
+    """
+    if sf_file_path:
+        return Path(sf_file_path).name
+    parts = urlsplit(url.strip())
+    host = (parts.hostname or "").lower()
+    if host in ("drive.usercontent.google.com", "drive.google.com"):
+        confirmed = drive_download_url(url)
+        header_url = confirmed if confirmed is not None else url
+        try:
+            # A HEAD request alone returns the virus-scan warning page
+            # for a confirmed Drive URL, so fetch 1 byte with GET and
+            # read the Content-Disposition header of the real file.
+            done = subprocess.run(
+                ["curl", "-sL", "--max-time", "30", "-r", "0-0",
+                 "-D", "-", "-o", "/dev/null", header_url],
+                capture_output=True, text=True, timeout=35, check=False)
+            match = re.search(
+                r"filename\*?=(?:UTF-8''|\"?)([^\"\r\n;]+)",
+                done.stdout, flags=re.I)
+            if match:
+                return unquote(match.group(1).strip().strip('"'))
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return None
+    name = unquote(parts.path.rstrip("/")).rsplit("/", 1)[-1]
+    if name and name.lower() != "download" and re.search(
+            r"\.(zip|7z|tgz|tar\.gz|tar)$", name, flags=re.I):
+        return name
+    return None
+
+
 def is_7z(path):
     try:
         with path.open("rb") as f:
@@ -573,6 +616,9 @@ def main():
     # spread 16 connections across distinct SourceForge servers. For RYU-EU,
     # prioritize the measured URLs as a single parallel attempt before
     # falling back to the original per-mirror candidates.
+    source_file = source_filename(args.url, file_path if sf else None)
+    if source_file:
+        print(f"[DOWNLOAD] Source file: {source_file}", flush=True)
     if sf and args.parallel_mirrors > 1:
         ranked_candidates = [item for item in urls
                              if item[0].startswith("measured-")
@@ -623,6 +669,7 @@ def main():
             report = {
                 "type": "SourceForge" if sf else ("XiaomiCDN" if probed else "direct"),
                 "project": project, "file": file_path,
+                "source_file": source_file,
                 "selected_mirror": name,
                 "selection_method": selection_method,
                 "speed_benchmark_verified": selection_method in (
@@ -663,7 +710,8 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps({
         "type": "SourceForge" if sf else "direct", "project": project,
-        "file": file_path, "selected_mirror": None,
+        "file": file_path, "source_file": source_file,
+        "selected_mirror": None,
         "selection_method": None, "speed_benchmark_verified": False,
         "verified_speed_samples": sum(item.get("status") == "ok" for item in probed),
         "verified_range_probes": sum(item.get("status") == "ok" and
