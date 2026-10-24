@@ -25,6 +25,13 @@ class RyuPolicyTest(unittest.TestCase):
         rows = manifest["groups"]["miui-services"]
         self.assertEqual(20, len(rows))
         selected = {(row["class"], row["signature"]): row for row in rows}
+        ams = "com/android/server/am/ActivityManagerServiceImpl.smali"
+        compatibility_signature = (
+            "checkRunningCompatibility(Landroid/app/IApplicationThread;"
+            "Landroid/content/pm/ActivityInfo;Landroid/content/Intent;I"
+            "Ljava/lang/String;)Z"
+        )
+        self.assertEqual(["p2"], selected[(ams, compatibility_signature)]["registers"])
         pms = "com/android/server/pm/PackageManagerServiceImpl.smali"
         can_update = selected[(pms, "canBeUpdate(Ljava/lang/String;)V")]
         self.assertEqual("ryu_return_void", can_update["operation"])

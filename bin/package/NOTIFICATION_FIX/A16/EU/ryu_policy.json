@@ -27,7 +27,7 @@
         "signature": "checkRunningCompatibility(Landroid/app/IApplicationThread;Landroid/content/pm/ActivityInfo;Landroid/content/Intent;ILjava/lang/String;)Z",
         "operation": "force_international",
         "registers": [
-          "v12"
+          "p2"
         ],
         "value": true
       },
