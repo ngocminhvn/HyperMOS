@@ -207,6 +207,96 @@ def convert_7z_to_zip(archive, output):
         shutil.rmtree(extract_dir, ignore_errors=True)
 
 
+def is_html_file(path):
+    try:
+        with path.open("rb") as f:
+            return f.read(15).lstrip().startswith(b"<")
+    except OSError:
+        return False
+
+
+def download_drive_by_ranges(url, output, connections=8):
+    """Download a Drive file in parallel byte ranges.
+
+    Drive's "Quota exceeded" page is only returned for a plain full
+    download: a full GET gets a 2 KiB HTML page saying too many users
+    downloaded the file recently. Byte-range GETs, however, still return
+    206 Partial Content with the real file data (verified for both the
+    first 10 MiB and a range near 8 GiB of the same file). aria2's
+    initial size probe uses a full response, so it accepts the HTML
+    page as the whole file and finishes in ~1s. Splitting the file
+    into ranges ourselves, using the total size from Content-Range,
+    bypasses that path without needing any quota reset.
+    """
+    try:
+        probe = subprocess.run(
+            ["curl", "-sL", "--max-time", "60", "-r", "0-0",
+             "-D", "-", "-o", "/dev/null", url],
+            capture_output=True, text=True, timeout=70, check=False)
+        match = re.search(r"Content-Range:\s*bytes\s+\d+-\d+/(\d+)",
+                          probe.stdout, flags=re.I)
+        if not match:
+            print("[DRIVE-RANGE] No Content-Range total size in probe",
+                  flush=True)
+            return False
+        total = int(match.group(1))
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        print("[DRIVE-RANGE] Range probe failed", flush=True)
+        return False
+    if total < 1024:
+        print(f"[DRIVE-RANGE] Implausible total size: {total}", flush=True)
+        return False
+    print(f"[DRIVE-RANGE] Total size {total} bytes, "
+          f"{connections} parallel range chunks", flush=True)
+    parts = []
+    chunk = (total + connections - 1) // connections
+    for i in range(connections):
+        start = i * chunk
+        end = min(total - 1, start + chunk - 1)
+        if start > end:
+            break
+        parts.append((i, start, end, output.parent / f"{output.name}.part{i}"))
+    for _, _, _, part in parts:
+        part.unlink(missing_ok=True)
+
+    def fetch(part):
+        i, start, end, dest = part
+        done = subprocess.run(
+            ["curl", "-sL", "--max-time", "1800", "-r", f"{start}-{end}",
+             "-o", str(dest), url],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=1900, check=False)
+        ok = done.returncode == 0 and dest.is_file() and dest.stat().st_size == end - start + 1
+        print(f"[DRIVE-RANGE] Chunk {i} {start}-{end}: "
+              f"{'ok' if ok else 'FAILED'}", flush=True)
+        return ok
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(parts)) as pool:
+            results = list(pool.map(fetch, parts))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[DRIVE-RANGE] Parallel download failed: {exc}", flush=True)
+        results = [False]
+    if not all(results):
+        for _, _, _, part in parts:
+            part.unlink(missing_ok=True)
+        return False
+    temp = output.parent / f"{output.name}.range.tmp"
+    try:
+        with temp.open("wb") as out:
+            for _, _, _, part in parts:
+                with part.open("rb") as src:
+                    shutil.copyfileobj(src, out, length=8 * 1024 * 1024)
+        temp.replace(output)
+        print(f"[DRIVE-RANGE] Assembled {output.stat().st_size} bytes",
+              flush=True)
+        return True
+    finally:
+        temp.unlink(missing_ok=True)
+        for _, _, _, part in parts:
+            part.unlink(missing_ok=True)
+
+
 def normalize(url):
     """Return (canonical SF download URL, project slug, filename), or None."""
     url = url.strip().strip("<>")
@@ -639,6 +729,22 @@ def main():
             print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
                   flush=True)
         converted_7z = False
+        if success and is_html_file(output):
+            # Drive quota: a full GET returns a small HTML page, but
+            # range GETs still serve the real file. Retry that way
+            # instead of accepting the HTML as the download.
+            if drive_download_url(args.url) is not None:
+                print("[DOWNLOAD] Downloaded file is HTML (Drive quota "
+                      "page); retrying with parallel range download",
+                      flush=True)
+                output.unlink(missing_ok=True)
+                success = download_drive_by_ranges(
+                    args.url, output, connections=args.connections)
+                if not success:
+                    print("[WARN] Range download failed", flush=True)
+            else:
+                print("[WARN] Downloaded file is HTML, not an archive",
+                      flush=True)
         if success and is_7z(output):
             # A 7z MD5, if supplied, describes the 7z file, not the ZIP
             # repack, so check it before converting and skip it after.
