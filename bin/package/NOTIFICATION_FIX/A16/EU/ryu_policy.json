@@ -153,9 +153,30 @@
         "class": "com/miui/server/greeze/PolicyManager.smali",
         "signature": "<clinit>()V",
         "operation": "force_cn_model_false"
+      },
+      {
+        "class": "com/android/server/pm/PackageManagerServiceImpl.smali",
+        "signature": "canBeUpdate(Ljava/lang/String;)V",
+        "operation": "ryu_return_void",
+        "anchor": "Lcom/android/server/pm/PackageManagerService;->snapshotComputer()Lcom/android/server/pm/Computer;"
+      },
+      {
+        "class": "com/android/server/pm/PackageManagerServiceImpl.smali",
+        "signature": "verifyIsolationViolation(Lcom/android/internal/pm/parsing/pkg/ParsedPackage;Lcom/android/server/pm/InstallSource;)V",
+        "operation": "ryu_return_void",
+        "anchor": "Lcom/android/server/pm/PackageManagerService;->snapshotComputer()Lcom/android/server/pm/Computer;"
+      },
+      {
+        "class": "miui/app/ActivitySecurityHelper.smali",
+        "signature": "getMalwareBlockingIntent(Ljava/lang/String;Landroid/content/Intent;ZZII)Landroid/content/Intent;",
+        "operation": "force_international",
+        "registers": [
+          "v1"
+        ],
+        "value": true
       }
     ]
   },
-  "scope": "Only the 17 RYU-versus-EU309 miui-services.jar method deltas selected for notification, alarm, app control and Greeze",
+  "scope": "20 RYU-versus-EU309 miui-services.jar method edits: 17 notification/policy plus 2 PackageManager no-op gates and 1 malware-intent international gate.",
   "powerkeeper": "No DEX changes: all 9 changed original RYU PowerKeeper methods depend on PerfHook, RYU FPS settings, or custom thermal node; preserve stock EU APK and signature"
 }
