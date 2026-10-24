@@ -171,53 +171,27 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve latest stable SukiSU Ultra
+      - name: Cache SukiSU host patcher
         if: ${{ inputs.root_mode == 'root' }}
-        id: sukisu
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="$(python3 bin/root/fetch_sukisu_latest.py --print-latest-tag)"
-          [[ "$tag" =~ ^v[0-9][0-9A-Za-z._-]*$ ]]
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "[ROOT] Latest stable SukiSU release: $tag"
-
-      - name: Restore SukiSU host patcher cache
-        if: ${{ inputs.root_mode == 'root' }}
-        id: sukisu-host-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/hypermos-sukisu-host-cache
-          key: sukisu-host-v2-${{ runner.os }}-${{ steps.sukisu.outputs.tag }}-${{ hashFiles('bin/root/prepare_sukisu.sh', 'bin/root/patch_sukisu_host_source.py') }}
+          key: sukisu-host-v3-${{ runner.os }}-${{ hashFiles('bin/root/prepare_sukisu.sh', 'bin/root/patch_sukisu_host_source.py') }}-${{ github.run_id }}
+          restore-keys: sukisu-host-v3-${{ runner.os }}-${{ hashFiles('bin/root/prepare_sukisu.sh', 'bin/root/patch_sukisu_host_source.py') }}-
 
-      - name: Prepare latest stable SukiSU Ultra
+      - name: Prepare and patch SukiSU Ultra
         if: ${{ inputs.root_mode == 'root' }}
         shell: bash
         env:
-          SUKISU_EXPECTED_TAG: ${{ steps.sukisu.outputs.tag }}
           SUKISU_HOST_CACHE_DIR: ${{ runner.temp }}/hypermos-sukisu-host-cache
+          ROOT_MODE: ${{ inputs.root_mode }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 bin/root/fetch_sukisu_latest.py --self-test
           python3 bin/root/patch_sukisu_host_source.py --self-test
           bash -n bin/root/prepare_sukisu.sh bin/root/patch_init_boot.sh
           bash bin/root/prepare_sukisu.sh 2>&1 | tee -a build_action.log
-
-      - name: Save SukiSU host patcher cache
-        if: ${{ inputs.root_mode == 'root' && steps.sukisu-host-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/hypermos-sukisu-host-cache
-          key: ${{ steps.sukisu-host-cache.outputs.cache-primary-key }}
-
-      - name: Patch SukiSU Ultra into boot image
-        if: ${{ inputs.root_mode == 'root' }}
-        shell: bash
-        env:
-          ROOT_MODE: ${{ inputs.root_mode }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
           # Reject competing APK preloads; SukiSU manager must be user-installed.
           target="build/baserom/images/product/data-app"
           if [ -d "$target" ] && find "$target" -type f \
