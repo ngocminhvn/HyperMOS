@@ -154,6 +154,24 @@ def perform(eu_root, donor_root, area, report, original_root=None):
                 raise ValueError("method inventory changed for " + owner)
             for sig in before:
                 if normalized(before[sig][0].group()) != normalized(after[sig][0].group()):
+                    # Assembling the existing scoped FCM early-return guard
+                    # can renumber the original Greeze method's labels.
+                    # This is NOT a ZK port; accept it only if the exact
+                    # already-audited FCM guard survives ahead of the EU
+                    # broadcast whitelist in both source and output.
+                    is_fcm = (area == "jar" and
+                              owner == "Lcom/miui/server/greeze/GreezeManagerService;" and
+                              sig == "isAllowBroadcast(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z")
+                    if is_fcm:
+                        for body in (before[sig][0].group(), after[sig][0].group()):
+                            if "mBroadcastTargetWhiteList" not in body:
+                                raise ValueError("Greeze original whitelist missing after assembly")
+                            guard = body.split("mBroadcastTargetWhiteList", 1)[0]
+                            if (guard.count('"com.google.android.c2dm.intent.RECEIVE"') != 1
+                                    or guard.count('"com.google.android.gms"') != 1
+                                    or "return v0" not in guard):
+                                raise ValueError("scoped GMS FCM guard missing or changed")
+                        continue
                     method_id = owner.split("/")[-1].rstrip(";") + "." + sig
                     if method_id not in changed:
                         raise ValueError("unrelated method changed: " + method_id)

@@ -142,7 +142,7 @@ jobs:
             [[ -d "$group" ]] || continue
             stem="$(basename "$group")"
             dex=classes
-            [[ "$stem" == smali ]] || dex="classes_$(echo "$stem" | sed 's/^smali_//')"
+            [[ "$stem" == smali ]] || dex="$(echo "$stem" | sed 's/^smali_//')"
             java -jar bin/apktool/smaliv2.jar a --api 36 "$group" \
               -o "$both/jar-assembled/$dex.dex" >/dev/null
             java -jar bin/apktool/baksmaliv2.jar d --api 36 "$both/jar-assembled/$dex.dex" \
