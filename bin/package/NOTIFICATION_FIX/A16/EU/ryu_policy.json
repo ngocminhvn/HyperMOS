@@ -1,0 +1,181 @@
+{
+  "format": "hypermos_ryu_a16_policy_v1",
+  "reference": "RYUOS_HAOTIAN_OS3.0.309.0.WOBCNXM_EU261003; EU309 base",
+  "international_mapping": "IS_RYU_BUILD → miui.os.Build.IS_INTERNATIONAL_BUILD; no donor-only field added",
+  "groups": {
+    "miui-services": [
+      {
+        "class": "com/android/server/AppOpsServiceStubImpl.smali",
+        "signature": "<clinit>()V",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/alarm/AlarmManagerServiceStubImpl.smali",
+        "signature": "init(Lcom/android/server/alarm/AlarmManagerService;)V",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
+        "signature": "checkRunningCompatibility(Landroid/app/IApplicationThread;Landroid/content/pm/ActivityInfo;Landroid/content/Intent;ILjava/lang/String;)Z",
+        "operation": "force_international",
+        "registers": [
+          "v12"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
+        "signature": "checkRunningCompatibility(Landroid/content/ComponentName;III)Z",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
+        "signature": "ensureDeviceProvisioned(Landroid/content/Context;)V",
+        "operation": "force_international",
+        "registers": [
+          "v1",
+          "v4"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
+        "signature": "onProcessStart(IILjava/lang/String;)V",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
+        "signature": "checkApplicationAutoStart(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Landroid/content/pm/ResolveInfo;)Z",
+        "operation": "force_international",
+        "registers": [
+          "v2"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
+        "signature": "checkReceiverAppDealBroadcast(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
+        "signature": "isInternationalSpecialAction(Ljava/lang/String;Landroid/content/pm/ResolveInfo;)Z",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
+        "signature": "updateBlockBroadcast()V",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/ProcessPolicy.smali",
+        "signature": "updateContentCatcherWhitelist()V",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": false
+      },
+      {
+        "class": "com/android/server/am/ProcessSceneCleaner.smali",
+        "signature": "handleSwipeKill(Lmiui/process/ProcessConfig;)Z",
+        "operation": "force_international",
+        "registers": [
+          "v4"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/am/ProcessSceneCleaner.smali",
+        "signature": "killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z",
+        "operation": "force_international",
+        "registers": [
+          "v2"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/job/JobServiceContextImpl.smali",
+        "signature": "checkIfCancelJob(Lcom/android/server/job/JobServiceContext;Landroid/content/Context;Landroid/content/Intent;Landroid/content/Context$BindServiceFlags;Lcom/android/server/job/controllers/JobStatus;)Z",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/notification/NotificationManagerServiceImpl.smali",
+        "signature": "<clinit>()V",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/android/server/notification/NotificationManagerServiceImpl.smali",
+        "signature": "checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOpsManager;ILjava/lang/String;)V",
+        "operation": "force_international",
+        "registers": [
+          "v0"
+        ],
+        "value": true
+      },
+      {
+        "class": "com/miui/server/greeze/PolicyManager.smali",
+        "signature": "<clinit>()V",
+        "operation": "force_cn_model_false"
+      }
+    ],
+    "powerkeeper": [
+      {
+        "class": "com/miui/powerkeeper/utils/GmsObserver.smali",
+        "signature": "isGmsControlEnabled()Z",
+        "operation": "stock_ryu_equal"
+      },
+      {
+        "class": "com/miui/powerkeeper/utils/GmsObserver.smali",
+        "signature": "enableGms()V",
+        "operation": "stock_ryu_equal"
+      },
+      {
+        "class": "com/miui/powerkeeper/utils/GmsObserver.smali",
+        "signature": "disableGms()V",
+        "operation": "stock_ryu_equal"
+      },
+      {
+        "class": "com/miui/powerkeeper/controller/ActiveStateController.smali",
+        "signature": "dealNoRestrictApp()V",
+        "operation": "stock_ryu_equal"
+      }
+    ]
+  }
+}
