@@ -7,14 +7,13 @@ backupzk.zip is an inactive historical reference.
 
 ## What is actually modified
 
-- miui-services.jar: exactly **20** selected method-level RYU-vs-EU309
+- miui-services.jar: exactly **19** selected method-level RYU-vs-EU309
   changes, using the original EU309 class/method signatures and smali
   instruction anchors rather than copying foreign APK/JAR/DEX archives.
 - Classes include BroadcastQueueModernStubImpl (4 methods),
   ActivityManagerServiceImpl (4), ProcessSceneCleaner (2),
   NotificationManagerServiceImpl (2), AppOpsServiceStubImpl,
-  AlarmManagerServiceStubImpl, JobServiceContextImpl,
-  ProcessPolicy.updateContentCatcherWhitelist and
+  AlarmManagerServiceStubImpl,   ProcessPolicy.updateContentCatcherWhitelist and
   Greeze PolicyManager.<clinit> (CN_MODEL=false).
 - PackageManagerServiceImpl.canBeUpdate() and
   PackageManagerServiceImpl.verifyIsolationViolation() are reduced to
@@ -27,6 +26,8 @@ backupzk.zip is an inactive historical reference.
 - International branches use the original
   miui.os.Build.IS_INTERNATIONAL_BUILD checks as their anchors.
   No RYU-only IS_RYU_BUILD field or donor-only class is introduced.
+
+JobServiceContextImpl.checkIfCancelJob() is left **stock EU309**, not forced to an international early-return path. This change preserves vendor job-cancellation behavior for a controlled idle/heat comparison.
 
 ## PowerKeeper.apk: NO patch
 

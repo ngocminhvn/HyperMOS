@@ -56,8 +56,8 @@ def load(path):
                 raise ValueError("Method hash pins are forbidden")
             if any(alias in json.dumps(row) for alias in ALIASES):
                 raise ValueError("Forbidden RYU-only dependency")
-    if len(data["groups"]["miui-services"]) != 20:
-        raise ValueError("Expected exactly 20 selected RYU JAR methods")
+    if len(data["groups"]["miui-services"]) != 19:
+        raise ValueError("Expected exactly 19 selected RYU JAR methods")
     return data
 
 

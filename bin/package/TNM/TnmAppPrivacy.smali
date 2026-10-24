@@ -3,6 +3,11 @@
 
 # TNM package visibility policy for Android 16 ApplicationPackageManager.
 # Configuration is fail-open, versioned and committed with an even generation.
+# Per-process cache: generation changes invalidate settings; caller UID is fixed in-process.
+.field private static volatile sHiddenGeneration:I = -0x1
+.field private static volatile sHiddenList:Ljava/lang/String;
+.field private static volatile sCallerUid:I = -0x1
+.field private static volatile sCallerPackages:[Ljava/lang/String;
 
 .method private static protectedPackage(Ljava/lang/String;)Z
     .locals 2
@@ -63,21 +68,27 @@
 .end method
 
 .method private static callerPackages()[Ljava/lang/String;
-    .locals 4
+    .locals 5
     const/4 v0, 0x0
     :try_start
     invoke-static {}, Landroid/os/Process;->myUid()I
-    move-result v1
+    move-result v4
+    move v1, v4
     const v2, 0x186a0
     rem-int/2addr v1, v2
     const/16 v2, 0x2710
     if-lt v1, v2, :fail
+    # No Binder call for a caller already validated in this process.
+    sget v2, Landroid/app/TnmAppPrivacy;->sCallerUid:I
+    if-ne v4, v2, :lookup
+    sget-object v0, Landroid/app/TnmAppPrivacy;->sCallerPackages:[Ljava/lang/String;
+    if-eqz v0, :lookup
+    return-object v0
+    :lookup
     invoke-static {}, Landroid/app/ActivityThread;->getPackageManager()Landroid/content/pm/IPackageManager;
     move-result-object v2
     if-eqz v2, :fail
-    invoke-static {}, Landroid/os/Process;->myUid()I
-    move-result v3
-    invoke-interface {v2, v3}, Landroid/content/pm/IPackageManager;->getPackagesForUid(I)[Ljava/lang/String;
+    invoke-interface {v2, v4}, Landroid/content/pm/IPackageManager;->getPackagesForUid(I)[Ljava/lang/String;
     move-result-object v0
     if-eqz v0, :fail
     array-length v1, v0
@@ -93,6 +104,8 @@
     add-int/lit8 v1, v1, 0x1
     goto :loop
     :ok
+    sput-object v0, Landroid/app/TnmAppPrivacy;->sCallerPackages:[Ljava/lang/String;
+    sput v4, Landroid/app/TnmAppPrivacy;->sCallerUid:I
     return-object v0
     :try_end
     .catch Ljava/lang/Throwable; {:try_start .. :try_end} :caught
@@ -117,6 +130,12 @@
     if-ltz v3, :fail
     and-int/lit8 v4, v3, 0x1
     if-nez v4, :fail
+    # One Settings generation read on cached active-policy calls.
+    sget v4, Landroid/app/TnmAppPrivacy;->sHiddenGeneration:I
+    if-ne v3, v4, :reload
+    sget-object v0, Landroid/app/TnmAppPrivacy;->sHiddenList:Ljava/lang/String;
+    return-object v0
+    :reload
     const-string v4, "tnm_privacy_schema"
     const/4 v5, 0x0
     invoke-static {v1, v4, v5}, Landroid/provider/Settings$Global;->getInt(Landroid/content/ContentResolver;Ljava/lang/String;I)I
@@ -140,6 +159,8 @@
     invoke-static {v1, v2, v5}, Landroid/provider/Settings$Global;->getInt(Landroid/content/ContentResolver;Ljava/lang/String;I)I
     move-result v1
     if-ne v3, v1, :fail
+    sput-object v4, Landroid/app/TnmAppPrivacy;->sHiddenList:Ljava/lang/String;
+    sput v3, Landroid/app/TnmAppPrivacy;->sHiddenGeneration:I
     return-object v4
     :try_end
     .catch Ljava/lang/Throwable; {:try_start .. :try_end} :caught
@@ -199,24 +220,28 @@
 
 .method public static shouldHide(Landroid/content/Context;Ljava/lang/String;)Z
     .locals 2
-    invoke-static {}, Landroid/app/TnmAppPrivacy;->callerPackages()[Ljava/lang/String;
-    move-result-object v0
     invoke-static {p0}, Landroid/app/TnmAppPrivacy;->hiddenList(Landroid/content/Context;)Ljava/lang/String;
     move-result-object v1
+    if-eqz v1, :unchanged
+    invoke-static {}, Landroid/app/TnmAppPrivacy;->callerPackages()[Ljava/lang/String;
+    move-result-object v0
     invoke-static {p1, v1, v0}, Landroid/app/TnmAppPrivacy;->listed(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Z
     move-result v0
+    return v0
+    :unchanged
+    const/4 v0, 0x0
     return v0
 .end method
 
 .method public static filterApplicationInfoList(Landroid/content/Context;Ljava/util/List;)Ljava/util/List;
     .locals 6
     if-eqz p1, :unchanged
-    invoke-static {}, Landroid/app/TnmAppPrivacy;->callerPackages()[Ljava/lang/String;
-    move-result-object v0
-    if-eqz v0, :unchanged
     invoke-static {p0}, Landroid/app/TnmAppPrivacy;->hiddenList(Landroid/content/Context;)Ljava/lang/String;
     move-result-object v1
     if-eqz v1, :unchanged
+    invoke-static {}, Landroid/app/TnmAppPrivacy;->callerPackages()[Ljava/lang/String;
+    move-result-object v0
+    if-eqz v0, :unchanged
     new-instance v2, Ljava/util/ArrayList;
     invoke-interface {p1}, Ljava/util/List;->size()I
     move-result v3
@@ -246,12 +271,12 @@
 .method public static filterPackageInfoList(Landroid/content/Context;Ljava/util/List;)Ljava/util/List;
     .locals 6
     if-eqz p1, :unchanged
-    invoke-static {}, Landroid/app/TnmAppPrivacy;->callerPackages()[Ljava/lang/String;
-    move-result-object v0
-    if-eqz v0, :unchanged
     invoke-static {p0}, Landroid/app/TnmAppPrivacy;->hiddenList(Landroid/content/Context;)Ljava/lang/String;
     move-result-object v1
     if-eqz v1, :unchanged
+    invoke-static {}, Landroid/app/TnmAppPrivacy;->callerPackages()[Ljava/lang/String;
+    move-result-object v0
+    if-eqz v0, :unchanged
     new-instance v2, Ljava/util/ArrayList;
     invoke-interface {p1}, Ljava/util/List;->size()I
     move-result v3

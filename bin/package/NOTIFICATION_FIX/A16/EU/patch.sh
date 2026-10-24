@@ -37,7 +37,7 @@ done
 python3 "$base/ryu_policy.py" --root "$tmp/decoded" --manifest "$manifest" \
   --group miui-services --verify --report "$w/build/reports/ryu-a16/verified.json"
 mv -f "$output" "$jar"
-mods "[EU A16] RYU 20-method policy; PackageManager no-op gates; malware international gate; no PerfHook"
+mods "[EU A16] RYU 19-method policy; PackageManager no-op gates; malware international gate; no PerfHook"
 # PowerKeeper remains original EU309: RYU has no independent GMS/Millet/FCM
 # DEX method delta beyond excluded PerfHook/FPS/thermal modifications.
 mods "[EU A16] PowerKeeper.apk untouched; original EU APK signature preserved"

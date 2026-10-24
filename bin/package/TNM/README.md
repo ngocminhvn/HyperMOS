@@ -28,7 +28,7 @@ Runtime configuration uses `Settings.Global` keys
 `tnm_privacy_schema`, `tnm_privacy_enabled`,
 `tnm_privacy_hidden_packages`, and `tnm_privacy_generation`. Odd generations
 are incomplete transactions and fail open. Schema 1 accepts a sorted,
-comma-separated package list. No resident process is used.
+comma-separated package list. No resident process is used. The A16 helper caches successfully validated caller identity per app process, and refreshes the hidden list when a new even `tnm_privacy_generation` is committed. When disabled, it avoids the per-call package-manager Binder query.
 
 
 ## Post-fs property reporting (former LOCK package)
