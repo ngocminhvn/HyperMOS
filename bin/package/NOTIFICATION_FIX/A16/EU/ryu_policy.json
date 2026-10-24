@@ -154,28 +154,8 @@
         "signature": "<clinit>()V",
         "operation": "force_cn_model_false"
       }
-    ],
-    "powerkeeper": [
-      {
-        "class": "com/miui/powerkeeper/utils/GmsObserver.smali",
-        "signature": "isGmsControlEnabled()Z",
-        "operation": "stock_ryu_equal"
-      },
-      {
-        "class": "com/miui/powerkeeper/utils/GmsObserver.smali",
-        "signature": "enableGms()V",
-        "operation": "stock_ryu_equal"
-      },
-      {
-        "class": "com/miui/powerkeeper/utils/GmsObserver.smali",
-        "signature": "disableGms()V",
-        "operation": "stock_ryu_equal"
-      },
-      {
-        "class": "com/miui/powerkeeper/controller/ActiveStateController.smali",
-        "signature": "dealNoRestrictApp()V",
-        "operation": "stock_ryu_equal"
-      }
     ]
-  }
+  },
+  "scope": "Only the 17 RYU-versus-EU309 miui-services.jar method deltas selected for notification, alarm, app control and Greeze",
+  "powerkeeper": "No DEX changes: all 9 changed original RYU PowerKeeper methods depend on PerfHook, RYU FPS settings, or custom thermal node; preserve stock EU APK and signature"
 }
