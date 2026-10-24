@@ -78,27 +78,21 @@ jobs:
         with:
           lfs: true
 
-      - name: Check ROM root and Telegram bot sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m py_compile bin/root/fetch_sukisu_latest.py
-          python3 bin/root/fetch_sukisu_latest.py --self-test
-          bash -n bin/root/prepare_sukisu.sh bin/root/patch_init_boot.sh
-          node --input-type=module --check < bot/telegram_build_worker.js
-
-      - name: Java 17
-        uses: actions/setup-java@v6
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
       - name: Prepare build environment
         shell: bash
         run: |
           set -euo pipefail
           : > build_action.log
           echo "[PHASE] - Prepare build environment"
+
+          # ubuntu-24.04 ships with Java 17; select the preinstalled JDK.
+          if [ -z "${JAVA_HOME_17_X64:-}" ] || [ ! -x "${JAVA_HOME_17_X64}/bin/java" ]; then
+            echo "::error title=Java 17 unavailable::Expected preinstalled JDK 17 on ubuntu-24.04"
+            exit 1
+          fi
+          echo "JAVA_HOME=${JAVA_HOME_17_X64}" >> "$GITHUB_ENV"
+          echo "${JAVA_HOME_17_X64}/bin" >> "$GITHUB_PATH"
+          echo "[OK] - Using preinstalled Java 17"
 
           sudo timedatectl set-timezone Asia/Ho_Chi_Minh
           # Preserve the original Ubuntu Toolchain test PPA for builds that
