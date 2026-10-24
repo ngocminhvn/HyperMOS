@@ -13,7 +13,7 @@ from pathlib import Path
 METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
 IGNORE = ("#", ".line ", ".local ", ".end local", ".restart local",
           ".param ", ".end param", ".prologue", ".epilogue", ".source ")
-EXPECTED = {"global-jar": 3, "global-power": 7, "zk-jar": 1, "zk-power": 4}
+EXPECTED = {"eu-battery": 0, "global-power": 7, "zk-jar": 1, "zk-power": 4}
 ZK_MARKERS = ("Lmiui/zk/", "Lcom/zk/", "IS_ZK_BUILD", "zk_state", "Lcom/projectryu/")
 
 
@@ -82,9 +82,34 @@ def load_manifest(file):
                     raise ValueError("ZK-only class/property reference not allowed")
     if amounts != EXPECTED:
         raise ValueError(f"incomplete policy delta set: {amounts}")
-    if len(data["fields"]) != 1 or data["fields"][0]["bucket"] != "global-jar":
-        raise ValueError("missing scoped Global MAP_APP field edit")
+    if data.get("fields") != []:
+        raise ValueError("EU original MAP_APP must not be rewritten")
+    stock = data.get("preserve_eu_battery", {})
+    if (stock.get("class_path") != "com/android/server/MiuiBatteryIntelligence.smali"
+            or stock.get("field") != ".field private static final MAP_APP:[Ljava/lang/String;"
+            or len(stock.get("apps", [])) != 18
+            or len(set(stock["apps"])) != 18):
+        raise ValueError("missing stock EU 18-app MAP_APP specification")
     return data
+
+
+def verify_original_eu_battery(root, manifest):
+    stock = manifest["preserve_eu_battery"]
+    source = one_file(root, stock["class_path"]).read_text(encoding="utf-8")
+    if source.count(stock["field"]) != 1:
+        raise ValueError("EU original static MAP_APP field missing")
+    initial = one_method(source, "<clinit>()V").group()
+    offsets = [initial.find('"' + app + '"') for app in stock["apps"]]
+    if any(pos < 0 for pos in offsets) or offsets != sorted(offsets):
+        raise ValueError("EU original ordered 18-map-app list changed")
+    if initial.count("filled-new-array/range {v0 .. v17}, [Ljava/lang/String;") != 1:
+        raise ValueError("EU 18-app array creation changed")
+    if initial.count("sput-object v0, Lcom/android/server/MiuiBatteryIntelligence;->MAP_APP:[Ljava/lang/String;") != 1:
+        raise ValueError("EU original static MAP_APP write changed")
+    method = one_method(source, "init(Landroid/content/Context;)V").group()
+    if "sget-object v0, Lcom/android/server/MiuiBatteryIntelligence;->MAP_APP:[Ljava/lang/String;" not in method:
+        raise ValueError("EU original static MAP_APP read changed")
+    print("[EU BATTERY] original 18 map apps and MAP_APP field preserved")
 
 
 def apply(root, manifest, bucket, verify, report):
@@ -117,20 +142,8 @@ def apply(root, manifest, bucket, verify, report):
         path.write_text(source[:method.start()] + patched + source[method.end():], encoding="utf-8")
         touched.append(entry["path"] + "->" + entry["signature"])
 
-    if bucket == "global-jar":
-        info = manifest["fields"][0]
-        path = one_file(root, info["path"])
-        source = path.read_text(encoding="utf-8")
-        before, after = info["before"], info["after"]
-        count_before = source.count(before)
-        count_after = source.count(after)
-        if before != after and count_before == 1 and count_after == 0 and not verify:
-            source = source.replace(before, after, 1)
-            path.write_text(source, encoding="utf-8")
-        elif before != after and (count_after != 1 or count_before != 0):
-            raise ValueError("Global MAP_APP field ABI inconsistent")
-        elif before == after and count_before != 1:
-            raise ValueError("Global MAP_APP field absent")
+    if bucket == "eu-battery":
+        verify_original_eu_battery(root, manifest)
 
     result = {"policy":bucket,"modified":touched,"verified_or_equal":identical,
               "target_methods":len(items), "verification_only":verify,

@@ -9,9 +9,9 @@ binaries remain recoverable in Git history if an audit is ever required.
 
 ## Patched classes
 
-- `miui-services.jar`: three Global303 `MiuiBatteryIntelligence` methods
-  and `MAP_APP` field; ZK304
-  `InternationalPolicyManager.getImportantApps()`.
+- `miui-services.jar`: preserve original Xiaomi.eu `MiuiBatteryIntelligence`
+  with all 18 map apps and its static `MAP_APP`; only ZK304
+  `InternationalPolicyManager.getImportantApps()` is ported.
 - `GreezeManagerService.isAllowBroadcast`: existing HyperMOS scoped
   `com.google.android.gms` / `com.google.android.c2dm.intent.RECEIVE`
   exception. All other native EU Greeze, region and Doze logic remains.
