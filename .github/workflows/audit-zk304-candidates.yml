@@ -108,6 +108,50 @@ jobs:
               --verify-original "$root/eu/$area"
           done
           echo "[ZK304] Focused GMS, important apps, and Millet methods preflight passed"
+      - name: Verify combined Global303 plus selected ZK304 bytecode
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/tmp/zk304-audit
+          both="$root/combined"
+          mkdir -p "$both/power" "$both/jar-assembled" "$both/jar-verified"
+          cp -a "$root/eu/power/smali" "$both/eu-power"
+          cp -a "$root/eu/jar" "$both/eu-jar"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/port_global_powerkeeper.py \
+            --eu "$both/eu-power" --global-donor "$root/global/power/smali" \
+            --report "$root/report/combined-global-power.json"
+          cp -a "$both/eu-power" "$both/eu-power-global"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py \
+            --component power --eu-root "$both/eu-power" --donor-root "$root/zk/power" \
+            --report "$root/report/combined-global-zk-power.json"
+          java -jar bin/apktool/smaliv2.jar a --api 36 "$both/eu-power" -o "$both/power/merged.dex" >/dev/null
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 "$both/power/merged.dex" -o "$both/power/verified" >/dev/null
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py \
+            --component power --eu-root "$both/power/verified" --donor-root "$root/zk/power" \
+            --verify-original "$both/eu-power-global"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/jar_port.py \
+            "$both/eu-jar" bin/package/NOTIFICATION_FIX/A16/EU/global-battery.smali \
+            --report "$root/report/combined-global-battery.json"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/fcm_greeze.py \
+            "$both/eu-jar" --report "$root/report/combined-fcm.json"
+          cp -a "$both/eu-jar" "$both/eu-jar-global-fcm"
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py \
+            --component jar --eu-root "$both/eu-jar" --donor-root "$root/zk/jar" \
+            --report "$root/report/combined-global-zk-jar.json"
+          for group in "$both/eu-jar"/smali*; do
+            [[ -d "$group" ]] || continue
+            stem="$(basename "$group")"
+            dex=classes
+            [[ "$stem" == smali ]] || dex="classes_$(echo "$stem" | sed 's/^smali_//')"
+            java -jar bin/apktool/smaliv2.jar a --api 36 "$group" \
+              -o "$both/jar-assembled/$dex.dex" >/dev/null
+            java -jar bin/apktool/baksmaliv2.jar d --api 36 "$both/jar-assembled/$dex.dex" \
+              -o "$both/jar-verified/$stem" >/dev/null
+          done
+          python3 bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py \
+            --component jar --eu-root "$both/jar-verified" --donor-root "$root/zk/jar" \
+            --verify-original "$both/eu-jar-global-fcm"
+          echo "[EU A16] Global303 + scoped FCM + selected ZK304 combined assembly verified"
       - uses: actions/upload-artifact@v6
         if: always()
         with:
