@@ -11,7 +11,7 @@ rom_source="$(tr -d '\r\n' < "$identity")"
 android_ver="$(tr -d '\r\n' < "$version")"
 [[ "$android_ver" == 16 ]] || { error "A16 Notification: Android $android_ver unsupported"; exit 1; }
 if [[ "$rom_source" == xiaomi_eu ]]; then
-  log "[EU A16] original EU framework + compact Global303/ZK304 policy deltas"
+  log "[EU A16] original EU framework + compact RYU international policy JSON deltas (no PerfHook)"
   bash "$base/EU/patch.sh"
   exit 0
 fi
