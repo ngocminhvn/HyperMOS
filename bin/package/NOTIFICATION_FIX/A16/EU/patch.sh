@@ -20,7 +20,6 @@ ensure_tools
 tmp="$(mktemp -d "$w/eu-policy-jar.XXXXXX")"
 trap 'rm -rf "$decoded" "$w/miui-services" "$output" "$tmp"' EXIT
 decompile_jar "$jar" >/dev/null
-python3 "$base/policy_delta.py" --root "$decoded" --manifest "$manifest" --policy eu-battery --report "$w/build/reports/global-a16/miui-battery.json"
 python3 "$base/policy_delta.py" --root "$decoded" --manifest "$manifest" --policy zk-jar --report "$w/build/reports/global-a16/zk-important-apps.json"
 python3 "$base/fcm_greeze.py" "$decoded" --report "$w/build/reports/global-a16/fcm-greeze.json"
 recompile_jar "$jar" >/dev/null
@@ -34,8 +33,7 @@ for dex in "$tmp/raw"/classes*.dex; do
   [[ "$stem" == classes ]] || group="smali_$(echo "$stem" | sed 's/^classes_//')"
   java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api "$API_LEVEL" "$dex" -o "$tmp/decoded/$group" >/dev/null
 done
-python3 "$base/policy_delta.py" --root "$tmp/decoded" --manifest "$manifest" --policy eu-battery --verify
 python3 "$base/policy_delta.py" --root "$tmp/decoded" --manifest "$manifest" --policy zk-jar --verify
 mv -f "$output" "$jar"
-mods "[EU A16] stock EU 18-app battery map + scoped FCM + ZK304 important-app delta; Global303 PowerKeeper retained"
+mods "[EU A16] stock EU MiuiBatteryIntelligence unchanged; scoped FCM + ZK304 getImportantApps; Global303 PowerKeeper retained"
 bash "$base/PowerKeeper.sh"

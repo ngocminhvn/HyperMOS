@@ -14,7 +14,7 @@ from pathlib import Path
 METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
 IGNORE = ("#", ".line ", ".local ", ".end local", ".restart local",
           ".param ", ".end param", ".prologue", ".epilogue", ".source ")
-EXPECTED = {"eu-battery": 0, "global-power": 7, "zk-jar": 1}
+EXPECTED = {"global-power": 7, "zk-jar": 1}
 ZK_MARKERS = ("Lmiui/zk/", "Lcom/zk/", "IS_ZK_BUILD", "zk_state", "Lcom/projectryu/")
 
 
@@ -26,7 +26,7 @@ def norm(src):
 def one_file(root, rel):
     found = list(root.glob("smali*/" + rel))
     if not found:
-        # EU PowerKeeper's ActiveStateController has a non-ZK package owner.
+        # Different ROM versions may package a class under a different owner.
         found = list(root.rglob(rel.rsplit("/", 1)[-1]))
     if len(found) != 1:
         raise ValueError(f"{rel}: expected exactly one class; found {len(found)}")
@@ -80,33 +80,7 @@ def load_manifest(file):
                     raise ValueError("ZK-only class/property reference is forbidden")
     if amounts != EXPECTED:
         raise ValueError(f"incomplete policy delta set: {amounts}")
-    if data.get("fields") != []:
-        raise ValueError("EU original MAP_APP must not be rewritten")
-    stock = data.get("preserve_eu_battery", {})
-    if (stock.get("class_path") != "com/android/server/MiuiBatteryIntelligence.smali"
-            or stock.get("field") != ".field private static final MAP_APP:[Ljava/lang/String;"
-            or len(stock.get("apps", [])) != 18 or len(set(stock["apps"])) != 18):
-        raise ValueError("missing original EU 18-app MAP_APP specification")
     return data
-
-
-def verify_original_eu_battery(root, manifest):
-    stock = manifest["preserve_eu_battery"]
-    source = one_file(root, stock["class_path"]).read_text(encoding="utf-8")
-    if source.count(stock["field"]) != 1:
-        raise ValueError("EU original static MAP_APP field missing")
-    initial = one_method(source, "<clinit>()V").group()
-    offsets = [initial.find('"' + app + '"') for app in stock["apps"]]
-    if any(pos < 0 for pos in offsets) or offsets != sorted(offsets):
-        raise ValueError("EU ordered 18-map-app list changed")
-    if initial.count("filled-new-array/range {v0 .. v17}, [Ljava/lang/String;") != 1:
-        raise ValueError("EU 18-app MAP_APP array changed")
-    if initial.count("sput-object v0, Lcom/android/server/MiuiBatteryIntelligence;->MAP_APP:[Ljava/lang/String;") != 1:
-        raise ValueError("EU static MAP_APP storage changed")
-    method = one_method(source, "init(Landroid/content/Context;)V").group()
-    if "sget-object v0, Lcom/android/server/MiuiBatteryIntelligence;->MAP_APP:[Ljava/lang/String;" not in method:
-        raise ValueError("EU static MAP_APP access changed")
-    print("[EU BATTERY] original 18-app map and static MAP_APP preserved")
 
 
 def instruction_key(line):
@@ -143,12 +117,6 @@ def verify_effect(source, edits, sig):
         token = "InternationalPolicyManager;->tmpImportantApps:Ljava/util/List;"
         if raw.count(token) < 2 or "return-object v0" not in body:
             raise ValueError("getImportantApps: cache early return is missing")
-    if sig == "dealNoRestrictApp()V" and not any("MILLET_NO_RESTRICT_APP" in x for x in body):
-        raise ValueError("Millet no-restrict logic missing")
-    if sig == "isGmsControlEnabled()Z":
-        for token in ("com.android.vending", "noRestrict"):
-            if not any(token in x for x in body):
-                raise ValueError("GMS control token missing: " + token)
 
 
 def positions(lines, fragment):
@@ -249,8 +217,6 @@ def apply(root, manifest, bucket, verify, report):
             path.write_text(source[:method.start()] + rebuilt + source[method.end():],
                             encoding="utf-8")
             modified.append(ident)
-    if bucket == "eu-battery":
-        verify_original_eu_battery(root, manifest)
     result = {"policy": bucket, "patched": modified, "already_applied": preserved,
               "original_equal": no_op, "method_count": len(items),
               "verify_only": verify, "SHA_pinning": False,

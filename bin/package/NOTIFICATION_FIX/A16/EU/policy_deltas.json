@@ -543,30 +543,5 @@
         }
       ]
     }
-  ],
-  "fields": [],
-  "preserve_eu_battery": {
-    "class_path": "com/android/server/MiuiBatteryIntelligence.smali",
-    "field": ".field private static final MAP_APP:[Ljava/lang/String;",
-    "apps": [
-      "com.autonavi.minimap",
-      "com.tencent.map",
-      "com.baidu.BaiduMap",
-      "com.google.android.apps.maps",
-      "com.google.android.apps.mapslite",
-      "com.waze",
-      "com.sygic.aura",
-      "com.sygic.truck",
-      "com.here.app.maps",
-      "com.here.app.wego",
-      "com.tomtom.gplay.navapp",
-      "com.tomtom.gplay.navapp.gofleet",
-      "com.tomtom.speedcams.android.map",
-      "com.alk.copilot.mapviewer",
-      "com.mapfactor.navigator",
-      "com.mapswithme.maps.pror",
-      "net.osmand",
-      "pl.neptis.yanosik.mobi.android"
-    ]
-  }
+  ]
 }

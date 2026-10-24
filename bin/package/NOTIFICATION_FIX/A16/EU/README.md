@@ -1,6 +1,6 @@
 # Xiaomi.eu A16 policy — method-level deltas (no donor DEX)
 
-Active entry: `patch.sh`. Data: `policy_deltas.json` (~14 KB).
+Active entry: `patch.sh`. Data: `policy_deltas.json` (method-level edits only).
 
 `policy_delta.py` checks class/method signatures and original smali opcode
 anchors, not per-device method SHA-256 hashes, before applying targeted edits. Unlike the retired ZK/Global donor archives, the
@@ -9,8 +9,9 @@ binaries remain recoverable in Git history if an audit is ever required.
 
 ## Patched classes
 
-- `miui-services.jar`: preserve original Xiaomi.eu `MiuiBatteryIntelligence`
-  with all 18 map apps and its static `MAP_APP`; only ZK304
+- `miui-services.jar`: do not inspect, verify or patch EU
+  `MiuiBatteryIntelligence` / `MAP_APP` at all. Its original device-specific
+  navigation-app list remains unchanged automatically. Only ZK304
   `InternationalPolicyManager.getImportantApps()` is ported.
 - `GreezeManagerService.isAllowBroadcast`: existing HyperMOS scoped
   `com.google.android.gms` / `com.google.android.c2dm.intent.RECEIVE`

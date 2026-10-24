@@ -3,9 +3,10 @@
 **Current implementation:** `bin/package/NOTIFICATION_FIX/A16/EU/policy_delta.py`
 using `policy_deltas.json` (roughly 14 KB of exact instruction-span edits).
 
-- Original EU JAR retains stock MiuiBatteryIntelligence (all 18 map apps,
-  original static MAP_APP field). No Global303 MiuiBatteryIntelligence import.
-  ZK304 important-app caching and HyperMOS scoped FCM exception remain.
+- Xiaomi.eu `MiuiBatteryIntelligence` / `MAP_APP` is left completely alone:
+  no Global303 import, app-list pinning or verification (device stock values
+  remain intact). ZK304 important-app caching and HyperMOS scoped FCM
+  exception remain.
 - Original EU PowerKeeper DEX with 7 targeted Global303 policy edits;
   stock EU GmsObserver and ActiveStateController remain untouched. Their
   ZK304 variants are behaviorally equivalent and are not patched.

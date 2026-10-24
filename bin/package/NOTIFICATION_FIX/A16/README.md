@@ -10,8 +10,9 @@ Entry: `bin/package/NOTIFICATION_FIX/A16/patch.sh`.
   The latter is a roughly 14 KB declarative list of **specific instruction
   edits** derived from original EU309, Global303 and ZK304, not a whole
   donor DEX, ZIP, JAR, or APK.
-- EU JAR: original EU MiuiBatteryIntelligence (18 map apps and static MAP_APP),
-  ZK getImportantApps caching method, plus scoped Google FCM allow.
+- EU JAR: no `MiuiBatteryIntelligence` / `MAP_APP` changes or checks;
+  keep each Xiaomi.eu device’s original list untouched. Apply ZK
+  `getImportantApps()` caching and scoped Google FCM allow only.
 - EU PowerKeeper: 7 Global303 edits; original EU GmsObserver and
   ActiveStateController are not rewritten because their ZK304 counterparts
   do not differ in behavior. The only active ZK304 donor method is
