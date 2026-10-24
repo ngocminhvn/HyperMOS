@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Apply small, SHA-pinned instruction deltas to original EU A16 smali.
+"""Portable, fail-closed smali patching for Xiaomi.eu Android 16.
 
-There are no bundled Global/ZK PowerKeeper or framework DEX donors.
-Each delta is checked against the exact EU method before modification.
+No device-specific method SHA-256 is used.  Edits are located by their old
+instruction spans inside a uniquely resolved class/method.  Original offsets
+are only disambiguation hints, never mandatory offsets.  Rebuilt bytecode is
+validated by stable instructions, not baksmali-generated label addresses.
 """
 import argparse
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -13,27 +14,22 @@ from pathlib import Path
 METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
 IGNORE = ("#", ".line ", ".local ", ".end local", ".restart local",
           ".param ", ".end param", ".prologue", ".epilogue", ".source ")
-EXPECTED = {"eu-battery": 0, "global-power": 7, "zk-jar": 1}
+EXPECTED = {"eu-battery": 0, "global-power": 7, "zk-jar": 1, "zk-power": 4}
 ZK_MARKERS = ("Lmiui/zk/", "Lcom/zk/", "IS_ZK_BUILD", "zk_state", "Lcom/projectryu/")
 
 
 def norm(src):
-    return [v for raw in src.splitlines()
-            if (v := raw.strip()) and not v.startswith(IGNORE)]
-
-
-def digest(lines):
-    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+    return [s for line in src.splitlines() if (s := line.strip())
+            and not s.startswith(IGNORE)]
 
 
 def one_file(root, rel):
-    # Original DEX may split a class between smali, smali_classes2, etc.
     found = list(root.glob("smali*/" + rel))
     if not found:
-        # PowerKeeper places ActiveStateController in a different package.
+        # EU PowerKeeper's ActiveStateController has a non-ZK package owner.
         found = list(root.rglob(rel.rsplit("/", 1)[-1]))
     if len(found) != 1:
-        raise ValueError(f"{rel}: expected 1 smali class, got {len(found)}")
+        raise ValueError(f"{rel}: expected exactly one class; found {len(found)}")
     return found[0]
 
 
@@ -41,24 +37,23 @@ def one_method(src, sig):
     found = [m for m in METHOD.finditer(src)
              if m.group().splitlines()[0].strip().split()[-1] == sig]
     if len(found) != 1:
-        raise ValueError(f"{sig}: expected one method, got {len(found)}")
+        raise ValueError(f"{sig}: expected exactly one method, found {len(found)}")
     return found[0]
 
 
-def target(lines, edits):
-    output = list(lines)
-    prev = len(lines) + 1
-    for change in reversed(edits):
-        offset = change["at"]
-        old = change["remove"]
-        new = change["insert"]
-        if not isinstance(offset, int) or offset < 0 or offset + len(old) > prev:
-            raise ValueError("invalid/overlapping method edit")
-        if output[offset:offset + len(old)] != old:
-            raise ValueError(f"method edit anchor mismatch at {offset}")
-        output[offset:offset + len(old)] = new
-        prev = offset
-    return output
+def validate_edits(edits):
+    end = -1
+    for edit in edits:
+        if set(edit) != {"at", "remove", "insert"}:
+            raise ValueError("invalid delta entry")
+        at, old, new = edit["at"], edit["remove"], edit["insert"]
+        if not isinstance(at, int) or at < 0 or not isinstance(old, list) or not isinstance(new, list):
+            raise ValueError("invalid delta position/instructions")
+        if any(not isinstance(x, str) or "\n" in x for x in old + new):
+            raise ValueError("invalid instruction text")
+        if at < end:
+            raise ValueError("overlapping or disordered donor edit spans")
+        end = at + len(old)
 
 
 def load_manifest(file):
@@ -76,10 +71,13 @@ def load_manifest(file):
             raise ValueError("duplicate donor method")
         seen.add(identity)
         amounts[bucket] += 1
+        if "before_sha256" in entry or "after_sha256" in entry:
+            raise ValueError("method SHA pins are not supported")
+        validate_edits(entry["changes"])
         if bucket.startswith("zk"):
-            for op in entry["changes"]:
-                if any(marker in line for line in op["insert"] for marker in ZK_MARKERS):
-                    raise ValueError("ZK-only class/property reference not allowed")
+            for edit in entry["changes"]:
+                if any(marker in line for line in edit["insert"] for marker in ZK_MARKERS):
+                    raise ValueError("ZK-only class/property reference is forbidden")
     if amounts != EXPECTED:
         raise ValueError(f"incomplete policy delta set: {amounts}")
     if data.get("fields") != []:
@@ -87,9 +85,8 @@ def load_manifest(file):
     stock = data.get("preserve_eu_battery", {})
     if (stock.get("class_path") != "com/android/server/MiuiBatteryIntelligence.smali"
             or stock.get("field") != ".field private static final MAP_APP:[Ljava/lang/String;"
-            or len(stock.get("apps", [])) != 18
-            or len(set(stock["apps"])) != 18):
-        raise ValueError("missing stock EU 18-app MAP_APP specification")
+            or len(stock.get("apps", [])) != 18 or len(set(stock["apps"])) != 18):
+        raise ValueError("missing original EU 18-app MAP_APP specification")
     return data
 
 
@@ -101,57 +98,166 @@ def verify_original_eu_battery(root, manifest):
     initial = one_method(source, "<clinit>()V").group()
     offsets = [initial.find('"' + app + '"') for app in stock["apps"]]
     if any(pos < 0 for pos in offsets) or offsets != sorted(offsets):
-        raise ValueError("EU original ordered 18-map-app list changed")
+        raise ValueError("EU ordered 18-map-app list changed")
     if initial.count("filled-new-array/range {v0 .. v17}, [Ljava/lang/String;") != 1:
-        raise ValueError("EU 18-app array creation changed")
+        raise ValueError("EU 18-app MAP_APP array changed")
     if initial.count("sput-object v0, Lcom/android/server/MiuiBatteryIntelligence;->MAP_APP:[Ljava/lang/String;") != 1:
-        raise ValueError("EU original static MAP_APP write changed")
+        raise ValueError("EU static MAP_APP storage changed")
     method = one_method(source, "init(Landroid/content/Context;)V").group()
     if "sget-object v0, Lcom/android/server/MiuiBatteryIntelligence;->MAP_APP:[Ljava/lang/String;" not in method:
-        raise ValueError("EU original static MAP_APP read changed")
-    print("[EU BATTERY] original 18 map apps and MAP_APP field preserved")
+        raise ValueError("EU static MAP_APP access changed")
+    print("[EU BATTERY] original 18-app map and static MAP_APP preserved")
+
+
+def instruction_key(line):
+    """For verification: stable opcode/operands; ignore DEX label offsets."""
+    line = re.sub(r"\bconst-string/jumbo\b", "const-string", line.strip())
+    return re.sub(r":(cond|goto|try_start|try_end|catchall)_[0-9a-fA-F]+",
+                  lambda m: ":" + m.group(1) + "_*", line)
+
+
+def meaningful(line):
+    v = line.strip()
+    return (v and not v.startswith((".", ":"))
+            and not re.match(r"^(?:goto|if-)", v))
+
+
+def verify_effect(source, edits, sig):
+    """Check the bytecode effects, including removed functional instructions."""
+    if not edits:
+        return
+    body = [instruction_key(x) for x in norm(source)]
+    before = [instruction_key(x) for e in edits for x in e["remove"] if meaningful(x)]
+    after = [instruction_key(x) for e in edits for x in e["insert"] if meaningful(x)]
+    for instruction in set(after):
+        if instruction not in body:
+            raise ValueError(f"{sig}: missing inserted opcode: {instruction}")
+    # Deleted opcodes must stay absent, except for semantically identical
+    # re-encodings (const-string -> const-string/jumbo) and duplicates.
+    for instruction in set(before) - set(after):
+        if instruction.startswith(("invoke-", "sput-", "filled-new-array")):
+            if instruction in body:
+                raise ValueError(f"{sig}: removed instruction still present: {instruction}")
+    if sig == "getImportantApps()Ljava/util/List;":
+        raw = "\n".join(body)
+        token = "InternationalPolicyManager;->tmpImportantApps:Ljava/util/List;"
+        if raw.count(token) < 2 or "return-object v0" not in body:
+            raise ValueError("getImportantApps: cache early return is missing")
+    if sig == "dealNoRestrictApp()V" and not any("MILLET_NO_RESTRICT_APP" in x for x in body):
+        raise ValueError("Millet no-restrict logic missing")
+    if sig == "isGmsControlEnabled()Z":
+        for token in ("com.android.vending", "noRestrict"):
+            if not any(token in x for x in body):
+                raise ValueError("GMS control token missing: " + token)
+
+
+def positions(lines, fragment):
+    size = len(fragment)
+    return [i for i in range(len(lines) - size + 1)
+            if lines[i:i + size] == fragment]
+
+
+def apply_edits(lines, edits):
+    """Relocate edits by exact old instructions, with offsets as hints only.
+
+    Reject missing/ambiguous anchors. Never silently replace an unknown
+    method body from another phone or HyperOS revision.
+    """
+    anchored = {}
+    shift = 0
+    last_end = 0
+    for number, change in enumerate(edits):
+        old = change["remove"]
+        if not old:
+            continue
+        candidates = [x for x in positions(lines, old) if x >= last_end]
+        if not candidates:
+            raise ValueError(f"delta {number}: old instructions not found")
+        expected = change["at"] + shift
+        distances = [abs(pos - expected) for pos in candidates]
+        lowest = min(distances)
+        selected = [pos for pos, distance in zip(candidates, distances) if distance == lowest]
+        if len(selected) != 1:
+            raise ValueError(f"delta {number}: old opcode anchor ambiguous")
+        at = selected[0]
+        anchored[number] = at
+        shift = at - change["at"]
+        last_end = at + len(old)
+    for number, change in enumerate(edits):
+        if change["remove"]:
+            continue
+        earlier = max((i for i in anchored if i < number), default=None)
+        later = min((i for i in anchored if i > number), default=None)
+        guesses = []
+        if earlier is not None:
+            guesses.append(anchored[earlier] + change["at"] - edits[earlier]["at"])
+        if later is not None:
+            guesses.append(anchored[later] - (edits[later]["at"] - change["at"]))
+        if not guesses:
+            raise ValueError(f"delta {number}: insertion has no structural anchors")
+        if len(set(guesses)) != 1:
+            raise ValueError(f"delta {number}: insertion context differs on target")
+        anchored[number] = guesses[0]
+    end = -1
+    for i, change in enumerate(edits):
+        pos = anchored[i]
+        if pos < end or pos < 1 or pos > len(lines):
+            raise ValueError(f"delta {i}: invalid or overlapping opcode anchors")
+        if lines[pos:pos + len(change["remove"])] != change["remove"]:
+            raise ValueError(f"delta {i}: opcode anchor changed")
+        end = pos + len(change["remove"])
+    result = list(lines)
+    for i in reversed(range(len(edits))):
+        c = edits[i]
+        pos = anchored[i]
+        result[pos:pos + len(c["remove"])] = c["insert"]
+    return result
 
 
 def apply(root, manifest, bucket, verify, report):
     items = [x for x in manifest["methods"] if x["bucket"] == bucket]
-    touched, identical = [], []
+    modified, preserved, no_op = [], [], []
     for entry in items:
         path = one_file(root, entry["path"])
         source = path.read_text(encoding="utf-8")
         method = one_method(source, entry["signature"])
-        current = norm(method.group())
-        current_sha = digest(current)
-        original_sha = entry["before_sha256"]
-        output_sha = entry["after_sha256"]
-        if current_sha == output_sha:
-            identical.append(entry["path"] + "->" + entry["signature"])
-            continue
+        sig = entry["signature"]
+        changes = entry["changes"]
+        ident = entry["path"] + "->" + sig
         if verify:
-            raise ValueError(f"{entry['signature']}: rebuilt method SHA mismatch")
-        if current_sha != original_sha:
-            raise ValueError(f"{entry['signature']}: unexpected EU base method SHA")
-        if len(current) != entry["original_lines"]:
-            raise ValueError("source method line inventory mismatch")
-        result = target(current, entry["changes"])
-        if digest(result) != output_sha or len(result) != entry["result_lines"]:
-            raise ValueError("result does not match pinned donor method")
-        if not entry["changes"]:
-            identical.append(entry["path"] + "->" + entry["signature"])
+            verify_effect(method.group(), changes, sig)
+            preserved.append(ident)
             continue
-        patched = "\n".join(result)
-        path.write_text(source[:method.start()] + patched + source[method.end():], encoding="utf-8")
-        touched.append(entry["path"] + "->" + entry["signature"])
-
+        if not changes:
+            verify_effect(method.group(), changes, sig)
+            no_op.append(ident)
+            continue
+        current = norm(method.group())
+        try:
+            target = apply_edits(current, changes)
+        except ValueError:
+            # Already-transformed target: only accept when every functional
+            # instruction effect is verifiably present.
+            verify_effect(method.group(), changes, sig)
+            preserved.append(ident)
+            continue
+        rebuilt = "\n".join(target)
+        verify_effect(rebuilt, changes, sig)
+        if target == current:
+            preserved.append(ident)
+        else:
+            path.write_text(source[:method.start()] + rebuilt + source[method.end():],
+                            encoding="utf-8")
+            modified.append(ident)
     if bucket == "eu-battery":
         verify_original_eu_battery(root, manifest)
-
-    result = {"policy":bucket,"modified":touched,"verified_or_equal":identical,
-              "target_methods":len(items), "verification_only":verify,
-              "source":"audited EU309 -> Global303/ZK304 instruction deltas",
-              "whole_dex_donor_required":False}
+    result = {"policy": bucket, "patched": modified, "already_applied": preserved,
+              "original_equal": no_op, "method_count": len(items),
+              "verify_only": verify, "SHA_pinning": False,
+              "donor_archives_required": False}
     if report:
-        report.parent.mkdir(parents=True,exist_ok=True)
-        report.write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print("[EU POLICY DELTAS] " + json.dumps(result))
 
 
@@ -164,9 +270,9 @@ def main():
     p.add_argument("--report", type=Path)
     a = p.parse_args()
     try:
-        apply(a.root,load_manifest(a.manifest),a.policy,a.verify,a.report)
-    except (OSError, ValueError, KeyError, TypeError, IndexError) as e:
-        raise SystemExit("[EU POLICY DELTAS] FAIL: " + str(e))
+        apply(a.root, load_manifest(a.manifest), a.policy, a.verify, a.report)
+    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+        raise SystemExit("[EU POLICY DELTAS] FAIL: " + str(exc))
 
 
 if __name__ == "__main__":

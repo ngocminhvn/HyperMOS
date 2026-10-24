@@ -5,8 +5,6 @@
       "bucket": "global-power",
       "path": "com/miui/powerkeeper/cloudcontrol/CloudUpdateReceiver.smali",
       "signature": "onReceive(Landroid/content/Context;Landroid/content/Intent;)V",
-      "before_sha256": "d1fbbc9c884914f0cecf71d5e0eb6c2de185ae9f99f6b336daf8633932bdad76",
-      "after_sha256": "c2be3e471b8bc2c5c4b331823877c82ae60ab1350217744bdba22357036cb8d9",
       "changes": [
         {
           "at": 102,
@@ -58,16 +56,12 @@
             ":cond_105"
           ]
         }
-      ],
-      "original_lines": 133,
-      "result_lines": 138
+      ]
     },
     {
       "bucket": "global-power",
       "path": "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali",
       "signature": "getCloudServer(Landroid/content/Context;)Ljava/lang/String;",
-      "before_sha256": "dfbdfde671a753bc71ff44fca2c05205377b72dd93d276db8363b3ae368f2fa9",
-      "after_sha256": "0dead0829419555413ccbae5cf57bf9f8d97e22ebd48773fc286e9ddf69147a9",
       "changes": [
         {
           "at": 17,
@@ -172,16 +166,12 @@
             ":goto_59"
           ]
         }
-      ],
-      "original_lines": 59,
-      "result_lines": 56
+      ]
     },
     {
       "bucket": "global-power",
       "path": "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali",
       "signature": "setServerConfigurations(Landroid/content/Context;)V",
-      "before_sha256": "7eab6274fdebfe532ebdc5d8c07fc9d167629081cec2908d34f7cb87c61cb67d",
-      "after_sha256": "d44f338eebd84765398af9feb7cd5533f348b6e2701ed5fca50383316829d85c",
       "changes": [
         {
           "at": 23,
@@ -279,16 +269,12 @@
             ":cond_a5"
           ]
         }
-      ],
-      "original_lines": 117,
-      "result_lines": 114
+      ]
     },
     {
       "bucket": "global-power",
       "path": "com/miui/powerkeeper/utils/InternationalAdapter.smali",
       "signature": "<clinit>()V",
-      "before_sha256": "4abc11c6ca207605034448f9dac960d5141705db7f1688b76c01e7f1cd922ca5",
-      "after_sha256": "489a604c3356d0eedb1f79ac6da43eace57e4cc8a98c8357c46bb2be3a296ee2",
       "changes": [
         {
           "at": 1,
@@ -315,16 +301,12 @@
           ],
           "insert": []
         }
-      ],
-      "original_lines": 13,
-      "result_lines": 7
+      ]
     },
     {
       "bucket": "global-power",
       "path": "com/miui/powerkeeper/utils/PowerModeAdapter.smali",
       "signature": "<clinit>()V",
-      "before_sha256": "c7101e768abc0c1c588aed0ea1af192be870bdf04a30c2c6fbc59923a787d067",
-      "after_sha256": "c4771c8225fdaa9458ff0c2a15a67ffec1689b1215cb0e2ff498e6b1dd1f49a6",
       "changes": [
         {
           "at": 1,
@@ -342,16 +324,12 @@
             "new-array v0, v0, [Ljava/lang/String;"
           ]
         }
-      ],
-      "original_lines": 10,
-      "result_lines": 7
+      ]
     },
     {
       "bucket": "global-power",
       "path": "com/miui/powerkeeper/utils/Utils.smali",
       "signature": "isSleepModeViewVisable()Z",
-      "before_sha256": "332ceed4ee509601e8319dd6bf72e068cf964f9aa7e654f340b928dd442ab0c6",
-      "after_sha256": "c037293caebfbaffafa261d685abc5127fceccfeff72afc2bf401a17fef26ac4",
       "changes": [
         {
           "at": 3,
@@ -362,16 +340,12 @@
             "const/4 v1, 0x0"
           ]
         }
-      ],
-      "original_lines": 17,
-      "result_lines": 17
+      ]
     },
     {
       "bucket": "global-power",
       "path": "f/h.smali",
       "signature": "c(Landroid/content/Context;)Lf/j;",
-      "before_sha256": "20bafdf1ecc958cba10326c787957992bdff3b7c61917a81bcb15d6d56167a75",
-      "after_sha256": "ff46922928b95079bb58ebf2e8d217b841bfa4d7d4b1abe07cdcc21b09dec1f8",
       "changes": [
         {
           "at": 52,
@@ -405,16 +379,12 @@
             ":cond_7b"
           ]
         }
-      ],
-      "original_lines": 68,
-      "result_lines": 76
+      ]
     },
     {
       "bucket": "zk-jar",
       "path": "com/miui/server/greeze/InternationalPolicyManager.smali",
       "signature": "getImportantApps()Ljava/util/List;",
-      "before_sha256": "e244761b2340b6c5da059672c64174addab2ac082e00933aceebd832d6b151c3",
-      "after_sha256": "787dc9b47d56f54a16838e34eaa932cfc5b1e94c4cabe04c8ccabcb43ffc7d30",
       "changes": [
         {
           "at": 10,
@@ -571,9 +541,160 @@
             ".catchall {:try_start_72 .. :try_end_80} :catchall_7e"
           ]
         }
-      ],
-      "original_lines": 83,
-      "result_lines": 90
+      ]
+    },
+    {
+      "bucket": "zk-power",
+      "path": "com/miui/powerkeeper/utils/GmsObserver.smali",
+      "signature": "isGmsControlEnabled()Z",
+      "changes": [
+        {
+          "at": 3,
+          "remove": [
+            "const-string v1, \"com.android.vending\""
+          ],
+          "insert": [
+            "const-string/jumbo v1, \"com.android.vending\""
+          ]
+        },
+        {
+          "at": 9,
+          "remove": [
+            "const-string v0, \"noRestrict\""
+          ],
+          "insert": [
+            "const-string/jumbo v0, \"noRestrict\""
+          ]
+        }
+      ]
+    },
+    {
+      "bucket": "zk-power",
+      "path": "com/miui/powerkeeper/utils/GmsObserver.smali",
+      "signature": "enableGms()V",
+      "changes": []
+    },
+    {
+      "bucket": "zk-power",
+      "path": "com/miui/powerkeeper/utils/GmsObserver.smali",
+      "signature": "disableGms()V",
+      "changes": []
+    },
+    {
+      "bucket": "zk-power",
+      "path": "com/miui/powerkeeper/statemachine/ActiveStateController.smali",
+      "signature": "dealNoRestrictApp()V",
+      "changes": [
+        {
+          "at": 7,
+          "remove": [
+            "const-string v2, \"MILLET_NO_RESTRICT_APP\"",
+            "if-eqz v1, :cond_64"
+          ],
+          "insert": [
+            "const-string/jumbo v2, \"MILLET_NO_RESTRICT_APP\"",
+            "if-eqz v1, :cond_66"
+          ]
+        },
+        {
+          "at": 11,
+          "remove": [
+            "if-nez v3, :cond_16",
+            "goto :goto_64",
+            ":cond_16"
+          ],
+          "insert": [
+            "if-nez v3, :cond_17",
+            "goto :goto_66",
+            ":cond_17"
+          ]
+        },
+        {
+          "at": 16,
+          "remove": [
+            "if-lez v3, :cond_46"
+          ],
+          "insert": [
+            "if-lez v3, :cond_48"
+          ]
+        },
+        {
+          "at": 19,
+          "remove": [
+            ":goto_20"
+          ],
+          "insert": [
+            ":goto_21"
+          ]
+        },
+        {
+          "at": 22,
+          "remove": [
+            "if-eqz v3, :cond_46"
+          ],
+          "insert": [
+            "if-eqz v3, :cond_48"
+          ]
+        },
+        {
+          "at": 30,
+          "remove": [
+            "const-string v6, \"add noRestr:\""
+          ],
+          "insert": [
+            "const-string/jumbo v6, \"add noRestr:\""
+          ]
+        },
+        {
+          "at": 36,
+          "remove": [
+            "goto :goto_20",
+            ":cond_46"
+          ],
+          "insert": [
+            "goto :goto_21",
+            ":cond_48"
+          ]
+        },
+        {
+          "at": 39,
+          "remove": [
+            "if-eqz p0, :cond_63"
+          ],
+          "insert": [
+            "if-eqz p0, :cond_65"
+          ]
+        },
+        {
+          "at": 53,
+          "remove": [
+            ":cond_63"
+          ],
+          "insert": [
+            ":cond_65"
+          ]
+        },
+        {
+          "at": 55,
+          "remove": [
+            ":cond_64",
+            ":goto_64"
+          ],
+          "insert": [
+            ":cond_66",
+            ":goto_66"
+          ]
+        },
+        {
+          "at": 60,
+          "remove": [
+            "const-string v0, \"\""
+          ],
+          "insert": [
+            "const-string/jumbo v0, \"\""
+          ]
+        }
+      ]
     }
   ],
   "fields": [],

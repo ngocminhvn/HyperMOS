@@ -12,11 +12,12 @@ Entry: `bin/package/NOTIFICATION_FIX/A16/patch.sh`.
   donor DEX, ZIP, JAR, or APK.
 - EU JAR: original EU MiuiBatteryIntelligence (18 map apps and static MAP_APP),
   ZK getImportantApps caching method, plus scoped Google FCM allow.
-- EU PowerKeeper: only 7 Global303 edits; leave original EU GmsObserver
-  and ActiveStateController untouched. The sole ZK304 method-level port is
-  `InternationalPolicyManager.getImportantApps()` inside miui-services.jar.
-- Scope is enforced by original EU method SHA-256 and exact changed instruction
-  spans. Unexpected ROM versions or method changes fail the build.
+- EU PowerKeeper: 7 Global303 edits plus the selected ZK304 GmsObserver and
+  ActiveStateController method entries; two GmsObserver entries were already
+  equivalent to EU and therefore require no functional replacement.
+  Additional ZK304 method: `InternationalPolicyManager.getImportantApps()`.
+- Scope is enforced by class/method signatures and unique instruction-span
+  anchors instead of per-device SHA-256 pins. Incompatible changes fail closed.
 - No all-app keepalive, thermal replacement, background daemon or runtime
   download added. PowerKeeper non-DEX members and META-INF are preserved,
   but changing DEX still invalidates the original APK cryptographic signature.

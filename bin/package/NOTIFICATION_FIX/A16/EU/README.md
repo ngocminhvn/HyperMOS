@@ -2,8 +2,8 @@
 
 Active entry: `patch.sh`. Data: `policy_deltas.json` (~14 KB).
 
-`policy_delta.py` checks original EU method hashes and applies only the
-listed changed smali lines. Unlike the retired ZK/Global donor archives, the
+`policy_delta.py` checks class/method signatures and original smali opcode
+anchors, not per-device method SHA-256 hashes, before applying targeted edits. Unlike the retired ZK/Global donor archives, the
 ROM build no longer unpacks full foreign JAR/APK/DEX files. The full donor
 binaries remain recoverable in Git history if an audit is ever required.
 
@@ -15,16 +15,19 @@ binaries remain recoverable in Git history if an audit is ever required.
 - `GreezeManagerService.isAllowBroadcast`: existing HyperMOS scoped
   `com.google.android.gms` / `com.google.android.c2dm.intent.RECEIVE`
   exception. All other native EU Greeze, region and Doze logic remains.
-- `PowerKeeper.apk`: seven selected Global303 methods only. Keep all original
-  EU GmsObserver (`isGmsControlEnabled`, `enableGms`, `disableGms`) and
-  ActiveStateController (`dealNoRestrictApp`) behavior without ZK bytecode edits.
-- ZK304: port **only** `InternationalPolicyManager.getImportantApps()` in
-  `miui-services.jar`. Keep `backupzk.zip` as a passive reference, never a build donor.
+- `PowerKeeper.apk`: seven selected Global303 methods plus the four ZK304
+  selected entries `GmsObserver.isGmsControlEnabled`, `enableGms`,
+  `disableGms` and `ActiveStateController.dealNoRestrictApp`.
+  The two enable/disable methods are unchanged relative to EU; the other
+  ZK PowerKeeper differences are mostly string encoding and label changes,
+  so they are not proof of different GMS/Millet runtime behavior.
+- ZK304 also ports `InternationalPolicyManager.getImportantApps()` in
+  `miui-services.jar`. Keep `backupzk.zip` solely as a reference.
 - No change to EU KillProcessController, other Millet methods, thermal,
   stock vendor power limits, or any China ROM policy.
 
 The manifest is applied directly to the original EU Android 16 APK/JAR,
-never replaces an entire donor class. A mismatch to audited EU309 aborts.
+never replaces an entire donor class. Missing/ambiguous instruction anchors abort instead of blindly patching another ROM.
 The APK's original META-INF data is copied but its original digital signature
 is not cryptographically valid after DEX modification. Firmware signature
 compatibility and runtime stability require actual device verification.
