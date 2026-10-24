@@ -246,10 +246,10 @@ if [[ "$rom_source" == "xiaomi_eu" ]]; then
 fi
 
 # Preserve vendor/ODM thermal and performance policy.
-# Xiaomi.eu A16 carries the byte-exact Global303 PowerKeeper DEX, with all
-# original EU APK non-DEX members and META-INF preserved (not re-signed).
+# RYU EU A16 policy changes only the selected miui-services.jar methods.
+# Original Xiaomi.eu PowerKeeper.apk remains byte-for-byte unchanged.
 if [[ "$rom_source" == "xiaomi_eu" && "$android_version" == "16" ]]; then
-    info "EU A16: Global303 PowerKeeper DEX + original EU resources/META-INF, no signing"
+    info "EU A16: RYU JSON JAR policy; original PowerKeeper.apk unchanged"
 fi
 
 find "$work_dir/build/baserom/images/" -exec touch -t 200901010000.00 {} + 2> /dev/null || true
