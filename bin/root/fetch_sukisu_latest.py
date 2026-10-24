@@ -145,12 +145,20 @@ def main() -> int:
     p.add_argument("--kmi")
     p.add_argument("--out", type=Path)
     p.add_argument("--self-test", action="store_true")
+    p.add_argument("--print-latest-tag", action="store_true")
     args = p.parse_args()
     if args.self_test:
         assert len(KMIS) == 8
         assert HEX.fullmatch("sha256:" + "a" * 64)
         assert not HEX.fullmatch("sha256:no-digest")
         print("[ROOT] release resolver self-test PASS")
+        return 0
+    if args.print_latest_tag:
+        try:
+            print(load_release()["tag_name"])
+        except (OSError, RuntimeError, ValueError, KeyError, urllib.error.URLError) as e:
+            print(f"::error title=SukiSU latest release::{e}", file=sys.stderr)
+            return 1
         return 0
     if not args.kmi or args.out is None:
         p.error("--kmi and --out are required outside --self-test")
