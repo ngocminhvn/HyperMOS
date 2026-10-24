@@ -9,13 +9,14 @@ import concurrent.futures
 import hashlib
 import json
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
 import time
 import zipfile
 from pathlib import Path
-from urllib.parse import quote, unquote, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit, urlunsplit
 
 # SourceForge officially allows use_mirror=<shortname>; mirror availability varies.
 MIRRORS = (
@@ -37,6 +38,130 @@ XIAOMI_CDNS = (
 )
 XIAOMI_MIN_FAST_BPS = 512 * 1024
 XIAOMI_ATTEMPT_TIMEOUT = 900  # Prevent a single slow ~8 GiB mirror using all job time.
+
+SEVEN_ZIP_MAGIC = b"7z\xbc\xaf\x27\x1c"
+
+
+def drive_download_url(url):
+    """Return a direct Google Drive download URL, or None.
+
+    Large Drive files (>~100 MiB) are not served directly: the plain
+    usercontent link returns a "Google Drive can't scan this file for
+    viruses" HTML page instead of the file. Adding confirm=t serves the
+    real file (verified: confirm=t alone is enough, the uuid in the
+    warning form changes on every request and is not required).
+    """
+    parts = urlsplit(url.strip())
+    host = (parts.hostname or "").lower()
+    file_id = None
+    if host == "drive.usercontent.google.com":
+        file_id = (parse_qs(parts.query).get("id") or [None])[0]
+    elif host == "drive.google.com":
+        if parts.path == "/uc":
+            file_id = (parse_qs(parts.query).get("id") or [None])[0]
+        else:
+            match = re.fullmatch(r"/file/d/([^/]+)(?:/.*)?", parts.path)
+            file_id = match.group(1) if match else None
+    if not file_id:
+        return None
+    query = {"id": file_id, "export": "download", "confirm": "t"}
+    authuser = (parse_qs(parts.query).get("authuser") or [None])[0]
+    if authuser is not None:
+        query["authuser"] = authuser
+    return urlunsplit(("https", "drive.usercontent.google.com",
+                       "/download", urlencode(query), ""))
+
+
+def is_7z(path):
+    try:
+        with path.open("rb") as f:
+            return f.read(6) == SEVEN_ZIP_MAGIC
+    except OSError:
+        return False
+
+
+def _extract_7z(archive, dest):
+    """Extract a 7z archive, preferring the 7z binary, else py7zr."""
+    dest.mkdir(parents=True, exist_ok=True)
+    tool = shutil.which("7z") or shutil.which("7za")
+    if tool is not None:
+        subprocess.run([tool, "x", "-y", f"-o{dest}", str(archive)],
+                       check=True, timeout=3600)
+        return
+    try:
+        import py7zr
+    except ImportError:
+        py7zr = None
+    if py7zr is not None:
+        with py7zr.SevenZipFile(archive, "r") as archive_file:
+            archive_file.extractall(path=dest)
+        return
+    # Neither tool is present: try pip first (fast, no apt cache refresh),
+    # then fall back to the distro 7z package on runners with sudo.
+    try:
+        subprocess.run(["pip3", "install", "-q", "py7zr"],
+                       check=True, timeout=600)
+        import py7zr
+        with py7zr.SevenZipFile(archive, "r") as archive_file:
+            archive_file.extractall(path=dest)
+        return
+    except Exception:
+        pass
+    subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "p7zip-full"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   timeout=600, check=False)
+    tool = shutil.which("7z") or shutil.which("7za")
+    if tool is None:
+        raise RuntimeError("No 7z extractor available (tried 7z, py7zr, p7zip-full)")
+    subprocess.run([tool, "x", "-y", f"-o{dest}", str(archive)],
+                   check=True, timeout=3600)
+
+
+def convert_7z_to_zip(archive, output):
+    """Repack a downloaded 7z ROM as the ZIP the dump workflow expects.
+
+    The dump pipeline (dump.yml Download step + extract.sh) only reads
+    ZIPs: it runs unzip -tq / unzip -Z1 on the downloaded file. A fastboot
+    ROM packed as .7z (a folder containing fastboot images) would fail
+    that check even though its contents are usable. Repacking with
+    ZIP_STORED (no recompression) preserves the extracted tree exactly,
+    including the top-level folder, and extract.sh's fallback already
+    matches super.img / partition images by basename anywhere in the tree.
+    The original 7z and the extracted tree are deleted after repacking
+    so peak disk use, not final disk use, is the only extra cost.
+    """
+    extract_dir = output.parent / (output.stem + ".7z-extract")
+    temp_zip = output.parent / (output.stem + ".tmp.zip")
+    try:
+        print(f"[DOWNLOAD] Extracting 7z archive ({archive.stat().st_size} bytes)",
+              flush=True)
+        _extract_7z(archive, extract_dir)
+        files = sorted(p for p in extract_dir.rglob("*") if p.is_file())
+        if not files:
+            print("[ERROR] 7z archive contains no files", flush=True)
+            return False
+        print(f"[DOWNLOAD] Repacking {len(files)} extracted files as ZIP "
+              f"(stored, no recompression)", flush=True)
+        for name in [str(p.relative_to(extract_dir)) for p in files[:30]]:
+            print(f"[7Z] {name}", flush=True)
+        with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_STORED) as zf:
+            for path in files:
+                zf.write(path, arcname=str(path.relative_to(extract_dir)))
+        temp_zip.replace(output)
+        print(f"[DOWNLOAD] Repacked ZIP: {output.stat().st_size} bytes", flush=True)
+        return True
+    except Exception as exc:  # noqa: BLE001 - report and let caller try next mirror
+        print(f"[ERROR] 7z to ZIP conversion failed: {exc}", flush=True)
+        temp_zip.unlink(missing_ok=True)
+        return False
+    finally:
+        # When archive and output are the same path (the normal workflow
+        # case: downloaded source.zip actually contains 7z data), the
+        # repacked ZIP has already replaced it via temp_zip.replace, so
+        # deleting "archive" here would delete the new ZIP.
+        if archive != output:
+            archive.unlink(missing_ok=True)
+        shutil.rmtree(extract_dir, ignore_errors=True)
 
 
 def normalize(url):
@@ -391,6 +516,12 @@ def main():
         ap.error("attempt timeout and maximum mirror attempts must be nonnegative")
     if args.expected_md5 and not re.fullmatch(r"[a-fA-F0-9]{32}", args.expected_md5):
         ap.error("--expected-md5 must contain exactly 32 hexadecimal characters")
+    drive_url = drive_download_url(args.url)
+    if drive_url is not None:
+        print("[DOWNLOAD] Google Drive URL: adding confirm=t so a large "
+              "file is served instead of the virus-scan warning page",
+              flush=True)
+        args.url = drive_url
     sf = normalize(args.url)
     output = args.output.resolve()
     started = time.monotonic()
@@ -461,7 +592,23 @@ def main():
         if success:
             print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
                   flush=True)
-        if success and valid_zip(output, args.expected_md5):
+        converted_7z = False
+        if success and is_7z(output):
+            # A 7z MD5, if supplied, describes the 7z file, not the ZIP
+            # repack, so check it before converting and skip it after.
+            if args.expected_md5 and not check_md5(output, args.expected_md5):
+                print("[WARN] 7z MD5 mismatch before conversion", flush=True)
+                success = False
+            else:
+                print("[DOWNLOAD] Downloaded file is a 7z archive, not a ZIP; "
+                      "converting it to the ZIP format the dump expects",
+                      flush=True)
+                converted_7z = convert_7z_to_zip(output, output)
+                if converted_7z:
+                    print("[DOWNLOAD] 7z conversion done; validating repacked ZIP",
+                          flush=True)
+                success = converted_7z
+        if success and valid_zip(output, "" if converted_7z else args.expected_md5):
             print(f"[DOWNLOAD] ZIP received from {name} ({output.stat().st_size} bytes)", flush=True)
             attempts.append({"mirror": name, "result": "ok"})
             selection_method = (classify_mirror_selection(name, probed) if sf else
@@ -493,6 +640,13 @@ def main():
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(json.dumps(report, indent=2) + "\n")
             return
+        if success and output.is_file():
+            with output.open("rb") as f:
+                head = f.read(15)
+            if head.lstrip().startswith(b"<"):
+                print("[WARN] Downloaded file is HTML, not an archive "
+                      "(e.g. a Google Drive virus-scan warning page); "
+                      "a direct file URL with confirm is required", flush=True)
         print(f"[WARN] {name} failed, timed out, checksum mismatched or was not a ZIP; "
               "trying next mirror", flush=True)
         attempts.append({"mirror": name, "result": "failed"})
