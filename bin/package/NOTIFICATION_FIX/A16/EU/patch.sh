@@ -38,4 +38,6 @@ python3 "$base/ryu_policy.py" --root "$tmp/decoded" --manifest "$manifest" \
   --group miui-services --verify --report "$w/build/reports/ryu-a16/verified.json"
 mv -f "$output" "$jar"
 mods "[EU A16] RYU international broadcast/alarm/app ops/job policy; CN_MODEL=false; no PerfHook"
-bash "$base/PowerKeeper.sh"
+# PowerKeeper remains original EU309: RYU has no independent GMS/Millet/FCM
+# DEX method delta beyond excluded PerfHook/FPS/thermal modifications.
+mods "[EU A16] PowerKeeper.apk untouched; original EU APK signature preserved"
