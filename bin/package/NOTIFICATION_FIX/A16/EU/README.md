@@ -1,37 +1,42 @@
-# Xiaomi.eu A16 policy — method-level deltas (no donor DEX)
+# Xiaomi.eu Android 16 — RYU-style power and notification policy
 
-Active entry: `patch.sh`. Data: `policy_deltas.json` (method-level edits only).
+Previous Global303/ZK304 EU implementation was preserved on branch
+eu_global before switching main. Historical policy_deltas.json and backupzk.zip
+remain inactive. Active entry: patch.sh -> ryu_policy.json via ryu_policy.py.
 
-`policy_delta.py` checks class/method signatures and original smali opcode
-anchors, not per-device method SHA-256 hashes, before applying targeted edits. Unlike the retired ZK/Global donor archives, the
-ROM build no longer unpacks full foreign JAR/APK/DEX files. The full donor
-binaries remain recoverable in Git history if an audit is ever required.
+## Scope
 
-## Patched classes
+- miui-services.jar: 17 selected RYU EU309 method-level edits:
+  BroadcastQueueModernStubImpl (4); ActivityManagerServiceImpl (4);
+  ProcessSceneCleaner (2); AppOpsServiceStubImpl; AlarmManagerServiceStubImpl;
+  JobServiceContextImpl; NotificationManagerServiceImpl (2);
+  ProcessPolicy.updateContentCatcherWhitelist (RYU false);
+  Greeze PolicyManager.<clinit> (RYU CN_MODEL=false).
+- Exact target class, method, register and number of original flag reads;
+  unknown layouts abort instead of trying donor class replacement.
+- Flag mapping: do not add IS_RYU_BUILD or a RYU-only class; the original
+  condition being overridden is miui.os.Build.IS_INTERNATIONAL_BUILD. RYU's
+  constant true/false branches are reproduced in the selected methods.
+- PowerKeeper.apk: RYU EU309 differs from stock EU309 only in PerfHook,
+  custom thermal paths and a proprietary FPS setting hook. Those modifications
+  are deliberately excluded. GmsObserver.isGmsControlEnabled, enableGms,
+  disableGms and ActiveStateController.dealNoRestrictApp match stock EU.
+  The script verifies those methods and leaves original EU PowerKeeper APK
+  byte-for-byte intact, including ZIP members and valid original signatures.
+- services.jar, framework.jar and miui-framework.jar have no new RYU-vs-EU
+  FCM or Doze method delta to port. Do not import unrelated security bypasses,
+  input-method changes or ProjectRYU hooks.
+- The previous ZK304 getImportantApps patch, Global303 seven PowerKeeper
+  methods and custom FCM Greeze exception are not invoked in the new main path.
+  They remain available on eu_global.
 
-- `miui-services.jar`: do not inspect, verify or patch EU
-  `MiuiBatteryIntelligence` / `MAP_APP` at all. Its original device-specific
-  navigation-app list remains unchanged automatically. Only ZK304
-  `InternationalPolicyManager.getImportantApps()` is ported.
-- `GreezeManagerService.isAllowBroadcast`: existing HyperMOS scoped
-  `com.google.android.gms` / `com.google.android.c2dm.intent.RECEIVE`
-  exception. All other native EU Greeze, region and Doze logic remains.
-- `PowerKeeper.apk`: seven selected Global303 methods only. ZK304
-  `GmsObserver.isGmsControlEnabled`, `enableGms`, `disableGms` and
-  `ActiveStateController.dealNoRestrictApp` are **not patched**: they match
-  original EU behavior (the bytecode differences are string opcode encoding
-  and jump-label offsets, or no differences at all). Keep stock EU GMS/Millet.
-- ZK304: only `InternationalPolicyManager.getImportantApps()` in
-  `miui-services.jar` changes behavior by reusing an existing nonempty app
-  list. Keep `backupzk.zip` as an inactive source/reference.
-- No change to EU KillProcessController, other Millet methods, thermal,
-  stock vendor power limits, or any China ROM policy.
+## Limits
 
-The manifest is applied directly to the original EU Android 16 APK/JAR,
-never replaces an entire donor class. Missing/ambiguous instruction anchors abort instead of blindly patching another ROM.
-The APK's original META-INF data is copied but its original digital signature
-is not cryptographically valid after DEX modification. Firmware signature
-compatibility and runtime stability require actual device verification.
+This change copies RYU policy choices without claiming improved notification
+delivery, better battery or reduced heat. Boot and device tests remain necessary.
+Neither vendor thermal protection nor TNM CPU control is changed. No PerfHook,
+full donor DEX archives, method SHA-256 pinning or APK re-signing is used.
 
-Preflight with original EU309/Global303/ZK304 inputs and post-assembly
-method checks: https://github.com/ngocminhvn/HyperMOS/actions/runs/40056239788
+Keeping APK ZIP metadata when modifying DEX is NOT equal to preserving a
+cryptographically valid APK signature. Here the PowerKeeper APK stays valid
+because it is not modified at all.
