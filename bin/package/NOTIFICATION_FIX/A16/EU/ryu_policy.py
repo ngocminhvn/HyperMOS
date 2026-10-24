@@ -50,9 +50,7 @@ def load(path):
             else:
                 if not row["signature"].endswith(")V"):
                     raise ValueError("return-void operation requires a void method")
-                if not isinstance(row.get("anchor"), str) or not row["anchor"]:
-                    raise ValueError("return-void operation requires an original-code anchor")
-                if "registers" in row or "value" in row:
+                if any(key in row for key in ("anchor", "registers", "value")):
                     raise ValueError("Unexpected return-void override")
             if "before_sha256" in row or "after_sha256" in row:
                 raise ValueError("Method hash pins are forbidden")
@@ -130,9 +128,6 @@ def check_policy(row, body, verify):
             return body, "verified" if verify else "already_patched"
         if verify:
             raise ValueError("Method is not a minimal return-void stub")
-        anchor = row["anchor"]
-        if body.count(anchor) != 1:
-            raise ValueError("Original return-void anchor must occur exactly once")
         header = body.splitlines()[0]
         return header + "\n    .locals 0\n\n    return-void\n.end method", "patched"
     raise ValueError("Unreachable operation")
@@ -145,7 +140,11 @@ def run(root, manifest, group, verify, report):
         src = one_class(root, entry["class"])
         original = src.read_text(encoding="utf-8")
         method = method_span(original, entry["signature"])
-        updated, status = check_policy(entry, method.group(), verify)
+        try:
+            updated, status = check_policy(entry, method.group(), verify)
+        except ValueError as error:
+            target = entry["class"] + "->" + entry["signature"]
+            raise ValueError(target + ": " + str(error)) from error
         if updated != method.group():
             if verify:
                 raise ValueError("Verification unexpectedly modified smali")

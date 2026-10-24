@@ -19,6 +19,9 @@ backupzk.zip is an inactive historical reference.
 - PackageManagerServiceImpl.canBeUpdate() and
   PackageManagerServiceImpl.verifyIsolationViolation() are reduced to
   return-void, matching the inspected RYU methods.
+  These whole-method replacements are selected by unique class/full signature
+  and void return type; they do not depend on a guessed instruction inside the
+  vendor method body.
 - ActivitySecurityHelper.getMalwareBlockingIntent() forces its scoped
   international-build read to true, matching the inspected RYU branch.
 - International branches use the original

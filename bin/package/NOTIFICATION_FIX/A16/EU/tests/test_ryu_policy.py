@@ -35,6 +35,7 @@ class RyuPolicyTest(unittest.TestCase):
         pms = "com/android/server/pm/PackageManagerServiceImpl.smali"
         can_update = selected[(pms, "canBeUpdate(Ljava/lang/String;)V")]
         self.assertEqual("ryu_return_void", can_update["operation"])
+        self.assertNotIn("anchor", can_update)
         isolation_signature = (
             "verifyIsolationViolation("
             "Lcom/android/internal/pm/parsing/pkg/ParsedPackage;"
@@ -44,6 +45,7 @@ class RyuPolicyTest(unittest.TestCase):
             "ryu_return_void",
             selected[(pms, isolation_signature)]["operation"],
         )
+        self.assertNotIn("anchor", selected[(pms, isolation_signature)])
         helper = "miui/app/ActivitySecurityHelper.smali"
         malware_signature = (
             "getMalwareBlockingIntent(Ljava/lang/String;Landroid/content/Intent;"
@@ -54,25 +56,21 @@ class RyuPolicyTest(unittest.TestCase):
                          (malware["operation"], malware["registers"], malware["value"]))
 
     def test_return_void_patch_and_verify(self):
-        anchor = (
-            "Lcom/android/server/pm/PackageManagerService;->snapshotComputer()"
-            "Lcom/android/server/pm/Computer;"
-        )
-        row = {"operation": "ryu_return_void", "anchor": anchor}
+        row = {"operation": "ryu_return_void"}
         original = """.method private canBeUpdate(Ljava/lang/String;)V
     .locals 2
-    invoke-virtual {v0}, %s
+    invoke-static {}, Lvendor/layout/Independent;->check()V
     return-void
-.end method""" % anchor
+.end method"""
         patched, status = RYU.check_policy(row, original, False)
         self.assertEqual("patched", status)
         self.assertTrue(RYU.is_return_void_stub(patched))
-        self.assertNotIn(anchor, patched)
+        self.assertNotIn("Lvendor/layout/Independent;", patched)
         verified, status = RYU.check_policy(row, patched, True)
         self.assertEqual((patched, "verified"), (verified, status))
 
     def test_existing_corepatch_stub_is_idempotent(self):
-        row = {"operation": "ryu_return_void", "anchor": "required-only-before-patch"}
+        row = {"operation": "ryu_return_void"}
         stub = """.method public verifyIsolationViolation(Ljava/lang/Object;)V
     .registers 8
     return-void
@@ -80,15 +78,13 @@ class RyuPolicyTest(unittest.TestCase):
         self.assertEqual((stub, "already_patched"), RYU.check_policy(row, stub, False))
         self.assertEqual((stub, "verified"), RYU.check_policy(row, stub, True))
 
-    def test_return_void_fails_closed_without_anchor(self):
-        row = {"operation": "ryu_return_void", "anchor": "snapshotComputer"}
+    def test_return_void_verify_rejects_non_minimal_body(self):
+        row = {"operation": "ryu_return_void"}
         body = """.method private canBeUpdate(Ljava/lang/String;)V
     .locals 0
     return-void
     nop
 .end method"""
-        with self.assertRaisesRegex(ValueError, "anchor"):
-            RYU.check_policy(row, body, False)
         with self.assertRaisesRegex(ValueError, "minimal"):
             RYU.check_policy(row, body, True)
 
@@ -105,7 +101,9 @@ class RyuPolicyTest(unittest.TestCase):
             elif row["operation"] == "force_cn_model_false":
                 instructions = ["    sput-boolean v0, " + RYU.GREEZE]
             else:
-                instructions = ["    invoke-virtual {v0}, " + row["anchor"]]
+                instructions = [
+                    "    invoke-static {}, Lvendor/layout/Independent;->check()V"
+                ]
             method = "\n".join([header, "    .locals 16", *instructions,
                                 "    return-void", ".end method"])
             by_class.setdefault(row["class"], []).append(method)

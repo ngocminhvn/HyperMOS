@@ -157,14 +157,12 @@
       {
         "class": "com/android/server/pm/PackageManagerServiceImpl.smali",
         "signature": "canBeUpdate(Ljava/lang/String;)V",
-        "operation": "ryu_return_void",
-        "anchor": "Lcom/android/server/pm/PackageManagerService;->snapshotComputer()Lcom/android/server/pm/Computer;"
+        "operation": "ryu_return_void"
       },
       {
         "class": "com/android/server/pm/PackageManagerServiceImpl.smali",
         "signature": "verifyIsolationViolation(Lcom/android/internal/pm/parsing/pkg/ParsedPackage;Lcom/android/server/pm/InstallSource;)V",
-        "operation": "ryu_return_void",
-        "anchor": "Lcom/android/server/pm/PackageManagerService;->snapshotComputer()Lcom/android/server/pm/Computer;"
+        "operation": "ryu_return_void"
       },
       {
         "class": "miui/app/ActivitySecurityHelper.smali",

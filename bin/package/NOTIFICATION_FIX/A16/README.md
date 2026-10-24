@@ -19,7 +19,7 @@ Entry point: bin/package/NOTIFICATION_FIX/A16/patch.sh.
   and device-specific MAP_APP remain untouched.
 - The previous Global303/ZK304 policies were preserved on the
   eu_global branch; backupzk.zip remains an inactive reference.
-- Patching is method-scoped, with fail-closed smali anchors rather than
+- Patching is method-scoped, with fail-closed full signatures/instruction anchors rather than
   donor JAR/DEX archives or device-specific method SHA256 pins.
 
 No new tests establish on-device boot, notification reliability, idle
