@@ -57,10 +57,31 @@ java -jar "$baksmali" d --api 36 "$tmp/global.dex" -o "$tmp/global" >/dev/null
 cp -a "$tmp/eu" "$tmp/eu-original"
 python3 "$base/port_global_powerkeeper.py" --eu "$tmp/eu" --global-donor "$tmp/global" \
   --report "$report/ported-methods.json"
+python3 "$base/port_global_powerkeeper.py" --eu "$tmp/eu" \
+  --global-donor "$tmp/global" --verify-original "$tmp/eu-original"
+cp -a "$tmp/eu" "$tmp/eu-after-global"
+# One EU build: Global303 battery methods plus selected ZK304 GMS/Millet policy.
+zk_archive="$base/backupzk.zip"
+zk_prefix="bin/package/NOTIFICATION_FIX/A16/EU/ZK304"
+[[ -s "$zk_archive" ]] && unzip -tq "$zk_archive" >/dev/null || {
+  error "ZK304 verified donor archive missing or corrupt"; exit 1;
+}
+unzip -p "$zk_archive" "$zk_prefix/zk304-powerkeeper.dex.zst" | zstd -d -q -c > "$tmp/zk.dex"
+python3 - "$zk_archive" "$tmp/zk.dex" "$zk_prefix" <<'PYZK'
+import hashlib,json,sys,zipfile
+from pathlib import Path
+with zipfile.ZipFile(sys.argv[1]) as z:
+    manifest=json.loads(z.read(sys.argv[3]+'/manifest.json'))
+actual=hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()
+assert actual == manifest['files']['classes.dex'], "ZK304 donor PowerKeeper DEX SHA mismatch"
+PYZK
+java -jar "$baksmali" d --api 36 "$tmp/zk.dex" -o "$tmp/zk" >/dev/null
+python3 "$base/port_zk_selected_a16.py" --component power --eu-root "$tmp/eu" \
+  --donor-root "$tmp/zk" --report "$report/zk-gms-millet.json"
 java -jar "$smali" a --api 36 "$tmp/eu" -o "$tmp/merged.dex" >/dev/null
 java -jar "$baksmali" d --api 36 "$tmp/merged.dex" -o "$tmp/verified" >/dev/null
-python3 "$base/port_global_powerkeeper.py" --eu "$tmp/verified" \
-  --global-donor "$tmp/global" --verify-original "$tmp/eu-original"
+python3 "$base/port_zk_selected_a16.py" --component power --eu-root "$tmp/verified" \
+  --donor-root "$tmp/zk" --verify-original "$tmp/eu-after-global"
 python3 "$meta_tool" --base "$apk" --dex "$tmp/merged.dex" \
   --output "$tmp/preserved.apk" --report "$report/preserve-metadata.json"
 zipalign -p -f 4 "$tmp/preserved.apk" "$tmp/aligned.apk"
@@ -69,4 +90,4 @@ python3 "$meta_tool" --base "$apk" --dex "$tmp/merged.dex" \
   --output "$tmp/aligned.apk" --verify-only
 cp -f "$tmp/aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "[GLOBAL A16] only 7 Global303 method bodies ported onto original EU DEX; EU APK META-INF preserved, no signing"
+mods "[EU A16] 7 Global303 PowerKeeper methods plus guarded ZK304 GmsObserver/ActiveStateController; no signing"

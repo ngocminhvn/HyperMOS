@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths:
       - 'bin/audit/zk304_candidate_audit.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/patch.sh'
+      - 'bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper.sh'
       - '.github/workflows/audit-zk304-candidates.yml'
   workflow_dispatch:
 permissions:
@@ -82,6 +85,29 @@ jobs:
               --details "/tmp/zk304-audit/report/$area.md"
           done
           echo "[ZK304] Audit complete"
+      - name: Preflight combined EU ZK304 candidates in one build
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/tmp/zk304-audit
+          python3 -m py_compile bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py
+          bash -n bin/package/NOTIFICATION_FIX/A16/EU/patch.sh
+          bash -n bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper.sh
+          cp -a "$root/eu/jar" "$root/selected-jar"
+          cp -a "$root/eu/power" "$root/selected-power"
+          for area in jar power; do
+            component=jar
+            [[ "$area" == power ]] && component=power
+            python3 bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py \
+              --component "$component" \
+              --eu-root "$root/selected-$area" --donor-root "$root/zk/$area" \
+              --report "$root/report/selected-$area.json"
+            python3 bin/package/NOTIFICATION_FIX/A16/EU/port_zk_selected_a16.py \
+              --component "$component" \
+              --eu-root "$root/selected-$area" --donor-root "$root/zk/$area" \
+              --verify-original "$root/eu/$area"
+          done
+          echo "[ZK304] Focused GMS, important apps, and Millet methods preflight passed"
       - uses: actions/upload-artifact@v6
         if: always()
         with:
