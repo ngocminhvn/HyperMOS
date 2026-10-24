@@ -216,17 +216,24 @@ def is_html_file(path):
 
 
 def download_drive_by_ranges(url, output, connections=8):
-    """Download a Drive file in parallel byte ranges.
+    """Download a Drive file in small sequential byte ranges.
 
     Drive's "Quota exceeded" page is only returned for a plain full
     download: a full GET gets a 2 KiB HTML page saying too many users
-    downloaded the file recently. Byte-range GETs, however, still return
-    206 Partial Content with the real file data (verified for both the
-    first 10 MiB and a range near 8 GiB of the same file). aria2's
-    initial size probe uses a full response, so it accepts the HTML
-    page as the whole file and finishes in ~1s. Splitting the file
-    into ranges ourselves, using the total size from Content-Range,
-    bypasses that path without needing any quota reset.
+    downloaded the file recently. Small byte-range GETs still return
+    206 Partial Content with real file data (verified for 10 MiB and
+    for ranges near 8 GiB of the same file). The first version of
+    this fallback split the file into 8 parallel ~1 GiB chunks:
+    in dump #16 only chunk 0 succeeded and chunks 1-7 failed fast,
+    and a direct 1 GiB range probe from outside the runner also
+    returned the 2 KiB quota page instead of 206. Large parallel
+    ranges are therefore treated by Drive like a full download.
+    This version instead downloads sequentially in 32 MiB chunks,
+    each with retries and backoff when Drive returns HTML or a
+    wrong size, so a quota hit on one chunk does not kill the
+    whole download. It is slower than aria2 but fits easily in
+    the 180-minute job timeout on a runner (the #14 file reached
+    354 MiB/s there).
     """
     try:
         probe = subprocess.run(
@@ -246,55 +253,58 @@ def download_drive_by_ranges(url, output, connections=8):
     if total < 1024:
         print(f"[DRIVE-RANGE] Implausible total size: {total}", flush=True)
         return False
+    chunk_size = 32 * 1024 * 1024
+    n_chunks = (total + chunk_size - 1) // chunk_size
     print(f"[DRIVE-RANGE] Total size {total} bytes, "
-          f"{connections} parallel range chunks", flush=True)
-    parts = []
-    chunk = (total + connections - 1) // connections
-    for i in range(connections):
-        start = i * chunk
-        end = min(total - 1, start + chunk - 1)
-        if start > end:
-            break
-        parts.append((i, start, end, output.parent / f"{output.name}.part{i}"))
-    for _, _, _, part in parts:
-        part.unlink(missing_ok=True)
-
-    def fetch(part):
-        i, start, end, dest = part
-        done = subprocess.run(
-            ["curl", "-sL", "--max-time", "1800", "-r", f"{start}-{end}",
-             "-o", str(dest), url],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=1900, check=False)
-        ok = done.returncode == 0 and dest.is_file() and dest.stat().st_size == end - start + 1
-        print(f"[DRIVE-RANGE] Chunk {i} {start}-{end}: "
-              f"{'ok' if ok else 'FAILED'}", flush=True)
-        return ok
-
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(parts)) as pool:
-            results = list(pool.map(fetch, parts))
-    except Exception as exc:  # noqa: BLE001
-        print(f"[DRIVE-RANGE] Parallel download failed: {exc}", flush=True)
-        results = [False]
-    if not all(results):
-        for _, _, _, part in parts:
-            part.unlink(missing_ok=True)
-        return False
+          f"{n_chunks} sequential 32 MiB chunks", flush=True)
     temp = output.parent / f"{output.name}.range.tmp"
+    temp.unlink(missing_ok=True)
     try:
         with temp.open("wb") as out:
-            for _, _, _, part in parts:
+            for i in range(n_chunks):
+                start = i * chunk_size
+                end = min(total - 1, start + chunk_size - 1)
+                expected = end - start + 1
+                ok = False
+                for attempt in range(5):
+                    part = output.parent / f"{output.name}.part"
+                    part.unlink(missing_ok=True)
+                    done = subprocess.run(
+                        ["curl", "-sL", "--max-time", "600", "-r",
+                         f"{start}-{end}", "-o", str(part), url],
+                        capture_output=True, text=True,
+                        timeout=700, check=False)
+                    actual = part.stat().st_size if part.is_file() else -1
+                    if done.returncode == 0 and actual == expected and not is_html_file(part):
+                        ok = True
+                        break
+                    print(f"[DRIVE-RANGE] Chunk {i} {start}-{end}: "
+                          f"attempt {attempt + 1} failed "
+                          f"(rc={done.returncode}, size={actual}, "
+                          f"expected={expected})", flush=True)
+                    part.unlink(missing_ok=True)
+                    if attempt < 4:
+                        time.sleep(10 * (attempt + 1))
+                if not ok:
+                    print(f"[DRIVE-RANGE] Chunk {i} failed after 5 attempts",
+                          flush=True)
+                    return False
                 with part.open("rb") as src:
                     shutil.copyfileobj(src, out, length=8 * 1024 * 1024)
+                part.unlink(missing_ok=True)
+                if i % 20 == 0 or i == n_chunks - 1:
+                    print(f"[DRIVE-RANGE] Progress: chunk {i + 1}/{n_chunks} "
+                          f"({out.tell()} bytes)", flush=True)
         temp.replace(output)
         print(f"[DRIVE-RANGE] Assembled {output.stat().st_size} bytes",
               flush=True)
         return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[DRIVE-RANGE] Sequential download failed: {exc}", flush=True)
+        return False
     finally:
         temp.unlink(missing_ok=True)
-        for _, _, _, part in parts:
-            part.unlink(missing_ok=True)
+        (output.parent / f"{output.name}.part").unlink(missing_ok=True)
 
 
 def normalize(url):
