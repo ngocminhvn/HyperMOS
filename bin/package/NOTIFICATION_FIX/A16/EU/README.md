@@ -36,7 +36,13 @@ Protecting just one path is insufficient. The underlying network feedback,
 GMS network/DNS restrictions, and alarm policies remain original and may
 still affect FCM reliability.
 
-The four separate historical policy methods remain in `ryu_policy.json`.
+Only `ProcessPolicy.updateContentCatcherWhitelist()` remains in the EU
+`ryu_policy.json`. The three unrelated overrides
+`PackageManagerServiceImpl.canBeUpdate()`,
+`PackageManagerServiceImpl.verifyIsolationViolation()` and
+`ActivitySecurityHelper.getMalwareBlockingIntent()` have been removed
+**from NOTIFICATION_FIX only**. The independent CorePatch pipeline is
+unchanged; it may still patch overlapping package-manager methods when enabled.
 The other 15 broad RYU overrides remain removed.
 
 Build process:
