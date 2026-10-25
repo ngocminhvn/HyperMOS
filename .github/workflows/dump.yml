@@ -99,14 +99,38 @@ jobs:
         shell: bash
         env:
           ROM_URL: ${{ inputs.rom_url }}
+          RCLONE_TOKEN_PATH: ${{ secrets.RCLONE_TOKEN_PATH }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/hypermos-dump"
+          rclone_options=()
+          if [[ "$ROM_URL" == *drive.google.com/* || "$ROM_URL" == *drive.usercontent.google.com/* ]]; then
+            if [[ -n "${RCLONE_TOKEN_PATH:-}" ]]; then
+              config_url="$RCLONE_TOKEN_PATH"
+              case "$config_url" in
+                https://*|http://*) ;;
+                //*) config_url="https:$config_url" ;;
+                *) config_url="https://$config_url" ;;
+              esac
+              config="$RUNNER_TEMP/hypermos-dump/rclone.conf"
+              if curl -fsSL --retry 3 --connect-timeout 15 --max-time 90 "$config_url" -o "$config"; then
+                chmod 600 "$config"
+                rclone_options+=(--rclone-config "$config")
+                echo "[DOWNLOAD] Existing rclone config available for Drive API fallback"
+              else
+                rm -f "$config"
+                echo "::warning::Cannot load rclone config; public Drive download only."
+              fi
+            else
+              echo "::notice::RCLONE_TOKEN_PATH is unavailable. Public Google Drive only."
+            fi
+          fi
           python3 bin/dump/sourceforge_download.py \
             --url "$ROM_URL" \
             --output "$RUNNER_TEMP/hypermos-dump/source.zip" \
             --report "$RUNNER_TEMP/hypermos-dump/mirror-report.json" \
-            --expected-md5 "${{ inputs.expected_md5 }}"
+            --expected-md5 "${{ inputs.expected_md5 }}" \
+            "${rclone_options[@]}"
           unzip -tq "$RUNNER_TEMP/hypermos-dump/source.zip" >/dev/null
 
       - name: Unpack ROM without mod or repack
