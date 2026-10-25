@@ -1,4 +1,4 @@
-name = "hypermos-build-telegram"
+name = "hypermos"
 main = "telegram_build_worker.js"
 compatibility_date = "2026-10-23"
 
