@@ -56,8 +56,8 @@ def load(path):
                 raise ValueError("Method hash pins are forbidden")
             if any(alias in json.dumps(row) for alias in ALIASES):
                 raise ValueError("Forbidden RYU-only dependency")
-    if len(data["groups"]["miui-services"]) != 4:
-        raise ValueError("Expected exactly 4 retained independent policy methods")
+    if len(data["groups"]["miui-services"]) != 1:
+        raise ValueError("Expected exactly 1 retained ProcessPolicy method")
     return data
 
 
