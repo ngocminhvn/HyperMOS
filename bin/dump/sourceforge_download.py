@@ -215,6 +215,66 @@ def is_html_file(path):
         return False
 
 
+def download_drive_with_rclone(url, output, config_file):
+    """Try authenticated, read-only Drive API access using the existing rclone remote.
+
+    The public download endpoint may return an HTML quota page even for a
+    1-byte range. A configured Drive account can sometimes access the file by
+    ID through the Drive API. copyid -> a LOCAL file never copies data into or
+    modifies the user's Drive account. A Drive-side access/quota denial remains
+    a real failure and cannot be fixed by rewriting the HTTP URL.
+    """
+    if config_file is None or not config_file.is_file():
+        print("[DRIVE-API] No rclone config; authenticated fallback unavailable",
+              flush=True)
+        return False
+    drive_url = drive_download_url(url)
+    file_id = (parse_qs(urlsplit(drive_url).query).get("id") or [None])[0] if drive_url else None
+    if not file_id:
+        return False
+    try:
+        remotes = subprocess.run(
+            ["rclone", "--config", str(config_file), "listremotes"],
+            capture_output=True, text=True, timeout=40, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"[DRIVE-API] Cannot enumerate configured rclone remotes: {type(exc).__name__}",
+              flush=True)
+        return False
+    if remotes.returncode != 0:
+        print("[DRIVE-API] Existing rclone configuration is unavailable",
+              flush=True)
+        return False
+    names = [line.strip() for line in remotes.stdout.splitlines()
+             if line.strip().endswith(":")]
+    if not names:
+        print("[DRIVE-API] No configured rclone remotes", flush=True)
+        return False
+    for remote in names:
+        output.unlink(missing_ok=True)
+        print(f"[DRIVE-API] Trying authenticated copyid via {remote}",
+              flush=True)
+        try:
+            result = subprocess.run(
+                ["rclone", "--config", str(config_file),
+                 "backend", "copyid", remote, file_id, str(output)],
+                capture_output=True, text=True, timeout=1200, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"[DRIVE-API] Authenticated copy failed: {type(exc).__name__}",
+                  flush=True)
+            continue
+        if (result.returncode == 0 and output.is_file()
+                and output.stat().st_size > 1024
+                and (zipfile.is_zipfile(output) or is_7z(output))):
+            print(f"[DRIVE-API] Downloaded {output.stat().st_size} bytes",
+                  flush=True)
+            return True
+        print(f"[DRIVE-API] Unable to download from {remote} "
+              f"(exit={result.returncode}); verify Drive access and quota",
+              flush=True)
+    output.unlink(missing_ok=True)
+    return False
+
+
 def download_drive_by_ranges(url, output, connections=8):
     """Download a Drive file in small sequential byte ranges.
 
@@ -650,6 +710,8 @@ def main():
     ap.add_argument("--max-mirror-attempts", type=int, default=0,
                     help="Limit total mirror attempts (0 retains old unlimited fallback)")
     ap.add_argument("--connections", type=int, default=8)
+    ap.add_argument("--rclone-config", type=Path,
+                    help="Optional existing rclone config for authenticated Drive fallback")
     ap.add_argument("--expected-md5", default="",
                     help="Optional 32-hex expected full ROM MD5 for authenticity check")
     args = ap.parse_args()
@@ -748,10 +810,18 @@ def main():
                   "retrying with sequential 32 MiB ranges", flush=True)
             output.unlink(missing_ok=True)
             Path(str(output) + ".aria2").unlink(missing_ok=True)
-            success = download_drive_by_ranges(
-                args.url, output, connections=args.connections)
+            success = download_drive_with_rclone(
+                args.url, output, args.rclone_config)
             if not success:
-                print("[WARN] Google Drive range fallback failed", flush=True)
+                print("[DOWNLOAD] Authenticated Drive download unavailable; "
+                      "checking public 32 MiB ranges", flush=True)
+                success = download_drive_by_ranges(
+                    args.url, output, connections=args.connections)
+            if not success:
+                print("[ERROR] Google Drive did not supply ROM bytes. "
+                      "The source may be quota-limited or inaccessible; "
+                      "try an accessible direct ROM URL or grant the configured "
+                      "Drive account access.", flush=True)
         elif success and is_html_file(output):
             print("[WARN] Downloaded file is HTML, not an archive",
                   flush=True)
