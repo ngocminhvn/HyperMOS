@@ -1,58 +1,67 @@
 # HyperMOS Telegram build command: /b <rom-zip-URL>
 
-## Why a new receiver is needed
+## How it works
 
-notify.py currently sends progress/results *out* of GitHub Actions; it never
-receives Telegram updates. A GitHub Actions workflow cannot by itself serve
-Telegram webhooks between workflow runs.
+The Cloudflare Worker in `bot/telegram_build_worker.js` receives Telegram webhooks
+and dispatches `.github/workflows/build.yml` on `main` in root mode. Existing
+`notify.py` handles build progress and final results.
 
-bot/telegram_build_worker.js is a minimal Cloudflare Worker HTTPS webhook that:
-- verifies Telegram's secret header;
-- accepts valid /b commands without Telegram user-ID filtering;
-- parses exactly "/b https://ROM-LINK";
-- validates HTTPS URLs against a configurable download-host allowlist;
-- dispatches the existing .github/workflows/build.yml on main, root mode;
-- supplies builder_id=<Telegram sender ID> so notify.py can send completion
-  messages and redacted failure logs directly to the builder.
+The Worker verifies Telegram's webhook authentication header and the ROM URL
+host allowlist. There is **no Telegram user-ID allowlist**: anyone who can
+message the bot may request a build. Introduce rate limiting and deduplication
+before sharing the bot publicly.
 
-No bot daemon, always-on computer, private ROM server or new GitHub workflow is
-required. However, the HTTPS receiver must be deployed before /b can work.
+## Deploy using Cloudflare dashboard (no local tools needed)
 
-## One-time setup (Cloudflare Worker, GitHub, Telegram)
+- Create/connect a Cloudflare Worker to GitHub repository `ngocminhvn/HyperMOS`.
+- Worker name: `hypermos`; production branch: `main`.
+- Root directory: `bot`; leave Build command empty.
+- Deploy command: `npx wrangler deploy`.
+- Confirm the new deployment reports **Ready**.
 
-1. Install Wrangler from Cloudflare, enter the bot/ directory and deploy
-   using "npx wrangler deploy". Save the Worker URL (https://<worker>.workers.dev).
-2. Create a GitHub fine-grained personal token restricted to
-   ngocminhvn/HyperMOS with Actions: Read and write permissions. Do not
-   commit, print or share it.
-3. From bot/, set these Cloudflare Worker secrets via Wrangler:
-   - TELEGRAM_BOT_TOKEN: existing Telegram bot token, held only as a secret.
-   - GITHUB_WORKFLOW_TOKEN: GitHub Actions token from step 2.
-   - TELEGRAM_WEBHOOK_SECRET: a unique unpredictable value containing only
-     A-Z, a-z, 0-9, underscore or hyphen.
-   Optional: ALLOWED_ROM_HOSTS (comma-separated exact domains, or *.domain).
-4. Telegram setWebhook (run locally, with your real values in environment
-   variables rather than in source code):
-   curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-     --data-urlencode "url=${WORKER_URL}/telegram" \
-     --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
-5. Open a DM with the bot and send /start once. Then send:
+## Exactly two Cloudflare Worker secrets
 
-   /b https://sourceforge.net/projects/.../files/.../rom.zip/download
+Configure these under Worker > Settings > Variables and Secrets:
 
-The Worker replies once GitHub accepts the dispatch; this is NOT proof that the
-ROM build succeeded. The existing notify.py will report the final result.
+- `TELEGRAM_BOT_TOKEN`: existing bot token from Telegram BotFather.
+- `GITHUB_WORKFLOW_TOKEN`: GitHub fine-grained personal access token scoped
+  to `ngocminhvn/HyperMOS`, with Actions: Read and write.
 
-## Security and limitations
+`TELEGRAM_WEBHOOK_SECRET` is **no longer needed**. The Worker securely derives
+a 64-character hexadecimal Telegram webhook secret from
+`TELEGRAM_BOT_TOKEN` using a domain-separated SHA-256 hash. It never exposes
+the raw token or derived secret in a URL. `ALLOWED_TELEGRAM_USER_IDS` is also
+unused and may be removed from Cloudflare settings.
 
-Anyone able to message the Telegram bot can trigger builds. This is intentionally
-public and can exhaust GitHub Actions quota or incur cost. Telegram secrets and
-GitHub tokens stay in Worker secrets, not in the repo or ROM output. Keep the
-ROM download-host allowlist strict; add rate limiting and deduplication before
-sharing the bot widely.
+## Register the Telegram webhook from your browser
 
-GitHub Actions workflow_dispatch returns an acknowledgement but usually no run
-ID; the bot links to the build workflow page rather than inventing a run number.
-The basic Worker does not contain durable rate limiting or deduplication. If
-using it publicly, add Cloudflare KV/Durable Object deduplication and
-rate limits. Root mode still fails closed on unsupported kernel/partition layouts.
+1. Once the Cloudflare deployment is **Ready**, visit
+   `https://hypermos.minhtn3092007.workers.dev/setup-webhook`.
+2. Enter the **existing Telegram BotFather token** and click
+   **Kích hoạt webhook**. This posts the token over HTTPS to your own Worker,
+   not to a third-party website.
+3. The Worker checks that the token matches the Cloudflare secret, calculates
+   the allowed Telegram webhook secret automatically, and calls Telegram's
+   `setWebhook` API for `/telegram`.
+4. The setup deliberately sets `drop_pending_updates: true` to discard old
+   queued commands and avoid duplicate builds.
+5. In a private message to the bot, send
+   `/b https://sourceforge.net/projects/.../files/.../rom.zip/download`.
+
+The setup page requires the exact bot token, which acts as the credential.
+Avoid sharing that token or screenshots of it. Do not include the token in a
+URL or paste it into a third-party hash website. If the bot token is rotated
+in BotFather, update the Cloudflare secret and run the setup page again.
+
+A successful webhook setup does not guarantee that a ROM build succeeds. The
+bot confirms when GitHub accepts the workflow dispatch, and `notify.py`
+reports its final result.
+
+## Security considerations
+
+Two secrets are sufficient because the webhook header token is derived from
+the bot token. Forged HTTP requests lacking the correct header get 403.
+Allow only trusted ROM download hosts; `ALLOWED_ROM_HOSTS` is an optional
+comma-separated variable to narrow the default list. A public `/b` command
+can consume GitHub Actions minutes and storage; add Cloudflare rate limits
+and duplicate-command protection before publishing the bot widely.
