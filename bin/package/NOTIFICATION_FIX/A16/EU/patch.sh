@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Xiaomi.eu A16: narrow GMS FCM wake delivery; stock PowerKeeper and Greezer otherwise.
+# Xiaomi.eu A16: narrow GMS FCM wake delivery + scoped GCM wakelock exception.
 set -euo pipefail
 w="$(pwd)"
 source "$w/functions.sh"
@@ -14,7 +14,7 @@ jar="$w/build/baserom/images/system_ext/framework/miui-services.jar"
 decoded="$w/miui-services_decompile"
 output="$w/miui-services_patched.jar"
 manifest="$base/ryu_policy.json"
-[[ -s "$jar" && -s "$manifest" ]] || { error "EU FCM input missing"; exit 1; }
+[[ -s "$jar" && -s "$manifest" && -s "$base/fcm_wakelock.py" ]] || { error "EU FCM input missing"; exit 1; }
 init_env
 ensure_tools
 tmp="$(mktemp -d "$w/eu-fcm.XXXXXX")"
@@ -24,6 +24,7 @@ python3 "$base/ryu_policy.py" --root "$decoded" --manifest "$manifest" \
   --group miui-services --report "$w/build/reports/eu-fcm/independent-methods.json"
 python3 "$base/fcm_autostart.py" "$decoded" --report "$w/build/reports/eu-fcm/autostart.json"
 python3 "$base/fcm_greeze.py" "$decoded" --report "$w/build/reports/eu-fcm/greeze.json"
+python3 "$base/fcm_wakelock.py" "$decoded" --report "$w/build/reports/eu-fcm/gms-wakelock.json"
 recompile_jar "$jar" >/dev/null
 [[ -s "$output" ]] && unzip -t "$output" >/dev/null || { error "EU FCM rebuilt JAR invalid"; exit 1; }
 mkdir -p "$tmp/raw" "$tmp/decoded"
@@ -39,6 +40,7 @@ python3 "$base/ryu_policy.py" --root "$tmp/decoded" --manifest "$manifest" \
   --group miui-services --verify --report "$w/build/reports/eu-fcm/independent-verified.json"
 python3 "$base/fcm_autostart.py" "$tmp/decoded" --verify --report "$w/build/reports/eu-fcm/autostart-verified.json"
 python3 "$base/fcm_greeze.py" "$tmp/decoded" --verify --report "$w/build/reports/eu-fcm/greeze-verified.json"
+python3 "$base/fcm_wakelock.py" "$tmp/decoded" --verify --report "$w/build/reports/eu-fcm/gms-wakelock-verified.json"
 mv -f "$output" "$jar"
-mods "[EU A16] only targeted FCM Autostart + Greeze; no broad policy keepalive"
-mods "[EU A16] original Xiaomi.eu PowerKeeper.apk untouched and signature preserved"
+mods "[EU A16] scoped FCM delivery + GMS GCM_WORK/GCM_CONN_ALARM wakelock protection"
+mods "[EU A16] stock PowerKeeper.apk, Greeze freeze policy, thermal and Doze untouched"
