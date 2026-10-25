@@ -5,97 +5,6 @@
   "groups": {
     "miui-services": [
       {
-        "class": "com/android/server/AppOpsServiceStubImpl.smali",
-        "signature": "<clinit>()V",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/alarm/AlarmManagerServiceStubImpl.smali",
-        "signature": "init(Lcom/android/server/alarm/AlarmManagerService;)V",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
-        "signature": "checkRunningCompatibility(Landroid/app/IApplicationThread;Landroid/content/pm/ActivityInfo;Landroid/content/Intent;ILjava/lang/String;)Z",
-        "operation": "force_international",
-        "registers": [
-          "p2"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
-        "signature": "checkRunningCompatibility(Landroid/content/ComponentName;III)Z",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
-        "signature": "ensureDeviceProvisioned(Landroid/content/Context;)V",
-        "operation": "force_international",
-        "registers": [
-          "v1",
-          "v4"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/ActivityManagerServiceImpl.smali",
-        "signature": "onProcessStart(IILjava/lang/String;)V",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
-        "signature": "checkApplicationAutoStart(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Landroid/content/pm/ResolveInfo;)Z",
-        "operation": "force_international",
-        "registers": [
-          "v2"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
-        "signature": "checkReceiverAppDealBroadcast(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
-        "signature": "isInternationalSpecialAction(Ljava/lang/String;Landroid/content/pm/ResolveInfo;)Z",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/BroadcastQueueModernStubImpl.smali",
-        "signature": "updateBlockBroadcast()V",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
         "class": "com/android/server/am/ProcessPolicy.smali",
         "signature": "updateContentCatcherWhitelist()V",
         "operation": "force_international",
@@ -103,47 +12,6 @@
           "v0"
         ],
         "value": false
-      },
-      {
-        "class": "com/android/server/am/ProcessSceneCleaner.smali",
-        "signature": "handleSwipeKill(Lmiui/process/ProcessConfig;)Z",
-        "operation": "force_international",
-        "registers": [
-          "v4"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/am/ProcessSceneCleaner.smali",
-        "signature": "killAppForHasOtherTask(ILmiui/process/ProcessConfig;)Z",
-        "operation": "force_international",
-        "registers": [
-          "v2"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/notification/NotificationManagerServiceImpl.smali",
-        "signature": "<clinit>()V",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/android/server/notification/NotificationManagerServiceImpl.smali",
-        "signature": "checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOpsManager;ILjava/lang/String;)V",
-        "operation": "force_international",
-        "registers": [
-          "v0"
-        ],
-        "value": true
-      },
-      {
-        "class": "com/miui/server/greeze/PolicyManager.smali",
-        "signature": "<clinit>()V",
-        "operation": "force_cn_model_false"
       },
       {
         "class": "com/android/server/pm/PackageManagerServiceImpl.smali",
@@ -166,6 +34,6 @@
       }
     ]
   },
-  "scope": "19 RYU-versus-EU309 miui-services.jar method edits: 16 notification/policy deltas, 2 PackageManager no-op gates and 1 malware-intent international gate",
-  "powerkeeper": "No DEX changes: all 9 changed original RYU PowerKeeper methods depend on PerfHook, RYU FPS settings, or custom thermal node; preserve stock EU APK and signature"
+  "scope": "Four independent security/ContentCatcher methods; FCM patches are applied separately",
+  "powerkeeper": "Xiaomi.eu stock, unmodified, original signature"
 }

@@ -23,16 +23,9 @@ class RyuPolicyTest(unittest.TestCase):
     def test_manifest_contains_all_three_security_deltas(self):
         manifest = RYU.load(BASE / "ryu_policy.json")
         rows = manifest["groups"]["miui-services"]
-        self.assertEqual(19, len(rows))
+        self.assertEqual(4, len(rows))
         selected = {(row["class"], row["signature"]): row for row in rows}
         self.assertFalse(any(row["class"] == "com/android/server/job/JobServiceContextImpl.smali" for row in rows))
-        ams = "com/android/server/am/ActivityManagerServiceImpl.smali"
-        compatibility_signature = (
-            "checkRunningCompatibility(Landroid/app/IApplicationThread;"
-            "Landroid/content/pm/ActivityInfo;Landroid/content/Intent;I"
-            "Ljava/lang/String;)Z"
-        )
-        self.assertEqual(["p2"], selected[(ams, compatibility_signature)]["registers"])
         pms = "com/android/server/pm/PackageManagerServiceImpl.smali"
         can_update = selected[(pms, "canBeUpdate(Ljava/lang/String;)V")]
         self.assertEqual("ryu_return_void", can_update["operation"])
@@ -116,7 +109,7 @@ class RyuPolicyTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("\n\n".join(methods) + "\n", encoding="utf-8")
             patched = RYU.run(root, manifest, "miui-services", False, None)
-            self.assertEqual(19, len(patched["modified"]))
+            self.assertEqual(4, len(patched["modified"]))
             verified = RYU.run(root, manifest, "miui-services", True, None)
             self.assertEqual([], verified["modified"])
 

@@ -246,10 +246,10 @@ if [[ "$rom_source" == "xiaomi_eu" ]]; then
 fi
 
 # Preserve vendor/ODM thermal and performance policy.
-# RYU EU A16 policy changes only the selected miui-services.jar methods.
+# EU A16 patches only GMS FCM delivery and retained independent JAR methods.
 # Original Xiaomi.eu PowerKeeper.apk remains byte-for-byte unchanged.
 if [[ "$rom_source" == "xiaomi_eu" && "$android_version" == "16" ]]; then
-    info "EU A16: RYU JSON JAR policy; original PowerKeeper.apk unchanged"
+    info "EU A16: scoped FCM delivery JAR; original PowerKeeper.apk unchanged"
 fi
 
 find "$work_dir/build/baserom/images/" -exec touch -t 200901010000.00 {} + 2> /dev/null || true

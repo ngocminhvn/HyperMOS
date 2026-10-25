@@ -1,74 +1,33 @@
-# Xiaomi.eu Android 16: RYU-derived notification/power policy
+# Xiaomi.eu A16: minimal FCM wake fix, stock power and thermal
 
-The previous Global303/ZK304 implementation is preserved at branch
-[eu_global](https://github.com/ngocminhvn/HyperMOS/tree/eu_global).
-The active entry is patch.sh, which reads ryu_policy.json via ryu_policy.py.
-backupzk.zip is an inactive historical reference.
+The original Xiaomi.eu #170 skipped the notification stage, but earlier
+EU logs recorded Greezer Denial for GMS C2DM broadcast when an app was frozen.
+This patch targets the two relevant delivery points rather than copying RYU's
+entire power policy or Global/ZK donor files.
 
-## What is actually modified
+- **miui-services.jar / BroadcastQueueModernStubImpl.checkApplicationAutoStart**:
+  allow only C2DM intents with the Google Play services caller package.
+  Otherwise run the original EU Autostart method, including original
+  international-build checks.
+- **miui-services.jar / GreezeManagerService.isAllowBroadcast**:
+  allow the same GMS/C2DM event to any eligible app, screen on or off.
+  Keep native isRestrictReceiver -> thawUidAsync / cached broadcast flow.
+  No manually-maintained app whitelist.
+- **Four independent old patches retained** in ryu_policy.json:
+  ProcessPolicy ContentCatcher, PackageManagerServiceImpl canBeUpdate,
+  verifyIsolationViolation, and ActivitySecurityHelper malware gate.
+- The other **15 broad RYU overrides** are removed from this active policy:
+  ActivityManagerServiceImpl, ProcessSceneCleaner,
+  NotificationManagerServiceImpl, AppOpsServiceStubImpl,
+  AlarmManagerServiceStubImpl, PolicyManager.CN_MODEL=false and unrelated
+  BroadcastQueue international overrides.
+- **PowerKeeper.apk** is preserved byte-for-byte including its signature.
+  No thermal / FPS / Doze modifications, service/daemon, wake loop or
+  root manager dependency.
 
-- miui-services.jar: exactly **19** selected method-level RYU-vs-EU309
-  changes, using the original EU309 class/method signatures and smali
-  instruction anchors rather than copying foreign APK/JAR/DEX archives.
-- Classes include BroadcastQueueModernStubImpl (4 methods),
-  ActivityManagerServiceImpl (4), ProcessSceneCleaner (2),
-  NotificationManagerServiceImpl (2), AppOpsServiceStubImpl,
-  AlarmManagerServiceStubImpl,   ProcessPolicy.updateContentCatcherWhitelist and
-  Greeze PolicyManager.<clinit> (CN_MODEL=false).
-- PackageManagerServiceImpl.canBeUpdate() and
-  PackageManagerServiceImpl.verifyIsolationViolation() are reduced to
-  return-void, matching the inspected RYU methods.
-  These whole-method replacements are selected by unique class/full signature
-  and void return type; they do not depend on a guessed instruction inside the
-  vendor method body.
-- ActivitySecurityHelper.getMalwareBlockingIntent() forces its scoped
-  international-build read to true, matching the inspected RYU branch.
-- International branches use the original
-  miui.os.Build.IS_INTERNATIONAL_BUILD checks as their anchors.
-  No RYU-only IS_RYU_BUILD field or donor-only class is introduced.
+Patch scripts use exact class/method checks and verify post-assembly
+opcode sequences even when baksmali renames labels and drops comments.
 
-JobServiceContextImpl.checkIfCancelJob() is left **stock EU309**, not forced to an international early-return path. This change preserves vendor job-cancellation behavior for a controlled idle/heat comparison.
-
-## PowerKeeper.apk: NO patch
-
-Direct DEX comparison between original Xiaomi.eu HAOTIAN EU309 and RYU EU309:
-
-- 18,323 methods are unchanged; nine existing methods changed.
-- RYU adds 143 methods in 21 new classes.
-- Those nine method changes consist of PerfHook startup (one method),
-  custom thermal sysfs paths (four methods), and custom
-  projectryu_max_fps / SettingsHelper hooks (four methods).
-- GmsObserver.isGmsControlEnabled(), enableGms(), disableGms(),
-  ActiveStateController.dealNoRestrictApp() and the inspected
-  KillProcessController methods do not have RYU functional changes.
-- Therefore PowerKeeper.apk is preserved **byte-for-byte**, rather
-  than inventing a no-op method patch. The original APK signing block,
-  META-INF, and cryptographic signature remain intact.
-- There is no active PowerKeeper script or powerkeeper JSON patch group.
-
-## JAR exclusions and audit boundaries
-
-- services.jar: no new RYU-versus-stock EU309 notification/Doze
-  delta identified. Do not copy the China-versus-EU version differences.
-- framework.jar changes are chiefly ProjectRYU app-list / feature hooks;
-  miui-framework.jar changes do not target pin/FCM delivery.
-- Remaining miui-services.jar changes involve NetworkBoost SLA,
-  gaming/MiWill, window management, input, device/package security,
-  or unrelated platform features. They are deliberately excluded.
-- ZK304 getImportantApps(), Global303 PowerKeeper methods, and custom
-  HyperMOS Greeze FCM exception are **not** active on main. Restore
-  eu_global to test the older approach.
-- Keep original EU MiuiBatteryIntelligence / MAP_APP and vendor
-  thermal policies; do not add PerfHook, background daemons, or
-  broad keepalive rules.
-
-## Validation and limitations
-
-Patcher verifies each target class/method and expected original flag
-reads; incompatible layouts stop the build. JSON includes no method
-SHA-256 pins. JAR smali is assembled and disassembled for verification.
-
-No Android build or physical device testing is established by source
-inspection. RYU-like bytecode does not guarantee RYU-like battery
-runtime behavior or eliminate missed FCM messages. Test boot, GMS/FCM
-over Wi-Fi and LTE after screen idle, and battery/thermal independently.
+**Experimental:** source checks are not proof of boot or reliable FCM.
+Run a real EU309 build and test Messenger, Zalo, Gmail, Wi-Fi/LTE,
+24–72h standby and heat/power before judging success.
