@@ -1,0 +1,151 @@
+name: HyperMOS FastbootD Partitions
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_url:
+        description: 'Base ROM ZIP URL (default: Xiaomi.eu HAOTIAN EU309)'
+        required: true
+        type: string
+        default: 'https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip/download'
+      partitions:
+        description: 'Choose only output partitions (comma-separated): system,system_ext,product,mi_ext'
+        required: true
+        type: string
+        default: 'system,system_ext,product,mi_ext'
+      builder_id:
+        description: 'Optional builder ID (same as standard HyperMOS build)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      HYPERMOS_FASTBOOTD_ONLY: '1'
+      FASTBOOTD_PARTITIONS: ${{ inputs.partitions }}
+      INPUT_URL: ${{ inputs.input_url }}
+      BUILDER_ID: ${{ inputs.builder_id }}
+      ROOT_MODE: stock
+
+    steps:
+      - name: Check runner space
+        id: diskcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
+          echo "[INFO] Runner free space: ${FREE_GB} GB"
+          if [ "$FREE_GB" -lt 60 ]; then
+            echo "need_cleanup=true" >> "$GITHUB_OUTPUT"
+            docker rmi $(docker images -q) >/dev/null 2>&1 || true
+            sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php || true
+            sudo apt-get -y purge azure-cli 'ghc*' 'zulu*' 'hhvm*' 'llvm*' firefox 'google*' 'dotnet*' powershell 'mysql*' 'php*' >/dev/null 2>&1 || true
+            sudo apt-get -y autoremove --purge >/dev/null 2>&1 || true
+            sudo apt-get clean
+          else
+            echo "need_cleanup=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Maximize build space
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
+        uses: easimon/maximize-build-space@master
+        with:
+          swap-size-mb: 1024
+          root-reserve-mb: 512
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Validate selected partitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/fastbootd/export.py --self-test
+          selected="$(python3 bin/fastbootd/export.py --select "$FASTBOOTD_PARTITIONS")"
+          echo "[FASTBOOTD] Selected: $selected"
+
+      - name: Prepare HyperMOS build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > build_action.log
+          if [ -z "${JAVA_HOME_17_X64:-}" ] || [ ! -x "${JAVA_HOME_17_X64}/bin/java" ]; then
+            echo "::error::Java 17 unavailable on ubuntu-24.04"
+            exit 1
+          fi
+          echo "JAVA_HOME=${JAVA_HOME_17_X64}" >> "$GITHUB_ENV"
+          echo "${JAVA_HOME_17_X64}/bin" >> "$GITHUB_PATH"
+          sudo timedatectl set-timezone Asia/Ho_Chi_Minh
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test >>build_action.log 2>&1
+          sudo apt-get -o Acquire::Retries=3 update -qq >>build_action.log 2>&1
+          sudo apt-get purge -y device-tree-compiler >>build_action.log 2>&1 || true
+          sudo apt-get -o Acquire::Retries=3 install -y -qq \
+            aria2 jq rclone sshpass lz4 python-is-python3 wget python3 xz-utils zlib1g-dev \
+            gcc g++ libc6 libstdc++6 python3-pip dialog libgtk-3-dev aapt busybox zip \
+            erofs-utils unzip p7zip-full 7zip 7zip-standalone zipalign zstd bc \
+            android-sdk-libsparse-utils xmlstarlet secilc binutils >>build_action.log 2>&1 || {
+            tail -n 70 build_action.log
+            exit 1
+          }
+          sudo pip3 install -q ConfigObj telebot setuptools requests google-auth lz4 \
+            google-auth-oauthlib google-auth-httplib2 google-api-python-client \
+            fonttools pillow >>build_action.log 2>&1 || {
+            tail -n 70 build_action.log
+            exit 1
+          }
+          sudo chmod -R a+rwX .
+          chmod +x bin/magiskboot bin/Linux/x86_64/* 2>/dev/null || true
+
+      - name: Build ROM tree with all HyperMOS main modifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[PHASE] Build ROM tree" | tee -a build_action.log
+          sudo -E bash build.sh "$INPUT_URL" "$GITHUB_REPOSITORY" xiaomi "$BUILDER_ID" \
+            2>&1 | tee -a build_action.log
+
+      - name: Repack selected dynamic partition images
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[PHASE] Pack FastbootD partition images" | tee -a build_action.log
+          sudo -E bash bin/package/TNM/patch.sh --check-lock 2>&1 | tee -a build_action.log
+          sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
+          test -s out/fastbootd/manifest.json
+          echo "### FastbootD images" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manifest=json.loads(Path("out/fastbootd/manifest.json").read_text())
+          with open(__import__("os").environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write(f"Source: {manifest['rom_source']} / {manifest['base_rom_code']} / {manifest['device']}\n\n")
+              f.write("Selected partitions: " + ", ".join(manifest["selected_partitions"]) + "\n")
+          PY
+
+      - name: Upload selected images as GitHub Actions Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FastbootD-${{ github.run_number }}-${{ github.sha }}
+          path: out/fastbootd/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Build errors
+        if: failure()
+        shell: bash
+        run: |
+          echo "::group::Build failure context"
+          if [ -f build_action.log ]; then tail -n 70 build_action.log; fi
+          echo "::endgroup::"

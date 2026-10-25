@@ -33,13 +33,22 @@ else
     os_type="HyperOS"
 fi
 
-phase "4/4 Repack partitions and super image"
-
-#Generate Super.img
-superSize=$(bash $work_dir/bin/getSuperSize.sh $getvar)
-repack $superSize
-repack "Super image size: ${superSize}"
-repack "Packing super.img"
+# Image-only mode uses the same patched partition trees and mkfs path as a
+# normal ROM build, but skips constructing super.img and any firmware package.
+if [[ "${HYPERMOS_FASTBOOTD_ONLY:-0}" == "1" ]]; then
+    [[ -n "${FASTBOOTD_PARTITIONS:-}" ]] || {
+        error "FastbootD: select at least one partition"
+        exit 1
+    }
+    super_list="$(python3 "$work_dir/bin/fastbootd/export.py" --select "$FASTBOOTD_PARTITIONS")" || exit 1
+    phase "4/4 Repack selected FastbootD partition images"
+    repack "Export selection: $super_list"
+else
+    phase "4/4 Repack partitions and super image"
+    superSize=$(bash "$work_dir/bin/getSuperSize.sh" "$getvar") || exit 1
+    repack "Super image size: ${superSize}"
+    repack "Packing super.img"
+fi
 
 # mkfs.erofs already uses CPU internally. Two concurrent partition packers
 # are a better default on GitHub's 4-core hosted runner than four competing jobs.
@@ -130,6 +139,17 @@ done
 if [ "$pack_failed" -ne 0 ]; then
     error "One or more partition repack jobs failed."
     exit 1
+fi
+
+if [[ "${HYPERMOS_FASTBOOTD_ONLY:-0}" == "1" ]]; then
+    python3 "$work_dir/bin/fastbootd/export.py" --export \
+        --root "$work_dir" --select "$FASTBOOTD_PARTITIONS" \
+        --out "$work_dir/out/fastbootd" || {
+        error "FastbootD: unable to stage selected images"
+        exit 1
+    }
+    ok "FastbootD selected partition images exported; no super/ROM ZIP created"
+    exit 0
 fi
 
 if grep -q "ro.build.ab_update=true" build/baserom/images/vendor/build.prop;  then
