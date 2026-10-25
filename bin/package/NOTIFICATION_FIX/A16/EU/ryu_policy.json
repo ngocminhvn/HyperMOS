@@ -12,28 +12,9 @@
           "v0"
         ],
         "value": false
-      },
-      {
-        "class": "com/android/server/pm/PackageManagerServiceImpl.smali",
-        "signature": "canBeUpdate(Ljava/lang/String;)V",
-        "operation": "ryu_return_void"
-      },
-      {
-        "class": "com/android/server/pm/PackageManagerServiceImpl.smali",
-        "signature": "verifyIsolationViolation(Lcom/android/internal/pm/parsing/pkg/ParsedPackage;Lcom/android/server/pm/InstallSource;)V",
-        "operation": "ryu_return_void"
-      },
-      {
-        "class": "miui/app/ActivitySecurityHelper.smali",
-        "signature": "getMalwareBlockingIntent(Ljava/lang/String;Landroid/content/Intent;ZZII)Landroid/content/Intent;",
-        "operation": "force_international",
-        "registers": [
-          "v1"
-        ],
-        "value": true
       }
     ]
   },
-  "scope": "Four independent security/ContentCatcher methods; FCM patches are applied separately",
+  "scope": "Only ProcessPolicy.updateContentCatcherWhitelist retained; PackageManagerServiceImpl and ActivitySecurityHelper method overrides disabled here. FCM delivery and GCM wakelock patches run separately.",
   "powerkeeper": "Xiaomi.eu stock, unmodified, original signature"
 }
