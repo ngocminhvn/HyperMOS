@@ -3,11 +3,11 @@
  * Deploy as a Cloudflare Worker; it does NOT run in GitHub Actions.
  *
  * Required Worker secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET,
- * GITHUB_WORKFLOW_TOKEN. Required env: ALLOWED_TELEGRAM_USER_IDS.
+ * GITHUB_WORKFLOW_TOKEN.
  * Optional env: ALLOWED_ROM_HOSTS (comma-separated), defaults below.
  *
- * Keep authentication and the ROM download URL validation: this endpoint
- * triggers build scripts with elevated privileges on GitHub-hosted runners.
+ * Keep webhook authentication and ROM URL validation: this bot is public
+ * and can trigger GitHub Actions for any Telegram sender.
  */
 const REPO = "ngocminhvn/HyperMOS";
 const WORKFLOW = "build.yml";
@@ -82,11 +82,6 @@ export default {
     if (!fromId || !chatId || typeof msg.text !== "string") {
       return new Response("ok", { status: 200 });
     }
-    // No bot commands are accepted from unauthorised Telegram accounts.
-    const users = String(env.ALLOWED_TELEGRAM_USER_IDS || "").split(",").map((s) => s.trim());
-    if (!users.includes(fromId)) {
-      return new Response("ok", { status: 200 });
-    }
     const text = msg.text.trim();
     const match = /^\/b(?:@[A-Za-z0-9_]+)?\s+(https:\/\/\S+)$/iu.exec(text);
     if (!text.startsWith("/b")) {
@@ -103,8 +98,7 @@ export default {
       await say(env, chatId, "Link ROM phải dùng HTTPS và thuộc nguồn ROM đã cho phép.");
       return new Response("ok", { status: 200 });
     }
-    // Concurrency/rate limits and approval can be imposed in the Worker config.
-    // Do not insert a public build endpoint without checking from.id.
+    // Public command: configure abuse protection before sharing the bot widely.
     const response = await fetch(
       "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
       {
