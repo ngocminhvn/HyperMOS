@@ -9,8 +9,8 @@ CLASS = "com/android/server/am/BroadcastQueueModernStubImpl.smali"
 SIG = ("checkApplicationAutoStart(Lcom/android/server/am/BroadcastQueue;"
        "Lcom/android/server/am/BroadcastRecord;Landroid/content/pm/ResolveInfo;)Z")
 BR = "Lcom/android/server/am/BroadcastRecord;"
-METHOD = re.compile(r"(?ms)^\\.method[^\\n]*\\n.*?^\\.end method[ \\t]*$")
-REG = re.compile(r"(?m)^\\s*\\.(locals|registers)\\s+(\\d+)\\s*$")
+METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
+REG = re.compile(r"(?m)^\s*\.(locals|registers)\s+(\d+)\s*$")
 MARKER = "HYPERMOS_EU_GMS_FCM_AUTOSTART"
 GUARD = f'''    # {MARKER}: only GMS-authored C2DM, never override other EU traffic
     if-eqz p2, :eu_fcm_stock_autostart
@@ -88,7 +88,7 @@ def patch_source(src, verify=False):
         s=lines[i].strip()
         if not s or s.startswith((".", "#")):
             continue
-        if s.startswith(":") or re.match(r"^[a-z][\\w/-]*(?:\\s|$)",s):
+        if s.startswith(":") or re.match(r"^[a-z][\w/-]*(?:\s|$)",s):
             index=i
             break
     if index is None:
@@ -107,7 +107,7 @@ def apply(root, verify=False, report=None):
     outcome={"method":SIG,"status":status,"scope":"GMS C2DM to every eligible app; others stock EU"}
     if report:
         report.parent.mkdir(parents=True,exist_ok=True)
-        report.write_text(json.dumps(outcome,indent=2)+"\\n",encoding="utf-8")
+        report.write_text(json.dumps(outcome,indent=2)+"\n",encoding="utf-8")
     return outcome
 
 def main():
