@@ -103,7 +103,7 @@ jobs:
           EOF
           chmod 0644 "$M/module.prop"
           chmod 0755 "$M/customize.sh"
-          (cd "$M"; zip -qr "../../../out/HyperMOS_EU309_FCM_Trial_StockOnly.zip" .)
+          (cd "$M"; zip -qr "../../out/HyperMOS_EU309_FCM_Trial_StockOnly.zip" .)
           unzip -t out/HyperMOS_EU309_FCM_Trial_StockOnly.zip >/dev/null
           sha256sum out/HyperMOS_EU309_FCM_Trial_StockOnly.zip
       - uses: actions/upload-artifact@v4
