@@ -739,22 +739,22 @@ def main():
             print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
                   flush=True)
         converted_7z = False
-        if success and is_html_file(output):
-            # Drive quota: a full GET returns a small HTML page, but
-            # range GETs still serve the real file. Retry that way
-            # instead of accepting the HTML as the download.
-            if drive_download_url(args.url) is not None:
-                print("[DOWNLOAD] Downloaded file is HTML (Drive quota "
-                      "page); retrying with parallel range download",
-                      flush=True)
-                output.unlink(missing_ok=True)
-                success = download_drive_by_ranges(
-                    args.url, output, connections=args.connections)
-                if not success:
-                    print("[WARN] Range download failed", flush=True)
-            else:
-                print("[WARN] Downloaded file is HTML, not an archive",
-                      flush=True)
+        # Google Drive may return a tiny quota HTML page for individual
+        # aria2 ranges. aria2 then exits nonzero (Invalid range header),
+        # leaving a partial ROM and its .aria2 control file. In run #22 the
+        # fallback was skipped because it only handled successful downloads.
+        if drive_url is not None and (not success or is_html_file(output)):
+            print("[DOWNLOAD] Google Drive aria2 failed or returned HTML; "
+                  "retrying with sequential 32 MiB ranges", flush=True)
+            output.unlink(missing_ok=True)
+            Path(str(output) + ".aria2").unlink(missing_ok=True)
+            success = download_drive_by_ranges(
+                args.url, output, connections=args.connections)
+            if not success:
+                print("[WARN] Google Drive range fallback failed", flush=True)
+        elif success and is_html_file(output):
+            print("[WARN] Downloaded file is HTML, not an archive",
+                  flush=True)
         if success and is_7z(output):
             # A 7z MD5, if supplied, describes the 7z file, not the ZIP
             # repack, so check it before converting and skip it after.
