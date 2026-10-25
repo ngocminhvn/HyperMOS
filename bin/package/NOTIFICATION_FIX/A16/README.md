@@ -1,24 +1,25 @@
-# HyperMOS Android 16: independent China and Xiaomi.eu policies
+# HyperMOS Android 16: independent China and Xiaomi.eu notification policies
 
-Entry point: bin/package/NOTIFICATION_FIX/A16/patch.sh.
+Entry point: `bin/package/NOTIFICATION_FIX/A16/patch.sh`.
 
-- China: CN/frameworkpatcher_cn_a16.py and CN/PowerKeeper.sh are unchanged.
-- Xiaomi.eu (main): EU/patch.sh, EU/fcm_autostart.py, EU/fcm_greeze.py, EU/ryu_policy.py.
-  Only two scoped GMS FCM delivery gates and four independent existing policy edits in miui-services.jar.
-- Xiaomi.eu PowerKeeper.apk: **no RYU power/notification DEX deltas**
-  distinct from the excluded PerfHook, custom thermal sysfs, and
-  custom FPS-hook changes. Preserve original PowerKeeper completely,
-  including its valid digital signature. There is no PowerKeeper
-  "verification-only" placeholder pretending to patch the APK.
-- No RYU-only class or IS_RYU_BUILD property transplant. The selected
-  conditions are taken from miui.os.Build.IS_INTERNATIONAL_BUILD.
-- Do not transplant NetworkBoost/game/security hooks unrelated to
-  notification delivery. Original EU MiuiBatteryIntelligence
-  and device-specific MAP_APP remain untouched.
-- The previous Global303/ZK304 policies were preserved on the
-  eu_global branch; backupzk.zip remains an inactive reference.
-- Patching is method-scoped, with fail-closed full signatures/instruction anchors rather than
-  donor JAR/DEX archives or device-specific method SHA256 pins.
+- **China:** Existing `CN/frameworkpatcher_cn_a16.py` and
+  `CN/PowerKeeper.sh` stay unchanged.
+- **Xiaomi.eu:** `EU/patch.sh` applies two method-specific GMS/C2DM guards
+  in `miui-services.jar`:
+  `EU/fcm_autostart.py` and `EU/fcm_greeze.py`.
+  Their checks cover **all eligible applications**, not a fixed whitelist.
+- Four independent user-requested method changes remain in
+  `EU/ryu_policy.py` / `EU/ryu_policy.json`: ContentCatcher,
+  PackageManager's two no-op gates and ActivitySecurityHelper.
+- The other 15 RYU broad international overrides are no longer active.
+  EU keeps its original `CN_MODEL`, screen/idle state, Doze, power
+  management and process cleanup policy.
+- EU `PowerKeeper.apk` is **not modified**. Its DEX, signing metadata
+  and signature remain intact. No PerfHook, daemon, extra thermal rules
+  or foreign JAR/DEX transplant.
+- `backupzk.zip` is inactive historical reference; branch `eu_global`
+  is only for retrospective comparison.
 
-No new tests establish on-device boot, notification reliability, idle
-battery drain, or heat. These still require a real ROM/device run.
+The patch fails closed if the EU method layout changes. It verifies
+post-assembly opcodes after DEX round-trip, but an actual ROM build, boot,
+idle push test and battery/heat test are still required.

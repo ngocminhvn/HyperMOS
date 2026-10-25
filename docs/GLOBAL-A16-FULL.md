@@ -16,10 +16,10 @@ The archived policy contained:
 
 For main's replacement, see
 bin/package/NOTIFICATION_FIX/A16/EU/README.md and ryu_policy.json.
-The new RYU-based main policy retains stock PowerKeeper (no APK mutation,
+The current targeted FCM main policy retains stock PowerKeeper (no APK mutation,
 no signature invalidation), excludes PerfHook, thermal and custom FPS changes,
-and targets only selected miui-services.jar method gates.
+and targets two GMS FCM delivery gates plus four independent method edits.
 
 Preflight run 40056239788 validated the OLD archived Global/ZK policy,
 not the RYU implementation on main. Boot, idle notification, battery and
-thermal behavior of main's RYU policy still require device tests.
+thermal behavior of main's targeted FCM policy still require device tests.
