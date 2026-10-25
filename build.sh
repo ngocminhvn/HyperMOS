@@ -22,13 +22,17 @@ rm -rf $work_dir/out
 rm -rf $work_dir/build
 
 phase "1/4 Download and inspect base ROM"
-python3 $work_dir/notify.py download "$repo_name" "$baserom" "$prefix_id" "$builder_id"
+if [[ "${HYPERMOS_FASTBOOTD_ONLY:-0}" != "1" ]]; then
+    python3 $work_dir/notify.py download "$repo_name" "$baserom" "$prefix_id" "$builder_id"
+fi
 source "$work_dir/bin/ddevice/getROM.sh" "$baserom" || exit 1
 rom_source="$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")"
 info "Detected ROM source: $rom_source"
 
 phase "2/4 Extract base ROM"
-python3 $work_dir/notify.py unpack "$repo_name" "$baserom" "$prefix_id" "$builder_id"
+if [[ "${HYPERMOS_FASTBOOTD_ONLY:-0}" != "1" ]]; then
+    python3 $work_dir/notify.py unpack "$repo_name" "$baserom" "$prefix_id" "$builder_id"
+fi
 if unzip -l ${baserom} | grep -q "payload.bin"; then
     baserom_type="payload"
     echo $baserom_type > $work_dir/bin/ddevice/romtype.txt
@@ -226,7 +230,9 @@ case "$android_version" in
 esac
 
 # Gửi thông báo đang Build với đầy đủ Codename và Version
-python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_id"
+if [[ "${HYPERMOS_FASTBOOTD_ONLY:-0}" != "1" ]]; then
+    python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_id"
+fi
 
 bash $work_dir/bin/ddevice/DEBLOAT/debloat.sh || exit 1
 info "Done"
