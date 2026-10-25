@@ -8,11 +8,26 @@ on:
         required: true
         type: string
         default: 'https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip/download'
-      partitions:
-        description: 'Choose only output partitions (comma-separated): system,system_ext,product,mi_ext'
+      export_system:
+        description: 'Export system.img'
         required: true
-        type: string
-        default: 'system,system_ext,product,mi_ext'
+        type: boolean
+        default: true
+      export_system_ext:
+        description: 'Export system_ext.img (FCM/notification fixes)'
+        required: true
+        type: boolean
+        default: true
+      export_product:
+        description: 'Export product.img'
+        required: true
+        type: boolean
+        default: true
+      export_mi_ext:
+        description: 'Export mi_ext.img'
+        required: true
+        type: boolean
+        default: true
       builder_id:
         description: 'Optional builder ID (same as standard HyperMOS build)'
         required: false
@@ -28,7 +43,6 @@ jobs:
     timeout-minutes: 180
     env:
       HYPERMOS_FASTBOOTD_ONLY: '1'
-      FASTBOOTD_PARTITIONS: ${{ inputs.partitions }}
       INPUT_URL: ${{ inputs.input_url }}
       BUILDER_ID: ${{ inputs.builder_id }}
       ROOT_MODE: stock
@@ -69,11 +83,24 @@ jobs:
 
       - name: Validate selected partitions
         shell: bash
+        env:
+          EXPORT_SYSTEM: ${{ inputs.export_system }}
+          EXPORT_SYSTEM_EXT: ${{ inputs.export_system_ext }}
+          EXPORT_PRODUCT: ${{ inputs.export_product }}
+          EXPORT_MI_EXT: ${{ inputs.export_mi_ext }}
         run: |
           set -euo pipefail
           python3 bin/fastbootd/export.py --self-test
-          selected="$(python3 bin/fastbootd/export.py --select "$FASTBOOTD_PARTITIONS")"
-          echo "[FASTBOOTD] Selected: $selected"
+          chosen=()
+          [[ "$EXPORT_SYSTEM" == true ]] && chosen+=(system) || true
+          [[ "$EXPORT_SYSTEM_EXT" == true ]] && chosen+=(system_ext) || true
+          [[ "$EXPORT_PRODUCT" == true ]] && chosen+=(product) || true
+          [[ "$EXPORT_MI_EXT" == true ]] && chosen+=(mi_ext) || true
+          (( ${#chosen[@]} > 0 )) || { echo "::error::Select at least one partition"; exit 1; }
+          FASTBOOTD_PARTITIONS="$(IFS=,; printf '%s' "${chosen[*]}")"
+          python3 bin/fastbootd/export.py --select "$FASTBOOTD_PARTITIONS"
+          echo "FASTBOOTD_PARTITIONS=$FASTBOOTD_PARTITIONS" >> "$GITHUB_ENV"
+          echo "[FASTBOOTD] Selected: $FASTBOOTD_PARTITIONS"
 
       - name: Prepare HyperMOS build tools
         shell: bash
