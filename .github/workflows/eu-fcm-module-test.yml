@@ -1,0 +1,113 @@
+name: EU FCM test module (stock EU309)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/eu-fcm-module-test.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract original Xiaomi.eu EU309 framework from archived evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/eu"
+          gh run download 39452530513 -R "$GITHUB_REPOSITORY" -n xiaomieu-original-miui-services-39452530513 -D "$RUNNER_TEMP/eu"
+          test -s "$RUNNER_TEMP/eu/miui-services.jar"
+          echo 'a1b7aeba7347d7722d7c293111537d17d68f8792d58fe176fd2bc48fb0a78b94  '"$RUNNER_TEMP/eu/miui-services.jar" | sha256sum -c -
+      - name: Patch original EU309 miui-services.jar and verify post-assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          B=bin/package/NOTIFICATION_FIX/A16/EU
+          mkdir -p work/raw work/decoded work/out work/check_raw work/check out
+          cp "$RUNNER_TEMP/eu/miui-services.jar" work/input.jar
+          (cd work/raw; unzip -q ../input.jar 'classes*.dex')
+          for dex in work/raw/classes*.dex; do
+            stem=$(basename "$dex" .dex)
+            if [[ "$stem" == classes ]]; then sub=smali; else sub="smali_${stem#classes}"; fi
+            java -Xmx3g -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex" -o "work/decoded/$sub"
+          done
+          python3 "$B/ryu_policy.py" --root work/decoded --manifest "$B/ryu_policy.json" --group miui-services
+          python3 "$B/fcm_autostart.py" work/decoded
+          python3 "$B/fcm_greeze.py" work/decoded
+          for path in work/decoded/smali*; do
+            [[ -d "$path" ]] || continue
+            sub=$(basename "$path")
+            if [[ "$sub" == smali ]]; then stem=classes; else stem="classes${sub#smali_}"; fi
+            java -Xmx3g -jar bin/apktool/smaliv2.jar a --api 36 "$path" -o "work/out/$stem.dex"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          original=Path("work/input.jar")
+          modified=Path("work/patched.jar")
+          with zipfile.ZipFile(original) as source, zipfile.ZipFile(modified,"w") as target:
+              for entry in source.infolist():
+                  replacement=Path("work/out")/entry.filename
+                  data=replacement.read_bytes() if replacement.is_file() else source.read(entry.filename)
+                  target.writestr(entry,data)
+          PY
+          unzip -t work/patched.jar >/dev/null
+          (cd work/check_raw; unzip -q ../patched.jar 'classes*.dex')
+          for dex in work/check_raw/classes*.dex; do
+            stem=$(basename "$dex" .dex)
+            if [[ "$stem" == classes ]]; then sub=smali; else sub="smali_${stem#classes}"; fi
+            java -Xmx3g -jar bin/apktool/baksmaliv2.jar d --api 36 "$dex" -o "work/check/$sub"
+          done
+          python3 "$B/ryu_policy.py" --root work/check --manifest "$B/ryu_policy.json" --group miui-services --verify
+          python3 "$B/fcm_autostart.py" work/check --verify
+          python3 "$B/fcm_greeze.py" work/check --verify
+      - name: Package safe systemless SukiSU / KernelSU / Magisk module
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=work/module
+          mkdir -p "$M/system/system_ext/framework" out
+          cp work/patched.jar "$M/system/system_ext/framework/miui-services.jar"
+          cat >"$M/module.prop" <<'EOF'
+          id=hypermos_eu309_fcm_trial
+          name=HyperMOS Xiaomi.eu EU309 FCM trial (stock-base only)
+          version=1.0
+          versionCode=1
+          author=HyperMOS test
+          description=GMS C2DM Autostart + Greezer, four retained independent method patches. Stock Xiaomi.eu EU309 baseline ONLY. No PowerKeeper patch, no daemon.
+          EOF
+          cat >"$M/customize.sh" <<'EOF'
+          #!/system/bin/sh
+          SKIPUNZIP=0
+          ui_print "- HyperMOS EU309 FCM trial, systemless JAR"
+          [ -n "$MODPATH" ] || abort "! Module manager did not provide MODPATH"
+          device="$(getprop ro.product.vendor.device)"
+          [ "$device" = "haotian" ] || abort "! HAOTIAN only: $device"
+          source_jar=/system_ext/framework/miui-services.jar
+          [ -r "$source_jar" ] || abort "! Cannot read system_ext miui-services.jar"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sum="$(sha256sum "$source_jar" | cut -d' ' -f1)"
+          elif [ -x /system/bin/sha256sum ]; then
+            sum="$(/system/bin/sha256sum "$source_jar" | cut -d' ' -f1)"
+          else
+            abort "! sha256sum unavailable: cannot ensure matching framework"
+          fi
+          [ "$sum" = a1b7aeba7347d7722d7c293111537d17d68f8792d58fe176fd2bc48fb0a78b94 ] || abort "! Current JAR differs from untouched EU309. Refusing to install to avoid bootloop. Current: $sum"
+          ui_print "- Exact EU309 original JAR matched"
+          ui_print "- Patched: FCM Autostart + Greezer, 4 independent policies"
+          ui_print "- No PowerKeeper, Doze, thermal, daemon or other APK changes"
+          set_perm_recursive "$MODPATH/system" 0 0 0755 0644
+          EOF
+          chmod 0644 "$M/module.prop"
+          chmod 0755 "$M/customize.sh"
+          (cd "$M"; zip -qr "../../../out/HyperMOS_EU309_FCM_Trial_StockOnly.zip" .)
+          unzip -t out/HyperMOS_EU309_FCM_Trial_StockOnly.zip >/dev/null
+          sha256sum out/HyperMOS_EU309_FCM_Trial_StockOnly.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HyperMOS_EU309_FCM_Trial_StockOnly
+          path: out/HyperMOS_EU309_FCM_Trial_StockOnly.zip
+          retention-days: 3
