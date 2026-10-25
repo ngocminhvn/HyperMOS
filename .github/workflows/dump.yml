@@ -85,6 +85,7 @@ jobs:
           python3 bin/dump/preflight.py --url "$ROM_URL"
 
       - name: Install extraction tools
+        id: setup_tools
         shell: bash
         run: |
           set -euo pipefail
@@ -94,6 +95,7 @@ jobs:
           test -s bin/dump/targets.txt
 
       - name: Download ROM
+        id: download
         shell: bash
         env:
           ROM_URL: ${{ inputs.rom_url }}
@@ -108,6 +110,7 @@ jobs:
           unzip -tq "$RUNNER_TEMP/hypermos-dump/source.zip" >/dev/null
 
       - name: Unpack ROM without mod or repack
+        id: unpack
         shell: bash
         run: |
           set -euo pipefail
@@ -128,6 +131,7 @@ jobs:
           retention-days: 7
 
       - name: Copy files and create map
+        id: collect
         shell: bash
         env:
           ROM_URL: ${{ inputs.rom_url }}
@@ -161,6 +165,7 @@ jobs:
           echo "Dump mode: $DUMP_MODE. map.tsv, map.json and mirror-report.json included in ZIP." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package dump ZIP
+        id: package
         shell: bash
         run: |
           cd "$RUNNER_TEMP/hypermos-dump/output"
@@ -178,6 +183,7 @@ jobs:
           zip -q -r -1 "$GITHUB_WORKSPACE/$out" .
           ls -lh "$GITHUB_WORKSPACE/$out"
       - name: Upload GitHub Artifact
+        id: upload_artifact
         if: ${{ inputs.upload_method == 'artifact' }}
         uses: actions/upload-artifact@v4
         with:
@@ -187,6 +193,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Google Drive using existing rclone config
+        id: upload_drive
         if: ${{ inputs.upload_method == 'drive' }}
         shell: bash
         env:
@@ -225,6 +232,14 @@ jobs:
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           DUMP_JOB_STATUS: ${{ job.status }}
           DUMP_UPLOAD_METHOD: ${{ inputs.upload_method }}
+          DUMP_PREFLIGHT_RESULT: ${{ steps.preflight.conclusion }}
+          DUMP_SETUP_RESULT: ${{ steps.setup_tools.conclusion }}
+          DUMP_DOWNLOAD_RESULT: ${{ steps.download.conclusion }}
+          DUMP_UNPACK_RESULT: ${{ steps.unpack.conclusion }}
+          DUMP_COLLECT_RESULT: ${{ steps.collect.conclusion }}
+          DUMP_PACKAGE_RESULT: ${{ steps.package.conclusion }}
+          DUMP_ARTIFACT_RESULT: ${{ steps.upload_artifact.conclusion }}
+          DUMP_DRIVE_RESULT: ${{ steps.upload_drive.conclusion }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -246,14 +261,30 @@ jobs:
           url = os.environ.get("DUMP_DOWNLOAD_URL", "").strip()
           run_url = f"https://github.com/{repo}/actions/runs/{run_id}"
           uploaded = status == "success"
-          file_name = f"HyperMOS-dump-{mode}-{run_no}.zip"
+          file_name = os.environ.get("DUMP_OUT_NAME") or f"HyperMOS-dump-{mode}-{run_no}.zip"
+          failed_stages = [
+              ("Preflight", "DUMP_PREFLIGHT_RESULT"),
+              ("Cài công cụ", "DUMP_SETUP_RESULT"),
+              ("Tải ROM", "DUMP_DOWNLOAD_RESULT"),
+              ("Giải nén ROM", "DUMP_UNPACK_RESULT"),
+              ("Trích xuất file", "DUMP_COLLECT_RESULT"),
+              ("Đóng gói ZIP", "DUMP_PACKAGE_RESULT"),
+              ("Upload GitHub Artifacts", "DUMP_ARTIFACT_RESULT"),
+              ("Upload Google Drive", "DUMP_DRIVE_RESULT"),
+          ]
+          failed_stage = next(
+              (name for name, variable in failed_stages
+               if os.environ.get(variable) == "failure"), None)
+
 
           lines = [
               "<b>HyperMOS — ROM Dump</b>",
               f"• <b>Trạng thái:</b> {'HOÀN TẤT' if uploaded else 'THẤT BẠI'}",
               f"• <b>Chế độ:</b> <code>{html.escape(mode)}</code>",
-              f"• <b>File:</b> <code>{html.escape(file_name)}</code>" if uploaded else "• <b>Kết quả:</b> Chưa upload thành công.",
+              f"• <b>File:</b> <code>{html.escape(file_name)}</code>" if uploaded else "• <b>Kết quả:</b> Xử lý ROM chưa hoàn tất.",
           ]
+          if not uploaded and failed_stage:
+              lines.append(f"• <b>Bước lỗi:</b> {html.escape(failed_stage)}")
           if uploaded:
               if method == "drive":
                   if url.startswith("https://"):
