@@ -1,6 +1,7 @@
 name = "hypermos"
 main = "telegram_build_worker.js"
 compatibility_date = "2026-10-23"
+keep_vars = true
 
-# DO NOT put tokens or Telegram user IDs here.
-# Set Worker secrets using "npx wrangler secret put <NAME>".
+# Do not put tokens or Telegram user IDs here.
+# Runtime secrets and allowlisted Telegram users are configured in Cloudflare Dashboard.
