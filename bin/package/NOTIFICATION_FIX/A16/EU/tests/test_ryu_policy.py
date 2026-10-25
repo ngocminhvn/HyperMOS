@@ -20,34 +20,21 @@ class RyuPolicyTest(unittest.TestCase):
         self.assertIn('info "[EU A16]', eu_branch)
         self.assertNotIn('log "[EU A16]', eu_branch)
 
-    def test_manifest_contains_all_three_security_deltas(self):
+    def test_manifest_retains_only_process_policy(self):
         manifest = RYU.load(BASE / "ryu_policy.json")
         rows = manifest["groups"]["miui-services"]
-        self.assertEqual(4, len(rows))
-        selected = {(row["class"], row["signature"]): row for row in rows}
-        self.assertFalse(any(row["class"] == "com/android/server/job/JobServiceContextImpl.smali" for row in rows))
-        pms = "com/android/server/pm/PackageManagerServiceImpl.smali"
-        can_update = selected[(pms, "canBeUpdate(Ljava/lang/String;)V")]
-        self.assertEqual("ryu_return_void", can_update["operation"])
-        self.assertNotIn("anchor", can_update)
-        isolation_signature = (
-            "verifyIsolationViolation("
-            "Lcom/android/internal/pm/parsing/pkg/ParsedPackage;"
-            "Lcom/android/server/pm/InstallSource;)V"
-        )
-        self.assertEqual(
-            "ryu_return_void",
-            selected[(pms, isolation_signature)]["operation"],
-        )
-        self.assertNotIn("anchor", selected[(pms, isolation_signature)])
-        helper = "miui/app/ActivitySecurityHelper.smali"
-        malware_signature = (
-            "getMalwareBlockingIntent(Ljava/lang/String;Landroid/content/Intent;"
-            "ZZII)Landroid/content/Intent;"
-        )
-        malware = selected[(helper, malware_signature)]
-        self.assertEqual(("force_international", ["v1"], True),
-                         (malware["operation"], malware["registers"], malware["value"]))
+        self.assertEqual(1, len(rows))
+        self.assertEqual("com/android/server/am/ProcessPolicy.smali", rows[0]["class"])
+        self.assertEqual("updateContentCatcherWhitelist()V", rows[0]["signature"])
+        self.assertEqual("force_international", rows[0]["operation"])
+        self.assertEqual(["v0"], rows[0]["registers"])
+        self.assertIs(rows[0]["value"], False)
+        self.assertFalse(any(
+            row["class"] in {
+                "com/android/server/pm/PackageManagerServiceImpl.smali",
+                "miui/app/ActivitySecurityHelper.smali"
+            } for row in rows
+        ))
 
     def test_return_void_patch_and_verify(self):
         row = {"operation": "ryu_return_void"}
@@ -109,7 +96,7 @@ class RyuPolicyTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("\n\n".join(methods) + "\n", encoding="utf-8")
             patched = RYU.run(root, manifest, "miui-services", False, None)
-            self.assertEqual(4, len(patched["modified"]))
+            self.assertEqual(1, len(patched["modified"]))
             verified = RYU.run(root, manifest, "miui-services", True, None)
             self.assertEqual([], verified["modified"])
 
