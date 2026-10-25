@@ -14,7 +14,8 @@ REG = re.compile(r"(?m)^\s*\.(locals|registers)\s+(\d+)\s*$")
 MARKER = "HYPERMOS_EU_GMS_FCM_AUTOSTART"
 GUARD = f'''    # {MARKER}: only GMS-authored C2DM, never override other EU traffic
     if-eqz p2, :eu_fcm_stock_autostart
-    iget-object v0, p2, {BR}->intent:Landroid/content/Intent;
+    move-object/from16 v0, p2
+    iget-object v0, v0, {BR}->intent:Landroid/content/Intent;
     if-eqz v0, :eu_fcm_stock_autostart
     invoke-virtual {{v0}}, Landroid/content/Intent;->getAction()Ljava/lang/String;
     move-result-object v0
@@ -22,7 +23,8 @@ GUARD = f'''    # {MARKER}: only GMS-authored C2DM, never override other EU traf
     invoke-virtual {{v1, v0}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
     move-result v0
     if-eqz v0, :eu_fcm_stock_autostart
-    iget-object v0, p2, {BR}->callerPackage:Ljava/lang/String;
+    move-object/from16 v0, p2
+    iget-object v0, v0, {BR}->callerPackage:Ljava/lang/String;
     const-string v1, "com.google.android.gms"
     invoke-virtual {{v1, v0}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
     move-result v0
@@ -45,14 +47,16 @@ def is_guard_present(body):
            for s in body.splitlines()
            if s.strip() and not s.strip().startswith((".", ":", "#"))]
     needle = [
-        f"iget-object v0, p2, {BR}->intent:Landroid/content/Intent;",
+        "move-object/from16 v0, p2",
+        f"iget-object v0, v0, {BR}->intent:Landroid/content/Intent;",
         "if-eqz v0,",
         "invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;",
         "move-result-object v0",
         'const-string v1, "com.google.android.c2dm.intent.RECEIVE"',
         "invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z",
         "move-result v0", "if-eqz v0,",
-        f"iget-object v0, p2, {BR}->callerPackage:Ljava/lang/String;",
+        "move-object/from16 v0, p2",
+        f"iget-object v0, v0, {BR}->callerPackage:Ljava/lang/String;",
         'const-string v1, "com.google.android.gms"',
         "invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z",
         "move-result v0", "if-eqz v0,", "const/4 v0, 0x1", "return v0"
