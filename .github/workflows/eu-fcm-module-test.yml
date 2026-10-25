@@ -55,6 +55,20 @@ jobs:
                   target.writestr(entry,data)
           PY
           unzip -t work/patched.jar >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          import zipfile
+          with zipfile.ZipFile("work/input.jar") as before, zipfile.ZipFile("work/patched.jar") as after:
+              assert set(before.namelist()) == set(after.namelist()), "Unexpected missing JAR entries"
+              for entry in [p for p in before.namelist() if p.startswith("classes") and p.endswith(".dex")]:
+                  old, new = before.read(entry), after.read(entry)
+                  assert old[:8] == new[:8], "DEX version changed"
+                  orig = struct.unpack_from("<I", old, 0x60)[0]
+                  built = struct.unpack_from("<I", new, 0x60)[0]
+                  assert orig == built, f"Classes missing after smali round trip: {entry}: {orig} vs {built}"
+                  print(f"{entry}: verified {built} classes preserved")
+          PY
           (cd work/check_raw; unzip -q ../patched.jar 'classes*.dex')
           for dex in work/check_raw/classes*.dex; do
             stem=$(basename "$dex" .dex)
@@ -106,8 +120,13 @@ jobs:
           (cd "$M"; zip -qr "../../out/HyperMOS_EU309_FCM_Trial_StockOnly.zip" .)
           unzip -t out/HyperMOS_EU309_FCM_Trial_StockOnly.zip >/dev/null
           sha256sum out/HyperMOS_EU309_FCM_Trial_StockOnly.zip
+          mkdir -p work/toolkit/tools work/toolkit/scripts
+          cp bin/apktool/baksmaliv2.jar bin/apktool/smaliv2.jar work/toolkit/tools/
+          cp bin/package/NOTIFICATION_FIX/A16/EU/{ryu_policy.py,ryu_policy.json,fcm_autostart.py,fcm_greeze.py} work/toolkit/scripts/
+          (cd work/toolkit; zip -qr ../../out/HyperMOS_EU_FCM_Patcher_Tools.zip .)
+          python3 -m unittest discover -s bin/package/NOTIFICATION_FIX/A16/EU/tests -p 'test_*.py'
       - uses: actions/upload-artifact@v4
         with:
           name: HyperMOS_EU309_FCM_Trial_StockOnly
-          path: out/HyperMOS_EU309_FCM_Trial_StockOnly.zip
+          path: out/*.zip
           retention-days: 3
