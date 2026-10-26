@@ -39,14 +39,11 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   overwriting another method.
 - `bin/ddevice/DEBLOAT/debloat.sh` has its own EU-only checks preserving the
   stock Google apps and EU system updater; all other debloat remains active.
-- `bin/package/NOTIFICATION_FIX/notificationFIX.sh` runs the dedicated
-  Xiaomi.eu A16 path while excluding China-only PowerKeeper/FrameworkPatcher
-  transplants. The EU GMS/FCM custom broadcast and wakelock bypasses stay off.
-- On Android 16, CorePatch preserves Xiaomi.eu's own Gboard/IME and adds
-  only the two audited DADA Global303 `NotificationFilterHelper` methods to
-  `miui-framework.jar`: the system-app lists and `canSystemNotificationBeBlocked()`.
-  This does not touch `PowerKeeper.apk`, third-party FCM, Doze or thermal.
-  The unrelated ContentCatcher adjustment remains in the existing EU pipeline.
+- `bin/package/NOTIFICATION_FIX/notificationFIX.sh` skips Xiaomi.eu. This
+  prevents China-specific notification/PowerKeeper DEX transplants.
+- On Android 16, CorePatch continues its requested signature/FLAG_SECURE
+  patches but does **not** transplant China's Gboard/IME, ContentCatcher or
+  NotificationFilterHelper behavior into Xiaomi.eu's native framework.
 - Unlisted steps still use the existing HyperMOS pipeline, including Kashi
   launcher, CorePatch, AVB, Kaorios, TNM and other UpdateFile mods.
   No code or skip behavior for the China build is changed.
