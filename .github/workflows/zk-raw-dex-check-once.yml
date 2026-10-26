@@ -1,0 +1,63 @@
+name: One-time EU ZK raw DEX validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/zk-raw-dex-check-once.yml']
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Validate compact ZK donor script and DEX
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=bin/package/NOTIFICATION_FIX/A16/EU
+          bash -n bin/package/NOTIFICATION_FIX/A16/patch.sh
+          python3 -m py_compile "$BASE/zk_patch.py"
+          python3 "$BASE/zk_patch.py" --check-donor-only --tools bin/apktool
+          python3 - <<'PY'
+          import importlib.util,tempfile
+          from pathlib import Path
+          script=Path("bin/package/NOTIFICATION_FIX/A16/EU/zk_patch.py")
+          spec=importlib.util.spec_from_file_location("zk_patcher",script)
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          root=script.parent/"class"
+          with tempfile.TemporaryDirectory() as t:
+              services,power=module._donor_directories(root,Path(t),Path("bin/apktool"))
+              groups={
+                services:("GreezeManagerService","InternationalPolicyManager","NotificationManagerServiceImpl",
+                          "DeviceIdleControllerStubImpl"),
+                power:("GmsObserver","KillProcessController","ActiveStateController","DeviceIdleController")
+              }
+              for base,names in groups.items():
+                  for name in names:
+                      count=len(list(base.rglob(name+".smali")))
+                      assert count==1,(name,count)
+              content=(power/"smali/com/miui/powerkeeper/utils/GmsObserver.smali").read_text()
+              assert ".method " in content and ".end method" in content
+          text=script.read_text()
+          assert "hashlib" not in text and "sha256" not in text
+          assert "zk_methods.json" not in text
+          print("PASS raw donor DEX and merged patcher sources")
+          PY
+          test "$(find "$BASE" -type f | grep -v __pycache__ | wc -l)" -eq 4
+          if grep -R -nE 'zstd|\.zst|sha256|hashlib' "$BASE/zk_patch.py" "$BASE/class" --include='*.py'; then
+            echo 'Unexpected Zstandard/SHA references in active patcher'
+            exit 1
+          fi
+      - name: Remove temporary test workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/zk-raw-dex-check-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .github/workflows/zk-raw-dex-check-once.yml
+          git commit -m 'chore: remove temporary ZK raw DEX smoke check'
+          git push origin HEAD:main
