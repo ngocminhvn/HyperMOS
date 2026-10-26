@@ -27,7 +27,9 @@ class RyuPolicyTest(unittest.TestCase):
         self.assertNotIn('python3 "$base/fcm_autostart.py"', driver)
         self.assertNotIn('python3 "$base/fcm_greeze.py"', driver)
         self.assertNotIn('python3 "$base/fcm_wakelock.py"', driver)
-        self.assertNotIn('PowerKeeper.sh', driver)
+        self.assertIn('bash "$base/PowerKeeper.sh"', driver)
+        # PowerKeeper is separately scoped to four audited Global cloud/region
+        # methods; it must not introduce an FCM or GMS wakelock bypass.
         # Global-equivalent stock policy may not be supplanted by broad
         # FCM/GMS wake-lock overrides.
         self.assertNotIn('com.google.android.c2dm.intent.RECEIVE', driver)
