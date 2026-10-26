@@ -11,12 +11,8 @@ rom_source="$(tr -d '\r\n' < "$identity")"
 android_ver="$(tr -d '\r\n' < "$version")"
 [[ "$android_ver" == 16 ]] || { error "A16 Notification: Android $android_ver unsupported"; exit 1; }
 if [[ "$rom_source" == xiaomi_eu ]]; then
-  info "[EU A16] Restore ZIP-backed ZK304 method policy from compact JSON donor"
-  python3 "$base/EU/zk_patch.py" --check-reference-only || exit 1
-  python3 "$base/EU/zk_patch.py" \
-    --images "$work_dir/build/baserom/images" \
-    --tools "$work_dir/bin/apktool" \
-    --report "$work_dir/build/reports/zk304-eu/port.json" || exit 1
+  info "[EU A16] Original ZK304 donor port with class/*.dex"
+  bash "$base/EU/patch.sh" || exit 1
   exit 0
 fi
 [[ "$rom_source" == china ]] || { error "A16 Notification: unknown source $rom_source"; exit 1; }
