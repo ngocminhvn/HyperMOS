@@ -76,7 +76,7 @@ class XiaomiStockCDNTest(unittest.TestCase):
     def test_opaque_cdn_uses_original_content_disposition_filename(self):
         response = downloader.subprocess.CompletedProcess(
             args=[], returncode=0,
-            stdout='HTTP/2 200\\r\\nContent-Disposition: attachment; filename="Original_ROM.zip"\\r\\n',
+            stdout='HTTP/2 200\r\nContent-Disposition: attachment; filename="Original_ROM.zip"\r\n',
             stderr="")
         with patch.object(downloader.subprocess, "run", return_value=response):
             self.assertEqual(
