@@ -712,7 +712,7 @@ def _cmd(*parts):
     subprocess.run([str(p) for p in parts], check=True, stdout=subprocess.DEVNULL)
 
 def _donor_directories(root, directory, tools):
-    """Decode the exact original ZK304 DEX classes, without .zst or SHA pins."""
+    """Decode original ZK304 DEX class files from the local donor directory."""
     sources = {
         "services": root / "miui-services",
         "power": root / "powerkeeper"
