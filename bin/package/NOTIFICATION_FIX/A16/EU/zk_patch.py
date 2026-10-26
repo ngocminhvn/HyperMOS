@@ -735,7 +735,7 @@ def _sanitize_ref(owner, entry):
     return output
 
 def _donor_directories(reference, directory):
-    if reference.get("format") != "hypermos_zk304_methods_v1":
+    if reference.get("format") != "hypermos_zk304_method_source_v1":
         raise ValueError("Incorrect ZK method reference format")
     donors=reference.get("donors")
     if not isinstance(donors, dict) or set(donors)!={"services","power"}:
