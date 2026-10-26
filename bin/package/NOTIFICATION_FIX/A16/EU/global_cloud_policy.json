@@ -1,0 +1,319 @@
+{
+  "format": "hypermos_a16_method_deltas_v1",
+  "sources": {
+    "base": "Xiaomi.eu EU309 original PowerKeeper v4.2.00",
+    "donor": "DADA OS3.0.303.0.WOCMIXM original PowerKeeper",
+    "scope": "Global cloud endpoint/region methods only. No GMS/wakelock/thermal/Doze/kill or APK resources modified."
+  },
+  "methods": [
+    {
+      "bucket": "global-cloud",
+      "path": "com/miui/powerkeeper/cloudcontrol/CloudUpdateReceiver.smali",
+      "signature": "onReceive(Landroid/content/Context;Landroid/content/Intent;)V",
+      "changes": [
+        {
+          "at": 102,
+          "remove": [
+            "if-eqz v1, :cond_f2"
+          ],
+          "insert": [
+            "if-eqz v1, :cond_fa"
+          ]
+        },
+        {
+          "at": 110,
+          "remove": [
+            "if-eqz p0, :cond_fd"
+          ],
+          "insert": [
+            "if-eqz p0, :cond_105",
+            "sget-boolean p0, Lmiui/os/Build;->IS_DEBUGGABLE:Z",
+            "if-nez p0, :cond_dc",
+            "sget-boolean p0, Lmiui/os/Build;->IS_STABLE_VERSION:Z",
+            "if-nez p0, :cond_105",
+            ":cond_dc"
+          ]
+        },
+        {
+          "at": 124,
+          "remove": [
+            ":cond_f2"
+          ],
+          "insert": [
+            ":cond_fa"
+          ]
+        },
+        {
+          "at": 128,
+          "remove": [
+            "if-eqz p2, :cond_fd"
+          ],
+          "insert": [
+            "if-eqz p2, :cond_105"
+          ]
+        },
+        {
+          "at": 130,
+          "remove": [
+            ":cond_fd"
+          ],
+          "insert": [
+            ":cond_105"
+          ]
+        }
+      ]
+    },
+    {
+      "bucket": "global-cloud",
+      "path": "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali",
+      "signature": "getCloudServer(Landroid/content/Context;)Ljava/lang/String;",
+      "changes": [
+        {
+          "at": 17,
+          "remove": [
+            "if-eqz v1, :cond_36"
+          ],
+          "insert": [
+            "if-eqz v1, :cond_30"
+          ]
+        },
+        {
+          "at": 19,
+          "remove": [
+            "if-eqz p0, :cond_30",
+            "invoke-static {}, Landroid/miui/AppOpsUtils;->isXOptMode()Z",
+            "move-result p0",
+            "if-eqz p0, :cond_30"
+          ],
+          "insert": [
+            "if-eqz p0, :cond_2a"
+          ]
+        },
+        {
+          "at": 25,
+          "remove": [
+            "goto :goto_5f",
+            ":cond_30"
+          ],
+          "insert": [
+            "goto :goto_59",
+            ":cond_2a"
+          ]
+        },
+        {
+          "at": 29,
+          "remove": [
+            "goto :goto_5f",
+            ":cond_36"
+          ],
+          "insert": [
+            "goto :goto_59",
+            ":cond_30"
+          ]
+        },
+        {
+          "at": 34,
+          "remove": [
+            "if-eqz v1, :cond_44"
+          ],
+          "insert": [
+            "if-eqz v1, :cond_3e"
+          ]
+        },
+        {
+          "at": 37,
+          "remove": [
+            "goto :goto_5f",
+            ":cond_44"
+          ],
+          "insert": [
+            "goto :goto_59",
+            ":cond_3e"
+          ]
+        },
+        {
+          "at": 42,
+          "remove": [
+            "if-eqz v1, :cond_52"
+          ],
+          "insert": [
+            "if-eqz v1, :cond_4c"
+          ]
+        },
+        {
+          "at": 45,
+          "remove": [
+            "goto :goto_5f",
+            ":cond_52"
+          ],
+          "insert": [
+            "goto :goto_59",
+            ":cond_4c"
+          ]
+        },
+        {
+          "at": 50,
+          "remove": [
+            "if-eqz p0, :cond_5f"
+          ],
+          "insert": [
+            "if-eqz p0, :cond_59"
+          ]
+        },
+        {
+          "at": 53,
+          "remove": [
+            ":cond_5f",
+            ":goto_5f"
+          ],
+          "insert": [
+            ":cond_59",
+            ":goto_59"
+          ]
+        }
+      ]
+    },
+    {
+      "bucket": "global-cloud",
+      "path": "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali",
+      "signature": "setServerConfigurations(Landroid/content/Context;)V",
+      "changes": [
+        {
+          "at": 23,
+          "remove": [
+            "goto :goto_5e"
+          ],
+          "insert": [
+            "goto :goto_58"
+          ]
+        },
+        {
+          "at": 31,
+          "remove": [
+            "goto :goto_5e"
+          ],
+          "insert": [
+            "goto :goto_58"
+          ]
+        },
+        {
+          "at": 48,
+          "remove": [
+            "goto :goto_5e"
+          ],
+          "insert": [
+            "goto :goto_58"
+          ]
+        },
+        {
+          "at": 66,
+          "remove": [
+            "invoke-static {}, Landroid/miui/AppOpsUtils;->isXOptMode()Z",
+            "move-result p0",
+            "if-eqz p0, :cond_1e"
+          ],
+          "insert": []
+        },
+        {
+          "at": 70,
+          "remove": [
+            ":goto_5e"
+          ],
+          "insert": [
+            ":goto_58"
+          ]
+        },
+        {
+          "at": 74,
+          "remove": [
+            "if-eqz v5, :cond_73"
+          ],
+          "insert": [
+            "if-eqz v5, :cond_6d"
+          ]
+        },
+        {
+          "at": 82,
+          "remove": [
+            ":cond_73",
+            "if-eqz v6, :cond_82"
+          ],
+          "insert": [
+            ":cond_6d",
+            "if-eqz v6, :cond_7c"
+          ]
+        },
+        {
+          "at": 91,
+          "remove": [
+            ":cond_82",
+            "if-eqz p0, :cond_97"
+          ],
+          "insert": [
+            ":cond_7c",
+            "if-eqz p0, :cond_91"
+          ]
+        },
+        {
+          "at": 103,
+          "remove": [
+            ":cond_97",
+            "if-eqz v0, :cond_ab"
+          ],
+          "insert": [
+            ":cond_91",
+            "if-eqz v0, :cond_a5"
+          ]
+        },
+        {
+          "at": 114,
+          "remove": [
+            ":cond_ab"
+          ],
+          "insert": [
+            ":cond_a5"
+          ]
+        }
+      ]
+    },
+    {
+      "bucket": "global-cloud",
+      "path": "f/h.smali",
+      "signature": "c(Landroid/content/Context;)Lf/j;",
+      "changes": [
+        {
+          "at": 52,
+          "remove": [
+            "if-eqz p1, :cond_6b"
+          ],
+          "insert": [
+            "if-eqz p1, :cond_7b"
+          ]
+        },
+        {
+          "at": 54,
+          "remove": [],
+          "insert": [
+            "const-string p1, \"ro.miui.region\"",
+            "const-string v0, \"unknown\"",
+            "invoke-static {p1, v0}, Landroid/os/SystemProperties;->get(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            "move-result-object p1",
+            "const-string v0, \"cn\"",
+            "invoke-virtual {p1, v0}, Ljava/lang/String;->equalsIgnoreCase(Ljava/lang/String;)Z",
+            "move-result p1",
+            "if-eqz p1, :cond_7b"
+          ]
+        },
+        {
+          "at": 64,
+          "remove": [
+            ":cond_6b"
+          ],
+          "insert": [
+            ":cond_7b"
+          ]
+        }
+      ]
+    }
+  ]
+}

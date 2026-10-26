@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A16 notification/power dispatch: China policy only; Xiaomi.eu stays stock.
+# A16 notification/power dispatch: independent China and EU policy.
 set -euo pipefail
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
@@ -11,7 +11,8 @@ rom_source="$(tr -d '\r\n' < "$identity")"
 android_ver="$(tr -d '\r\n' < "$version")"
 [[ "$android_ver" == 16 ]] || { error "A16 Notification: Android $android_ver unsupported"; exit 1; }
 if [[ "$rom_source" == xiaomi_eu ]]; then
-  info "[EU A16] Notification/power fixes disabled; preserve original Xiaomi.eu JAR/APK"
+  info "[EU A16] Applying scoped Global303/Taiwan303 aligned methods"
+  bash "$base/EU/patch.sh" || exit 1
   exit 0
 fi
 [[ "$rom_source" == china ]] || { error "A16 Notification: unknown source $rom_source"; exit 1; }
