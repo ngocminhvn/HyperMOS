@@ -30,7 +30,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import shutil
-          names={'GmsObserver','KillProcessController','ActiveStateController','DeviceIdleController','InternationalPolicyManager','GreezeManagerService','NotificationManagerServiceImpl','DeviceIdleControllerStubImpl','BroadcastQueueModernStubImpl','ProcessPolicy','ProcessManagerService'}
+          names={'GmsObserver','KillProcessController','ActiveStateController','DeviceIdleController','DeviceIdleController$1','DeviceIdleController$2','InternationalPolicyManager','GreezeManagerService','NotificationManagerServiceImpl','DeviceIdleControllerStubImpl','BroadcastQueueModernStubImpl','ProcessPolicy','ProcessManagerService'}
           target=Path('/tmp/ref/out')
           for source in Path('/tmp/ref').glob('**/*.smali'):
               if source.stem in names and '/out/' not in str(source):
