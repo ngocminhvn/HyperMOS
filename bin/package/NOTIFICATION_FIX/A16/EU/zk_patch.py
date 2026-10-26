@@ -848,20 +848,96 @@ def _module_global_taiwan():
             r'\g<1>0x0', "Utils.isSleepModeViewVisable"
         )
 
+
     def dynamic_turbo_region(body):
-        if "Lf/p;->b:Landroid/content/Context;" not in body or "Le/f;->f()Z" not in body:
-            raise ValueError("Global/TW DynamicTurboPower EU signature mismatch")
-        match = re.search(
-            r'(?m)^([ \t]*:[\w$]+)[ \t]*\n'
-            r'([ \t]*sget-object[ \t]+(v\d+),[ \t]*Lf/p;->b:Landroid/content/Context;[ \t]*\n)',
-            body
+        # Global/Taiwan gates DynamicTurboPower on ro.miui.region == cn.
+        # Insert before EU's sole context load, keeping registers/labels intact.
+        context = r'Lf/p;->b:Landroid/content/Context;'
+        if "Le/f;->f()Z" not in body or "ro.miui.region" in body:
+            raise ValueError("Global/TW DynamicTurboPower original EU gate mismatch")
+        loads = list(re.finditer(
+            r'(?m)^[ \t]*iget-object[ \t]+v6,[ \t]*v5,[ \t]*' +
+            re.escape(context) + r'[ \t]*$', body))
+        if len(loads) != 1:
+            raise ValueError("Global/TW DynamicTurboPower context load count mismatch")
+        match = loads[0]
+        gates = list(re.finditer(
+            r'(?m)^[ \t]*if-eqz[ \t]+v6,[ \t]*(:[\w$]+)[ \t]*$',
+            body[:match.start()]))
+        if len(gates) != 1:
+            raise ValueError("Global/TW DynamicTurboPower early return gate mismatch")
+        exit_label = gates[0].group(1)
+        addition = (
+            '    const-string v6, "ro.miui.region"\n'
+            '    const-string v0, "unknown"\n'
+            '    invoke-static {v6, v0}, Landroid/os/SystemProperties;->get(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;\n'
+            '    move-result-object v6\n'
+            '    const-string v0, "cn"\n'
+            '    invoke-virtual {v6, v0}, Ljava/lang/String;->equalsIgnoreCase(Ljava/lang/String;)Z\n'
+            '    move-result v6\n'
+            '    if-eqz v6, ' + exit_label + '\n'
         )
-        if match is None:
-            raise ValueError("Global/TW DynamicTurboPower region insertion point missing")
-        label, old_line, reg = match.group(1), match.group(2), match.group(3)
-        if len(re.findall(r'(?m)^[ \t]*sget-object[ \t]+v\d+,[ \t]*Lf/p;->b:Landroid/content/Context;', body)) != 2:
-            raise ValueError("Global/TW DynamicTurboPower context load count changed")
-        gate = re.search(r'(?m)^[ \t]*if-eqz[ \t]+' + reg + r',[ \t]*(:[\w$]+)[ \t]*
+        return body[:match.start()] + addition + body[match.start():]
+
+    def static_string(source, field, value):
+        pattern = (
+            r'(?m)^([ \t]*\.field[^\n]*\b' + re.escape(field) +
+            r':Ljava/lang/String;)(?:[ \t]*=[ \t]*"[^"\n]*")?[ \t]*$'
+        )
+        return required_replace(source, pattern,
+                                lambda match: match.group(1) + ' = "' + value + '"',
+                                "InternationalAdapter." + field)
+
+    def apply(root):
+        plans = {}
+        actions = (
+            ("cloudcontrol/CloudUpdateReceiver.smali",
+             "onReceive(Landroid/content/Context;Landroid/content/Intent;)V",
+             cloud_receiver),
+            ("cloudcontrol/LocalUpdateUtils.smali",
+             "getCloudServer(Landroid/content/Context;)Ljava/lang/String;",
+             get_cloud_server),
+            ("cloudcontrol/LocalUpdateUtils.smali",
+             "setServerConfigurations(Landroid/content/Context;)V",
+             set_server_config),
+            ("utils/InternationalAdapter.smali", "<clinit>()V",
+             lambda b: empty_array_init(b, ROOT + "utils/InternationalAdapter", "mRestrictPkgs")),
+            ("utils/PowerModeAdapter.smali", "<clinit>()V",
+             google_maps_array_init),
+            ("utils/Utils.smali", "isSleepModeViewVisable()Z", default_sleep_ui),
+            ("f/h.smali", "c(Landroid/content/Context;)Lf/j;", dynamic_turbo_region),
+        )
+        methods = []
+        for rel, signature, transform in actions:
+            file = unique(root, ROOT + rel if not rel.startswith("f/") else rel)
+            source = plans.get(file, file.read_text(encoding="utf-8"))
+            plans[file] = change_method(source, signature, transform, rel)
+            methods.append(rel + "->" + signature)
+        file = unique(root, ROOT + "utils/InternationalAdapter.smali")
+        source = plans[file]
+        source = static_string(source, "sNetworkAllowApps", "")
+        source = static_string(source, "AWEME_APP", "")
+        plans[file] = source
+        # All seven methods + two global static defaults must pass before writing.
+        for file, source in plans.items():
+            file.write_text(source, encoding="utf-8")
+        return {
+            "source": "Global303/Taiwan303 common behavior (EU-relative DEX audit)",
+            "ported_methods": methods,
+            "ported_count": len(methods),
+            "global_taiwan_static_defaults": ["sNetworkAllowApps", "AWEME_APP"],
+            "power_mode_gps_packages": ["com.google.android.apps.maps"],
+            "taiwan_only_tablet_methods": "excluded",
+            "gms_observer": "unchanged_by_global_taiwan_layer",
+            "eu_killprocess_setUidState": "preserved",
+            "other_powerkeeper_methods": "unchanged_by_global_taiwan_layer",
+            "apk_resources": "preserved",
+            "ported_via": "fail_closed_EU_smali_structural_edits",
+            "runtime_tested": False
+        }
+    return locals()
+
+def _cmd(*parts):
     subprocess.run([str(p) for p in parts], check=True, stdout=subprocess.DEVNULL)
 
 def _donor_directories(root, directory, tools):
@@ -979,408 +1055,6 @@ def _run(options):
             else:
                 changes["power"] = modules["power"]["port"](decoded, power)
                 changes["global_taiwan"] = modules["global_taiwan"]["apply"](decoded)
-            built = work / ("patched-" + source.name)
-            verified = _dex_rebuild(infos, content, comment, dexes, work, decoded, tools, built)
-            if source == jar:
-                modules["notification"]["verify_other_gates"](verified)
-            else:
-                aligned = work / "aligned.apk"
-                _cmd("zipalign", "-p", "-f", "4", built, aligned)
-                _cmd("zipalign", "-c", "-p", "4", aligned)
-                with zipfile.ZipFile(aligned) as zipped:
-                    if zipped.namelist() != [x.filename for x in infos]:
-                        raise ValueError("Aligned PowerKeeper changed ZIP membership")
-                    if any(zipped.read(n) != v for n, v in content.items() if n not in dexes):
-                        raise ValueError("Aligned PowerKeeper changed non-DEX content: invalid")
-                built = aligned
-            pending.append((source, built))
-        for source, built in pending:
-            shutil.copyfile(built, source)
-            if source == apk:
-                shutil.rmtree(apk.parent / "oat", ignore_errors=True)
-        result = {
-            "donor": "ZK304 class/*.dex",
-            "status": "patched_and_compiled",
-            "method_scope": "original notification, Greeze/Doze, PowerKeeper port algorithms",
-            "complete_zk_rom_parity": False,
-            "original_apk_signature_still_valid": False,
-            "apk_non_dex_content_preserved": True,
-            "runtime_tested": False,
-            "changes": changes
-        }
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print("[EU ZK304] PASS: all compatible method ports built, original EU JAR/APK only")
-
-def main():
-    parser=argparse.ArgumentParser()
-    parser.add_argument("--check-donor-only",action="store_true")
-    parser.add_argument("--images",type=Path)
-    parser.add_argument("--tools",type=Path)
-    parser.add_argument("--report",type=Path)
-    
-    args=parser.parse_args()
-    _run(args)
-
-if __name__=="__main__":
-    try:main()
-    except (OSError,ValueError,subprocess.CalledProcessError,KeyError,zipfile.BadZipFile) as exc:
-        raise SystemExit("[EU ZK304] FAIL: "+str(exc))
-, body[:match.start()])
-        if gate is None or "ro.miui.region" in body:
-            raise ValueError("Global/TW DynamicTurboPower early return gate mismatch")
-        exit_label = gate.group(1)
-        addition = (
-            '    const-string ' + reg + ', "ro.miui.region"\n'
-            '    const-string v0, "unknown"\n'
-            '    invoke-static {' + reg + ', v0}, Landroid/os/SystemProperties;->get(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;\n'
-            '    move-result-object ' + reg + '\n'
-            '    const-string v0, "cn"\n'
-            '    invoke-virtual {' + reg + ', v0}, Ljava/lang/String;->equalsIgnoreCase(Ljava/lang/String;)Z\n'
-            '    move-result ' + reg + '\n'
-            '    if-eqz ' + reg + ', ' + exit_label + '\n'
-        )
-        return body[:match.start()] + label + "\n" + addition + old_line + body[match.end():]
-
-    def static_string(source, field, value):
-        pattern = (
-            r'(?m)^([ \t]*\.field[^\n]*\b' + re.escape(field) +
-            r':Ljava/lang/String;)(?:[ \t]*=[ \t]*"[^"\n]*")?[ \t]*
-    subprocess.run([str(p) for p in parts], check=True, stdout=subprocess.DEVNULL)
-
-def _donor_directories(root, directory, tools):
-    """Decode original ZK304 DEX class files from the local donor directory."""
-    sources = {
-        "services": root / "miui-services",
-        "power": root / "powerkeeper"
-    }
-    result = {}
-    for family, path in sources.items():
-        if not path.is_dir():
-            raise ValueError("ZK donor class directory missing: " + str(path))
-        files = sorted(p for p in path.iterdir()
-                       if p.is_file() and re.fullmatch(r"classes\d*\.dex", p.name))
-        if not files or (family == "power" and len(files) != 1):
-            raise ValueError("ZK donor DEX inventory invalid: " + str(path))
-        if "classes.dex" not in {p.name for p in files}:
-            raise ValueError("Primary classes.dex missing in " + str(path))
-        if any(p.name not in {f"classes{n}.dex" for n in range(2, len(files) + 1)}
-               | {"classes.dex"} for p in files):
-            raise ValueError("ZK donor DEX numbering gap in " + str(path))
-        out = directory / family
-        for file in files:
-            data = file.read_bytes()
-            if len(data) < 112 or not data.startswith(b"dex\n"):
-                raise ValueError("Malformed DEX header: " + str(file))
-            group = "smali" if file.name == "classes.dex" else "smali_" + file.stem
-            _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "36",
-                 file, "-o", out / group)
-        result[family] = out
-    return result["services"], result["power"]
-
-def _dex_extract(target, base, root, tools):
-    with zipfile.ZipFile(target) as archive:
-        infos=archive.infolist()
-        names=[x.filename for x in infos]
-        if len(names)!=len(set(names)):
-            raise ValueError("Duplicate archive member: "+str(target))
-        dexes=[n for n in names if re.fullmatch(r"classes\d*\.dex",n)]
-        if not dexes: raise ValueError("No DEX in "+str(target))
-        contents={x.filename:archive.read(x.filename) for x in infos}
-        comment=archive.comment
-    for n in dexes:
-        input_dex=base/n
-        input_dex.write_bytes(contents[n])
-        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api","36",input_dex,
-             "-o",root/("smali" if n=="classes.dex" else "smali_"+n[:-4]))
-    return infos,contents,comment,dexes
-
-def _dex_rebuild(infos, contents, comment, dexes, base, root, tools, output):
-    compiled={}
-    verified=base/"verified"
-    for n in dexes:
-        label="smali" if n=="classes.dex" else "smali_"+n[:-4]
-        new_dex=base/("patched-"+n)
-        _cmd("java","-jar",tools/"smaliv2.jar","a","--api","36",root/label,"-o",new_dex)
-        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api","36",new_dex,
-             "-o",verified/label)
-        compiled[n]=new_dex.read_bytes()
-    for f in verified.rglob("*.smali"):
-        txt=f.read_text(encoding="utf-8")
-        if "Lmiui/zk/Build;->IS_ZK_BUILD:Z" in txt:
-            raise ValueError("Unmapped private ZK build flag remains after rebuild "+str(f))
-    with zipfile.ZipFile(output,"w") as archive:
-        archive.comment=comment
-        for info in infos:
-            archive.writestr(info,compiled.get(info.filename,contents[info.filename]))
-    with zipfile.ZipFile(output) as archive:
-        if archive.namelist()!=[info.filename for info in infos]:
-            raise ValueError("Member inventory changed in "+str(output))
-        if any(archive.read(n)!=v for n,v in contents.items() if n not in dexes):
-            raise ValueError("Non-DEX content was modified unexpectedly")
-    return verified
-
-def _run(options):
-    tools = options.tools.resolve() if options.tools else Path(__file__).resolve().parents[4] / "apktool"
-    if not all((tools / f).is_file() for f in ("baksmaliv2.jar", "smaliv2.jar")):
-        raise ValueError("HyperMOS smali tools missing: " + str(tools))
-    donor = Path(__file__).resolve().parent / "class"
-    if options.check_donor_only:
-        with tempfile.TemporaryDirectory(prefix="zk304-donor-check-") as folder:
-            services, power = _donor_directories(donor, Path(folder), tools)
-            classes = [*services.rglob("*.smali"), *power.rglob("*.smali")]
-            if not classes:
-                raise ValueError("Raw DEX donor decoded without classes")
-            print("[EU ZK304] PASS: raw DEX parsed, classes:", len(classes))
-        return
-    if not options.images or not options.report:
-        raise ValueError("--images and --report required")
-    images = options.images.resolve()
-    def find_one(name):
-        matches = list(images.rglob(name))
-        if len(matches) != 1:
-            raise ValueError(f"Expected one {name}, found {len(matches)}")
-        return matches[0]
-    jar, apk = find_one("miui-services.jar"), find_one("PowerKeeper.apk")
-    report = options.report.resolve()
-    # Prepare and verify both targets before replacing either image.
-    with tempfile.TemporaryDirectory(prefix="zk304-eu-") as folder:
-        temp = Path(folder)
-        services, power = _donor_directories(donor, temp / "donor", tools)
-        changes, pending = {}, []
-        modules = {name: globals()["_module_" + name]() for name in
-                   ("contentcatcher", "broadcast", "notification", "greeze", "power")}
-        for index, source in enumerate((jar, apk)):
-            work = temp / str(index)
-            work.mkdir()
-            decoded = work / "decoded"
-            infos, content, comment, dexes = _dex_extract(source, work, decoded, tools)
-            if source == jar:
-                changes["contentcatcher"] = modules["contentcatcher"]["patch_directory"](decoded)
-                changes["broadcast"] = modules["broadcast"]["apply"](decoded, work / "broadcast.json")
-                changes["notification"] = modules["notification"]["apply"](decoded, services, work / "notification.json")
-                changes["greeze"] = modules["greeze"]["port"](decoded, services, work / "greeze.json")
-            else:
-                changes["power"] = modules["power"]["port"](decoded, power)
-            built = work / ("patched-" + source.name)
-            verified = _dex_rebuild(infos, content, comment, dexes, work, decoded, tools, built)
-            if source == jar:
-                modules["notification"]["verify_other_gates"](verified)
-            else:
-                aligned = work / "aligned.apk"
-                _cmd("zipalign", "-p", "-f", "4", built, aligned)
-                _cmd("zipalign", "-c", "-p", "4", aligned)
-                with zipfile.ZipFile(aligned) as zipped:
-                    if zipped.namelist() != [x.filename for x in infos]:
-                        raise ValueError("Aligned PowerKeeper changed ZIP membership")
-                    if any(zipped.read(n) != v for n, v in content.items() if n not in dexes):
-                        raise ValueError("Aligned PowerKeeper changed non-DEX content: invalid")
-                built = aligned
-            pending.append((source, built))
-        for source, built in pending:
-            shutil.copyfile(built, source)
-            if source == apk:
-                shutil.rmtree(apk.parent / "oat", ignore_errors=True)
-        result = {
-            "donor": "ZK304 class/*.dex",
-            "status": "patched_and_compiled",
-            "method_scope": "original notification, Greeze/Doze, PowerKeeper port algorithms",
-            "complete_zk_rom_parity": False,
-            "original_apk_signature_still_valid": False,
-            "apk_non_dex_content_preserved": True,
-            "runtime_tested": False,
-            "changes": changes
-        }
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print("[EU ZK304] PASS: all compatible method ports built, original EU JAR/APK only")
-
-def main():
-    parser=argparse.ArgumentParser()
-    parser.add_argument("--check-donor-only",action="store_true")
-    parser.add_argument("--images",type=Path)
-    parser.add_argument("--tools",type=Path)
-    parser.add_argument("--report",type=Path)
-    
-    args=parser.parse_args()
-    _run(args)
-
-if __name__=="__main__":
-    try:main()
-    except (OSError,ValueError,subprocess.CalledProcessError,KeyError,zipfile.BadZipFile) as exc:
-        raise SystemExit("[EU ZK304] FAIL: "+str(exc))
-
-        )
-        return required_replace(source, pattern, lambda m: m.group(1) + ' = "' + value + '"',
-                                "InternationalAdapter." + field)
-
-    def apply(root):
-        plans = {}
-        actions = (
-            ("cloudcontrol/CloudUpdateReceiver.smali",
-             "onReceive(Landroid/content/Context;Landroid/content/Intent;)V",
-             cloud_receiver),
-            ("cloudcontrol/LocalUpdateUtils.smali",
-             "getCloudServer(Landroid/content/Context;)Ljava/lang/String;",
-             get_cloud_server),
-            ("cloudcontrol/LocalUpdateUtils.smali",
-             "setServerConfigurations(Landroid/content/Context;)V",
-             set_server_config),
-            ("utils/InternationalAdapter.smali", "<clinit>()V",
-             lambda b: empty_array_init(b, ROOT + "utils/InternationalAdapter", "mRestrictPkgs")),
-            ("utils/PowerModeAdapter.smali", "<clinit>()V",
-             google_maps_array_init),
-            ("utils/Utils.smali", "isSleepModeViewVisable()Z", default_sleep_ui),
-            ("f/h.smali", "c(Landroid/content/Context;)Lf/j;", dynamic_turbo_region),
-        )
-        methods = []
-        for rel, signature, transform in actions:
-            file = unique(root, ROOT + rel if not rel.startswith("f/") else rel)
-            source = plans.get(file, file.read_text(encoding="utf-8"))
-            plans[file] = change_method(source, signature, transform, rel)
-            methods.append(rel + "->" + signature)
-        file = unique(root, ROOT + "utils/InternationalAdapter.smali")
-        source = plans[file]
-        source = static_string(source, "sNetworkAllowApps", "")
-        source = static_string(source, "AWEME_APP", "")
-        plans[file] = source
-        # All seven methods + two global static defaults must pass before writing.
-        for file, source in plans.items():
-            file.write_text(source, encoding="utf-8")
-        return {
-            "source": "Global303/Taiwan303 common behavior (EU-relative DEX audit)",
-            "ported_methods": methods,
-            "ported_count": len(methods),
-            "global_taiwan_static_defaults": ["sNetworkAllowApps", "AWEME_APP"],
-            "power_mode_gps_packages": ["com.google.android.apps.maps"],
-            "taiwan_only_tablet_methods": "excluded",
-            "gms_observer": "unchanged_by_global_taiwan_layer",
-            "eu_killprocess_setUidState": "preserved",
-            "other_powerkeeper_methods": "unchanged_by_global_taiwan_layer",
-            "apk_resources": "preserved",
-            "ported_via": "fail_closed_EU_smali_structural_edits",
-            "runtime_tested": False
-        }
-    return locals()
-
-
-def _cmd(*parts):
-    subprocess.run([str(p) for p in parts], check=True, stdout=subprocess.DEVNULL)
-
-def _donor_directories(root, directory, tools):
-    """Decode original ZK304 DEX class files from the local donor directory."""
-    sources = {
-        "services": root / "miui-services",
-        "power": root / "powerkeeper"
-    }
-    result = {}
-    for family, path in sources.items():
-        if not path.is_dir():
-            raise ValueError("ZK donor class directory missing: " + str(path))
-        files = sorted(p for p in path.iterdir()
-                       if p.is_file() and re.fullmatch(r"classes\d*\.dex", p.name))
-        if not files or (family == "power" and len(files) != 1):
-            raise ValueError("ZK donor DEX inventory invalid: " + str(path))
-        if "classes.dex" not in {p.name for p in files}:
-            raise ValueError("Primary classes.dex missing in " + str(path))
-        if any(p.name not in {f"classes{n}.dex" for n in range(2, len(files) + 1)}
-               | {"classes.dex"} for p in files):
-            raise ValueError("ZK donor DEX numbering gap in " + str(path))
-        out = directory / family
-        for file in files:
-            data = file.read_bytes()
-            if len(data) < 112 or not data.startswith(b"dex\n"):
-                raise ValueError("Malformed DEX header: " + str(file))
-            group = "smali" if file.name == "classes.dex" else "smali_" + file.stem
-            _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "36",
-                 file, "-o", out / group)
-        result[family] = out
-    return result["services"], result["power"]
-
-def _dex_extract(target, base, root, tools):
-    with zipfile.ZipFile(target) as archive:
-        infos=archive.infolist()
-        names=[x.filename for x in infos]
-        if len(names)!=len(set(names)):
-            raise ValueError("Duplicate archive member: "+str(target))
-        dexes=[n for n in names if re.fullmatch(r"classes\d*\.dex",n)]
-        if not dexes: raise ValueError("No DEX in "+str(target))
-        contents={x.filename:archive.read(x.filename) for x in infos}
-        comment=archive.comment
-    for n in dexes:
-        input_dex=base/n
-        input_dex.write_bytes(contents[n])
-        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api","36",input_dex,
-             "-o",root/("smali" if n=="classes.dex" else "smali_"+n[:-4]))
-    return infos,contents,comment,dexes
-
-def _dex_rebuild(infos, contents, comment, dexes, base, root, tools, output):
-    compiled={}
-    verified=base/"verified"
-    for n in dexes:
-        label="smali" if n=="classes.dex" else "smali_"+n[:-4]
-        new_dex=base/("patched-"+n)
-        _cmd("java","-jar",tools/"smaliv2.jar","a","--api","36",root/label,"-o",new_dex)
-        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api","36",new_dex,
-             "-o",verified/label)
-        compiled[n]=new_dex.read_bytes()
-    for f in verified.rglob("*.smali"):
-        txt=f.read_text(encoding="utf-8")
-        if "Lmiui/zk/Build;->IS_ZK_BUILD:Z" in txt:
-            raise ValueError("Unmapped private ZK build flag remains after rebuild "+str(f))
-    with zipfile.ZipFile(output,"w") as archive:
-        archive.comment=comment
-        for info in infos:
-            archive.writestr(info,compiled.get(info.filename,contents[info.filename]))
-    with zipfile.ZipFile(output) as archive:
-        if archive.namelist()!=[info.filename for info in infos]:
-            raise ValueError("Member inventory changed in "+str(output))
-        if any(archive.read(n)!=v for n,v in contents.items() if n not in dexes):
-            raise ValueError("Non-DEX content was modified unexpectedly")
-    return verified
-
-def _run(options):
-    tools = options.tools.resolve() if options.tools else Path(__file__).resolve().parents[4] / "apktool"
-    if not all((tools / f).is_file() for f in ("baksmaliv2.jar", "smaliv2.jar")):
-        raise ValueError("HyperMOS smali tools missing: " + str(tools))
-    donor = Path(__file__).resolve().parent / "class"
-    if options.check_donor_only:
-        with tempfile.TemporaryDirectory(prefix="zk304-donor-check-") as folder:
-            services, power = _donor_directories(donor, Path(folder), tools)
-            classes = [*services.rglob("*.smali"), *power.rglob("*.smali")]
-            if not classes:
-                raise ValueError("Raw DEX donor decoded without classes")
-            print("[EU ZK304] PASS: raw DEX parsed, classes:", len(classes))
-        return
-    if not options.images or not options.report:
-        raise ValueError("--images and --report required")
-    images = options.images.resolve()
-    def find_one(name):
-        matches = list(images.rglob(name))
-        if len(matches) != 1:
-            raise ValueError(f"Expected one {name}, found {len(matches)}")
-        return matches[0]
-    jar, apk = find_one("miui-services.jar"), find_one("PowerKeeper.apk")
-    report = options.report.resolve()
-    # Prepare and verify both targets before replacing either image.
-    with tempfile.TemporaryDirectory(prefix="zk304-eu-") as folder:
-        temp = Path(folder)
-        services, power = _donor_directories(donor, temp / "donor", tools)
-        changes, pending = {}, []
-        modules = {name: globals()["_module_" + name]() for name in
-                   ("contentcatcher", "broadcast", "notification", "greeze", "power")}
-        for index, source in enumerate((jar, apk)):
-            work = temp / str(index)
-            work.mkdir()
-            decoded = work / "decoded"
-            infos, content, comment, dexes = _dex_extract(source, work, decoded, tools)
-            if source == jar:
-                changes["contentcatcher"] = modules["contentcatcher"]["patch_directory"](decoded)
-                changes["broadcast"] = modules["broadcast"]["apply"](decoded, work / "broadcast.json")
-                changes["notification"] = modules["notification"]["apply"](decoded, services, work / "notification.json")
-                changes["greeze"] = modules["greeze"]["port"](decoded, services, work / "greeze.json")
-            else:
-                changes["power"] = modules["power"]["port"](decoded, power)
             built = work / ("patched-" + source.name)
             verified = _dex_rebuild(infos, content, comment, dexes, work, decoded, tools, built)
             if source == jar:
