@@ -220,7 +220,8 @@ def is_tar_archive(path):
             magic = stream.read(512)
     except OSError:
         return False
-    return (magic.startswith((b"\\x1f\\x8b", b"BZh", b"\\xfd7zXZ\\x00"))
+    return (magic.startswith((bytes.fromhex("1f8b"), b"BZh",
+                              bytes.fromhex("fd377a585a00")))
             or magic[257:262] == b"ustar")
 
 
@@ -244,7 +245,7 @@ def convert_tar_to_zip(archive, output):
                     continue
                 name = member.name
                 path = PurePosixPath(name)
-                if (path.is_absolute() or ".." in path.parts or "\\\\" in name
+                if (path.is_absolute() or chr(92) in name
                         or not path.name or path.as_posix() in seen):
                     raise ValueError("Unsafe or duplicated TAR member: " + name)
                 # Do not dereference symlinks, device entries or hardlinks.
@@ -268,7 +269,7 @@ def convert_tar_to_zip(archive, output):
         print(f"[DOWNLOAD] Converted {count} TAR files to ZIP "
               f"({output.stat().st_size} bytes)", flush=True)
         return True
-    except (OSError, tarfile.TarError, ValueError, EOFError) as exc:
+    except (OSError, tarfile.TarError, ValueError, EOFError, RuntimeError) as exc:
         print(f"[ERROR] TAR to ZIP conversion failed: {exc}", flush=True)
         return False
     finally:
