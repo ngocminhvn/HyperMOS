@@ -11,7 +11,12 @@ rom_source="$(tr -d '\r\n' < "$identity")"
 android_ver="$(tr -d '\r\n' < "$version")"
 [[ "$android_ver" == 16 ]] || { error "A16 Notification: Android $android_ver unsupported"; exit 1; }
 if [[ "$rom_source" == xiaomi_eu ]]; then
-  info "[EU A16] Notification/PowerKeeper port disabled; ZK donor files are reference-only"
+  info "[EU A16] Apply scoped ZK304 notification / PowerKeeper policy"
+  python3 "$base/EU/zk_patch.py" --self-test || exit 1
+  python3 "$base/EU/zk_patch.py" \
+    --images "$work_dir/build/baserom/images" \
+    --tools "$work_dir/bin/apktool" \
+    --report "$work_dir/build/reports/zk304-eu/port.json" || exit 1
   exit 0
 fi
 [[ "$rom_source" == china ]] || { error "A16 Notification: unknown source $rom_source"; exit 1; }
