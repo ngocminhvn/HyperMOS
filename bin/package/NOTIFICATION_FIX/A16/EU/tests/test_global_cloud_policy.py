@@ -56,7 +56,7 @@ class GlobalCloudTests(unittest.TestCase):
                                     "insert": ["return-void"]}])
         with self.assertRaises(ValueError):
             policy.validate_edits([{"at": 1, "remove": ["nop"],
-                                    "insert": ["one\\ntwo"]}])
+                                    "insert": ["one\ntwo"]}])
 
     def test_preserves_non_dex_apk_entries_and_signature_warning(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -65,10 +65,10 @@ class GlobalCloudTests(unittest.TestCase):
                                    ("stock.apk", "new.dex", "modified.apk"))
             with zipfile.ZipFile(source, "w") as f:
                 f.writestr("AndroidManifest.xml", b"manifest")
-                f.writestr("classes.dex", b"dex\\nstock")
+                f.writestr("classes.dex", b"dex\nstock")
                 f.writestr("META-INF/CERT.RSA", b"cert")
                 f.writestr("assets/local.config", b"EU_original")
-            dex.write_bytes(b"dex\\nglobal-cloud")
+            dex.write_bytes(b"dex\nglobal-cloud")
             report = meta.pack(source, dex, target)
             self.assertTrue(report["apk_resources_manifest_native_libraries_preserved"])
             self.assertFalse(report["cryptographic_signature_valid_after_modification"])
