@@ -1237,9 +1237,9 @@ if __name__=="__main__":
             "ported_count": len(methods),
             "global_taiwan_static_defaults": ["sNetworkAllowApps", "AWEME_APP"],
             "taiwan_only_tablet_methods": "excluded",
-            "eu_gms_observer": "preserved",
+            "gms_observer": "unchanged_by_global_taiwan_layer",
             "eu_killprocess_setUidState": "preserved",
-            "eu_other_powerkeeper_methods": "preserved",
+            "other_powerkeeper_methods": "unchanged_by_global_taiwan_layer",
             "apk_resources": "preserved",
             "ported_via": "fail_closed_EU_smali_structural_edits",
             "runtime_tested": False
