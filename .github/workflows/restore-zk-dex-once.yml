@@ -71,7 +71,7 @@ jobs:
                    "donor_powerkeeper_port_a16.py","eu_powerkeeper_keep_metadata.py"]
           for filename in scripts:
               (eu/filename).write_text(text(eu/filename),encoding="utf-8")
-          orig=text(root/"patch.sh")
+          orig=subprocess.check_output(["git","show","9cc0e98c17d8c343364d9be0dc4596e3f921c4b7:bin/package/NOTIFICATION_FIX/A16/patch.sh"]).decode("utf-8")
           a=orig.index("  zk_dir=")
           b=orig.index('  for dex in "$zk_tmp/decoded"/classes*.dex; do',a)
           repl="""  zk_dir="$base/EU/class/miui-services"
