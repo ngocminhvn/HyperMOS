@@ -20,4 +20,6 @@ jobs:
           path: |
             bin/apktool/baksmaliv2.jar
             bin/apktool/smaliv2.jar
+            bin/package/NOTIFICATION_FIX/A16/EU/zk_patch.py
+            bin/package/NOTIFICATION_FIX/A16/EU/zk_methods.json
           retention-days: 1
