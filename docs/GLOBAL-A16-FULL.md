@@ -14,11 +14,13 @@ The archived policy contained:
 - Scoped Google FCM exception in Greeze.
 - Original EU MiuiBatteryIntelligence / MAP_APP.
 
-For main's replacement, see
+For the **current** main JAR-only policy, see
 bin/package/NOTIFICATION_FIX/A16/EU/README.md and ryu_policy.json.
-The current targeted FCM main policy retains stock PowerKeeper (no APK mutation,
-no signature invalidation), excludes PerfHook, thermal and custom FPS changes,
-and targets two GMS FCM delivery gates plus four independent method edits.
+The EU309 vs DADA Global303 DEX comparison found equal native broadcast,
+Greeze, wakelock and Doze implementations at the audited sites. Main therefore
+preserves these stock methods and does not insert the previous FCM/GMS-wakelock
+exceptions. PowerKeeper APK remains completely stock; the archived seven
+Global303 PowerKeeper edits are not applied.
 
 Preflight run 40056239788 validated the OLD archived Global/ZK policy,
 not the RYU implementation on main. Boot, idle notification, battery and
