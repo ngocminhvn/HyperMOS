@@ -23,5 +23,6 @@ exceptions. PowerKeeper APK remains completely stock; the archived seven
 Global303 PowerKeeper edits are not applied.
 
 Preflight run 40056239788 validated the OLD archived Global/ZK policy,
-not the RYU implementation on main. Boot, idle notification, battery and
-thermal behavior of main's targeted FCM policy still require device tests.
+not the current JAR-only Global-equivalent EU implementation on main.
+The new scope has been audited at source/method level, but build, boot,
+idle notification, battery and thermal behavior still require device tests.
