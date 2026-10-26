@@ -53,4 +53,7 @@ python3 "$base/ryu_policy.py" --root "$tmp/decoded" --manifest "$manifest" \
   --group miui-services --verify --report "$w/build/reports/eu-global/independent-verified.json"
 mv -f "$output" "$jar"
 mods "[EU A16] Global303-equivalent stock broadcast/Greeze/wakelock JAR methods preserved"
-mods "[EU A16] stock PowerKeeper.apk, Doze, thermal and process cleanup unchanged"
+# Port only the four EU-vs-Global cloud/region differences in PowerKeeper.
+# Do not add GMS/FCM wakelock bypasses or replace donor APKs.
+bash "$base/PowerKeeper.sh"
+mods "[EU A16] Global303 cloud endpoint/region policy; GMS/Doze/thermal/process cleanup left EU-stock"
