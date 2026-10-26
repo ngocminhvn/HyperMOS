@@ -114,7 +114,7 @@ def check_compiled(root, rel, signature):
     if len(methods) != 1:
         raise ValueError("Recompiled method not found: " + signature)
     body = methods[0]
-    if signature.startswith("getImportantApps") and "zk304_cache_miss" not in body:
+    if signature.startswith("getImportantApps") and not all(x in body for x in ("->tmpImportantApps:Ljava/util/List;", "Ljava/util/List;->size()I", "if-lez", "return-object")):
         raise ValueError("Cached important-apps guard lost after compile")
     if signature.startswith("setUidState") and "Lmiui/process/ProcessManager;->kill(" in body:
         raise ValueError("EU UID kill still exists after compile")
