@@ -1,4 +1,5 @@
 name: One-time EU ZK raw DEX validation
+# Repeat after source-only reference cleanup
 on:
   push:
     branches: [main]
