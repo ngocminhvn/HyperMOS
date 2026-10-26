@@ -80,7 +80,7 @@ have been deleted from the current A16 directory: `zk_full_powerkeeper_a16.py`,
 `guard_gms_uid_kill_a16.py`, and `rebuild_powerkeeper_dex.py`.
 They remain available through historical Git commits for retrospective audits.
 
-The active `A16/CN/` directory contains the CN FrameworkPatcher entrypoint and the CN-executed PowerKeeper wrapper, including its EU-derived DEX archive, helpers and seven-gate manifest. `A16/EU/` holds Xiaomi.eu-specific notification code and tests. No retired source code is imported into PowerKeeper's installed classes.dex.
+The active `A16/CN/` directory contains the CN FrameworkPatcher entrypoint and the CN-executed PowerKeeper wrapper, including its EU-derived DEX archive, helpers and seven-gate manifest. `A16/EU/` now holds only a historical reference backup and this stock-policy note; it contains no active Xiaomi.eu notification or PowerKeeper patch. No retired source code is imported into PowerKeeper's installed classes.dex.
 
 ### What the ROM ships
 
@@ -89,7 +89,7 @@ The active `A16/CN/` directory contains the CN FrameworkPatcher entrypoint and t
 - Xiaomi original non-DEX APK entries and corresponding resources/configs.
 - No `PerfHook`, extra RYU workers, or ZKOS `SettingsHelper`.
 - Independent TNM CPU-percent functionality unchanged.
-- Separate HyperMOS framework/JAR notification patches unchanged.
+- China-specific framework/JAR notification patches remain; Xiaomi.eu A16 skips the notification/power patch path.
 
 ### Signature and compatibility
 

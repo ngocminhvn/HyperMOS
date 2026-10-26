@@ -1,26 +1,16 @@
-# HyperMOS Android 16: China and Xiaomi.eu notification policies
+# HyperMOS Android 16 notification/power policy
 
 Entry point: `bin/package/NOTIFICATION_FIX/A16/patch.sh`.
 
-- **China:** The existing `CN/frameworkpatcher_cn_a16.py` and
-  `CN/PowerKeeper.sh` behavior is unchanged.
-- **Xiaomi.eu:** The notification/power methods audited against
-  DADA Global303 are already bytecode-equivalent in the original EU309
-  `miui-services.jar`. The old custom FCM Autostart/Greeze/GMS-wakelock
-  exceptions are no longer applied. The stock EU implementations are
-  retained instead of transplanting a cross-device JAR.
-- **Independent patch:** The existing
-  `ProcessPolicy.updateContentCatcherWhitelist()` override stays in
-  `EU/ryu_policy.json`. Other previously removed RYU policy overrides
-  remain removed.
-- **PowerKeeper:** The EU A16 path ports only four audited Global303
-  cloud/region methods to EU309 `PowerKeeper.apk` while preserving non-DEX
-  data and all other EU methods. The APK's original digital signature is
-  invalidated by this DEX change; build and runtime verification are required.
-  No PerfHook or thermal/Doze/GMS wakelock bypass is introduced.
-- **Compatibility:** No change to CorePatch/Kaorios, TNM, China A16
-  notification handling or A17. `backupzk.zip` stays as historical
-  reference.
+- **China:** Keep existing `CN/frameworkpatcher_cn_a16.py` and `CN/PowerKeeper.sh` behavior.
+- **Xiaomi.eu:** Skip the entire A16 notification/power fix path. Do not rebuild
+  `miui-services.jar`, modify `PowerKeeper.apk`, patch GMS/FCM/Doze/Greeze,
+  or import donor Global303/RYU/ZK methods in this step.
+- **Unrelated components:** Common CorePatch/Kaorios, TNM, China notification
+  handling and Android 17 behavior are left unchanged. On EU, CorePatch keeps
+  its existing `HYPERMOS_PRESERVE_EU_FRAMEWORK=1` behavior.
+- **Reference:** `EU/backupzk.zip` is retained but never used by the build.
 
-EU309 vs Global303 DEX findings and remaining runtime test limitations:
-`EU/README.md`.
+The old EU Global303 cloud port, RYU ContentCatcher override and obsolete
+EU FCM test-module workflow were removed. Await a Taiwan ROM extraction
+artifact before the next EU-vs-Taiwan comparison.
