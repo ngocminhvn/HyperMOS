@@ -13,8 +13,11 @@ Entry point: `bin/package/NOTIFICATION_FIX/A16/patch.sh`.
   `ProcessPolicy.updateContentCatcherWhitelist()` override stays in
   `EU/ryu_policy.json`. Other previously removed RYU policy overrides
   remain removed.
-- **APK:** EU `PowerKeeper.apk` is left completely unmodified; this
-  does not enable PerfHook or make any thermal/Doze changes.
+- **PowerKeeper:** The EU A16 path ports only four audited Global303
+  cloud/region methods to EU309 `PowerKeeper.apk` while preserving non-DEX
+  data and all other EU methods. The APK's original digital signature is
+  invalidated by this DEX change; build and runtime verification are required.
+  No PerfHook or thermal/Doze/GMS wakelock bypass is introduced.
 - **Compatibility:** No change to CorePatch/Kaorios, TNM, China A16
   notification handling or A17. `backupzk.zip` stays as historical
   reference.
