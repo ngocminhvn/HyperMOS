@@ -19,8 +19,13 @@ bin/package/NOTIFICATION_FIX/A16/EU/README.md and ryu_policy.json.
 The EU309 vs DADA Global303 DEX comparison found equal native broadcast,
 Greeze, wakelock and Doze implementations at the audited sites. Main therefore
 preserves these stock methods and does not insert the previous FCM/GMS-wakelock
-exceptions. PowerKeeper APK remains completely stock; the archived seven
-Global303 PowerKeeper edits are not applied.
+exceptions. The current EU A16 build now ports **four** directly relevant
+Global303 PowerKeeper cloud/region methods on top of stock EU309 `classes.dex`.
+It deliberately does not restore the archived seven-method suite: map app
+lists, unrelated display/sleep UI and InternationalAdapter differences stay EU.
+No GMS wakelock bypass, thermal or Doze edits are introduced. Modifying DEX
+invalidates the original APK cryptographic signature, even with original
+non-DEX entries and META-INF preserved; boot and notification tests are needed.
 
 Preflight run 40056239788 validated the OLD archived Global/ZK policy,
 not the current JAR-only Global-equivalent EU implementation on main.
