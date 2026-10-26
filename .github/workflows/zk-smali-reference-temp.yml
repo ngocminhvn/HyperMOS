@@ -1,0 +1,45 @@
+name: Temporary ZK reference extraction
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/zk-smali-reference-temp.yml'
+permissions:
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decompile original ZK donor into smali
+        shell: bash
+        run: |
+          set -euo pipefail
+          D=bin/package/NOTIFICATION_FIX/A16/EU/ZK304
+          mkdir -p /tmp/ref/jar /tmp/ref/out
+          zstd -d -q -f "$D/zk304-powerkeeper.dex.zst" -o /tmp/ref/power.dex
+          zstd -d -q -f "$D/zk304-miui-services.jar.zst" -o /tmp/ref/jar/miui-services.jar
+          unzip -q /tmp/ref/jar/miui-services.jar 'classes*.dex' -d /tmp/ref/jar
+          java -jar bin/apktool/baksmaliv2.jar d --api 36 /tmp/ref/power.dex -o /tmp/ref/power
+          for d in /tmp/ref/jar/classes*.dex; do
+            mkdir -p "/tmp/ref/$(basename "$d" .dex)"
+            java -jar bin/apktool/baksmaliv2.jar d --api 36 "$d" -o "/tmp/ref/$(basename "$d" .dex)"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          names={'GmsObserver','KillProcessController','ActiveStateController','DeviceIdleController','InternationalPolicyManager','GreezeManagerService','NotificationManagerServiceImpl','DeviceIdleControllerStubImpl','BroadcastQueueModernStubImpl','ProcessPolicy','ProcessManagerService'}
+          target=Path('/tmp/ref/out')
+          for source in Path('/tmp/ref').glob('**/*.smali'):
+              if source.stem in names and '/out/' not in str(source):
+                  label='power' if '/power/' in str(source) else 'services'
+                  out=target/label/source.name
+                  out.parent.mkdir(exist_ok=True,parents=True)
+                  shutil.copyfile(source,out)
+          print('Exported',len(list(target.rglob('*.smali'))),'class sources')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zk-extracted-policy-classes
+          path: /tmp/ref/out
+          retention-days: 1
