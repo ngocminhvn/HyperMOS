@@ -11,7 +11,7 @@ rom_source="$(tr -d '\r\n' < "$identity")"
 android_ver="$(tr -d '\r\n' < "$version")"
 [[ "$android_ver" == 16 ]] || { error "A16 Notification: Android $android_ver unsupported"; exit 1; }
 if [[ "$rom_source" == xiaomi_eu ]]; then
-  info "[EU A16] Global303-equivalent stock notification/power JAR policy"
+  info "[EU A16] Global303 JAR-equivalent notification policy plus scoped PowerKeeper cloud/region port"
   bash "$base/EU/patch.sh"
   exit 0
 fi
