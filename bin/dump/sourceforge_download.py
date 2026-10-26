@@ -74,45 +74,57 @@ def drive_download_url(url):
 
 
 def source_filename(url, sf_file_path=None):
-    """Return the original ROM archive filename, or None.
+    """Return the remote ROM archive filename when it can be identified.
 
-    The dump output is named DUMP_<original filename> (with a .zip
-    extension, since the dump itself is a ZIP), so this must be the
-    name of the file being downloaded, not the URL path in general:
-    - SourceForge / Xiaomi / direct links: the basename of the URL path.
-    - Google Drive: the URL only carries a file id, so the filename
-      comes from the Content-Disposition header of the confirmed
-      download (verified: it returns attachment; filename="...").
-    Returns None when no archive-like filename can be determined;
-    callers then fall back to the old HyperMOS-dump-<mode>-<run> name.
+    SourceForge and ordinary direct URLs reveal the name in their path.
+    Google Drive and opaque CDN links may instead provide the filename via
+    Content-Disposition. Never mistake an opaque token for a ROM filename.
     """
-    if sf_file_path:
-        return Path(sf_file_path).name
-    parts = urlsplit(url.strip())
-    host = (parts.hostname or "").lower()
-    if host in ("drive.usercontent.google.com", "drive.google.com"):
-        confirmed = drive_download_url(url)
-        header_url = confirmed if confirmed is not None else url
-        try:
-            # A HEAD request alone returns the virus-scan warning page
-            # for a confirmed Drive URL, so fetch 1 byte with GET and
-            # read the Content-Disposition header of the real file.
-            done = subprocess.run(
-                ["curl", "-sL", "--max-time", "30", "-r", "0-0",
-                 "-D", "-", "-o", "/dev/null", header_url],
-                capture_output=True, text=True, timeout=35, check=False)
-            match = re.search(
-                r"filename\*?=(?:UTF-8''|\"?)([^\"\r\n;]+)",
-                done.stdout, flags=re.I)
-            if match:
-                return unquote(match.group(1).strip().strip('"'))
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+    def valid_name(value):
+        if not value:
+            return None
+        name = unquote(value.strip().strip('"')).replace("\\", "/").rsplit("/", 1)[-1]
+        if (1 <= len(name) <= 240
+                and not any(ord(char) < 32 for char in name)
+                and re.search(r"\\.(zip|7z|tgz|tar\\.(?:gz|xz|bz2)|tar)$",
+                              name, flags=re.I)):
+            return name
         return None
-    name = unquote(parts.path.rstrip("/")).rsplit("/", 1)[-1]
-    if name and name.lower() != "download" and re.search(
-            r"\.(zip|7z|tgz|tar\.gz|tar)$", name, flags=re.I):
+
+    if sf_file_path:
+        return valid_name(sf_file_path)
+    parts = urlsplit(url.strip())
+    name = valid_name(parts.path.rstrip("/").rsplit("/", 1)[-1])
+    if name and name.lower() != "download":
         return name
+
+    host = (parts.hostname or "").lower()
+    drive_url = drive_download_url(url)
+    header_url = drive_url or url
+    try:
+        # Opaque CDN URLs (including xm03.space) can supply the original
+        # filename through Content-Disposition, even when the URL has no .zip.
+        # HEAD avoids downloading gigabytes just to inspect the file name.
+        if host in ("drive.usercontent.google.com", "drive.google.com"):
+            cmd = ["curl", "-sSL", "--max-time", "30", "--connect-timeout", "10",
+                   "-r", "0-0", "--max-filesize", "1048576",
+                   "-D", "-", "-o", "/dev/null", header_url]
+        else:
+            cmd = ["curl", "-sSIL", "--max-time", "25",
+                   "--connect-timeout", "10", header_url]
+        done = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=35, check=False)
+        from email.message import Message
+        for line in reversed(done.stdout.splitlines()):
+            if not line.lower().startswith("content-disposition:"):
+                continue
+            header = Message()
+            header["Content-Disposition"] = line.split(":", 1)[1].strip()
+            found = valid_name(header.get_filename())
+            if found:
+                return found
+    except (OSError, subprocess.TimeoutExpired):
+        pass
     return None
 
 
