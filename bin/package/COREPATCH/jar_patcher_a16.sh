@@ -1062,9 +1062,10 @@ patch_miui_framework() {
   fi
 
   if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-    # EU already contains its own notification filter and Google IME rules.
-    # Keep both intact, while still applying shared CorePatch options.
-    :
+    # EU A16 keeps its own Google IME but uses the two audited Global303
+    # system-notification filter methods. Never transplant donor JAR/classes.
+    python3 "$SCRIPT_DIR/port_global_notification_filter_a16.py" "$decompile_dir" \
+      --report "$WORK_DIR/build/reports/eu-global-a16/notification-filter.json" || return 1
   else
     # China source: keep existing Gboard and audited EU filter port.
     apply_miui_framework_gboard "$decompile_dir"
