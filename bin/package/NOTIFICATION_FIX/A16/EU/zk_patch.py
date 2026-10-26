@@ -734,208 +734,163 @@ def _module_power():
 
 
 def _module_global_taiwan():
-    """Port the seven PowerKeeper behavior differences shared by Global303
-    and Taiwan303 to EU309, without a second APK/DEX donor or tablet changes.
-
-    Each change is scoped to its exact EU method and checked before writing.
-    Existing GMS, thermal resources, APK members and other methods are retained.
+    """Port seven shared Global303/Taiwan303 PowerKeeper methods from genuine
+    Global303 DEX. Retain EU class/field ABI and selected ZK304 policy ports.
     """
     import re
     from pathlib import Path
 
     METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
-    ROOT = "com/miui/powerkeeper/"
+    CLASS = re.compile(r"(?m)^\.class[^\n]*\s+(L[^;\s]+;)[ \t]*$")
+    FIELD = re.compile(r"(?m)^\.field[^\n]*\s+([\w$<>-]+:[^\s=]+)")
+    REF = re.compile(r"(L[\w/$-]+;)->([^\s,{}\t\r\n]+)")
+    POWER = "Lcom/miui/powerkeeper/"
+    TARGETS = {
+        "com/miui/powerkeeper/cloudcontrol/CloudUpdateReceiver.smali": (
+            "onReceive(Landroid/content/Context;Landroid/content/Intent;)V",),
+        "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali": (
+            "getCloudServer(Landroid/content/Context;)Ljava/lang/String;",
+            "setServerConfigurations(Landroid/content/Context;)V"),
+        "com/miui/powerkeeper/utils/InternationalAdapter.smali": ("<clinit>()V",),
+        "com/miui/powerkeeper/utils/PowerModeAdapter.smali": ("<clinit>()V",),
+        "com/miui/powerkeeper/utils/Utils.smali": ("isSleepModeViewVisable()Z",),
+        "f/h.smali": ("c(Landroid/content/Context;)Lf/j;",),
+    }
+    KEEP_EU = {
+        "Lcom/miui/powerkeeper/controller/KillProcessController;->setUidState(IZ)V",
+    }
+    CUSTOM_MAP = "Lcom/miui/powerkeeper/utils/PowerModeAdapter;-><clinit>()V"
 
-    def unique(root, rel):
-        candidates = list(root.glob("smali*/" + rel))
-        if len(candidates) != 1:
-            raise ValueError("Global/TW PowerKeeper class missing/ambiguous: " + rel)
-        return candidates[0]
+    def index(root):
+        result = {}
+        for file in root.rglob("*.smali"):
+            source = file.read_text(encoding="utf-8")
+            owner = CLASS.search(source)
+            if not owner:
+                continue
+            name = owner.group(1)
+            if name in result:
+                raise ValueError("Duplicate PowerKeeper class: " + name)
+            methods = {}
+            for entry in METHOD.finditer(source):
+                signature = entry.group().splitlines()[0].strip().split()[-1]
+                if signature in methods:
+                    raise ValueError("Duplicate PowerKeeper method: " + name + "->" + signature)
+                methods[signature] = entry.group()
+            result[name] = {"path": file, "source": source, "methods": methods,
+                            "fields": set(FIELD.findall(source))}
+        return result
 
-    def change_method(source, signature, change, label):
-        matches = [m for m in METHOD.finditer(source)
-                   if m.group().splitlines()[0].split()[-1] == signature]
-        if len(matches) != 1:
-            raise ValueError("Global/TW missing/ambiguous EU method: " + label)
-        match = matches[0]
-        original = match.group()
-        transformed = change(original)
-        if original == transformed:
-            raise ValueError("Global/TW did not change EU method: " + label)
-        return source[:match.start()] + transformed + source[match.end():]
+    def method_refs_available(body, eu):
+        if "Lmiui/zk/" in body or "Lcom/zk/" in body:
+            raise ValueError("Global PowerKeeper method references private ZK API")
+        for owner, member in REF.findall(body):
+            if not owner.startswith(POWER):
+                continue
+            if owner not in eu:
+                raise ValueError("Global PowerKeeper references missing EU class: " + owner)
+            if "(" in member:
+                if member not in eu[owner]["methods"]:
+                    raise ValueError("Global PowerKeeper references missing EU method: "
+                                     + owner + "->" + member)
+            elif ":" in member and member not in eu[owner]["fields"]:
+                raise ValueError("Global PowerKeeper references missing EU field: "
+                                 + owner + "->" + member)
 
-    def required_replace(text, pattern, repl, name):
-        new, count = re.subn(pattern, repl, text, count=1, flags=re.M)
+    def static_string(source, field):
+        pattern = (
+            r'(?m)^([ \t]*\.field[^\n]*\b' + re.escape(field)
+            + r':Ljava/lang/String;)(?:[ \t]*=[ \t]*"[^"\n]*")?[ \t]*$'
+        )
+        edited, count = re.subn(pattern, lambda m: m.group(1) + ' = ""',
+                                source, count=1)
         if count != 1:
-            raise ValueError("Global/TW expected EU pattern absent: " + name)
-        return new
+            raise ValueError("Missing EU InternationalAdapter static field: " + field)
+        return edited
 
-    def cloud_receiver(body):
-        if "Lmiui/os/Build;->IS_DEBUGGABLE:Z" in body:
-            raise ValueError("CloudUpdateReceiver not original EU policy")
-        marker = re.search(
-            r'(?m)^([ \t]*)const-string(?:/jumbo)?[ \t]+v\d+,[ \t]*"76937"[ \t]*\n'
-            r'(?:[^\n]*\n){2}[ \t]*if-eqz[ \t]+(v\d+),[ \t]*(:[\w$]+)[ \t]*\n',
-            body
-        )
-        if marker is None or ":hm_cloud_secret_allowed" in body:
-            raise ValueError("CloudUpdateReceiver EU secret-code gate mismatch")
-        indent, reg, reject = marker.group(1), marker.group(2), marker.group(3)
-        extra = (
-            f"{indent}sget-boolean {reg}, Lmiui/os/Build;->IS_DEBUGGABLE:Z\n"
-            f"{indent}if-nez {reg}, :hm_cloud_secret_allowed\n"
-            f"{indent}sget-boolean {reg}, Lmiui/os/Build;->IS_STABLE_VERSION:Z\n"
-            f"{indent}if-nez {reg}, {reject}\n"
-            f"    :hm_cloud_secret_allowed\n"
-        )
-        return body[:marker.end()] + extra + body[marker.end():]
-
-    def get_cloud_server(body):
-        return required_replace(
-            body,
-            r'(?m)^[ \t]*invoke-static[ \t]+\{\},[ \t]*Landroid/miui/AppOpsUtils;->isXOptMode\(\)Z[ \t]*\n'
-            r'[ \t]*move-result[ \t]+(v\d+)[ \t]*\n'
-            r'[ \t]*if-eqz[ \t]+\1,[ \t]*:[\w$]+[ \t]*\n',
-            "", "LocalUpdateUtils.getCloudServer/XOpt"
-        )
-
-    def set_server_config(body):
-        return required_replace(
-            body,
-            r'(?m)^[ \t]*invoke-static[ \t]+\{\},[ \t]*Landroid/miui/AppOpsUtils;->isXOptMode\(\)Z[ \t]*\n'
-            r'[ \t]*move-result[ \t]+(v\d+)[ \t]*\n'
-            r'[ \t]*if-eqz[ \t]+\1,[ \t]*:[\w$]+[ \t]*\n',
-            "", "LocalUpdateUtils.setServerConfigurations/XOpt"
-        )
-
-    def empty_array_init(body, owner, field):
-        if field not in body or "filled-new-array" not in body:
-            raise ValueError("Global/TW unexpected EU static array: " + field)
-        header = body.splitlines()[0]
+    def google_maps_initializer(method):
+        if "mGpsPkgName" not in method:
+            raise ValueError("Global PowerModeAdapter does not initialize mGpsPkgName")
         return (
-            header + "\n"
-            "    .registers 1\n\n"
-            "    const/4 v0, 0x0\n"
-            "    new-array v0, v0, [Ljava/lang/String;\n"
-            f"    sput-object v0, L{owner};->{field}:[Ljava/lang/String;\n\n"
-            "    return-void\n"
-            ".end method"
-        )
-
-    def google_maps_array_init(body):
-        owner = ROOT + "utils/PowerModeAdapter"
-        if "mGpsPkgName" not in body or "filled-new-array" not in body:
-            raise ValueError("PowerModeAdapter original EU map array not found")
-        header = body.splitlines()[0]
-        return (
-            header + "\n"
+            method.splitlines()[0] + "\n"
             "    .registers 1\n\n"
             '    const-string v0, "com.google.android.apps.maps"\n'
             "    filled-new-array {v0}, [Ljava/lang/String;\n"
             "    move-result-object v0\n"
-            f"    sput-object v0, L{owner};->mGpsPkgName:[Ljava/lang/String;\n\n"
+            "    sput-object v0, Lcom/miui/powerkeeper/utils/PowerModeAdapter;->mGpsPkgName:[Ljava/lang/String;\n"
             "    return-void\n"
             ".end method"
         )
 
-    def default_sleep_ui(body):
-        if "Lmiui/os/HyperOSCustFeatureResolve;->getBoolean(Ljava/lang/String;Z)Z" not in body:
-            raise ValueError("Global/TW EU Sleep Mode feature gate missing")
-        return required_replace(
-            body,
-            r'(?m)(^[ \t]*const-string(?:/jumbo)?[ \t]+v0,[ \t]*"support_sleep_mode"[ \t]*\n'
-            r'[ \t]*const/4[ \t]+v1,[ \t]*)0x1(?=[ \t]*$)',
-            r'\g<1>0x0', "Utils.isSleepModeViewVisable"
-        )
-
-
-    def dynamic_turbo_region(body):
-        # Global/Taiwan gates DynamicTurboPower on ro.miui.region == cn.
-        # Insert before EU's sole context load, keeping registers/labels intact.
-        context = r'Lf/p;->b:Landroid/content/Context;'
-        if "Le/f;->f()Z" not in body or "ro.miui.region" in body:
-            raise ValueError("Global/TW DynamicTurboPower original EU gate mismatch")
-        loads = list(re.finditer(
-            r'(?m)^[ \t]*iget-object[ \t]+v6,[ \t]*v5,[ \t]*' +
-            re.escape(context) + r'[ \t]*$', body))
-        if len(loads) != 1:
-            raise ValueError("Global/TW DynamicTurboPower context load count mismatch")
-        match = loads[0]
-        gates = list(re.finditer(
-            r'(?m)^[ \t]*if-eqz[ \t]+v6,[ \t]*(:[\w$]+)[ \t]*$',
-            body[:match.start()]))
-        if len(gates) != 1:
-            raise ValueError("Global/TW DynamicTurboPower early return gate mismatch")
-        exit_label = gates[0].group(1)
-        addition = (
-            '    const-string v6, "ro.miui.region"\n'
-            '    const-string v0, "unknown"\n'
-            '    invoke-static {v6, v0}, Landroid/os/SystemProperties;->get(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;\n'
-            '    move-result-object v6\n'
-            '    const-string v0, "cn"\n'
-            '    invoke-virtual {v6, v0}, Ljava/lang/String;->equalsIgnoreCase(Ljava/lang/String;)Z\n'
-            '    move-result v6\n'
-            '    if-eqz v6, ' + exit_label + '\n'
-        )
-        return body[:match.start()] + addition + body[match.start():]
-
-    def static_string(source, field, value):
-        pattern = (
-            r'(?m)^([ \t]*\.field[^\n]*\b' + re.escape(field) +
-            r':Ljava/lang/String;)(?:[ \t]*=[ \t]*"[^"\n]*")?[ \t]*$'
-        )
-        return required_replace(source, pattern,
-                                lambda match: match.group(1) + ' = "' + value + '"',
-                                "InternationalAdapter." + field)
-
-    def apply(root):
-        plans = {}
-        actions = (
-            ("cloudcontrol/CloudUpdateReceiver.smali",
-             "onReceive(Landroid/content/Context;Landroid/content/Intent;)V",
-             cloud_receiver),
-            ("cloudcontrol/LocalUpdateUtils.smali",
-             "getCloudServer(Landroid/content/Context;)Ljava/lang/String;",
-             get_cloud_server),
-            ("cloudcontrol/LocalUpdateUtils.smali",
-             "setServerConfigurations(Landroid/content/Context;)V",
-             set_server_config),
-            ("utils/InternationalAdapter.smali", "<clinit>()V",
-             lambda b: empty_array_init(b, ROOT + "utils/InternationalAdapter", "mRestrictPkgs")),
-            ("utils/PowerModeAdapter.smali", "<clinit>()V",
-             google_maps_array_init),
-            ("utils/Utils.smali", "isSleepModeViewVisable()Z", default_sleep_ui),
-            ("f/h.smali", "c(Landroid/content/Context;)Lf/j;", dynamic_turbo_region),
-        )
-        methods = []
-        for rel, signature, transform in actions:
-            file = unique(root, ROOT + rel if not rel.startswith("f/") else rel)
-            source = plans.get(file, file.read_text(encoding="utf-8"))
-            plans[file] = change_method(source, signature, transform, rel)
-            methods.append(rel + "->" + signature)
-        file = unique(root, ROOT + "utils/InternationalAdapter.smali")
-        source = plans[file]
-        source = static_string(source, "sNetworkAllowApps", "")
-        source = static_string(source, "AWEME_APP", "")
-        plans[file] = source
-        # All seven methods + two global static defaults must pass before writing.
-        for file, source in plans.items():
+    def port(eu_root, global_root, zk_ported):
+        eu, global_donor = index(eu_root), index(global_root)
+        touched_zk = set(zk_ported)
+        replacements, updates, statuses = {}, {}, {}
+        for rel, names in TARGETS.items():
+            matching_eu = list(eu_root.glob("smali*/" + rel))
+            matching_global = list(global_root.glob("smali*/" + rel))
+            if len(matching_eu) != 1 or len(matching_global) != 1:
+                raise ValueError("Global303 donor/EU class missing or ambiguous: " + rel)
+            source_owner = CLASS.search(matching_eu[0].read_text(encoding="utf-8")).group(1)
+            donor_owner = CLASS.search(matching_global[0].read_text(encoding="utf-8")).group(1)
+            if source_owner != donor_owner:
+                raise ValueError("Global303 class owner differs from EU: " + rel)
+            owner = source_owner
+            if owner not in eu or owner not in global_donor:
+                raise ValueError("Global303 class not indexed: " + rel)
+            by_method = replacements.setdefault(owner, {})
+            for sig in names:
+                key = owner + "->" + sig
+                if key in KEEP_EU or key in touched_zk:
+                    raise ValueError("Global303 method conflicts with EU/ZK protection: " + key)
+                if sig not in eu[owner]["methods"] or sig not in global_donor[owner]["methods"]:
+                    raise ValueError("Global303/EU method ABI mismatch: " + key)
+                body = global_donor[owner]["methods"][sig]
+                if key == CUSTOM_MAP:
+                    body = google_maps_initializer(body)
+                    statuses[key] = "google_maps_only"
+                else:
+                    method_refs_available(body, eu)
+                    statuses[key] = "ported_global303"
+                by_method[sig] = body
+        if sum(map(len, replacements.values())) != 7:
+            raise ValueError("Global303: expected exactly seven targeted methods")
+        for owner, mapping in replacements.items():
+            source = eu[owner]["source"]
+            parts, last = [], 0
+            for item in METHOD.finditer(source):
+                parts.append(source[last:item.start()])
+                sig = item.group().splitlines()[0].strip().split()[-1]
+                parts.append(mapping.get(sig, item.group()))
+                last = item.end()
+            parts.append(source[last:])
+            patched = "".join(parts)
+            if owner == "Lcom/miui/powerkeeper/utils/InternationalAdapter;":
+                patched = static_string(patched, "sNetworkAllowApps")
+                patched = static_string(patched, "AWEME_APP")
+            if set(FIELD.findall(patched)) != eu[owner]["fields"]:
+                raise ValueError("Global303 changed EU field ABI: " + owner)
+            after_methods = [m.group().splitlines()[0].strip().split()[-1]
+                             for m in METHOD.finditer(patched)]
+            if set(after_methods) != set(eu[owner]["methods"]):
+                raise ValueError("Global303 changed EU method ABI: " + owner)
+            updates[eu[owner]["path"]] = patched
+        for file, source in updates.items():
             file.write_text(source, encoding="utf-8")
         return {
-            "source": "Global303/Taiwan303 common behavior (EU-relative DEX audit)",
-            "ported_methods": methods,
-            "ported_count": len(methods),
-            "global_taiwan_static_defaults": ["sNetworkAllowApps", "AWEME_APP"],
+            "donor": "Global303 Xiaomi15 dada WOCMIXM PowerKeeper original classes.dex",
+            "ported_count": len(statuses),
+            "method_results": statuses,
+            "conflict_with_zk": False,
+            "killprocess_setUidState": "stock_EU_preserved",
+            "international_getImportantApps": "stock_EU_preserved",
             "power_mode_gps_packages": ["com.google.android.apps.maps"],
             "taiwan_only_tablet_methods": "excluded",
-            "gms_observer": "unchanged_by_global_taiwan_layer",
-            "eu_killprocess_setUidState": "preserved",
-            "other_powerkeeper_methods": "unchanged_by_global_taiwan_layer",
-            "apk_resources": "preserved",
-            "ported_via": "fail_closed_EU_smali_structural_edits",
-            "runtime_tested": False
+            "eu_other_fields_methods": "preserved",
+            "runtime_tested": False,
         }
     return locals()
+
 
 def _cmd(*parts):
     subprocess.run([str(p) for p in parts], check=True, stdout=subprocess.DEVNULL)
@@ -968,7 +923,16 @@ def _donor_directories(root, directory, tools):
             _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "36",
                  file, "-o", out / group)
         result[family] = out
-    return result["services"], result["power"]
+    global_dex = sources["power"] / "global.dex"
+    if not global_dex.is_file():
+        raise ValueError("Global303 donor missing: " + str(global_dex))
+    global_bytes = global_dex.read_bytes()
+    if len(global_bytes) < 112 or not global_bytes.startswith(b"dex\n"):
+        raise ValueError("Invalid original Global303 donor DEX: " + str(global_dex))
+    global_root = directory / "global"
+    _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "36",
+         global_dex, "-o", global_root / "smali")
+    return result["services"], result["power"], global_root
 
 def _dex_extract(target, base, root, tools):
     with zipfile.ZipFile(target) as archive:
@@ -1019,8 +983,8 @@ def _run(options):
     donor = Path(__file__).resolve().parent / "class"
     if options.check_donor_only:
         with tempfile.TemporaryDirectory(prefix="zk304-donor-check-") as folder:
-            services, power = _donor_directories(donor, Path(folder), tools)
-            classes = [*services.rglob("*.smali"), *power.rglob("*.smali")]
+            services, power, global_root = _donor_directories(donor, Path(folder), tools)
+            classes = [*services.rglob("*.smali"), *power.rglob("*.smali"), *global_root.rglob("*.smali")]
             if not classes:
                 raise ValueError("Raw DEX donor decoded without classes")
             print("[EU ZK304] PASS: raw DEX parsed, classes:", len(classes))
@@ -1038,7 +1002,7 @@ def _run(options):
     # Prepare and verify both targets before replacing either image.
     with tempfile.TemporaryDirectory(prefix="zk304-eu-") as folder:
         temp = Path(folder)
-        services, power = _donor_directories(donor, temp / "donor", tools)
+        services, power, global_root = _donor_directories(donor, temp / "donor", tools)
         changes, pending = {}, []
         modules = {name: globals()["_module_" + name]() for name in
                    ("contentcatcher", "broadcast", "notification", "greeze", "power", "global_taiwan")}
@@ -1054,7 +1018,8 @@ def _run(options):
                 changes["greeze"] = modules["greeze"]["port"](decoded, services, work / "greeze.json")
             else:
                 changes["power"] = modules["power"]["port"](decoded, power)
-                changes["global_taiwan"] = modules["global_taiwan"]["apply"](decoded)
+                changes["global_taiwan"] = modules["global_taiwan"]["port"](
+                    decoded, global_root, changes["power"]["ported_methods"])
             built = work / ("patched-" + source.name)
             verified = _dex_rebuild(infos, content, comment, dexes, work, decoded, tools, built)
             if source == jar:
