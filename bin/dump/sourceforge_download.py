@@ -12,10 +12,11 @@ import re
 import shutil
 import signal
 import subprocess
+import tarfile
 import tempfile
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit, urlunsplit
 
 # SourceForge officially allows use_mirror=<shortname>; mirror availability varies.
@@ -205,6 +206,73 @@ def convert_7z_to_zip(archive, output):
         if archive != output:
             archive.unlink(missing_ok=True)
         shutil.rmtree(extract_dir, ignore_errors=True)
+
+
+
+def is_tar_archive(path):
+    """Recognize gzip/bzip2/xz TAR and plain ustar without relying on URL suffix.
+
+    Some Xiaomi fastboot download links are opaque and the caller always names
+    the downloaded file source.zip. Checking only its filename loses the format.
+    """
+    try:
+        with path.open("rb") as stream:
+            magic = stream.read(512)
+    except OSError:
+        return False
+    return (magic.startswith((b"\\x1f\\x8b", b"BZh", b"\\xfd7zXZ\\x00"))
+            or magic[257:262] == b"ustar")
+
+
+def convert_tar_to_zip(archive, output):
+    """Stream TAR members into a ZIP without extracting a second full tree.
+
+    ZIP_STORED avoids recompressing huge fastboot images. tarfile's streaming
+    mode decompresses only once; no member is ever written to an arbitrary path.
+    """
+    temp_zip = output.parent / (output.name + ".tar-conversion.tmp")
+    temp_zip.unlink(missing_ok=True)
+    count = 0
+    seen = set()
+    try:
+        print("[DOWNLOAD] TAR archive detected; streaming to ZIP (no recompression)",
+              flush=True)
+        with tarfile.open(archive, mode="r|*") as src, zipfile.ZipFile(
+                temp_zip, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as dest:
+            for member in src:
+                if member.isdir():
+                    continue
+                name = member.name
+                path = PurePosixPath(name)
+                if (path.is_absolute() or ".." in path.parts or "\\\\" in name
+                        or not path.name or path.as_posix() in seen):
+                    raise ValueError("Unsafe or duplicated TAR member: " + name)
+                # Do not dereference symlinks, device entries or hardlinks.
+                if not member.isfile():
+                    raise ValueError("Unsupported non-file TAR member: " + name)
+                normalized = path.as_posix()
+                seen.add(normalized)
+                source = src.extractfile(member)
+                if source is None:
+                    raise ValueError("Cannot read TAR member: " + name)
+                with source, dest.open(
+                        normalized, "w", force_zip64=member.size >= zipfile.ZIP64_LIMIT
+                ) as target:
+                    shutil.copyfileobj(source, target, length=8 * 1024 * 1024)
+                count += 1
+                if count <= 20:
+                    print("[TAR] " + normalized, flush=True)
+        if count == 0:
+            raise ValueError("TAR archive contains no regular files")
+        temp_zip.replace(output)
+        print(f"[DOWNLOAD] Converted {count} TAR files to ZIP "
+              f"({output.stat().st_size} bytes)", flush=True)
+        return True
+    except (OSError, tarfile.TarError, ValueError, EOFError) as exc:
+        print(f"[ERROR] TAR to ZIP conversion failed: {exc}", flush=True)
+        return False
+    finally:
+        temp_zip.unlink(missing_ok=True)
 
 
 def is_html_file(path):
@@ -683,7 +751,13 @@ def download(url, output, connections=8, attempt_timeout=0):
 
 def valid_zip(output, expected_md5=''):
     """Validate the entire downloaded archive before declaring mirror success."""
-    if not output.is_file() or output.stat().st_size < 1024 or not zipfile.is_zipfile(output):
+    if not output.is_file() or output.stat().st_size < 1024:
+        print("[VERIFY] Missing or too-small download", flush=True)
+        return False
+    if not zipfile.is_zipfile(output):
+        with output.open("rb") as source:
+            magic = source.read(12).hex()
+        print(f"[VERIFY] Not a ZIP; first 12 bytes (hex): {magic}", flush=True)
         return False
     try:
         test = subprocess.run(
@@ -691,7 +765,11 @@ def valid_zip(output, expected_md5=''):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=600, check=False
         )
-        return test.returncode == 0 and check_md5(output, expected_md5)
+        if test.returncode != 0:
+            print(f"[VERIFY] unzip -tq failed (exit={test.returncode}); "
+                  "downloaded ZIP may be corrupted", flush=True)
+            return False
+        return check_md5(output, expected_md5)
     except (OSError, subprocess.TimeoutExpired):
         return False
 
@@ -800,7 +878,7 @@ def main():
         if success:
             print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
                   flush=True)
-        converted_7z = False
+        converted_archive = False
         # Google Drive may return a tiny quota HTML page for individual
         # aria2 ranges. aria2 then exits nonzero (Invalid range header),
         # leaving a partial ROM and its .aria2 control file. In run #22 the
@@ -835,12 +913,20 @@ def main():
                 print("[DOWNLOAD] Downloaded file is a 7z archive, not a ZIP; "
                       "converting it to the ZIP format the dump expects",
                       flush=True)
-                converted_7z = convert_7z_to_zip(output, output)
-                if converted_7z:
+                converted_archive = convert_7z_to_zip(output, output)
+                if converted_archive:
                     print("[DOWNLOAD] 7z conversion done; validating repacked ZIP",
                           flush=True)
-                success = converted_7z
-        if success and valid_zip(output, "" if converted_7z else args.expected_md5):
+                success = converted_archive
+        elif success and is_tar_archive(output):
+            # An expected MD5 refers to the original TAR bytes, not the ZIP.
+            if args.expected_md5 and not check_md5(output, args.expected_md5):
+                print("[WARN] TAR MD5 mismatch before conversion", flush=True)
+                success = False
+            else:
+                converted_archive = convert_tar_to_zip(output, output)
+                success = converted_archive
+        if success and valid_zip(output, "" if converted_archive else args.expected_md5):
             print(f"[DOWNLOAD] ZIP received from {name} ({output.stat().st_size} bytes)", flush=True)
             attempts.append({"mirror": name, "result": "ok"})
             selection_method = (classify_mirror_selection(name, probed) if sf else
