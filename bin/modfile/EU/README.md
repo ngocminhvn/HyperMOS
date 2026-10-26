@@ -39,8 +39,11 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   overwriting another method.
 - `bin/ddevice/DEBLOAT/debloat.sh` has its own EU-only checks preserving the
   stock Google apps and EU system updater; all other debloat remains active.
-- `bin/package/NOTIFICATION_FIX/notificationFIX.sh` skips Xiaomi.eu. This
-  prevents China-specific notification/PowerKeeper DEX transplants.
+- `bin/package/NOTIFICATION_FIX/notificationFIX.sh` routes Android 16 Xiaomi.eu
+  to its dedicated Global-aligned path. It does not import China PowerKeeper
+  DEX or the old four FCM/wakelock exceptions. Only four DADA Global303
+  cloud/region method deltas are applied to the original EU PowerKeeper DEX;
+  the original APK signature becomes invalid after this change.
 - On Android 16, CorePatch continues its requested signature/FLAG_SECURE
   patches but does **not** transplant China's Gboard/IME, ContentCatcher or
   NotificationFilterHelper behavior into Xiaomi.eu's native framework.
