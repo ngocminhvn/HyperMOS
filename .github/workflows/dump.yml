@@ -197,12 +197,16 @@ jobs:
           name="$(basename "$src")"
           case "$name" in
             *.tar.gz) name="${name%.tar.gz}" ;;
+            *.tar.xz) name="${name%.tar.xz}" ;;
+            *.tar.bz2) name="${name%.tar.bz2}" ;;
             *.tgz) name="${name%.tgz}" ;;
             *.zip) name="${name%.zip}" ;;
             *.7z) name="${name%.7z}" ;;
             *.tar) name="${name%.tar}" ;;
           esac
-          if [ -n "$name" ]; then out="DUMP_${name}.zip"; else out="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"; fi
+          # Preserve the downloaded ROM filename without the old DUMP_ prefix.
+          # Non-ZIP sources are packaged with the matching base name and .zip.
+          if [ -n "$name" ]; then out="${name}.zip"; else out="HyperMOS-dump-$DUMP_MODE-$GITHUB_RUN_NUMBER.zip"; fi
           echo "DUMP_OUT_NAME=$out" >> "$GITHUB_ENV"
           zip -q -r -1 "$GITHUB_WORKSPACE/$out" .
           ls -lh "$GITHUB_WORKSPACE/$out"
