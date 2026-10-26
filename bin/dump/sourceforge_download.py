@@ -86,7 +86,7 @@ def source_filename(url, sf_file_path=None):
         name = unquote(value.strip().strip('"')).replace("\\", "/").rsplit("/", 1)[-1]
         if (1 <= len(name) <= 240
                 and not any(ord(char) < 32 for char in name)
-                and re.search(r"\\.(zip|7z|tgz|tar\\.(?:gz|xz|bz2)|tar)$",
+                and re.search(r"\.(zip|7z|tgz|tar\.(?:gz|xz|bz2)|tar)$",
                               name, flags=re.I)):
             return name
         return None
