@@ -26,7 +26,19 @@ jobs:
               "Authorization": "Bearer " + os.environ["GH_TOKEN"],
               "Accept": "application/vnd.github+json",
               "User-Agent": "HyperMOS-donor-pin"})
-          with urllib.request.urlopen(req, timeout=180) as response:
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          try:
+              urllib.request.build_opener(NoRedirect).open(req, timeout=180)
+              raise RuntimeError("GitHub did not redirect to the artifact download")
+          except urllib.error.HTTPError as response:
+              if response.code not in (301, 302, 303, 307, 308):
+                  raise
+              location = response.headers["Location"]
+          # The redirect is a short-lived signed storage URL. Never forward
+          # the GitHub Authorization header to the artifact storage host.
+          with urllib.request.urlopen(location, timeout=180) as response:
               outer = response.read()
           with zipfile.ZipFile(io.BytesIO(outer)) as archive:
               if "HyperMOS-dump-base-2.zip" not in archive.namelist():
