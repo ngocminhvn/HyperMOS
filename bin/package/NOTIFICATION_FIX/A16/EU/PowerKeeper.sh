@@ -38,4 +38,4 @@ zipalign -c -p 4 "$tmp/aligned.apk"
 python3 "$meta" --base "$apk" --dex "$tmp/patched.dex" --output "$tmp/aligned.apk" --verify-only
 cp -f "$tmp/aligned.apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
-mods "[EU A16] PowerKeeper: 7 Global303 methods; stock EU GMS/Millet retained; EU metadata retained"
+mods "[EU A16] PowerKeeper: 4 Global303 cloud/region methods; stock EU GMS/Millet/thermal retained; source APK signature invalidated"
