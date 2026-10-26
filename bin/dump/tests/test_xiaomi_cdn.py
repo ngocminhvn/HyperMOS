@@ -73,6 +73,23 @@ class XiaomiStockCDNTest(unittest.TestCase):
             self.assertFalse(downloader.convert_tar_to_zip(path, path))
             self.assertFalse(zipfile.is_zipfile(path))
 
+    def test_opaque_cdn_uses_original_content_disposition_filename(self):
+        response = downloader.subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout='HTTP/2 200\\r\\nContent-Disposition: attachment; filename="Original_ROM.zip"\\r\\n',
+            stderr="")
+        with patch.object(downloader.subprocess, "run", return_value=response):
+            self.assertEqual(
+                downloader.source_filename("https://xm03.space/opaque-token"),
+                "Original_ROM.zip")
+
+    def test_filename_from_named_zip_url_needs_no_header_request(self):
+        with patch.object(downloader.subprocess, "run") as mocked:
+            self.assertEqual(
+                downloader.source_filename("https://example.org/MIUI_ROM.zip"),
+                "MIUI_ROM.zip")
+            mocked.assert_not_called()
+
     def test_legacy_recovery_archive_md5_check(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "stock.zip"
