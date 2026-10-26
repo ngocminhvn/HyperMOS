@@ -22,10 +22,21 @@ The following methods were **identical** in the two original JARs:
 implementations at these audited sites. The previous HyperMOS FCM
 autostart, Greeze and wakelock exceptions are disabled on main.
 
-`PowerKeeper.apk` is unchanged byte-for-byte by this EU notification
-pipeline, including its DEX and original signature. China notification
-patching, Doze, freeze/kill policy, Millet, thermal and TNM CPU controls
-are outside this change and remain as before.
+The PowerKeeper portion now ports exactly **four** audited Global303
+cloud/region methods on top of the original Xiaomi.eu EU309 `classes.dex`:
+`CloudUpdateReceiver.onReceive`, `LocalUpdateUtils.getCloudServer`,
+`LocalUpdateUtils.setServerConfigurations`, and `f.h.c(Context)`.
+The remaining EU `GmsObserver`, `ActiveStateController`, `KillProcessController`,
+Millet, Doze, wakelock, thermal and TNM controls stay stock. This is the
+Global cloud *selection logic*, not a promise that downloaded Global cloud
+payloads match, or that Messenger/Zalo notifications are fixed. EU's
+`MiuiBatteryIntelligence` 18-app list is untouched.
+
+A modified `classes.dex` makes the original APK's cryptographic signature
+**invalid**, even if all original `META-INF` entries, manifest, resources,
+assets and native libraries are retained. The APK is not resigned. On-device
+boot, package-scan, FCM, battery and heat tests are required before declaring
+it stable. China notification policy is unaffected.
 
 ## Independent non-notification patch
 
