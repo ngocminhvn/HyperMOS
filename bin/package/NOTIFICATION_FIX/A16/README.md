@@ -1,8 +1,11 @@
 # Android 16 notification policy
 
-- China: existing CN notification and PowerKeeper fixes remain unchanged.
-- Xiaomi.eu: its notification fix step is disabled; stock EU files are retained.
-- ZK comparison: EU/zk_policy.json is the only reference file. It includes
-  SHA-256 values and selected method names. The complete original donor is
-  archived in GitHub Actions run 39751679932. This JSON is not executable code.
-- Shared CorePatch, TNM and other Android versions are unchanged.
+- **China:** Current `CN/frameworkpatcher_cn_a16.py` and
+  `CN/PowerKeeper.sh` remain active and unchanged.
+- **Xiaomi.eu:** No EU notification, PowerKeeper, AppOps, Greeze or wakelock
+  patch is invoked by the EU dispatcher. Stock EU behavior is retained here.
+- **ZK reference:** The extracted contents of former `backupzk.zip` are
+  stored at their original paths under `A16/EU/`, including `ZK304/`.
+  The ZIP is deleted, and the files are only references: none is run or
+  installed during EU ROM builds.
+- CorePatch, Kaorios, TNM and other Android versions remain unchanged.
