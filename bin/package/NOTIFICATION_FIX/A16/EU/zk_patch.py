@@ -822,6 +822,22 @@ def _module_global_taiwan():
             ".end method"
         )
 
+    def google_maps_array_init(body):
+        owner = ROOT + "utils/PowerModeAdapter"
+        if "mGpsPkgName" not in body or "filled-new-array" not in body:
+            raise ValueError("PowerModeAdapter original EU map array not found")
+        header = body.splitlines()[0]
+        return (
+            header + "\n"
+            "    .registers 1\n\n"
+            '    const-string v0, "com.google.android.apps.maps"\n'
+            "    filled-new-array {v0}, [Ljava/lang/String;\n"
+            "    move-result-object v0\n"
+            f"    sput-object v0, L{owner};->mGpsPkgName:[Ljava/lang/String;\n\n"
+            "    return-void\n"
+            ".end method"
+        )
+
     def default_sleep_ui(body):
         if "Lmiui/os/HyperOSCustFeatureResolve;->getBoolean(Ljava/lang/String;Z)Z" not in body:
             raise ValueError("Global/TW EU Sleep Mode feature gate missing")
@@ -1213,7 +1229,7 @@ if __name__=="__main__":
             ("utils/InternationalAdapter.smali", "<clinit>()V",
              lambda b: empty_array_init(b, ROOT + "utils/InternationalAdapter", "mRestrictPkgs")),
             ("utils/PowerModeAdapter.smali", "<clinit>()V",
-             lambda b: empty_array_init(b, ROOT + "utils/PowerModeAdapter", "mGpsPkgName")),
+             google_maps_array_init),
             ("utils/Utils.smali", "isSleepModeViewVisable()Z", default_sleep_ui),
             ("f/h.smali", "c(Landroid/content/Context;)Lf/j;", dynamic_turbo_region),
         )
@@ -1236,6 +1252,7 @@ if __name__=="__main__":
             "ported_methods": methods,
             "ported_count": len(methods),
             "global_taiwan_static_defaults": ["sNetworkAllowApps", "AWEME_APP"],
+            "power_mode_gps_packages": ["com.google.android.apps.maps"],
             "taiwan_only_tablet_methods": "excluded",
             "gms_observer": "unchanged_by_global_taiwan_layer",
             "eu_killprocess_setUidState": "preserved",
