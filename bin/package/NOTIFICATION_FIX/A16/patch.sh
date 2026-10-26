@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A16 notification/power dispatch: independent China and EU policy.
+# A16 notification/power dispatch: CN patch only, EU stock + ZK reference extraction.
 set -euo pipefail
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
@@ -11,8 +11,10 @@ rom_source="$(tr -d '\r\n' < "$identity")"
 android_ver="$(tr -d '\r\n' < "$version")"
 [[ "$android_ver" == 16 ]] || { error "A16 Notification: Android $android_ver unsupported"; exit 1; }
 if [[ "$rom_source" == xiaomi_eu ]]; then
-  info "[EU A16] Applying scoped Global303/Taiwan303 aligned methods"
-  bash "$base/EU/patch.sh" || exit 1
+  info "[EU A16] Notification/PowerKeeper port disabled; unpacking ZK backup for reference only"
+  python3 "$base/EU/unpack_backupzk.py" \
+    --archive "$base/EU/backupzk.zip" \
+    --output "$work_dir/build/references/zk_eu" || exit 1
   exit 0
 fi
 [[ "$rom_source" == china ]] || { error "A16 Notification: unknown source $rom_source"; exit 1; }
