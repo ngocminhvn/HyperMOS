@@ -18,25 +18,32 @@ jobs:
         run: |
           set -euo pipefail
           BASE="bin/package/NOTIFICATION_FIX/A16/EU"
+          TEMP_DIR="$RUNNER_TEMP/backupzk-unpacked"
           python3 "$BASE/unpack_backupzk.py" \
             --archive "$BASE/backupzk.zip" \
-            --output "$BASE/zk_extracted"
-          test -s "$BASE/zk_extracted/_unpack_manifest.json"
-          python3 - "$BASE/zk_extracted/_unpack_manifest.json" <<'PY'
+            --output "$TEMP_DIR"
+          test -s "$TEMP_DIR/_unpack_manifest.json"
+          test -d "$TEMP_DIR/bin/package/NOTIFICATION_FIX/A16/EU"
+          python3 - "$TEMP_DIR/_unpack_manifest.json" <<'PY'
           import json,sys
           with open(sys.argv[1], encoding='utf-8') as f:
               d=json.load(f)
           assert d["member_count"] and d["installed_into_rom"] is False
-          print("ZK extraction members:", d["member_count"])
-          for row in d["files"]:
-              print("  ",row["path"],row["size"])
+          for item in d["files"]:
+              assert item["path"].startswith("bin/package/NOTIFICATION_FIX/A16/EU/")
+          print("ZK extraction members:",d["member_count"])
+          for item in d["files"]:
+              print(" ",item["path"],item["size"])
           PY
+          cp -a "$TEMP_DIR/bin/package/NOTIFICATION_FIX/A16/EU/." "$BASE/"
+          mkdir -p "$BASE/ZK304"
+          cp "$TEMP_DIR/_unpack_manifest.json" "$BASE/ZK304/backupzk_unpacked_manifest.json"
           rm -- "$BASE/backupzk.zip" "$BASE/unpack_backupzk.py"
           rm -- ".github/workflows/unpack-backupzk-once.yml"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- "$BASE" ".github/workflows/unpack-backupzk-once.yml"
-          git diff --cached --check
+          # Preserve original archive file contents, including original whitespace.
           git diff --cached --stat
-          git commit -m "refactor(eu): commit extracted ZK reference, remove backup zip"
+          git commit -m "refactor(eu): unpack ZK reference files and delete backup zip"
           git push origin HEAD:main

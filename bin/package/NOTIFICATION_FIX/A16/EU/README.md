@@ -1,10 +1,14 @@
-# Xiaomi.eu A16: stock notification/power policy
+# Xiaomi.eu A16: ZK source reference only
 
-EU notification/PowerKeeper mods are disabled. The previous Global303/
-Taiwan303 method patches have been removed.
+The nine-method Global303/Taiwan303 experimental port is removed. The EU
+notification / PowerKeeper dispatcher does not apply any of the files here.
 
-`zk_extracted/` contains the extracted reference files from the former
-`backupzk.zip`. These files are **not used or installed by ROM builds**.
-The original ZIP is removed to avoid duplicate binary storage.
+The historical `backupzk.zip` contents are unpacked into this directory,
+at their original internal paths, including `ZK304/zk304-miui-services.jar.zst`
+and `ZK304/zk304-powerkeeper.dex.zst`. The ZIP and one-time unpack
+automation are deleted after extraction.
 
-China patches are in `../CN` and remain active.
+`ZK304/backupzk_unpacked_manifest.json` records the original ZIP
+SHA-256, member inventory and sizes. Original source contents remain intact.
+These files are for future ZK ↔ EU source-level comparison, NOT installed
+automatically by the ROM build. The China patch path remains unchanged.

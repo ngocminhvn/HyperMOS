@@ -1,11 +1,11 @@
 # Android 16 notification policy
 
 - **China:** Current `CN/frameworkpatcher_cn_a16.py` and
-  `CN/PowerKeeper.sh` remain active, unchanged.
-- **Xiaomi.eu:** No notification, PowerKeeper, GMS, AppOps, Greeze or
-  wakelock fixes are applied by this path. Its original stock JAR/APK
-  behavior is retained.
-- **ZK reference:** Files extracted from the historical `backupzk.zip`
-  are stored under `EU/zk_extracted/`; they are for source comparison only.
-  The ZIP archive and build-time unpacker are removed.
-- CorePatch, Kaorios, TNM and other Android versions are unchanged.
+  `CN/PowerKeeper.sh` remain active and unchanged.
+- **Xiaomi.eu:** No EU notification, PowerKeeper, AppOps, Greeze or wakelock
+  patch is invoked by the EU dispatcher. Stock EU behavior is retained here.
+- **ZK reference:** The extracted contents of former `backupzk.zip` are
+  stored at their original paths under `A16/EU/`, including `ZK304/`.
+  The ZIP is deleted, and the files are only references: none is run or
+  installed during EU ROM builds.
+- CorePatch, Kaorios, TNM and other Android versions remain unchanged.
