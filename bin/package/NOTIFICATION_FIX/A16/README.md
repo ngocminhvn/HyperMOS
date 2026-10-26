@@ -7,7 +7,7 @@
   Global303/Taiwan303 PowerKeeper DEX. Required ZK donor DEX files under
   `EU/class/` remain `miui-services/classes.dex` and `powerkeeper/classes.dex`.
 - Global/Taiwan layer: cloud update receiver and server selection (remove EU
-  XOpt-only gate), InternationalAdapter static defaults, PowerModeAdapter maps,
+  XOpt-only gate), InternationalAdapter static defaults, PowerModeAdapter with only Google Maps,
   Sleep Mode UI fallback and DynamicTurboPower region gate. These are scoped
   structural method edits, *not* a whole Global/Taiwan APK or tablet swap.
 - Taiwan-only `PadSleepModeController` changes are skipped on phones. ZK/EU
