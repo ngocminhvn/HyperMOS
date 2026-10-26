@@ -1,0 +1,81 @@
+{
+  "source": "EU/backupzk.zip",
+  "archive_sha256": "87fd611272156eb3f68e733d94454db2d7e580a04ada36c806782332f68e58f2",
+  "member_count": 21,
+  "files": [
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/donor_greeze_policy_port_a16.py",
+      "size": 7459
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/contentcatcher_eu_a16.py",
+      "size": 3040
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/verify_fcm_delivery_a16.py",
+      "size": 5007
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/donor_notification_policy_a16.py",
+      "size": 5918
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/donor_powerkeeper_port_a16.py",
+      "size": 6765
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/tests/test_fcm_delivery_a16.py",
+      "size": 2363
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/tests/test_contentcatcher_eu_a16.py",
+      "size": 2846
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/tests/test_eu_powerkeeper_routing.py",
+      "size": 1019
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/tests/test_broadcast_greeze_a16.py",
+      "size": 3066
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/tests/test_donor_powerkeeper_port_a16.py",
+      "size": 1555
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/tests/test_donor_notification_policy_a16.py",
+      "size": 1561
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/tests/test_eu_powerkeeper_keep_metadata.py",
+      "size": 5066
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/eu_powerkeeper_keep_metadata.py",
+      "size": 6181
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/PowerKeeper_donor.sh",
+      "size": 3238
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/ZK304/manifest.json",
+      "size": 552
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-miui-services.jar.zst",
+      "size": 3714449
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/ZK304/zk304-powerkeeper.dex.zst",
+      "size": 1274853
+    },
+    {
+      "path": "bin/package/NOTIFICATION_FIX/A16/EU/verify_broadcast_greeze_a16.py",
+      "size": 7034
+    }
+  ],
+  "installed_into_rom": false,
+  "purpose": "historical ZK reference for later audit only"
+}
