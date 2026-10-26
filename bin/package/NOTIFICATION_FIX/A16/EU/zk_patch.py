@@ -570,6 +570,12 @@ def _module_power():
         "Lcom/miui/powerkeeper/controller/ActiveStateController;",
         "Lcom/miui/powerkeeper/controller/KillProcessController;",
     )
+    # Keep these exact methods from the stock EU DEX; never replace with ZK.
+    KEEP_EU_METHODS = {
+        "Lcom/miui/powerkeeper/controller/KillProcessController;": (
+            "setUidState(IZ)V",
+        ),
+    }
     # ZK_BUILD is a renamed native international property in the EU integration.
     ZK_FIELD = "Lmiui/zk/Build;->IS_ZK_BUILD:Z"
     NATIVE_FIELD = "Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z"
@@ -635,17 +641,25 @@ def _module_power():
     def port(eu_root, zk_root):
         eu, zk = index(eu_root), index(zk_root)
         pending, changed, skipped, unchanged, missing = {}, [], [], [], []
+        preserved = []
         for owner in TARGETS:
             if owner not in eu or owner not in zk:
                 missing.append(owner)
                 continue
             src = eu[owner]["source"]
+            keep = KEEP_EU_METHODS.get(owner, ())
+            for signature in keep:
+                if signature not in eu[owner]["methods"]:
+                    raise ValueError(f"Missing stock EU method to preserve: {owner}->{signature}")
+                preserved.append(owner + "->" + signature)
             replacements = {}
             for signature, donor in zk[owner]["methods"].items():
                 key = owner + "->" + signature
                 if signature not in eu[owner]["methods"]:
                     missing.append(key)
                     continue
+                if signature in keep:
+                    continue  # Preserve exact Xiaomi.eu original body and dependencies.
                 donor = transform(donor)
                 original = eu[owner]["methods"][signature]
                 if normalized(original) == normalized(donor):
@@ -680,6 +694,7 @@ def _module_power():
             "eu_original_classes_methods_fields_preserved": True,
             "ported_count": len(changed),
             "ported_methods": changed,
+            "preserved_eu_methods": preserved,
             "unchanged_count": len(unchanged),
             "rejected_count": len(skipped),
             "rejected_methods": skipped,
