@@ -20,6 +20,20 @@ class RyuPolicyTest(unittest.TestCase):
         self.assertIn('info "[EU A16]', eu_branch)
         self.assertNotIn('log "[EU A16]', eu_branch)
 
+    def test_eu_global_alignment_does_not_reintroduce_fcm_bypasses(self):
+        driver = (BASE / "patch.sh").read_text(encoding="utf-8")
+        self.assertIn("Global303-equivalent", driver)
+        self.assertIn('python3 "$base/ryu_policy.py"', driver)
+        self.assertNotIn('python3 "$base/fcm_autostart.py"', driver)
+        self.assertNotIn('python3 "$base/fcm_greeze.py"', driver)
+        self.assertNotIn('python3 "$base/fcm_wakelock.py"', driver)
+        self.assertNotIn('PowerKeeper.sh', driver)
+        # Global-equivalent stock policy may not be supplanted by broad
+        # FCM/GMS wake-lock overrides.
+        self.assertNotIn('com.google.android.c2dm.intent.RECEIVE', driver)
+        self.assertNotIn('GCM_CONN_ALARM', driver)
+        self.assertNotIn('GCM_WORK', driver)
+
     def test_manifest_retains_only_process_policy(self):
         manifest = RYU.load(BASE / "ryu_policy.json")
         rows = manifest["groups"]["miui-services"]
