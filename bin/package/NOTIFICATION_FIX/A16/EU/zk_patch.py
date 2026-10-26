@@ -399,13 +399,18 @@ def _module_greeze():
             "updateDynamicIsLandInfo(",
         ),
         "com/miui/server/greeze/InternationalPolicyManager.smali": (
-            "getImportantApps(", "updateDeviceIdleApps(",
+            "updateDeviceIdleApps(",
         ),
         "com/android/server/DeviceIdleControllerStubImpl.smali": (
             "isLowPowerDozeEnable(",
         ),
         "com/android/server/am/ProcessManagerService.smali": (
             "notifyProcessStarted(",
+        ),
+    }
+    KEEP_EU = {
+        "com/miui/server/greeze/InternationalPolicyManager.smali": (
+            "getImportantApps()Ljava/util/List;",
         ),
     }
     ALIASES = {
@@ -513,6 +518,9 @@ def _module_greeze():
         for rel, target_names in TARGETS.items():
             eu = members(eu_root, rel)
             zk = members(zk_root, rel)
+            for signature in KEEP_EU.get(rel, ()):
+                if signature not in eu["methods"]:
+                    raise ValueError("Missing stock EU method to preserve: " + rel + "->" + signature)
             if eu["owner"] != zk["owner"]:
                 raise ValueError("Mismatched owner class: " + rel)
             edited, statuses = patch_pair(eu, zk, target_names)
@@ -533,6 +541,7 @@ def _module_greeze():
             "mode": "selective_donor_method_body_port",
             "changed_methods": count,
             "method_results": results,
+            "preserved_eu_methods": KEEP_EU,
             "policy_source_build_flag": "Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z",
             "apk_powerkeeper": "unchanged_by_this_step",
             "runtime_verified": False,
