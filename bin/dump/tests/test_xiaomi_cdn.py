@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Offline regression tests for Xiaomi official stock-ROM CDN mirror selection."""
 import hashlib
+import io
 import importlib.util
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -44,6 +46,32 @@ class XiaomiStockCDNTest(unittest.TestCase):
                 "https://example.org/ROM.zip")
             self.assertEqual((candidates, reports), ([], []))
             mocked.assert_not_called()
+
+    def test_opaque_fastboot_tgz_converts_to_valid_zip(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "source.zip"  # The dump workflow uses this name.
+            data = b"fastboot-image" * 1000
+            with tarfile.open(path, "w:gz") as tar:
+                member = tarfile.TarInfo("dada_images/images/super.img")
+                member.size = len(data)
+                tar.addfile(member, io.BytesIO(data))
+            self.assertTrue(downloader.is_tar_archive(path))
+            self.assertTrue(downloader.convert_tar_to_zip(path, path))
+            self.assertTrue(downloader.valid_zip(path))
+            with zipfile.ZipFile(path) as archive:
+                self.assertEqual(
+                    archive.read("dada_images/images/super.img"), data)
+
+    def test_reject_traversal_inside_tar(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "source.zip"
+            with tarfile.open(path, "w:gz") as tar:
+                member = tarfile.TarInfo("../unsafe.img")
+                member.size = 4
+                tar.addfile(member, io.BytesIO(b"test"))
+            self.assertTrue(downloader.is_tar_archive(path))
+            self.assertFalse(downloader.convert_tar_to_zip(path, path))
+            self.assertFalse(zipfile.is_zipfile(path))
 
     def test_legacy_recovery_archive_md5_check(self):
         with tempfile.TemporaryDirectory() as d:
