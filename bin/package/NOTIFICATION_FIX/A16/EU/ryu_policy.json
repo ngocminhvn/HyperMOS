@@ -15,6 +15,6 @@
       }
     ]
   },
-  "scope": "Only ProcessPolicy.updateContentCatcherWhitelist retained; PackageManagerServiceImpl and ActivitySecurityHelper method overrides disabled here. FCM delivery and GCM wakelock patches run separately.",
+  "scope": "Only ProcessPolicy.updateContentCatcherWhitelist retained; PackageManagerServiceImpl and ActivitySecurityHelper method overrides disabled here. Original Global303-equivalent EU notification and power methods are preserved; custom FCM and wakelock patches are no longer applied.",
   "powerkeeper": "Xiaomi.eu stock, unmodified, original signature"
 }
