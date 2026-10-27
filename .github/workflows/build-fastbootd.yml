@@ -28,6 +28,16 @@ on:
         required: true
         type: boolean
         default: true
+      export_vendor:
+        description: 'Export vendor.img (SELinux precompiled policy cache)'
+        required: true
+        type: boolean
+        default: false
+      export_odm:
+        description: 'Export odm.img (SELinux precompiled policy cache)'
+        required: true
+        type: boolean
+        default: false
       builder_id:
         description: 'Optional builder ID (same as standard HyperMOS build)'
         required: false
@@ -88,6 +98,8 @@ jobs:
           EXPORT_SYSTEM_EXT: ${{ inputs.export_system_ext }}
           EXPORT_PRODUCT: ${{ inputs.export_product }}
           EXPORT_MI_EXT: ${{ inputs.export_mi_ext }}
+          EXPORT_VENDOR: ${{ inputs.export_vendor }}
+          EXPORT_ODM: ${{ inputs.export_odm }}
         run: |
           set -euo pipefail
           python3 bin/fastbootd/export.py --self-test
@@ -96,6 +108,8 @@ jobs:
           [[ "$EXPORT_SYSTEM_EXT" == true ]] && chosen+=(system_ext) || true
           [[ "$EXPORT_PRODUCT" == true ]] && chosen+=(product) || true
           [[ "$EXPORT_MI_EXT" == true ]] && chosen+=(mi_ext) || true
+          [[ "$EXPORT_VENDOR" == true ]] && chosen+=(vendor) || true
+          [[ "$EXPORT_ODM" == true ]] && chosen+=(odm) || true
           (( ${#chosen[@]} > 0 )) || { echo "::error::Select at least one partition"; exit 1; }
           FASTBOOTD_PARTITIONS="$(IFS=,; printf '%s' "${chosen[*]}")"
           python3 bin/fastbootd/export.py --select "$FASTBOOTD_PARTITIONS"
