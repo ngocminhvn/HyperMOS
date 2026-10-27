@@ -69,7 +69,6 @@ def assignments(config: dict[str, bool]) -> dict[str, bool]:
         "KAORIOS_ENABLE_SECURE_FLAG": config["secure_flag"],
         "KAORIOS_ENABLE_COREPATCH": config["corepatch"],
         "KAORIOS_INSTALL_TOOLBOX": config["enabled"],
-        "KAORIOS_VALIDATE_KEYBOX": config["keybox"],
         "KAORIOS_VERBOSE_LOG": False,
     }
 

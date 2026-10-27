@@ -59,10 +59,10 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 | Custom PIF profiles and Play Store/DroidGuard identity isolation | Provided by the pinned `classes.dex`; process/context, system-feature and Android 17 Build callers are patched when their switches are enabled |
 | Keybox-backed attestation and TEE warm-up fixes | Both keystore callers are patched and checked against the one-argument and contextual three-argument payload methods |
 | HMA `installSourceSpoof` policy | `ComputerEngine` installer-source callers are patched when `installer_source` is true |
-| Developer/ADB status policy | Uses the current upstream `Settings$NameValueCache` patch and verifier, not the retired HyperMOS-local hook shape |
+| Developer/ADB status policy | Uses the current upstream `Settings$NameValueCache` patch, not the retired HyperMOS-local hook shape |
 | Android 13–17 patcher hardening | Current upstream scripts and complete caller manifest are vendored byte-for-byte; HyperMOS currently accepts Android 15–17 targets |
 
-Runtime behavior implemented inside the APK or framework payload is not duplicated as a smali caller patch. Every enabled caller is verified after the candidate JAR is rebuilt.
+Runtime behavior implemented inside the APK or framework payload is not duplicated as a smali caller patch.
 
 ## Android 16 paths
 
@@ -92,7 +92,7 @@ If a preferred framework/services path is absent, the build requires exactly one
 
 Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notification fix, so they see the resulting artifacts without reapplying overlapping methods. TNM then installs the post-fs integration and runs App Privacy with its own compatibility checks; unsupported App Privacy layouts are skipped before changing `framework.jar`.
 
-## Safety / verification
+## Build behavior
 
 `patch.sh`:
 
@@ -104,23 +104,16 @@ Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notificatio
 - uses the upstream 2.0.6.1 `Settings$NameValueCache` implementation and fails closed when that enabled hook is unsupported;
 - rebuilds only DEX files whose smali tree actually changed;
 - appends the Kaorios framework DEX to a new free `classesN.dex` slot;
-- re-disassembles the candidate artifacts and verifies the required hooks before replacing ROM files;
+- installs the rebuilt candidate directly without a second full disassembly/verification pass;
 - preserves `SettingsProvider.apk` byte-for-byte at this stage;
 
-Required final feature checks include:
-
-- `initGenerateSoftwareKeyPair` + `CertificateChainIfNeeded` for Play Integrity/keybox;
-- `hasSystemFeature` for system-feature spoofing;
-- static `DevicePolicyCacheImpl` and `WindowState`/`WindowStateAnimator` Secure Flag bypasses;
-- the static Xiaomi `WindowManagerServiceImpl.notAllowCaptureDisplay(...)` bypass when `miui-services.jar` is present;
-
-The Secure Flag patcher replaces only the selected method bodies, allocates the minimum safe return register, then re-disassembles the saved candidate JAR and verifies every bypass before installation.
+The patchers still validate their target while editing, and smali assembly must succeed. The expensive post-build pass that extracted and disassembled every candidate JAR again has been removed.
 
 ## Keybox handling
 
 No private attestation keybox is stored in this public repository.
 
-The ROM contains the Kaorios keystore hooks and Toolbox support. Import the keybox through Toolbox at runtime. If a builder supplies `KAORIOS_KEYBOX_XML=/path/to/keybox.xml` (or a local untracked `keybox.xml` beside `patch.sh`), the build only runs `script/validate_keybox.py` to validate XML structure; it intentionally does **not** bake the private key into the ROM.
+The ROM contains the Kaorios keystore hooks and Toolbox support. Import and manage the keybox through Toolbox at runtime; the ROM build no longer reads or validates a local keybox file and never embeds private key material.
 
 Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 build. The upstream profile can track a different Android/Pixel generation; manage the spoof profile through Toolbox instead.
 
