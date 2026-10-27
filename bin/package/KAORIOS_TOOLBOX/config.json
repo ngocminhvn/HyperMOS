@@ -1,17 +1,15 @@
 {
-  "master": true,
-  "activity_thread": true,
-  "instrumentation": true,
-  "keybox": true,
-  "system_feature_spoof": true,
-  "system_server": true,
-  "hidden_app": true,
-  "installer_source": true,
-  "devstatus": true,
-  "build_spoof": true,
-  "secure_flag": true,
-  "corepatch": true,
-  "install_toolbox": true,
-  "validate_keybox": true,
-  "verbose_log": false
+  "KaoriosToolbox": [
+    {
+      "enabled": true,
+      "pif_spoof": true,
+      "keybox": true,
+      "hidden_app": true,
+      "installer_source": true,
+      "devstatus": true,
+      "build_spoof": true,
+      "secure_flag": true,
+      "corepatch": true
+    }
+  ]
 }

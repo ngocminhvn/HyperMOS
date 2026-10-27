@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Kaorios config.json and emit fixed, shell-safe assignments."""
+"""Validate compact Kaorios config.json and emit derived build switches."""
 from __future__ import annotations
 
 import argparse
@@ -8,23 +8,18 @@ from pathlib import Path
 import sys
 
 
-SCHEMA = {
-    "master": "KAORIOS_MASTER",
-    "activity_thread": "KAORIOS_ENABLE_ACTIVITY_THREAD",
-    "instrumentation": "KAORIOS_ENABLE_INSTRUMENTATION",
-    "keybox": "KAORIOS_ENABLE_KEYBOX",
-    "system_feature_spoof": "KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF",
-    "system_server": "KAORIOS_ENABLE_SYSTEM_SERVER",
-    "hidden_app": "KAORIOS_ENABLE_HIDDEN_APP",
-    "installer_source": "KAORIOS_ENABLE_INSTALLER_SOURCE",
-    "devstatus": "KAORIOS_ENABLE_DEVSTATUS",
-    "build_spoof": "KAORIOS_ENABLE_BUILD_SPOOF",
-    "secure_flag": "KAORIOS_ENABLE_SECURE_FLAG",
-    "corepatch": "KAORIOS_ENABLE_COREPATCH",
-    "install_toolbox": "KAORIOS_INSTALL_TOOLBOX",
-    "validate_keybox": "KAORIOS_VALIDATE_KEYBOX",
-    "verbose_log": "KAORIOS_VERBOSE_LOG",
-}
+ROOT_KEY = "KaoriosToolbox"
+FEATURES = (
+    "enabled",
+    "pif_spoof",
+    "keybox",
+    "hidden_app",
+    "installer_source",
+    "devstatus",
+    "build_spoof",
+    "secure_flag",
+    "corepatch",
+)
 
 
 def unique_object(pairs):
@@ -38,25 +33,51 @@ def unique_object(pairs):
 
 def load_config(path: Path) -> dict[str, bool]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+        root = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         raise ValueError(f"cannot read valid JSON from {path}: {error}") from error
-    if not isinstance(value, dict):
-        raise ValueError("top-level config must be a JSON object")
-    missing = sorted(set(SCHEMA) - set(value))
-    unknown = sorted(set(value) - set(SCHEMA))
+    if not isinstance(root, dict) or set(root) != {ROOT_KEY}:
+        raise ValueError(f"top level must contain only {ROOT_KEY!r}")
+    entries = root[ROOT_KEY]
+    if not isinstance(entries, list) or len(entries) != 1 or not isinstance(entries[0], dict):
+        raise ValueError(f"{ROOT_KEY} must be an array containing exactly one object")
+    config = entries[0]
+    missing = sorted(set(FEATURES) - set(config))
+    unknown = sorted(set(config) - set(FEATURES))
     if missing or unknown:
-        raise ValueError(f"config keys mismatch; missing={missing}, unknown={unknown}")
-    invalid = sorted(key for key, item in value.items() if type(item) is not bool)
+        raise ValueError(f"feature keys mismatch; missing={missing}, unknown={unknown}")
+    invalid = sorted(key for key, item in config.items() if type(item) is not bool)
     if invalid:
-        raise ValueError(f"config values must be JSON booleans: {invalid}")
-    return value
+        raise ValueError(f"feature values must be JSON booleans: {invalid}")
+    return config
+
+
+def assignments(config: dict[str, bool]) -> dict[str, bool]:
+    runtime = config["pif_spoof"] or config["keybox"]
+    system_server = runtime or config["hidden_app"] or config["installer_source"] or config["devstatus"]
+    return {
+        "KAORIOS_MASTER": config["enabled"],
+        "KAORIOS_ENABLE_ACTIVITY_THREAD": runtime,
+        "KAORIOS_ENABLE_INSTRUMENTATION": runtime,
+        "KAORIOS_ENABLE_KEYBOX": config["keybox"],
+        "KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF": config["pif_spoof"],
+        "KAORIOS_ENABLE_SYSTEM_SERVER": system_server,
+        "KAORIOS_ENABLE_HIDDEN_APP": config["hidden_app"],
+        "KAORIOS_ENABLE_INSTALLER_SOURCE": config["installer_source"],
+        "KAORIOS_ENABLE_DEVSTATUS": config["devstatus"],
+        "KAORIOS_ENABLE_BUILD_SPOOF": config["build_spoof"],
+        "KAORIOS_ENABLE_SECURE_FLAG": config["secure_flag"],
+        "KAORIOS_ENABLE_COREPATCH": config["corepatch"],
+        "KAORIOS_INSTALL_TOOLBOX": config["enabled"],
+        "KAORIOS_VALIDATE_KEYBOX": config["keybox"],
+        "KAORIOS_VERBOSE_LOG": False,
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path)
-    parser.add_argument("--get", choices=tuple(SCHEMA), help="print one JSON value only")
+    parser.add_argument("--get", choices=FEATURES, help="print one feature value only")
     args = parser.parse_args()
     try:
         config = load_config(args.config)
@@ -66,8 +87,8 @@ def main() -> int:
     if args.get:
         print("true" if config[args.get] else "false")
     else:
-        for key, variable in SCHEMA.items():
-            print(f"{variable}={'true' if config[key] else 'false'}")
+        for variable, value in assignments(config).items():
+            print(f"{variable}={'true' if value else 'false'}")
     return 0
 
 

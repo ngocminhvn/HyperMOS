@@ -8,16 +8,27 @@ target_dir="$work_dir/bin/package/"
 # non-overlapping Xiaomi patches; Kaorios owns signature/downgrade and Secure Flag.
 kaorios_config="$target_dir/KAORIOS_TOOLBOX/config.json"
 kaorios_config_loader="$target_dir/KAORIOS_TOOLBOX/mod/load-config.py"
+if [[ -v KAORIOS_MASTER ]]; then
+  kaorios_enabled_value="$KAORIOS_MASTER"
+else
+  kaorios_enabled_value=$(python3 "$kaorios_config_loader" "$kaorios_config" --get enabled) || exit 1
+fi
 if [[ -v KAORIOS_ENABLE_COREPATCH ]]; then
   kaorios_corepatch_value="$KAORIOS_ENABLE_COREPATCH"
 else
   kaorios_corepatch_value=$(python3 "$kaorios_config_loader" "$kaorios_config" --get corepatch) || exit 1
 fi
+case "${kaorios_enabled_value,,}" in
+  1|true|yes|on) kaorios_enabled=1 ;;
+  0|false|no|off) kaorios_enabled=0 ;;
+  *) error "KAORIOS: invalid enabled boolean: $kaorios_enabled_value"; exit 1 ;;
+esac
 case "${kaorios_corepatch_value,,}" in
-  1|true|yes|on) kaorios_corepatch=1 ;;
-  0|false|no|off) kaorios_corepatch=0 ;;
+  1|true|yes|on) kaorios_corepatch_enabled=1 ;;
+  0|false|no|off) kaorios_corepatch_enabled=0 ;;
   *) error "KAORIOS: invalid CorePatch boolean: $kaorios_corepatch_value"; exit 1 ;;
 esac
+kaorios_corepatch=$((kaorios_enabled && kaorios_corepatch_enabled))
 hypermos_corepatch_args=()
 if [[ "$kaorios_corepatch" == "1" ]]; then
   hypermos_corepatch_args+=(--kaorios)
