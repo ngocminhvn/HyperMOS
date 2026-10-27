@@ -33,7 +33,7 @@ DRIVER_DEX="$KAORIOS_DIR/classes.dex"
 TOOLBOX_APK="$KAORIOS_DIR/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
-DEVSTATUS_PATCHER="$MOD_DIR/patch-settings-namevaluecache.py"
+UPSTREAM_TARGET_VERIFIER="$MOD_DIR/verify-upstream-target.py"
 BUILD_SPOOF_VERIFIER="$MOD_DIR/verify-build-spoof-a17.py"
 SECURE_FLAG_PATCHER="$MOD_DIR/patch-secure-flag.py"
 CONFIG="$KAORIOS_DIR/config.sh"
@@ -79,7 +79,6 @@ for flag in \
   KAORIOS_ENABLE_COREPATCH \
   KAORIOS_INSTALL_TOOLBOX \
   KAORIOS_VALIDATE_KEYBOX \
-  KAORIOS_DEVSTATUS_STRICT \
   KAORIOS_VERBOSE_LOG; do
   validate_bool "$flag"
 done
@@ -192,7 +191,7 @@ if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   require_file "$VALIDATE_KEYBOX" "keybox validator"
 fi
 if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
-  require_file "$DEVSTATUS_PATCHER" "dev-status patcher"
+  require_file "$UPSTREAM_TARGET_VERIFIER" "upstream target verifier"
 fi
 if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
   require_file "$SECURE_FLAG_PATCHER" "Secure Flag patcher"
@@ -496,34 +495,19 @@ ensure_no_existing_driver() {
   fi
 }
 
-# Per-app "hide Developer options / ADB". Upstream documents this target as an
-# optional, per-ROM patch, so unsupported layouts can warn or fail via config.
-# Legacy KAORIOS_SKIP_DEVSTATUS / KAORIOS_STRICT_DEVSTATUS remain accepted.
+# Per-app "hide Developer options / ADB" using the current upstream caller.
+# An enabled but unsupported layout fails closed; KAORIOS_SKIP_DEVSTATUS=1 is
+# retained as a legacy opt-out and is equivalent to disabling the feature.
 apply_devstatus_patch() {
-  local root="$1" rc=0
+  local root="$1"
   if ! is_enabled "$KAORIOS_ENABLE_DEVSTATUS" || [[ "${KAORIOS_SKIP_DEVSTATUS:-0}" == "1" ]]; then
     info "KAORIOS: dev-status (Developer options/ADB) patch disabled"
     return 0
   fi
-  if is_enabled "$KAORIOS_DEVSTATUS_STRICT" || [[ "${KAORIOS_STRICT_DEVSTATUS:-0}" == "1" ]]; then
-    python3 "$DEVSTATUS_PATCHER" "$root" --strict || rc=$?
-  else
-    python3 "$DEVSTATUS_PATCHER" "$root" || rc=$?
-  fi
-  case "$rc" in
-    0)
-      NVC_APPLIED=1
-      info "KAORIOS: Settings\$NameValueCache dev-status hook applied"
-      ;;
-    3)
-      warn "KAORIOS: Settings\$NameValueCache layout unsupported; dev-status hook not applied"
-      ;;
-    *)
-      error "KAORIOS: dev-status patcher failed (rc=$rc)"
-      return 1
-      ;;
-  esac
-  return 0
+  patch_target_file "$root" 'android/provider/Settings$NameValueCache.smali' \
+    'Settings$NameValueCache' 1 || return 1
+  NVC_APPLIED=1
+  info "KAORIOS: upstream Settings\$NameValueCache dev-status hook applied"
 }
 
 update_archive_dexes() {
@@ -661,7 +645,10 @@ verify_framework_final() {
   fi
 
   if (( NVC_APPLIED == 1 )); then
-    python3 "$DEVSTATUS_PATCHER" "$root" --verify-only --verify-roundtrip >/dev/null || {
+    local nvc_file
+    nvc_file=$(find_target_file "$root" 'android/provider/Settings$NameValueCache.smali' \
+      'Settings$NameValueCache') || return 1
+    python3 "$UPSTREAM_TARGET_VERIFIER" "$PATCHER" "$nvc_file" >/dev/null || {
       error "KAORIOS: final verification failed: dev-status (Developer options/ADB) hook"
       return 1
     }

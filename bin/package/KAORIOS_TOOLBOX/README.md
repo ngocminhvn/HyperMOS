@@ -4,7 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. The dev-status helper remains MOD-local and does not modify the upstream patcher. Current upstream script snapshot: `04a1cf4b58529c8f3a2450f0aa1e0fd2eb3dd48a`.
+Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. Current upstream script snapshot: `04a1cf4b58529c8f3a2450f0aa1e0fd2eb3dd48a`.
 
 ## Scope
 
@@ -44,13 +44,25 @@ Custom boot animation is enabled by default: `bin/modfile/UpdateFile/Boot/update
 | `KAORIOS_ENABLE_COREPATCH` | Run the Kaorios CorePatch signature/downgrade pass after the non-overlapping HyperMOS CorePatch pass |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
 | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
-| `KAORIOS_DEVSTATUS_STRICT` | Fail instead of warning when the dev-status layout is unsupported |
 
 Accepted boolean values are `true/false`, `1/0`, `yes/no`, and `on/off`. Environment variables override the defaults, so CI can change a switch without editing the file.
 
 The framework driver DEX is added whenever an enabled feature needs `KaoriosHook`, including callers in `services.jar`. Build spoof does not force the driver by itself.
 
 `KAORIOS_ENABLE_HIDDEN_APP` and `KAORIOS_ENABLE_INSTALLER_SOURCE` are independent; disabling one no longer implicitly disables/enables the other.
+
+## v2.0.6.1 release coverage
+
+| Upstream release feature | HyperMOS integration |
+|---|---|
+| RKP keybox extraction/generation and runtime keybox management | Provided by the pinned upstream Toolbox APK; no framework caller patch is added for this app-side root workflow |
+| Custom PIF profiles and Play Store/DroidGuard identity isolation | Provided by the pinned `classes.dex`; process/context, system-feature and Android 17 Build callers are patched when their switches are enabled |
+| Keybox-backed attestation and TEE warm-up fixes | Both keystore callers are patched and checked against the one-argument and contextual three-argument payload methods |
+| HMA `installSourceSpoof` policy | `ComputerEngine` installer-source callers are patched when `KAORIOS_ENABLE_INSTALLER_SOURCE=true` |
+| Developer/ADB status policy | Uses the current upstream `Settings$NameValueCache` patch and verifier, not the retired HyperMOS-local hook shape |
+| Android 13–17 patcher hardening | Current upstream scripts and complete caller manifest are vendored byte-for-byte; HyperMOS currently accepts Android 15–17 targets |
+
+Runtime behavior implemented inside the APK or framework payload is not duplicated as a smali caller patch. Every enabled caller is verified after the candidate JAR is rebuilt.
 
 ## Build order
 
@@ -74,6 +86,7 @@ Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notificatio
 - decompiles every `classes*.dex` separately;
 - requires the expected target classes before modifying anything;
 - uses upstream `kaorios_patcher.py --mode 1` for hook targets and `--mode 2` for the Android 17 Build spoof targets;
+- uses the upstream 2.0.6.1 `Settings$NameValueCache` implementation and fails closed when that enabled hook is unsupported;
 - rebuilds only DEX files whose smali tree actually changed;
 - appends the Kaorios framework DEX to a new free `classesN.dex` slot;
 - re-disassembles the candidate artifacts and verifies the required hooks before replacing ROM files;
