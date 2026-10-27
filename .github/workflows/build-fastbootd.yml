@@ -143,6 +143,7 @@ jobs:
             2>&1 | tee -a build_action.log
 
       - name: Repack selected dynamic partition images
+        id: repack
         shell: bash
         run: |
           set -euo pipefail
@@ -150,6 +151,10 @@ jobs:
           sudo -E bash bin/package/TNM/patch.sh --check-lock 2>&1 | tee -a build_action.log
           sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
           test -s out/fastbootd/manifest.json
+          FASTBOOTD_ARTIFACT_NAME=$(python3 -c \
+            'import json; print(json.load(open("out/fastbootd/manifest.json"))["artifact_name"])')
+          echo "artifact_name=$FASTBOOTD_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "[FASTBOOTD] Artifact: ${FASTBOOTD_ARTIFACT_NAME}.zip"
           echo "### FastbootD images" >> "$GITHUB_STEP_SUMMARY"
           python3 - <<'PY'
           import json
@@ -163,7 +168,7 @@ jobs:
       - name: Upload selected images as GitHub Actions Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FastbootD-${{ github.run_number }}-${{ github.sha }}
+          name: ${{ steps.repack.outputs.artifact_name }}
           path: out/fastbootd/
           if-no-files-found: error
           compression-level: 0

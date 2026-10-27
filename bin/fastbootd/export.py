@@ -47,6 +47,23 @@ def read_label(root: Path, name: str) -> str:
     return value
 
 
+def read_source_filename(root: Path) -> str:
+    path = root / "bin/ddevice/source_rom_filename.txt"
+    if not path.is_file():
+        raise ValueError("Missing build metadata: source_rom_filename.txt")
+    value = path.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._+()\-]{1,240}", value):
+        raise ValueError("Unsafe or missing metadata in source_rom_filename.txt")
+    return value
+
+
+def artifact_name(source_filename: str, partitions: tuple[str, ...]) -> str:
+    name = source_filename + "#" + "#".join(partitions)
+    if len(name) > 255:
+        raise ValueError("FastbootD artifact name exceeds 255 characters")
+    return name
+
+
 def hash_file(path: Path) -> tuple[int, str]:
     if not path.is_file() or path.is_symlink():
         raise ValueError("Missing or non-regular image: " + str(path))
@@ -66,6 +83,7 @@ def export(root: Path, out: Path, partitions: tuple[str, ...]) -> dict:
         key: read_label(root, key)
         for key in ("device_f.txt", "base_rom_code.txt", "androidver.txt", "rom_source.txt")
     }
+    source_filename = read_source_filename(root)
     if (out / "images").exists():
         raise ValueError("Refusing to overwrite a previous FastbootD artifact")
     info = {}
@@ -89,6 +107,8 @@ def export(root: Path, out: Path, partitions: tuple[str, ...]) -> dict:
         "base_rom_code": metadata["base_rom_code.txt"],
         "android": metadata["androidver.txt"],
         "rom_source": metadata["rom_source.txt"],
+        "source_zip": source_filename,
+        "artifact_name": artifact_name(source_filename, partitions),
         "github_sha": os.environ.get("GITHUB_SHA", "local"),
         "github_run_number": os.environ.get("GITHUB_RUN_NUMBER", "local"),
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -155,6 +175,7 @@ def self_test() -> None:
             "base_rom_code.txt": "OS3.0.309.0.WOBCNXM",
             "androidver.txt": "16",
             "rom_source.txt": "xiaomi_eu",
+            "source_rom_filename.txt": "xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_test.zip",
         }.items():
             (md / name).write_text(value)
         img = root / "build/baserom/images"
@@ -183,6 +204,9 @@ def self_test() -> None:
         assert (img / "boot.img").read_bytes() == b"boot untouched"
         assert not (out / "images/boot.img").exists()
         assert result["boot_init_boot_vbmeta_super_userdata_included"] is False
+        assert result["artifact_name"] == (
+            "xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_test.zip#system_ext#system"
+        )
         assert (out / "SHA256SUMS.txt").read_text().count(".img") == 2
     print("[FASTBOOTD] self-test PASS")
 

@@ -95,6 +95,15 @@ else
     exit
 fi
 
+# Preserve the resolved source archive name after URL normalization. FastbootD
+# uses this metadata for its artifact name after the source ZIP is deleted.
+source_rom_filename="${baserom##*/}"
+if [[ ! "$source_rom_filename" =~ ^[A-Za-z0-9._+()_-]{1,240}$ ]]; then
+    error "BASEROM: Unsafe source archive filename: $source_rom_filename"
+    return 1
+fi
+printf '%s\n' "$source_rom_filename" > "$work_dir/bin/ddevice/source_rom_filename.txt"
+
 
 # Get ROM Info
 if [ "$(echo $baserom |grep miui_)" != "" ]; then
