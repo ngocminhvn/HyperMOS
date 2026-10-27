@@ -56,14 +56,18 @@ def load_config(path: Path) -> dict[str, bool]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path)
+    parser.add_argument("--get", choices=tuple(SCHEMA), help="print one JSON value only")
     args = parser.parse_args()
     try:
         config = load_config(args.config)
     except ValueError as error:
         print(f"KAORIOS: {error}", file=sys.stderr)
         return 1
-    for key, variable in SCHEMA.items():
-        print(f"{variable}={'true' if config[key] else 'false'}")
+    if args.get:
+        print("true" if config[args.get] else "false")
+    else:
+        for key, variable in SCHEMA.items():
+            print(f"{variable}={'true' if config[key] else 'false'}")
     return 0
 
 

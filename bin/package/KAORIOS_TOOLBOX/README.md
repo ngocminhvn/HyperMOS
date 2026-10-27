@@ -25,7 +25,7 @@ Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xi
 
 ## Per-feature config
 
-Edit `config.json` to enable or disable each feature independently. Values must be the JSON booleans `true` or `false`; strings such as `"true"`, missing keys, duplicate keys and unknown keys stop the build. `config.sh` is an internal loader and should not be edited.
+Edit `config.json` to enable or disable each feature independently. Values must be the JSON booleans `true` or `false`; strings such as `"true"`, missing keys, duplicate keys and unknown keys stop the build. There is no secondary shell configuration file.
 
 Environment variables remain optional CI overrides. When an override is present, it takes precedence over `config.json` and accepts `true/false`, `1/0`, `yes/no`, or `on/off`.
 

@@ -6,12 +6,17 @@ target_dir="$work_dir/bin/package/"
 
 # HyperMOS and Kaorios CorePatch run separately. HyperMOS owns only its
 # non-overlapping Xiaomi patches; Kaorios owns signature/downgrade and Secure Flag.
-# shellcheck source=/dev/null
-source "$target_dir/KAORIOS_TOOLBOX/config.sh" || exit 1
-case "${KAORIOS_ENABLE_COREPATCH,,}" in
+kaorios_config="$target_dir/KAORIOS_TOOLBOX/config.json"
+kaorios_config_loader="$target_dir/KAORIOS_TOOLBOX/mod/load-config.py"
+if [[ -v KAORIOS_ENABLE_COREPATCH ]]; then
+  kaorios_corepatch_value="$KAORIOS_ENABLE_COREPATCH"
+else
+  kaorios_corepatch_value=$(python3 "$kaorios_config_loader" "$kaorios_config" --get corepatch) || exit 1
+fi
+case "${kaorios_corepatch_value,,}" in
   1|true|yes|on) kaorios_corepatch=1 ;;
   0|false|no|off) kaorios_corepatch=0 ;;
-  *) error "KAORIOS: invalid boolean KAORIOS_ENABLE_COREPATCH=$KAORIOS_ENABLE_COREPATCH"; exit 1 ;;
+  *) error "KAORIOS: invalid CorePatch boolean: $kaorios_corepatch_value"; exit 1 ;;
 esac
 hypermos_corepatch_args=()
 if [[ "$kaorios_corepatch" == "1" ]]; then

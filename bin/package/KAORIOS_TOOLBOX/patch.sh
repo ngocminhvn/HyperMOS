@@ -33,17 +33,24 @@ DRIVER_DEX="$KAORIOS_DIR/classes.dex"
 TOOLBOX_APK="$KAORIOS_DIR/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
-UPSTREAM_TARGET_VERIFIER="$MOD_DIR/verify-upstream-target.py"
-BUILD_SPOOF_VERIFIER="$MOD_DIR/verify-build-spoof-a17.py"
 SECURE_FLAG_PATCHER="$MOD_DIR/patch-secure-flag.py"
-CONFIG="$KAORIOS_DIR/config.sh"
+CONFIG="$KAORIOS_DIR/config.json"
+CONFIG_LOADER="$MOD_DIR/load-config.py"
 
-if [[ ! -f "$CONFIG" ]]; then
-  error "KAORIOS: missing config: $CONFIG"
+if [[ ! -f "$CONFIG" || ! -f "$CONFIG_LOADER" ]]; then
+  error "KAORIOS: missing config.json or its loader"
   exit 1
 fi
-# shellcheck source=/dev/null
-source "$CONFIG"
+if ! config_values=$(python3 "$CONFIG_LOADER" "$CONFIG"); then
+  exit 1
+fi
+while IFS='=' read -r config_name config_value; do
+  [[ -n "$config_name" ]] || continue
+  if [[ ! -v "$config_name" ]]; then
+    printf -v "$config_name" '%s' "$config_value"
+  fi
+done <<< "$config_values"
+unset config_values config_name config_value
 
 is_enabled() {
   case "${1,,}" in
@@ -190,14 +197,8 @@ fi
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   require_file "$VALIDATE_KEYBOX" "keybox validator"
 fi
-if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
-  require_file "$UPSTREAM_TARGET_VERIFIER" "upstream target verifier"
-fi
 if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
   require_file "$SECURE_FLAG_PATCHER" "Secure Flag patcher"
-fi
-if build_spoof_enabled_for_target; then
-  require_file "$BUILD_SPOOF_VERIFIER" "Build spoof verifier"
 fi
 
 if archive_patch_needed; then
@@ -352,6 +353,23 @@ find_target_file() {
   require_one_target "$root" "$rel" "$label" || return 1
   file=$(find "$root" -type f -path "*/$rel" -print -quit)
   printf '%s\n' "$file"
+}
+
+verify_upstream_target() {
+  local target="$1"
+  python3 -I - "$PATCHER" "$target" <<'PY'
+import importlib.util
+from pathlib import Path
+import sys
+
+patcher_path, target = map(Path, sys.argv[1:])
+spec = importlib.util.spec_from_file_location("kaorios_upstream_patcher", patcher_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(f"cannot load upstream Kaorios patcher: {patcher_path}")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.verify_target_content(target.name, target.read_bytes().decode("utf-8"))
+PY
 }
 
 patch_target_file() {
@@ -637,7 +655,12 @@ verify_framework_final() {
   fi
 
   if build_spoof_enabled_for_target; then
-    python3 "$BUILD_SPOOF_VERIFIER" "$root" >/dev/null || {
+    local build_file build_version_file
+    build_file=$(find_target_file "$root" 'android/os/Build.smali' 'Build') || return 1
+    build_version_file=$(find_target_file "$root" 'android/os/Build$VERSION.smali' \
+      'Build$VERSION') || return 1
+    verify_upstream_target "$build_file" >/dev/null &&
+      verify_upstream_target "$build_version_file" >/dev/null || {
       error "KAORIOS: final verification failed: Android 17 Build spoof"
       return 1
     }
@@ -648,7 +671,7 @@ verify_framework_final() {
     local nvc_file
     nvc_file=$(find_target_file "$root" 'android/provider/Settings$NameValueCache.smali' \
       'Settings$NameValueCache') || return 1
-    python3 "$UPSTREAM_TARGET_VERIFIER" "$PATCHER" "$nvc_file" >/dev/null || {
+    verify_upstream_target "$nvc_file" >/dev/null || {
       error "KAORIOS: final verification failed: dev-status (Developer options/ADB) hook"
       return 1
     }
