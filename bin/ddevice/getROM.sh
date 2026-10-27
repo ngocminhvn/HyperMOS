@@ -3,6 +3,10 @@
 baserom="$1"
 work_dir=$(pwd)
 source $work_dir/functions.sh
+sourceforge_verify_args=()
+if [[ "${HYPERMOS_FASTBOOTD_ONLY:-0}" == "1" ]]; then
+    sourceforge_verify_args+=(--skip-full-zip-test)
+fi
 # Check whether it is a local package or a link
 if [ ! -f "${baserom}" ] && [ "$(echo $baserom |grep http)" != "" ]; then
     info "Download link detected, starting a download..."
@@ -37,7 +41,8 @@ PY
             --output "$work_dir/$sf_zip_name" \
             --report "$work_dir/build/sourceforge-mirror-report.json" \
             --attempt-timeout-seconds 300 \
-            --max-mirror-attempts 6 || {
+            --max-mirror-attempts 6 \
+            "${sourceforge_verify_args[@]}" || {
                 error "SourceForge ROM download/ZIP verification failed"
                 return 1
             }
@@ -60,7 +65,8 @@ PY
             --output "$work_dir/$eu_basename" \
             --report "$work_dir/build/eu-mirror-report.json" \
             --attempt-timeout-seconds 300 \
-            --max-mirror-attempts 6 || {
+            --max-mirror-attempts 6 \
+            "${sourceforge_verify_args[@]}" || {
                 error "EU: source ZIP download failed"
                 return 1
             }

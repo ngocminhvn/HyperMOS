@@ -257,7 +257,7 @@ def convert_tar_to_zip(archive, output):
                     continue
                 name = member.name
                 path = PurePosixPath(name)
-                if (path.is_absolute() or chr(92) in name
+                if (path.is_absolute() or ".." in path.parts or chr(92) in name
                         or not path.name or path.as_posix() in seen):
                     raise ValueError("Unsafe or duplicated TAR member: " + name)
                 # Do not dereference symlinks, device entries or hardlinks.
@@ -762,8 +762,8 @@ def download(url, output, connections=8, attempt_timeout=0):
         return False
 
 
-def valid_zip(output, expected_md5=''):
-    """Validate the entire downloaded archive before declaring mirror success."""
+def valid_zip(output, expected_md5='', skip_full_test=False):
+    """Validate a downloaded archive before declaring mirror success."""
     if not output.is_file() or output.stat().st_size < 1024:
         print("[VERIFY] Missing or too-small download", flush=True)
         return False
@@ -772,6 +772,9 @@ def valid_zip(output, expected_md5=''):
             magic = source.read(12).hex()
         print(f"[VERIFY] Not a ZIP; first 12 bytes (hex): {magic}", flush=True)
         return False
+    if skip_full_test:
+        print("[VERIFY] FastbootD mode: skipped full unzip -tq scan", flush=True)
+        return check_md5(output, expected_md5)
     try:
         test = subprocess.run(
             ["unzip", "-tq", str(output)],
@@ -805,6 +808,8 @@ def main():
                     help="Optional existing rclone config for authenticated Drive fallback")
     ap.add_argument("--expected-md5", default="",
                     help="Optional 32-hex expected full ROM MD5 for authenticity check")
+    ap.add_argument("--skip-full-zip-test", action="store_true",
+                    help="Skip the expensive unzip -tq scan after download")
     args = ap.parse_args()
     if not (1 <= args.parallel_mirrors <= 5 and 1 <= args.connections <= 16):
         ap.error("parallel-mirrors must be 1..5 and connections must be 1..16")
@@ -889,8 +894,12 @@ def main():
         success = download(url, output, connections=args.connections,
                            attempt_timeout=args.attempt_timeout_seconds)
         if success:
-            print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
-                  flush=True)
+            if args.skip_full_zip_test:
+                print(f"[VERIFY] aria2 finished {name}; checking ZIP format only",
+                      flush=True)
+            else:
+                print(f"[VERIFY] aria2 finished {name}; checking full ROM ZIP integrity",
+                      flush=True)
         converted_archive = False
         # Google Drive may return a tiny quota HTML page for individual
         # aria2 ranges. aria2 then exits nonzero (Invalid range header),
@@ -939,7 +948,11 @@ def main():
             else:
                 converted_archive = convert_tar_to_zip(output, output)
                 success = converted_archive
-        if success and valid_zip(output, "" if converted_archive else args.expected_md5):
+        if success and valid_zip(
+                output,
+                "" if converted_archive else args.expected_md5,
+                skip_full_test=args.skip_full_zip_test,
+        ):
             print(f"[DOWNLOAD] ZIP received from {name} ({output.stat().st_size} bytes)", flush=True)
             attempts.append({"mirror": name, "result": "ok"})
             selection_method = (classify_mirror_selection(name, probed) if sf else

@@ -100,6 +100,16 @@ class XiaomiStockCDNTest(unittest.TestCase):
             self.assertTrue(downloader.valid_zip(p, actual))
             self.assertFalse(downloader.valid_zip(p, "0" * 32))
 
+    def test_fastbootd_skips_full_zip_scan(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "fastboot.zip"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("images/super.img", b"A" * 4096,
+                                 compress_type=zipfile.ZIP_STORED)
+            with patch.object(downloader.subprocess, "run") as mocked:
+                self.assertTrue(downloader.valid_zip(path, skip_full_test=True))
+                mocked.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
