@@ -2,6 +2,8 @@
 
 This directory integrates Kaorios Toolbox using the maintained upstream patcher in `script/kaorios_patcher.py`.
 
+Pinned runtime assets are grouped under `app/`: `KaoriosToolbox.apk`, the framework payload `classes.dex`, and `com.kousei.kaorios.xml`.
+
 ### Upstream ownership rule
 
 Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. Current upstream script snapshot: `04a1cf4b58529c8f3a2450f0aa1e0fd2eb3dd48a`.
@@ -65,6 +67,21 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 | Android 13–17 patcher hardening | Current upstream scripts and complete caller manifest are vendored byte-for-byte; HyperMOS currently accepts Android 15–17 targets |
 
 Runtime behavior implemented inside the APK or framework payload is not duplicated as a smali caller patch. Every enabled caller is verified after the candidate JAR is rebuilt.
+
+## Android 16 paths
+
+For an Android 16 build, the integration resolves and updates these locations:
+
+| Purpose | Path |
+|---|---|
+| Source APK | `bin/package/KAORIOS_TOOLBOX/app/KaoriosToolbox.apk` |
+| Source framework payload | `bin/package/KAORIOS_TOOLBOX/app/classes.dex` |
+| Framework target | `build/baserom/images/system/system/framework/framework.jar` |
+| Services target | `build/baserom/images/system/system/framework/services.jar` |
+| Installed Toolbox APK | `build/baserom/images/system_ext/priv-app/KaoriosToolbox/KaoriosToolbox.apk` |
+| Installed permission allowlist | `build/baserom/images/system_ext/etc/permissions/com.kousei.kaorios.xml` |
+
+If a preferred framework/services path is absent, the build requires exactly one matching artifact below `build/baserom/images`. The payload DEX is inserted into the next free `classesN.dex` slot inside `framework.jar`; it is not copied as a standalone system file. Android 16 uses mode 1 hooks and skips the Android 17-only Build spoof.
 
 ## Build order
 
