@@ -4,7 +4,7 @@ set -euo pipefail
 # HyperMOS integration for Kaorios Toolbox.
 # Upstream-owned scripts are vendored byte-for-byte from Kaorios upstream.
 # MOD-only behavior is kept outside those files in mod-kaorios-adapter.py.
-# Upstream script snapshot: 9a50d37fbe160279925218703653122c0671f383
+# Upstream script snapshot: 04a1cf4b58529c8f3a2450f0aa1e0fd2eb3dd48a
 # The package driver applies Kaorios CorePatch immediately before this stage.
 # This stage adds Toolbox hooks and MOD-local static FLAG_SECURE bypasses.
 #
@@ -119,6 +119,14 @@ framework_driver_needed() {
   is_enabled "$KAORIOS_ENABLE_DEVSTATUS"
 }
 
+complete_framework_manifest_enabled() {
+  is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD" &&
+  is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION" &&
+  is_enabled "$KAORIOS_ENABLE_KEYBOX" &&
+  is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF" &&
+  (( NVC_APPLIED == 1 ))
+}
+
 build_spoof_enabled_for_target() {
   [[ "$ANDROID_VER" == "17" ]] && is_enabled "$KAORIOS_ENABLE_BUILD_SPOOF"
 }
@@ -134,7 +142,7 @@ archive_patch_needed() {
 
 # Pin both reviewed v2.0.6.1 release payloads. Updating either asset requires an
 # explicit integration update instead of silently changing a ROM build.
-DRIVER_GIT_BLOB="391745ecb46a6d8576d98d2a5380f666fb1409fd"
+DRIVER_GIT_BLOB="1c84b5964116b4c90d1b110ec26042dae9314355"
 TOOLBOX_GIT_BLOB="182c355137aa6cb8f0bb2942ad3e95ec88514960"
 
 # Set to 1 once the dev-status hook is confirmed present in the framework smali,
@@ -224,7 +232,7 @@ if framework_driver_needed; then
   verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework driver DEX"
 fi
 
-TEMP_ROOT="$work_dir/jar_temp/kaorios-v2060"
+TEMP_ROOT="$work_dir/jar_temp/kaorios-v2061"
 rm -rf "$TEMP_ROOT"
 mkdir -p "$TEMP_ROOT"
 cleanup() {
@@ -349,9 +357,17 @@ find_target_file() {
 
 patch_target_file() {
   local root="$1" rel="$2" label="$3" mode="${4:-1}" file patch_log
+  local payload_args=()
   file=$(find_target_file "$root" "$rel" "$label") || return 1
   patch_log="$TEMP_ROOT/kaorios-patcher.log"
-  if ! python3 "$PATCHER" "$file" --android-version "$ANDROID_VER" --mode "$mode" --no-delay >"$patch_log" 2>&1; then
+  if [[ "$mode" == "1" ]] && framework_driver_needed; then
+    if [[ ! -d "$TEMP_ROOT/payload-smali" ]]; then
+      run_baksmali "$DRIVER_DEX" "$TEMP_ROOT/payload-smali"
+    fi
+    payload_args=(--payload-smali "$TEMP_ROOT/payload-smali")
+  fi
+  if ! python3 "$PATCHER" "$file" --android-version "$ANDROID_VER" --mode "$mode" --no-delay \
+    "${payload_args[@]}" >"$patch_log" 2>&1; then
     error "KAORIOS: patcher failed for $label"
     tail -n 100 "$patch_log" >&2 || true
     return 1
@@ -590,6 +606,8 @@ verify_framework_final() {
         'initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;' "driver keypair implementation"
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;' "driver certificate implementation"
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'CertificateChainIfNeeded(Ljava/lang/Object;Ljava/lang/String;[Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;' "driver contextual certificate implementation"
     fi
     if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
@@ -616,9 +634,10 @@ verify_framework_final() {
     fi
   fi
 
-  # The upstream verifier also validates the ActivityThread caller. Only run it
-  # when that caller is enabled; partial configs use the targeted checks above.
-  if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
+  # The current upstream verifier requires the complete six-caller manifest.
+  # Independent feature switches and a non-strict unsupported dev-status layout
+  # use the targeted checks above instead of reporting a false full-manifest pass.
+  if complete_framework_manifest_enabled; then
     if [[ "$ANDROID_VER" == "17" ]]; then
       python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null || {
         error "KAORIOS: final verification failed: framework hook verifier"
@@ -630,6 +649,7 @@ verify_framework_final() {
         return 1
       }
     fi
+    info "KAORIOS: complete upstream framework caller manifest verified"
   fi
 
   if build_spoof_enabled_for_target; then

@@ -49,21 +49,29 @@ def verify(text: str) -> None:
         raise ValueError("expected exact invoke-static {}, Landroid/security/kaorios/KaoriosHook;->initSystemServer()V in run()V")
 
     anchors = list(EXECUTABLE_ANCHOR_RE.finditer(body))
-    if not anchors:
-        raise ValueError("expected Looper.loop() in SystemServer.run()V")
+    if len(anchors) != 1:
+        raise ValueError(f"expected exactly one Looper.loop() in SystemServer.run()V; found {len(anchors)}")
 
-    if hooks[0].start() > anchors[0].start():
-        raise ValueError("hook must precede Looper.loop() in SystemServer.run()V")
+    gap = body[hooks[0].end():anchors[0].start()]
+    gap = re.sub(r'(?m)^[ \t]*(?:#.*|\.(?:line|local|end local|restart local)[^\n]*)$', '', gap)
+    if hooks[0].start() > anchors[0].start() or gap.strip():
+        raise ValueError("hook must immediately precede Looper.loop() in SystemServer.run()V")
 
 
-def patch(text: str) -> str:
+def patch(text: str, update: bool = False) -> str:
     """Inject KaoriosHook.initSystemServer()V right before Looper.loop() in SystemServer.run()V."""
     start, end = _method_span(text)
     body = text[start:end]
 
     if EXECUTABLE_HOOK_RE.search(body):
-        verify(text)
-        return text
+        try:
+            verify(text)
+            return text
+        except ValueError:
+            if not update:
+                raise
+        hook_re = re.compile(r'(?m)^[ \t]*' + re.escape(HOOK_CALL) + r'[ \t]*(?:\r?\n|$)+')
+        body = hook_re.sub('', body)
 
     anchor_matches = list(re.finditer(r"(?m)^(?P<indent>[ \t]*)" + re.escape(ANCHOR_CALL) + r"[ \t]*(?:\r?\n|$)", body))
     if len(anchor_matches) == 0:
@@ -87,6 +95,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Patch Android 17 SystemServer.smali for Kaorios")
     parser.add_argument("smali_path", type=Path, help="Path to SystemServer.smali")
     parser.add_argument("--check-only", action="store_true", help="Verify without modifying")
+    parser.add_argument("--update", action="store_true", help="Update existing hook")
     args = parser.parse_args()
 
     content = args.smali_path.read_text(encoding="utf-8")
@@ -94,7 +103,7 @@ def main() -> None:
         verify(content)
         print("OK: SystemServer smali verified")
     else:
-        patched = patch(content)
+        patched = patch(content, update=args.update)
         args.smali_path.write_text(patched, encoding="utf-8")
         print("OK: SystemServer smali patched")
 

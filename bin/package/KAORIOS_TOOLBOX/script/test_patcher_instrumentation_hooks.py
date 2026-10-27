@@ -22,6 +22,14 @@ def instrumentation(first_body='    const/4 v0, 0x0\n    return-object v0\n',
 
 
 class InstrumentationHookTest(unittest.TestCase):
+    def test_update_repairs_one_missing_method_without_recursion(self):
+        patched, _ = patcher.patch_instrumentation(instrumentation())
+        partial = patched.replace('    invoke-static {p3}, Landroid/security/kaorios/KaoriosHook;->initContext(Landroid/content/Context;)V\n', '', 1)
+        result, changed = patcher.patch_instrumentation(partial, update=True)
+        self.assertTrue(changed)
+        patcher.verify_target_content('Instrumentation.smali', result)
+        self.assertEqual((result, False), patcher.patch_instrumentation(result, update=True))
+
     def test_comment_only_hook_is_not_already_patched(self):
         original = instrumentation('    # invoke-static {p2}, '
                                    'Landroid/security/kaorios/KaoriosHook;->initContext(Landroid/content/Context;)V\n'

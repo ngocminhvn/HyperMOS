@@ -16,6 +16,25 @@ SOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 
 class PatcherPackageTest(unittest.TestCase):
+    def test_instrumentation_regressions_are_shipped(self):
+        self.assertIn('script/test_patcher_instrumentation_hooks.py', packager.MEMBERS)
+
+    def test_required_caller_manifest_and_extracted_regressions_are_shipped(self):
+        self.assertIn('script/framework_hook_manifest.py', packager.MEMBERS)
+        self.assertIn('script/test_name_value_cache_hooks.py', packager.MEMBERS)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / 'package.zip'
+            packager.package(SOURCE_ROOT, archive_path)
+            extracted = root / 'extracted'
+            extracted.mkdir()
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(extracted)
+            result = subprocess.run(
+                [sys.executable, '-I', str(extracted / 'script/test_name_value_cache_hooks.py')],
+                cwd=root, capture_output=True, text=True, timeout=30)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_reproducible_sorted_zip_and_source_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

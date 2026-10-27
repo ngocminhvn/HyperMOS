@@ -4,7 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. The dev-status helper remains MOD-local and does not modify the upstream patcher. Current upstream script snapshot: `9a50d37fbe160279925218703653122c0671f383`.
+Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. The dev-status helper remains MOD-local and does not modify the upstream patcher. Current upstream script snapshot: `04a1cf4b58529c8f3a2450f0aa1e0fd2eb3dd48a`.
 
 ## Scope
 
@@ -69,7 +69,8 @@ Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notificatio
 
 `patch.sh`:
 
-- pins both reviewed v2.0.6.1 release payloads (`KaoriosToolbox.apk` SHA-256 `b6d7a83fef7dd5ec2f43319597def24371cd05d64d91fb9e5e3c161f2f407fcf`, `classes.dex` SHA-256 `ca9489f388e8717463c1f33a56c298a4b6bd5785b82d11f20da1deb65c799c9a`);
+- pins both reviewed v2.0.6.1 release payloads (`KaoriosToolbox.apk` SHA-256 `b6d7a83fef7dd5ec2f43319597def24371cd05d64d91fb9e5e3c161f2f407fcf`, `classes.dex` SHA-256 `94848e186f697e43f0274c545a1350eb2a84b517d3cf1d7e6f50c7b6aec7709d`);
+- validates every generated hook call against the disassembled pinned payload before changing a ROM artifact;
 - decompiles every `classes*.dex` separately;
 - requires the expected target classes before modifying anything;
 - uses upstream `kaorios_patcher.py --mode 1` for hook targets and `--mode 2` for the Android 17 Build spoof targets;
@@ -98,7 +99,8 @@ Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 bu
 ## Upstream
 
 - Kaorios Toolbox: `hzzmonetvn/Kaorios-Toolbox`
-- Maintained guide: `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.1_VI.md`
+- Pinned release: `https://github.com/hzzmonetvn/Kaorios-Toolbox/releases/tag/v2.0.6.1`
+- Maintained guide: `Toolbox-docs/2.0.6+/Patch_Guide_2.0.6.1_VI.md`
 
 ## AdvancedPolicy / SELinux
 

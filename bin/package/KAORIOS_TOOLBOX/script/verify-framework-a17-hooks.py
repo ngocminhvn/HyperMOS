@@ -63,6 +63,11 @@ def verify_kaorios_hook(smali_root: Path) -> Path:
         raise ValueError(
             f"expected exactly one exact Object overload initActivityThread(Ljava/lang/Object;)V in KaoriosHook; found {len(matches)}"
         )
+    path = Path(__file__).with_name("patch-framework-a17-plan.py")
+    spec = importlib.util.spec_from_file_location("framework_plan", path)
+    planner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(planner)
+    planner.validate_kaorios_hook_smali(text)
     return hook_file
 
 
@@ -73,6 +78,8 @@ def verify_advanced_policy_classes(smali_root: Path) -> list[Path]:
         matches = list(smali_root.rglob(rel_path))
         if len(matches) == 0:
             missing.append(rel_path)
+        elif len(matches) != 1:
+            raise ValueError(f"duplicate AdvancedPolicy class: {rel_path}")
         else:
             verified.append(matches[0])
     if missing:
@@ -82,10 +89,37 @@ def verify_advanced_policy_classes(smali_root: Path) -> list[Path]:
     return verified
 
 
+def load_framework_module(filename: str):
+    path = Path(__file__).with_name(filename)
+    spec = importlib.util.spec_from_file_location(filename.replace('.', '_'), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def caller_files(smali_root: Path) -> list[Path]:
+    files = []
+    for relative in load_framework_module('framework_hook_manifest.py').FRAMEWORK_HOOKS:
+        matches = sorted(smali_root.rglob(relative))
+        if len(matches) != 1:
+            raise ValueError(f'expected exactly one {relative}; found {len(matches)}')
+        path = matches[0]
+        expected = 'L' + relative[:-6] + ';'
+        declarations = re.findall(
+            r'(?m)^\.class[ \t]+(?:[^\r\n]*?[ \t]+)?(L[^\s;]+;)[ \t]*$',
+            path.read_bytes().decode('utf-8'))
+        if declarations != [expected]:
+            raise ValueError(f'{path}: expected class descriptor {expected}')
+        files.append(path)
+    return files
+
+
 def verify_caller(smali_root: Path) -> Path:
-    activity_thread = find_activity_thread(smali_root)
-    load_patcher().verify(activity_thread.read_bytes().decode("utf-8"))
-    return activity_thread
+    patcher = load_framework_module('kaorios_patcher.py')
+    files = caller_files(smali_root)
+    for path in files:
+        patcher.verify_target_content(path.name, path.read_bytes().decode('utf-8'))
+    return files[0]
 
 
 def verify_root(
@@ -111,7 +145,7 @@ def main() -> None:
     parser.add_argument(
         "--caller-only",
         action="store_true",
-        help="Only verify ActivityThread caller hook",
+        help="Only verify the required framework caller hooks",
     )
     parser.add_argument(
         "--skip-advanced-policy",

@@ -4,58 +4,22 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
-import struct
+import re
 from pathlib import Path
 
 
-def read_uleb128(data: bytes, offset: int) -> tuple[int, int]:
-    result = 0
-    shift = 0
-    while True:
-        b = data[offset]
-        offset += 1
-        result |= (b & 0x7F) << shift
-        if (b & 0x80) == 0:
-            break
-        shift += 7
-    return result, offset
+_spec = importlib.util.spec_from_file_location(
+    "framework_artifact_plan", Path(__file__).with_name("patch-framework-a17-plan.py")
+)
+_framework_plan = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_framework_plan)
 
 
 def get_dex_classes(data: bytes) -> set[str]:
-    """Parse class_def_item descriptors from DEX binary header."""
-    if len(data) < 0x70 or not data.startswith(b"dex\n"):
-        return set()
-    try:
-        string_ids_size, string_ids_off = struct.unpack_from("<II", data, 0x38)
-        type_ids_size, type_ids_off = struct.unpack_from("<II", data, 0x40)
-        class_defs_size, class_defs_off = struct.unpack_from("<II", data, 0x60)
-
-        def get_string(idx: int) -> str:
-            if idx >= string_ids_size:
-                return ""
-            str_off = struct.unpack_from("<I", data, string_ids_off + idx * 4)[0]
-            _, cur = read_uleb128(data, str_off)
-            null_idx = data.find(b"\x00", cur)
-            if null_idx == -1:
-                return ""
-            return data[cur:null_idx].decode("utf-8", errors="replace")
-
-        def get_type_desc(type_idx: int) -> str:
-            if type_idx >= type_ids_size:
-                return ""
-            desc_idx = struct.unpack_from("<I", data, type_ids_off + type_idx * 4)[0]
-            return get_string(desc_idx)
-
-        classes = set()
-        for i in range(class_defs_size):
-            class_idx = struct.unpack_from("<I", data, class_defs_off + i * 32)[0]
-            desc = get_type_desc(class_idx)
-            if desc:
-                classes.add(desc)
-        return classes
-    except Exception:
-        return set()
+    """Use the shared fail-closed DEX descriptor parser."""
+    return _framework_plan.get_dex_classes(data, strict=True)
 
 
 def compute_sha256(data: bytes) -> str:
@@ -67,7 +31,7 @@ def find_owners(unpacked_dir: Path, target_descs: list[str]) -> tuple[dict[str, 
         [
             p
             for p in unpacked_dir.iterdir()
-            if p.is_file() and p.name.startswith("classes") and p.name.endswith(".dex")
+            if p.is_file() and re.fullmatch(r"classes(?:[2-9]|[1-9]\d+)?\.dex", p.name)
         ]
     )
     if not dex_files:

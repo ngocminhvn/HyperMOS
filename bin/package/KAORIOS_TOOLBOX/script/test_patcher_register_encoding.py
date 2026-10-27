@@ -187,6 +187,133 @@ class PatcherRegisterEncodingTest(unittest.TestCase):
                 patcher.patch_keystore_generator(original)
 
 
+class PatcherUpdateModeTest(unittest.TestCase):
+    def test_android_version_cli_selection_13_through_17(self):
+        # This exercises argument selection, not five distinct device layouts.
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'AndroidKeyStoreKeyPairGeneratorSpi.smali'
+            for version in ('13', '14', '15', '16', '17'):
+                with self.subTest(version=version):
+                    target.write_text(generator(''), encoding='utf-8')
+                    result = subprocess.run(
+                        [os.sys.executable, str(Path(patcher.__file__)), str(target),
+                         '--mode', '1', '--android-version', version, '--no-delay'],
+                        capture_output=True, text=True, timeout=30)
+                    self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                    patcher.verify_target_content(target.name, target.read_text(encoding='utf-8'))
+
+    def test_single_file_symlink_is_rejected_without_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / 'original.smali'
+            original.write_text(generator(''), encoding='utf-8')
+            link = Path(directory) / 'AndroidKeyStoreKeyPairGeneratorSpi.smali'
+            link.symlink_to(original)
+            before = original.read_bytes()
+            self.assertFalse(patcher.process_files(link, '1', slow=False))
+            self.assertEqual(before, original.read_bytes())
+
+    def test_partial_generator_hook_update_fails_without_recursing(self):
+        original = generator('')
+        patched, _ = patcher.patch_keystore_generator(original)
+        partial = patched.replace('if-eqz v15,', 'if-nez v15,', 1)
+        status, result, error = patcher.apply_target_patch(
+            'AndroidKeyStoreKeyPairGeneratorSpi.smali', partial,
+            {'AndroidKeyStoreKeyPairGeneratorSpi.smali': patcher.patch_keystore_generator}, update=True)
+        self.assertEqual(patcher.PatchStatus.UNSUPPORTED_LAYOUT, status)
+        self.assertEqual(partial, result)
+        self.assertIn('recognized', error)
+
+    def test_recognized_legacy_generator_block_is_removed_before_reallocation(self):
+        patched, _ = patcher.patch_keystore_generator(generator(''))
+        header, body = patched.split('    .registers 17', 1)
+        legacy = header + '    .registers 17\n    const/4 v1, 0x0' + body
+        patcher.verify_target_content('AndroidKeyStoreKeyPairGeneratorSpi.smali', patched)
+        updated, changed = patcher.patch_keystore_generator(legacy, update=True)
+        self.assertTrue(changed)
+        self.assertIn('.registers 17', updated)
+        self.assertNotIn('.registers 18', updated)
+        self.assertIn('const/4 v1, 0x0', updated)
+        patcher.verify_target_content('AndroidKeyStoreKeyPairGeneratorSpi.smali', updated)
+        self.assertEqual((updated, False), patcher.patch_keystore_generator(updated, update=True))
+
+    def test_directory_validation_failure_preserves_all_target_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            good = root / 'AndroidKeyStoreKeyPairGeneratorSpi.smali'
+            bad = root / 'ApplicationPackageManager.smali'
+            good.write_text(generator(''), encoding='utf-8')
+            bad.write_bytes(b'.class public Landroid/app/ApplicationPackageManager;\r\n')
+            before = {path: path.read_bytes() for path in (good, bad)}
+            self.assertFalse(patcher.process_files(root, '1', slow=False))
+            self.assertEqual(before, {path: path.read_bytes() for path in before})
+
+    def test_directory_tree_verifier_failure_preserves_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / 'ComputerEngine.smali'
+            target.write_text(computer_engine('', full=False), encoding='utf-8')
+            before = target.read_bytes()
+            self.assertFalse(patcher.process_files(root, '1', slow=False))
+            self.assertEqual(before, target.read_bytes())
+
+    def test_duplicate_directory_targets_are_rejected_without_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = []
+            for name in ('one', 'two'):
+                folder = root / name
+                folder.mkdir()
+                target = folder / 'AndroidKeyStoreKeyPairGeneratorSpi.smali'
+                target.write_text(generator(''), encoding='utf-8')
+                paths.append(target)
+            before = [path.read_bytes() for path in paths]
+            self.assertFalse(patcher.process_files(root, '1', slow=False))
+            self.assertEqual(before, [path.read_bytes() for path in paths])
+
+    def test_duplicate_target_method_is_rejected(self):
+        original = generator('')
+        original += original[original.index('.method'):]
+        status, result, error = patcher.apply_target_patch(
+            'AndroidKeyStoreKeyPairGeneratorSpi.smali', original,
+            {'AndroidKeyStoreKeyPairGeneratorSpi.smali': patcher.patch_keystore_generator})
+        self.assertEqual(patcher.PatchStatus.UNSUPPORTED_LAYOUT, status)
+        self.assertEqual(original, result)
+        self.assertIn('ambiguous', error)
+
+    def test_update_mode_rewrites_already_patched_target(self):
+        original = generator('    invoke-virtual/range {p0 .. p0}, Ljava/lang/Object;->toString()Ljava/lang/String;\n')
+        patched, changed = patcher.patch_keystore_generator(original)
+        self.assertTrue(changed)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / 'AndroidKeyStoreKeyPairGeneratorSpi.smali'
+            file_path.write_text(patched, encoding='utf-8')
+
+            # Without update: file is kept as is and reports already patched
+            res_no_update = patcher.process_files(file_path, mode='1', slow=False, update=False)
+            self.assertTrue(res_no_update)
+            self.assertEqual(file_path.read_text(encoding='utf-8'), patched)
+
+            # With update: file is verified and rewritten
+            res_update = patcher.process_files(file_path, mode='1', slow=False, update=True)
+            self.assertTrue(res_update)
+            self.assertEqual(file_path.read_text(encoding='utf-8'), patched)
+
+    def test_update_mode_directory_scan_counts_updates(self):
+        original = generator('    invoke-virtual/range {p0 .. p0}, Ljava/lang/Object;->toString()Ljava/lang/String;\n')
+        patched, _ = patcher.patch_keystore_generator(original)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            subdir = Path(temp_dir) / 'android' / 'security' / 'keystore2'
+            subdir.mkdir(parents=True)
+            file_path = subdir / 'AndroidKeyStoreKeyPairGeneratorSpi.smali'
+            file_path.write_text(patched, encoding='utf-8')
+
+            res = patcher.process_files(temp_dir, mode='1', slow=False, update=True)
+            self.assertTrue(res)
+            self.assertEqual(file_path.read_text(encoding='utf-8'), patched)
+
+
 def computer_engine(body, directive='.locals 8', full=True):
     signature = ('Lcom/android/server/pm/pkg/PackageStateInternal;ILandroid/content/ComponentName;IIZZ'
                  if full else 'Lcom/android/server/pm/pkg/PackageStateInternal;II')
@@ -195,6 +322,28 @@ def computer_engine(body, directive='.locals 8', full=True):
             f'.method public shouldFilterApplication({signature})Z\n'
             f'    {directive}\n{body}'
             '    const/4 v0, 0x0\n    return v0\n.end method\n')
+
+
+class LifecycleUpdateTest(unittest.TestCase):
+    def test_systemserver_hook_must_directly_precede_unique_loop(self):
+        original = ('.class public Lcom/android/server/SystemServer;\n'
+                    '.super Ljava/lang/Object;\n.method public run()V\n    .locals 1\n'
+                    '    invoke-static {}, Landroid/os/Looper;->loop()V\n'
+                    '    return-void\n.end method\n')
+        patched = patcher.mod_ss.patch(original)
+        self.assertEqual(patched, patcher.mod_ss.patch(patched, update=True))
+        bad = patched.replace('    invoke-static {}, Landroid/os/Looper;->loop()V',
+                              '    goto :stock_loop\n    :stock_loop\n'
+                              '    invoke-static {}, Landroid/os/Looper;->loop()V')
+        with self.assertRaisesRegex(ValueError, 'immediately precede'):
+            patcher.mod_ss.verify(bad)
+        repaired = patcher.mod_ss.patch(bad, update=True)
+        patcher.mod_ss.verify(repaired)
+        self.assertEqual(repaired, patcher.mod_ss.patch(repaired, update=True))
+        duplicate = patched.replace('    return-void',
+                                    '    invoke-static {}, Landroid/os/Looper;->loop()V\n    return-void')
+        with self.assertRaisesRegex(ValueError, 'exactly one Looper'):
+            patcher.mod_ss.verify(duplicate)
 
 
 class BuildFieldTest(unittest.TestCase):
@@ -241,6 +390,31 @@ class BuildFieldTest(unittest.TestCase):
 
 
 class ServicesParameterEncodingTest(unittest.TestCase):
+    def test_invalid_high_hook_update_does_not_guess_one_local_ownership(self):
+        for full in (True, False):
+            original = computer_engine('', '.locals 16', full=full)
+            patched, _ = services.patch(original)
+            width = 8 if full else 4
+            self.assertIn(f'.locals {16 + width + 3}', patched)
+            self.assertEqual((patched, False), services.patch(patched, update=True))
+            bad = patched.replace(f'move-result v{16 + width}', f'move-result v{17 + width}', 1)
+            with self.assertRaisesRegex(ValueError, 'recognized valid block'):
+                services.patch(bad, update=True)
+
+    def test_partial_feature_hook_update_fails_closed(self):
+        original = ('.class public Landroid/app/ApplicationPackageManager;\n'
+                    '.super Ljava/lang/Object;\n'
+                    '.method public hasSystemFeature(Ljava/lang/String;I)Z\n'
+                    '    .locals 2\n    const/4 v0, 0x0\n    return v0\n.end method\n')
+        patched, _ = patcher.patch_app_pkg_manager(original)
+        bad = patched.replace('if-eqz v2,', 'if-nez v2,', 1)
+        status, result, error = patcher.apply_target_patch(
+            'ApplicationPackageManager.smali', bad,
+            {'ApplicationPackageManager.smali': patcher.patch_app_pkg_manager}, update=True)
+        self.assertEqual(patcher.PatchStatus.UNSUPPORTED_LAYOUT, status)
+        self.assertEqual(bad, result)
+        self.assertIn('recognized', error)
+
     def test_prepatched_hook_after_unconditional_return_is_rejected(self):
         original = computer_engine('', full=False)
         patched, _ = services.patch(original)

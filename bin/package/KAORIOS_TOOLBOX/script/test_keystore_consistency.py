@@ -2,6 +2,7 @@
 """Keystore leaf/chain integration and legacy discarded-result regressions."""
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
 
 spec = importlib.util.spec_from_file_location('patcher', Path(__file__).with_name('kaorios_patcher.py'))
@@ -28,6 +29,32 @@ STOCK = '''.class public Landroid/security/keystore2/AndroidKeyStoreSpi;
 
 
 class KeystoreConsistencyTest(unittest.TestCase):
+    def test_payload_abi_failure_preserves_single_file_and_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            callers = root / 'callers'
+            callers.mkdir()
+            target = callers / 'AndroidKeyStoreSpi.smali'
+            payload = root / 'payload'
+            payload.mkdir()
+            facade = payload / 'KaoriosHook.smali'
+            facade.write_text('.class public Landroid/security/kaorios/KaoriosHook;\n'
+                              '.super Ljava/lang/Object;\n'
+                              '.method public static CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;\n'
+                              '    .locals 0\n    return-object p0\n.end method\n', encoding='utf-8')
+            for path in (target, callers):
+                with self.subTest(path=path):
+                    target.write_text(STOCK, encoding='utf-8')
+                    before = target.read_bytes()
+                    self.assertFalse(patcher.process_files(path, '1', slow=False, payload_smali=payload))
+                    self.assertEqual(before, target.read_bytes())
+            facade.write_text(facade.read_text().replace(
+                'CertificateChainIfNeeded([Ljava/security/cert/Certificate;)',
+                'CertificateChainIfNeeded(Ljava/lang/Object;Ljava/lang/String;[Ljava/security/cert/Certificate;)'),
+                encoding='utf-8')
+            self.assertTrue(patcher.process_files(callers, '1', slow=False, payload_smali=payload))
+            patcher.verify_target_content(target.name, target.read_text())
+
     def test_leaf_delegates_and_retains_stock_body(self):
         result, changed = patcher.patch_keystore_spi(STOCK)
         self.assertTrue(changed)
@@ -72,6 +99,34 @@ class KeystoreConsistencyTest(unittest.TestCase):
         result, _ = patcher.patch_keystore_spi(STOCK.replace('.locals 2', '.registers 4', 1))
         self.assertIn('.registers 4', result)
         patcher.verify_target_content('AndroidKeyStoreSpi.smali', result)
+
+    def test_hook_passes_spi_and_alias_for_entry_persistence(self):
+        result, _ = patcher.patch_keystore_spi(STOCK)
+        self.assertIn(
+            'invoke-static {p0, p1, v1}, Landroid/security/kaorios/KaoriosHook;'
+            '->CertificateChainIfNeeded(Ljava/lang/Object;Ljava/lang/String;'
+            '[Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;', result)
+        patcher.verify_target_content('AndroidKeyStoreSpi.smali', result)
+
+    def test_legacy_one_argument_hook_is_upgraded(self):
+        legacy = STOCK.replace(
+            '    return-object v1\n.end method',
+            '    invoke-static {v1}, Landroid/security/kaorios/KaoriosHook;'
+            '->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)'
+            '[Ljava/security/cert/Certificate;\n'
+            '    move-result-object v1\n'
+            '    return-object v1\n.end method', 1)
+        with self.assertRaisesRegex(ValueError, 'one-argument chain hook must be updated'):
+            patcher.verify_target_content('AndroidKeyStoreSpi.smali', legacy)
+        upgraded, changed = patcher.patch_keystore_spi(legacy)
+        self.assertTrue(changed)
+        self.assertNotIn('CertificateChainIfNeeded([Ljava/security/cert/Certificate;)', upgraded)
+        patcher.verify_target_content('AndroidKeyStoreSpi.smali', upgraded)
+        self.assertEqual((upgraded, False), patcher.patch_keystore_spi(upgraded))
+
+    def test_wide_registers_fail_closed(self):
+        with self.assertRaisesRegex(ValueError, 'p0/p1 exceed'):
+            patcher.patch_keystore_spi(STOCK.replace('.locals 3', '.registers 18', 1))
 
 
 if __name__ == '__main__':

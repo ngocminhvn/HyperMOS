@@ -37,6 +37,9 @@ LOCALS_RE = re.compile(r"(?m)^(?P<indent>[ \t]*)\.locals[ \t]+(?P<num>\d+)[ \t]*
 def _method_span(text: str) -> tuple[int, int, int]:
     """Returns (start, end, param_count) for the target shouldFilterApplication method."""
     matches_7 = list(METHOD_7_PARAM_RE.finditer(text))
+    matches_3 = list(METHOD_3_PARAM_RE.finditer(text))
+    if len(matches_7) > 1 or len(matches_3) > 1:
+        raise ValueError('ambiguous duplicate shouldFilterApplication method')
     if len(matches_7) == 1:
         end = METHOD_END_RE.search(text, matches_7[0].end())
         if end is None:
@@ -188,11 +191,24 @@ def _canonicalize_parameter_aliases(body, base, width):
     return ''.join(parts)
 
 
-def _patch_visibility(text: str) -> tuple[str, bool]:
+def _patch_visibility(text: str, update: bool = False) -> tuple[str, bool]:
     """Inject Kaorios HMA visibility hook into ComputerEngine.shouldFilterApplication using register-safe allocation."""
     start, end, param_count = _method_span(text)
     body = text[start:end]
     count = _hook_count(body)
+    if count == 1:
+        try:
+            _verify_visibility(text)
+            return text, False
+        except ValueError:
+            if not update:
+                raise
+
+    if count >= 1 and update:
+        # High-register hooks own parameter copies plus three scratch locals;
+        # unknown blocks cannot safely be removed by decrementing one local.
+        raise ValueError('unsupported update: existing visibility hook is not a recognized valid block')
+
     if count == 1:
         _verify_visibility(text)
         return text, False
@@ -313,8 +329,8 @@ def verify(text: str) -> None:
         installer.verify(text)
 
 
-def patch(text: str) -> tuple[str, bool]:
-    patched, changed = _patch_visibility(text)
+def patch(text: str, update: bool = False) -> tuple[str, bool]:
+    patched, changed = _patch_visibility(text, update=update)
     installer = _installer_patcher(text)
     if installer is not None:
         patched, installer_changed = installer.patch(patched)
@@ -326,9 +342,10 @@ def patch(text: str) -> tuple[str, bool]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Patch ComputerEngine in decompiled services smali.")
     parser.add_argument("smali", type=Path)
+    parser.add_argument("--update", action="store_true", help="Update existing hook")
     args = parser.parse_args()
     original = args.smali.read_bytes().decode("utf-8")
-    patched, changed = patch(original)
+    patched, changed = patch(original, update=args.update)
     if changed:
         args.smali.write_bytes(patched.encode("utf-8"))
     print("patched" if changed else "already patched")

@@ -9,11 +9,13 @@ TASK_OUTPUT=
 TASK_BAKSMALI=
 TASK_SMALI=
 TASK_API=37
+TASK_SMALI_API=
+TASK_UPDATE=()
 
 usage() {
     cat <<'EOF'
 Usage: patch-services-a17-artifact.sh --input services.jar --output services-patched.jar \
-    --baksmali baksmali.jar --smali smali.jar [--api 37]
+    --baksmali baksmali.jar --smali smali.jar [--api 37] [--smali-api 37] [--update]
 
 The input JAR must contain classes*.dex. The script disassembles the DEXes defining
 com/android/server/pm/ComputerEngine and com/android/server/SystemServer,
@@ -29,6 +31,8 @@ while (($#)); do
         --baksmali) TASK_BAKSMALI=$2; shift 2 ;;
         --smali) TASK_SMALI=$2; shift 2 ;;
         --api) TASK_API=$2; shift 2 ;;
+        --smali-api) TASK_SMALI_API=$2; shift 2 ;;
+        --update) TASK_UPDATE=(--update); shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -48,27 +52,34 @@ if [[ $(realpath -m -- "$TASK_INPUT") == $(realpath -m -- "$TASK_OUTPUT") ]] || 
     exit 2
 fi
 
+TASK_SMALI_API=${TASK_SMALI_API:-$TASK_API}
+if [[ ! "$TASK_API" =~ ^[1-9][0-9]*$ || ! "$TASK_SMALI_API" =~ ^[1-9][0-9]*$ ]]; then
+    echo "API levels must be positive integers." >&2
+    exit 2
+fi
+printf 'Target API: %s; smali opcode API: %s\n' "$TASK_API" "$TASK_SMALI_API"
+
 run_baksmali() {
     local dex=$1 out_dir=$2
     if java -jar "$TASK_BAKSMALI" --version >/dev/null 2>&1; then
-        java -jar "$TASK_BAKSMALI" disassemble "$dex" --api "$TASK_API" --output "$out_dir"
+        java -jar "$TASK_BAKSMALI" disassemble "$dex" --api "$TASK_SMALI_API" --output "$out_dir"
     else
         local lib_dir
         lib_dir=$(dirname "$TASK_BAKSMALI")
         local cp="$TASK_BAKSMALI:$lib_dir/smali-dexlib2.jar:$lib_dir/smali-util.jar:$lib_dir/antlr-runtime.jar:$lib_dir/jcommander.jar:$lib_dir/guava.jar"
-        java -cp "$cp" com.android.tools.smali.baksmali.Main disassemble "$dex" --api "$TASK_API" --output "$out_dir"
+        java -cp "$cp" com.android.tools.smali.baksmali.Main disassemble "$dex" --api "$TASK_SMALI_API" --output "$out_dir"
     fi
 }
 
 run_smali() {
     local smali_dir=$1 out_dex=$2
     if java -jar "$TASK_SMALI" --version >/dev/null 2>&1; then
-        java -jar "$TASK_SMALI" assemble "$smali_dir" --api "$TASK_API" --output "$out_dex"
+        java -jar "$TASK_SMALI" assemble "$smali_dir" --api "$TASK_SMALI_API" --output "$out_dex"
     else
         local lib_dir
         lib_dir=$(dirname "$TASK_SMALI")
         local cp="$TASK_SMALI:$lib_dir/smali-dexlib2.jar:$lib_dir/smali-util.jar:$lib_dir/antlr-runtime.jar:$lib_dir/jcommander.jar:$lib_dir/guava.jar"
-        java -cp "$cp" com.android.tools.smali.smali.Main assemble "$smali_dir" --api "$TASK_API" --output "$out_dex"
+        java -cp "$cp" com.android.tools.smali.smali.Main assemble "$smali_dir" --api "$TASK_SMALI_API" --output "$out_dex"
     fi
 }
 
@@ -102,8 +113,8 @@ if [[ "$TASK_DEX_CE" == "$TASK_DEX_SS" ]]; then
     TASK_OWNER_SMALI="$TASK_WORK/owner_smali"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_OWNER_SMALI"
 
-    python3 "$TASK_DIR/patch-services-a17.py" "$TASK_OWNER_SMALI/com/android/server/pm/ComputerEngine.smali"
-    python3 "$TASK_DIR/patch-systemserver-a17.py" "$TASK_OWNER_SMALI/com/android/server/SystemServer.smali"
+    python3 "$TASK_DIR/patch-services-a17.py" "$TASK_OWNER_SMALI/com/android/server/pm/ComputerEngine.smali" "${TASK_UPDATE[@]}"
+    python3 "$TASK_DIR/patch-systemserver-a17.py" "$TASK_OWNER_SMALI/com/android/server/SystemServer.smali" "${TASK_UPDATE[@]}"
 
     python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_OWNER_SMALI"
     python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_OWNER_SMALI"
@@ -116,7 +127,7 @@ else
     # Classes in distinct owner DEXes
     TASK_SMALI_CE="$TASK_WORK/smali_ce"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_SMALI_CE"
-    python3 "$TASK_DIR/patch-services-a17.py" "$TASK_SMALI_CE/com/android/server/pm/ComputerEngine.smali"
+    python3 "$TASK_DIR/patch-services-a17.py" "$TASK_SMALI_CE/com/android/server/pm/ComputerEngine.smali" "${TASK_UPDATE[@]}"
     python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_SMALI_CE"
     TASK_NEW_DEX_CE="$TASK_WORK/$TASK_DEX_CE"
     run_smali "$TASK_SMALI_CE" "$TASK_NEW_DEX_CE"
@@ -125,7 +136,7 @@ else
 
     TASK_SMALI_SS="$TASK_WORK/smali_ss"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_SS" "$TASK_SMALI_SS"
-    python3 "$TASK_DIR/patch-systemserver-a17.py" "$TASK_SMALI_SS/com/android/server/SystemServer.smali"
+    python3 "$TASK_DIR/patch-systemserver-a17.py" "$TASK_SMALI_SS/com/android/server/SystemServer.smali" "${TASK_UPDATE[@]}"
     python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_SMALI_SS"
     TASK_NEW_DEX_SS="$TASK_WORK/$TASK_DEX_SS"
     run_smali "$TASK_SMALI_SS" "$TASK_NEW_DEX_SS"
@@ -141,19 +152,23 @@ TASK_CANDIDATE="$TASK_WORK/services-candidate.jar"
 (cd "$TASK_UNPACKED" && zip -q -0 -r "$TASK_CANDIDATE" .)
 unzip -tq "$TASK_CANDIDATE"
 
-# 8. Re-disassemble candidate and verify both caller hooks
+# 8. Re-extract the actual candidate before verifying both caller hooks.
+TASK_CANDIDATE_DEX="$TASK_WORK/candidate_dex"
+mkdir -p "$TASK_CANDIDATE_DEX"
+unzip -q "$TASK_CANDIDATE" -d "$TASK_CANDIDATE_DEX"
+python3 "$TASK_DIR/patch-dex-artifact-plan.py" verify-untouched "$TASK_HASHES_JSON" "$TASK_CANDIDATE_DEX" "$TASK_MODIFIED_DEXES"
 if [[ "$TASK_DEX_CE" == "$TASK_DEX_SS" ]]; then
     TASK_VERIFY_ROOT="$TASK_WORK/verify"
-    run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_VERIFY_ROOT"
+    run_baksmali "$TASK_CANDIDATE_DEX/$TASK_DEX_CE" "$TASK_VERIFY_ROOT"
     python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_VERIFY_ROOT"
     python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_VERIFY_ROOT"
 else
     TASK_VERIFY_CE="$TASK_WORK/verify_ce"
-    run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_VERIFY_CE"
+    run_baksmali "$TASK_CANDIDATE_DEX/$TASK_DEX_CE" "$TASK_VERIFY_CE"
     python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_VERIFY_CE"
 
     TASK_VERIFY_SS="$TASK_WORK/verify_ss"
-    run_baksmali "$TASK_UNPACKED/$TASK_DEX_SS" "$TASK_VERIFY_SS"
+    run_baksmali "$TASK_CANDIDATE_DEX/$TASK_DEX_SS" "$TASK_VERIFY_SS"
     python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_VERIFY_SS"
 fi
 
