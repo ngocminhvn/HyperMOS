@@ -1,38 +1,25 @@
 #!/usr/bin/env bash
-# Kaorios Toolbox build-time feature switches for HyperMOS.
-# Accepted boolean values: true/false, 1/0, yes/no, on/off.
-# Environment variables override these defaults in CI.
+# Internal loader for config.json. Source this file; edit config.json instead.
 
-KAORIOS_MASTER="${KAORIOS_MASTER:-true}"
+_kaorios_config_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+_kaorios_config_json="$_kaorios_config_dir/config.json"
+_kaorios_config_loader="$_kaorios_config_dir/mod/load-config.py"
 
-# framework.jar call-site hooks.
-KAORIOS_ENABLE_ACTIVITY_THREAD="${KAORIOS_ENABLE_ACTIVITY_THREAD:-true}"
-KAORIOS_ENABLE_INSTRUMENTATION="${KAORIOS_ENABLE_INSTRUMENTATION:-true}"
-KAORIOS_ENABLE_KEYBOX="${KAORIOS_ENABLE_KEYBOX:-true}"
-KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF="${KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF:-true}"
+if [[ ! -f "$_kaorios_config_json" || ! -f "$_kaorios_config_loader" ]]; then
+  printf 'KAORIOS: missing config.json or its loader\n' >&2
+  return 1
+fi
 
-# services.jar hooks.
-KAORIOS_ENABLE_SYSTEM_SERVER="${KAORIOS_ENABLE_SYSTEM_SERVER:-true}"
-KAORIOS_ENABLE_HIDDEN_APP="${KAORIOS_ENABLE_HIDDEN_APP:-true}"
-KAORIOS_ENABLE_INSTALLER_SOURCE="${KAORIOS_ENABLE_INSTALLER_SOURCE:-true}"
+if ! _kaorios_config_values=$(python3 "$_kaorios_config_loader" "$_kaorios_config_json"); then
+  return 1
+fi
 
-# Optional framework features already integrated on main.
-KAORIOS_ENABLE_DEVSTATUS="${KAORIOS_ENABLE_DEVSTATUS:-true}"
-KAORIOS_ENABLE_BUILD_SPOOF="${KAORIOS_ENABLE_BUILD_SPOOF:-true}"
+while IFS='=' read -r _kaorios_name _kaorios_value; do
+  [[ -n "$_kaorios_name" ]] || continue
+  if [[ ! -v "$_kaorios_name" ]]; then
+    printf -v "$_kaorios_name" '%s' "$_kaorios_value"
+  fi
+done <<< "$_kaorios_config_values"
 
-# Build-time permanent FLAG_SECURE bypass. The Toolbox APK is left untouched,
-# so its visible runtime switch does not change this statically patched state.
-KAORIOS_ENABLE_SECURE_FLAG="${KAORIOS_ENABLE_SECURE_FLAG:-true}"
-
-# Run Kaorios' build-time CorePatch after the non-overlapping HyperMOS pass.
-# Android cannot safely make package signature verification a per-app runtime preference.
-KAORIOS_ENABLE_COREPATCH="${KAORIOS_ENABLE_COREPATCH:-true}"
-
-# Install the runtime Toolbox app and its privapp permission XML.
-KAORIOS_INSTALL_TOOLBOX="${KAORIOS_INSTALL_TOOLBOX:-true}"
-
-# Validate a supplied keybox XML. Validation never embeds the private key.
-KAORIOS_VALIDATE_KEYBOX="${KAORIOS_VALIDATE_KEYBOX:-true}"
-
-# Build log verbosity. false = concise success output; true = print full upstream patch diffs.
-KAORIOS_VERBOSE_LOG="${KAORIOS_VERBOSE_LOG:-false}"
+unset _kaorios_config_dir _kaorios_config_json _kaorios_config_loader
+unset _kaorios_config_values _kaorios_name _kaorios_value

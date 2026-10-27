@@ -25,27 +25,29 @@ Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xi
 
 ## Per-feature config
 
-Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. 
+Edit `config.json` to enable or disable each feature independently. Values must be the JSON booleans `true` or `false`; strings such as `"true"`, missing keys, duplicate keys and unknown keys stop the build. `config.sh` is an internal loader and should not be edited.
+
+Environment variables remain optional CI overrides. When an override is present, it takes precedence over `config.json` and accepts `true/false`, `1/0`, `yes/no`, or `on/off`.
+
 Custom boot animation is enabled by default: `bin/modfile/UpdateFile/Boot/update.sh` is active again and copies `bootanimation.zip` to `product/media/` on supported OS3/OS4 builds. Set `HYPERMOS_CUSTOM_BOOTANIMATION=false` to preserve the base ROM animation for a diagnostic build.
 
-| Switch | Effect |
-|---|---|
-| `KAORIOS_MASTER` | Master switch for the entire Kaorios integration |
-| `KAORIOS_ENABLE_ACTIVITY_THREAD` | `ActivityThread` process-init hook |
-| `KAORIOS_ENABLE_INSTRUMENTATION` | `Instrumentation` context-init hook |
-| `KAORIOS_ENABLE_KEYBOX` | Both Play Integrity/keybox keystore hooks |
-| `KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF` | `ApplicationPackageManager.hasSystemFeature(...)` spoof |
-| `KAORIOS_ENABLE_SYSTEM_SERVER` | `SystemServer` initialization hook |
-| `KAORIOS_ENABLE_HIDDEN_APP` | Package visibility / hidden-app filtering in `ComputerEngine` |
-| `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
-| `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
-| `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
-| `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar` and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
-| `KAORIOS_ENABLE_COREPATCH` | Run the Kaorios CorePatch signature/downgrade pass after the non-overlapping HyperMOS CorePatch pass |
-| `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
-| `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
-
-Accepted boolean values are `true/false`, `1/0`, `yes/no`, and `on/off`. Environment variables override the defaults, so CI can change a switch without editing the file.
+| JSON key | CI environment override | Effect |
+|---|---|---|
+| `master` | `KAORIOS_MASTER` | Master switch for the entire Kaorios integration |
+| `activity_thread` | `KAORIOS_ENABLE_ACTIVITY_THREAD` | `ActivityThread` process-init hook |
+| `instrumentation` | `KAORIOS_ENABLE_INSTRUMENTATION` | `Instrumentation` context-init hook |
+| `keybox` | `KAORIOS_ENABLE_KEYBOX` | Both Play Integrity/keybox keystore hooks |
+| `system_feature_spoof` | `KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF` | `ApplicationPackageManager.hasSystemFeature(...)` spoof |
+| `system_server` | `KAORIOS_ENABLE_SYSTEM_SERVER` | `SystemServer` initialization hook |
+| `hidden_app` | `KAORIOS_ENABLE_HIDDEN_APP` | Package visibility / hidden-app filtering in `ComputerEngine` |
+| `installer_source` | `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
+| `devstatus` | `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
+| `build_spoof` | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
+| `secure_flag` | `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar` and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
+| `corepatch` | `KAORIOS_ENABLE_COREPATCH` | Run the Kaorios CorePatch signature/downgrade pass after the non-overlapping HyperMOS CorePatch pass |
+| `install_toolbox` | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
+| `validate_keybox` | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
+| `verbose_log` | `KAORIOS_VERBOSE_LOG` | Print full upstream patch diffs instead of concise progress output |
 
 The framework driver DEX is added whenever an enabled feature needs `KaoriosHook`, including callers in `services.jar`. Build spoof does not force the driver by itself.
 

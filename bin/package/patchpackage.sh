@@ -7,7 +7,7 @@ target_dir="$work_dir/bin/package/"
 # HyperMOS and Kaorios CorePatch run separately. HyperMOS owns only its
 # non-overlapping Xiaomi patches; Kaorios owns signature/downgrade and Secure Flag.
 # shellcheck source=/dev/null
-source "$target_dir/KAORIOS_TOOLBOX/config.sh"
+source "$target_dir/KAORIOS_TOOLBOX/config.sh" || exit 1
 case "${KAORIOS_ENABLE_COREPATCH,,}" in
   1|true|yes|on) kaorios_corepatch=1 ;;
   0|false|no|off) kaorios_corepatch=0 ;;
