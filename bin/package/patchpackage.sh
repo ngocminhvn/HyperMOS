@@ -75,6 +75,26 @@ fi
 info "PATCH 6/6: TNM (post-fs + China-mandatory App Privacy)"
 bash "$target_dir/TNM/patch.sh" || exit 1
 
+# TNM also edits split policy. Re-check the Kaorios service contract against
+# the final combined policy and reject stale precompiled policy caches.
+if [[ -v KAORIOS_ENABLE_SYSTEM_SERVER ]]; then
+  kaorios_system_server_value="$KAORIOS_ENABLE_SYSTEM_SERVER"
+else
+  kaorios_system_server_value=$(python3 "$kaorios_config_loader" "$kaorios_config" | \
+    awk -F= '$1 == "KAORIOS_ENABLE_SYSTEM_SERVER" { print $2; exit }') || exit 1
+fi
+case "${kaorios_system_server_value,,}" in
+  1|true|yes|on) kaorios_system_server_enabled=1 ;;
+  0|false|no|off) kaorios_system_server_enabled=0 ;;
+  *) error "KAORIOS: invalid SystemServer boolean: $kaorios_system_server_value"; exit 1 ;;
+esac
+if [[ "$kaorios_enabled" == "1" && "$kaorios_system_server_enabled" == "1" ]]; then
+  python3 "$target_dir/KAORIOS_TOOLBOX/mod/integrate-advanced-policy-selinux.py" \
+    --images "$work_dir/build/baserom/images" \
+    --report-dir "$work_dir/build/reports/kaorios/advanced-policy-selinux-final" \
+    --check || exit 1
+fi
+
 
 # Keep CorePatch / Kaorios output unmodified by MiCTS. MiCTS is only an APK
 # installed separately through Universal/downloadapp on Android 16.

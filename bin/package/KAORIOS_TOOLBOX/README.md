@@ -76,6 +76,8 @@ For an Android 16 build, the integration resolves and updates these locations:
 | Services target | `build/baserom/images/system/system/framework/services.jar` |
 | Installed Toolbox APK | `build/baserom/images/system_ext/priv-app/KaoriosToolbox/KaoriosToolbox.apk` |
 | Installed permission allowlist | `build/baserom/images/system_ext/etc/permissions/com.kousei.kaorios.xml` |
+| AdvancedPolicy service label | `build/baserom/images/system_ext/etc/selinux/system_ext_service_contexts` |
+| AdvancedPolicy service policy | `build/baserom/images/system_ext/etc/selinux/system_ext_sepolicy.cil` |
 
 If a preferred framework/services path is absent, the build requires exactly one matching artifact below `build/baserom/images`. The payload DEX is inserted into the next free `classesN.dex` slot inside `framework.jar`; it is not copied as a standalone system file. Android 16 uses mode 1 hooks and skips the Android 17-only Build spoof.
 
@@ -104,10 +106,12 @@ Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notificatio
 - uses the upstream 2.0.6.1 `Settings$NameValueCache` implementation and fails closed when that enabled hook is unsupported;
 - rebuilds only DEX files whose smali tree actually changed;
 - appends the Kaorios framework DEX to a new free `classesN.dex` slot;
-- installs the rebuilt candidate directly without a second full disassembly/verification pass;
+- tests, re-extracts and disassembles every rebuilt candidate before installation;
+- rejects duplicate class descriptors and re-validates selected callers against the pinned payload ABI;
+- integrates and compiles the least-privilege AdvancedPolicy SELinux contract, then checks it again after TNM;
 - preserves `SettingsProvider.apk` byte-for-byte at this stage;
 
-The patchers still validate their target while editing, and smali assembly must succeed. The expensive post-build pass that extracted and disassembled every candidate JAR again has been removed.
+The final artifact pass is intentionally fail-closed: a malformed archive, missing caller, caller/payload descriptor mismatch, duplicate class, invalid split policy, or stale precompiled policy cache aborts packaging.
 
 ## Keybox handling
 
@@ -125,8 +129,15 @@ Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 bu
 
 ## AdvancedPolicy / SELinux
 
-Upstream includes `script/check-advanced-policy-sepolicy.py` as a read-only deployment checker. This integration does not invent Xiaomi-specific SELinux rules during the build, because the correct SettingsProvider domain and split-policy layout must come from the actual ROM; broad guessed rules can cause policy compilation failure or a boot loop.
+The extracted Xiaomi 15 Pro Android 16 image and device AVC identify the actual registration path as `system_server -> service_manager`, while the installed Toolbox Manager runs as `priv_app`. The build therefore adds one dedicated service type only:
 
-After the first boot, use the upstream checker/logcat to confirm the AdvancedPolicy Binder path. If there is a real SELinux denial, add the smallest device-specific rule for the observed domain.
+- `kaorios_advanced_policy -> u:object_r:kaorios_advanced_policy_service:s0`;
+- `system_server_service` plus an exact `system_server:add` rule supplies the producer-side service-manager contract;
+- `app_api_service` supplies discovery to app processes where `Settings$NameValueCache` evaluates per-caller policy;
+- an exact `priv_app:find` rule makes the observed Manager domain explicit and keeps the upstream diagnostic checker useful.
+
+No permissive mode, wildcard service type, shell access, broad direct `appdomain` allow, or unrelated Binder allow is added. Existing platform app-to-system-server Binder communication covers the call path; the AdvancedPolicy implementation retains its own UID/package checks and per-caller evaluation. The integrator compiles the complete split CIL before replacing image files, removes stale vendor/ODM `precompiled_sepolicy*` caches, and rolls image files back on a staging error. A final check runs after TNM has made its own policy changes.
+
+Upstream `script/check-advanced-policy-sepolicy.py` remains useful for device-side diagnostics after boot; the build-time policy contract does not by itself prove that Android started the service.
 
 Upstream 2.0.6.1 policy: stock SettingsProvider is preserved. HyperMOS no longer adds caller-side Settings spoof or direct ContentResolver Settings hooks; only the documented Developer/ADB dev-status hook remains.

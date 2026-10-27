@@ -16,8 +16,8 @@ set -euo pipefail
 #   - ComputerEngine package visibility + installer-source hooks;
 #   - Settings$NameValueCache dev-status hook (hide Developer options / ADB);
 #   - Android 17 Build / Build$VERSION spoof (Android 17 only, like upstream).
-# CorePatch is selected before this stage; SELinux policy mutation is skipped.
-# The upstream AdvancedPolicy SELinux checker is kept for diagnostics only.
+# CorePatch is selected before this stage. AdvancedPolicy receives a narrowly
+# scoped app-facing system_server service type using platform attributes.
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
@@ -36,6 +36,8 @@ PERMISSION_XML="$ASSET_DIR/com.kousei.kaorios.xml"
 SECURE_FLAG_PATCHER="$MOD_DIR/patch-secure-flag.py"
 CONFIG="$KAORIOS_DIR/config.json"
 CONFIG_LOADER="$MOD_DIR/load-config.py"
+FINAL_HOOK_VERIFIER="$MOD_DIR/verify-selected-hooks.py"
+ADVANCED_POLICY_SELINUX="$MOD_DIR/integrate-advanced-policy-selinux.py"
 
 if [[ ! -f "$CONFIG" || ! -f "$CONFIG_LOADER" ]]; then
   error "KAORIOS: missing config.json or its loader"
@@ -168,8 +170,12 @@ require_file() {
 
 if archive_patch_needed; then
   require_file "$PATCHER" "patcher"
+  require_file "$FINAL_HOOK_VERIFIER" "final hook verifier"
   require_file "$BAKSMALI" "baksmali"
   require_file "$SMALI" "smali"
+fi
+if system_server_hook_needed; then
+  require_file "$ADVANCED_POLICY_SELINUX" "AdvancedPolicy SELinux integrator"
 fi
 if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
   require_file "$MOD_ADAPTER" "MOD Kaorios adapter"
@@ -501,6 +507,67 @@ update_archive_dexes() {
     )
   done
   shopt -u nullglob
+  if ! unzip -tq "$candidate" >/dev/null; then
+    error "KAORIOS: invalid rebuilt archive: $candidate"
+    return 1
+  fi
+}
+
+verify_candidate() {
+  local candidate="$1" kind="$2"
+  local verify_root="$TEMP_ROOT/$kind/final"
+  local verify_raw="$verify_root/raw" verify_smali="$verify_root/smali"
+  local verifier_args=("$verify_smali" --script-dir "$SCRIPT_DIR")
+
+  extract_all_dex "$candidate" "$verify_raw"
+  disassemble_all "$verify_raw" "$verify_smali"
+
+  case "$kind" in
+    framework)
+      if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then verifier_args+=(--target activity_thread); fi
+      if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then verifier_args+=(--target instrumentation); fi
+      if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then verifier_args+=(--target system_feature); fi
+      if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
+        verifier_args+=(--target keypair --target keystore)
+      fi
+      if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then verifier_args+=(--target devstatus); fi
+      if build_spoof_enabled_for_target; then verifier_args+=(--target build --target build_version); fi
+      if framework_driver_needed; then
+        verifier_args+=(--require-driver)
+        python3 "$SCRIPT_DIR/verify-payload-abi.py" "$verify_smali" --payload-smali "$verify_smali"
+      fi
+      if system_server_hook_needed; then verifier_args+=(--require-advanced-policy); fi
+      python3 "$FINAL_HOOK_VERIFIER" "${verifier_args[@]}"
+      ;;
+    services)
+      python3 "$FINAL_HOOK_VERIFIER" "${verifier_args[@]}"
+      if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
+        local computer_engine
+        computer_engine=$(find_target_file "$verify_smali" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine") || return 1
+        python3 "$MOD_ADAPTER" "$computer_engine" \
+          --hidden-app "$KAORIOS_ENABLE_HIDDEN_APP" \
+          --installer-source "$KAORIOS_ENABLE_INSTALLER_SOURCE" --check-only
+      fi
+      if system_server_hook_needed; then
+        python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$verify_smali"
+      fi
+      if services_driver_needed; then
+        if [[ ! -d "$TEMP_ROOT/payload-smali" ]]; then
+          run_baksmali "$DRIVER_DEX" "$TEMP_ROOT/payload-smali"
+        fi
+        python3 "$SCRIPT_DIR/verify-payload-abi.py" "$verify_smali" --payload-smali "$TEMP_ROOT/payload-smali"
+      fi
+      if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+        python3 "$SECURE_FLAG_PATCHER" "$verify_smali" --archive services --check-only
+      fi
+      ;;
+    miui-services)
+      python3 "$FINAL_HOOK_VERIFIER" "${verifier_args[@]}"
+      python3 "$SECURE_FLAG_PATCHER" "$verify_smali" --archive miui-services --check-only
+      ;;
+    *) error "KAORIOS: unsupported verification kind: $kind"; return 1 ;;
+  esac
+  info "KAORIOS: verified final $kind candidate"
 }
 
 find_unique_artifact() {
@@ -572,6 +639,7 @@ patch_archive() {
   fi
 
   update_archive_dexes "$artifact" "$built" "$candidate"
+  verify_candidate "$candidate" "$kind"
 
   cp -f "$candidate" "$artifact"
   info "KAORIOS: installed patched $kind artifact"
@@ -591,6 +659,13 @@ install_toolbox() {
   cp -f "$PERMISSION_XML" "$perm_dir/com.kousei.kaorios.xml"
   chmod 0644 "$app_dir/KaoriosToolbox.apk" "$perm_dir/com.kousei.kaorios.xml"
   info "KAORIOS: Toolbox installed as system_ext priv-app"
+}
+
+integrate_advanced_policy_selinux() {
+  python3 "$ADVANCED_POLICY_SELINUX" \
+    --images "$work_dir/build/baserom/images" \
+    --report-dir "$work_dir/build/reports/kaorios/advanced-policy-selinux"
+  info "KAORIOS: AdvancedPolicy SELinux service contract integrated"
 }
 
 mods "Kaorios Toolbox upstream 2.0.6.1 integration (CorePatch is a separate preceding pass)"
@@ -622,6 +697,10 @@ fi
 
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
   install_toolbox
+fi
+
+if system_server_hook_needed; then
+  integrate_advanced_policy_selinux
 fi
 
 if ! archive_patch_needed && ! is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
