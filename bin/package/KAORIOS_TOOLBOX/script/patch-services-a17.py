@@ -37,9 +37,6 @@ LOCALS_RE = re.compile(r"(?m)^(?P<indent>[ \t]*)\.locals[ \t]+(?P<num>\d+)[ \t]*
 def _method_span(text: str) -> tuple[int, int, int]:
     """Returns (start, end, param_count) for the target shouldFilterApplication method."""
     matches_7 = list(METHOD_7_PARAM_RE.finditer(text))
-    matches_3 = list(METHOD_3_PARAM_RE.finditer(text))
-    if len(matches_7) > 1 or len(matches_3) > 1:
-        raise ValueError('ambiguous duplicate shouldFilterApplication method')
     if len(matches_7) == 1:
         end = METHOD_END_RE.search(text, matches_7[0].end())
         if end is None:
@@ -61,18 +58,8 @@ def _method_span(text: str) -> tuple[int, int, int]:
     raise ValueError("target ComputerEngine.shouldFilterApplication method not found")
 
 
-EXECUTABLE_HOOK_RE = re.compile(
-    r"(?m)^[ \t]*invoke-static(?:/range)?\s*\{[^}]*\},\s*"
-    + re.escape(HOOK_TARGET)
-    + r"[ \t]*(?:#.*)?$"
-)
-BRANCH_RE = re.compile(
-    r"(?m)^\s*(goto(?:/16|/32)?|if-[\w]+|packed-switch|sparse-switch)\b"
-)
-
-
 def _hook_count(body: str) -> int:
-    return len(EXECUTABLE_HOOK_RE.findall(body))
+    return body.count(HOOK_TARGET)
 
 
 def _high_hook(param_count, old_base, scratch, label, newline="\n"):
@@ -102,16 +89,6 @@ def _verify_visibility(text: str) -> None:
     count = _hook_count(body)
     if count != 1:
         raise ValueError(f"expected exactly one shouldHideAppListForCaller hook; found {count}")
-    directive = LOCALS_RE.search(body) or REGISTERS_RE.search(body)
-    if directive is None:
-        raise ValueError("missing register directive for visibility hook")
-    hook = EXECUTABLE_HOOK_RE.search(body)
-    prefix = body[directive.end():hook.start()]
-    if re.search(r'(?m)^\s*(?:return(?:-[\w]+)?|throw)\b', prefix):
-        raise ValueError("hook must precede a terminating instruction")
-    branches = BRANCH_RE.findall(prefix)
-    if len(branches) != 2 or any(branch != "if-eqz" for branch in branches):
-        raise ValueError("hook must not be bypassed by a branch before the injected null checks")
     if GET_PACKAGE_NAME_CALL not in body:
         directive = LOCALS_RE.search(body) or REGISTERS_RE.search(body)
         width = 8 if param_count == 7 else 4
@@ -182,33 +159,11 @@ def _find_injection_point(body: str) -> int:
     return sum(len(lines[j]) for j in range(injected_idx))
 
 
-def _canonicalize_parameter_aliases(body, base, width):
-    parts = re.split(r'("(?:\\.|[^"\\])*"|#[^\n]*)', body)
-    for index in range(0, len(parts), 2):
-        for parameter in range(width):
-            parts[index] = re.sub(rf'(?<![\w/$;>:])v{base+parameter}(?![\w/$;])',
-                                  f'p{parameter}', parts[index])
-    return ''.join(parts)
-
-
-def _patch_visibility(text: str, update: bool = False) -> tuple[str, bool]:
+def _patch_visibility(text: str) -> tuple[str, bool]:
     """Inject Kaorios HMA visibility hook into ComputerEngine.shouldFilterApplication using register-safe allocation."""
     start, end, param_count = _method_span(text)
     body = text[start:end]
     count = _hook_count(body)
-    if count == 1:
-        try:
-            _verify_visibility(text)
-            return text, False
-        except ValueError:
-            if not update:
-                raise
-
-    if count >= 1 and update:
-        # High-register hooks own parameter copies plus three scratch locals;
-        # unknown blocks cannot safely be removed by decrementing one local.
-        raise ValueError('unsupported update: existing visibility hook is not a recognized valid block')
-
     if count == 1:
         _verify_visibility(text)
         return text, False
@@ -227,7 +182,6 @@ def _patch_visibility(text: str, update: bool = False) -> tuple[str, bool]:
 
     if loc_match:
         current_locs = int(loc_match.group("num"))
-        updated_body = _canonicalize_parameter_aliases(body, current_locs, param_width)
         new_locs = current_locs + 1
         hook_reg = f"v{current_locs}"
         indent = loc_match.group("indent")
@@ -245,7 +199,13 @@ def _patch_visibility(text: str, update: bool = False) -> tuple[str, bool]:
         # .registers may reference parameter slots numerically as vN. Adding a
         # local shifts the physical parameter registers, so canonicalize those aliases
         # to stable pN names before converting the directive to .locals.
-        updated_body = _canonicalize_parameter_aliases(body, existing_locals, param_width)
+        for register_index in range(current_regs - 1, existing_locals - 1, -1):
+            parameter_index = register_index - existing_locals
+            updated_body = re.sub(
+                rf"(?<![A-Za-z0-9_])v{register_index}(?![0-9])",
+                f"p{parameter_index}",
+                updated_body,
+            )
         new_locs = existing_locals + 1
         hook_reg = f"v{existing_locals}"
         indent = reg_match.group("indent")
@@ -267,7 +227,7 @@ def _patch_visibility(text: str, update: bool = False) -> tuple[str, bool]:
 
     locals_match = LOCALS_RE.search(updated_body)
     new_locals = int(locals_match.group("num")) if locals_match else 1
-    if max(new_locals + param_width - 1, int(hook_reg[1:])) > 15:
+    if max(new_locals + int(user_param[1:]), int(hook_reg[1:])) > 15:
         original_directive = LOCALS_RE.search(body) or REGISTERS_RE.search(body)
         old_count = int(original_directive.group("num"))
         old_base = old_count if original_directive.re == LOCALS_RE else old_count - param_width
@@ -278,7 +238,7 @@ def _patch_visibility(text: str, update: bool = False) -> tuple[str, bool]:
         for line in body.splitlines(keepends=True):
             if not line.strip().startswith('.param'):
                 parts = re.split(r'("(?:\\.|[^"\\])*"|#[^\n]*)', line)
-                line = ''.join(part if i % 2 else re.sub(r'(?<![\w/$;>:])p(\d+)(?![\w/$;])', lambda m: f'v{old_base+int(m[1])}', part) for i, part in enumerate(parts))
+                line = ''.join(part if i % 2 else re.sub(r'\bp(\d+)\b', lambda m: f'v{old_base+int(m[1])}', part) for i, part in enumerate(parts))
             lines.append(line)
         updated_body = ''.join(lines)
         directive = LOCALS_RE.search(updated_body) or REGISTERS_RE.search(updated_body)
@@ -329,8 +289,8 @@ def verify(text: str) -> None:
         installer.verify(text)
 
 
-def patch(text: str, update: bool = False) -> tuple[str, bool]:
-    patched, changed = _patch_visibility(text, update=update)
+def patch(text: str) -> tuple[str, bool]:
+    patched, changed = _patch_visibility(text)
     installer = _installer_patcher(text)
     if installer is not None:
         patched, installer_changed = installer.patch(patched)
@@ -342,10 +302,9 @@ def patch(text: str, update: bool = False) -> tuple[str, bool]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Patch ComputerEngine in decompiled services smali.")
     parser.add_argument("smali", type=Path)
-    parser.add_argument("--update", action="store_true", help="Update existing hook")
     args = parser.parse_args()
     original = args.smali.read_bytes().decode("utf-8")
-    patched, changed = patch(original, update=args.update)
+    patched, changed = patch(original)
     if changed:
         args.smali.write_bytes(patched.encode("utf-8"))
     print("patched" if changed else "already patched")

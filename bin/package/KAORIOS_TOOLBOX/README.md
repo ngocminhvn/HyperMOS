@@ -6,7 +6,7 @@ Pinned runtime assets are grouped under `app/`: `KaoriosToolbox.apk`, the framew
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. Current upstream script snapshot: `04a1cf4b58529c8f3a2450f0aa1e0fd2eb3dd48a`.
+Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. Current upstream script snapshot: `8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4`.
 
 ## Scope
 

@@ -4,7 +4,7 @@ set -euo pipefail
 # HyperMOS integration for Kaorios Toolbox.
 # Upstream-owned scripts are vendored byte-for-byte from Kaorios upstream.
 # MOD-only behavior is kept outside those files in mod-kaorios-adapter.py.
-# Upstream script snapshot: 04a1cf4b58529c8f3a2450f0aa1e0fd2eb3dd48a
+# Upstream script snapshot: 8c752fd2692ee9e469433cc2e6e2f0ee8bf54cd4
 # The package driver applies Kaorios CorePatch immediately before this stage.
 # This stage adds Toolbox hooks and MOD-local static FLAG_SECURE bypasses.
 #
@@ -141,8 +141,8 @@ archive_patch_needed() {
 
 # Pin both reviewed v2.0.6.1 release payloads. Updating either asset requires an
 # explicit integration update instead of silently changing a ROM build.
-DRIVER_GIT_BLOB="1c84b5964116b4c90d1b110ec26042dae9314355"
-TOOLBOX_GIT_BLOB="182c355137aa6cb8f0bb2942ad3e95ec88514960"
+DRIVER_GIT_BLOB="33a40d7960d31c2a8c98ffaf8efb70ac96bf1e7f"
+TOOLBOX_GIT_BLOB="671ac1357400a54adfc442c58496bd69e1d4d60c"
 
 ANDROID_VER=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")
 SDK_LEVEL=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")
@@ -217,7 +217,7 @@ if framework_driver_needed; then
   verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework driver DEX"
 fi
 
-TEMP_ROOT="$work_dir/jar_temp/kaorios-v2061"
+TEMP_ROOT="$work_dir/jar_temp/kaorios-v2060"
 rm -rf "$TEMP_ROOT"
 mkdir -p "$TEMP_ROOT"
 cleanup() {
@@ -342,17 +342,10 @@ find_target_file() {
 
 patch_target_file() {
   local root="$1" rel="$2" label="$3" mode="${4:-1}" file patch_log
-  local payload_args=()
   file=$(find_target_file "$root" "$rel" "$label") || return 1
   patch_log="$TEMP_ROOT/kaorios-patcher.log"
-  if [[ "$mode" == "1" ]] && framework_driver_needed; then
-    if [[ ! -d "$TEMP_ROOT/payload-smali" ]]; then
-      run_baksmali "$DRIVER_DEX" "$TEMP_ROOT/payload-smali"
-    fi
-    payload_args=(--payload-smali "$TEMP_ROOT/payload-smali")
-  fi
   if ! python3 "$PATCHER" "$file" --android-version "$ANDROID_VER" --mode "$mode" --no-delay \
-    "${payload_args[@]}" >"$patch_log" 2>&1; then
+    >"$patch_log" 2>&1; then
     error "KAORIOS: patcher failed for $label"
     tail -n 100 "$patch_log" >&2 || true
     return 1
@@ -534,7 +527,6 @@ verify_candidate() {
       if build_spoof_enabled_for_target; then verifier_args+=(--target build --target build_version); fi
       if framework_driver_needed; then
         verifier_args+=(--require-driver)
-        python3 "$SCRIPT_DIR/verify-payload-abi.py" "$verify_smali" --payload-smali "$verify_smali"
       fi
       if system_server_hook_needed; then verifier_args+=(--require-advanced-policy); fi
       python3 "$FINAL_HOOK_VERIFIER" "${verifier_args[@]}"
@@ -550,12 +542,6 @@ verify_candidate() {
       fi
       if system_server_hook_needed; then
         python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$verify_smali"
-      fi
-      if services_driver_needed; then
-        if [[ ! -d "$TEMP_ROOT/payload-smali" ]]; then
-          run_baksmali "$DRIVER_DEX" "$TEMP_ROOT/payload-smali"
-        fi
-        python3 "$SCRIPT_DIR/verify-payload-abi.py" "$verify_smali" --payload-smali "$TEMP_ROOT/payload-smali"
       fi
       if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
         python3 "$SECURE_FLAG_PATCHER" "$verify_smali" --archive services --check-only
