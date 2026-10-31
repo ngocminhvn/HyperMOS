@@ -89,6 +89,14 @@ case "${kaorios_system_server_value,,}" in
   *) error "KAORIOS: invalid SystemServer boolean: $kaorios_system_server_value"; exit 1 ;;
 esac
 if [[ "$kaorios_enabled" == "1" && "$kaorios_system_server_enabled" == "1" ]]; then
+  # Install the managed policy block after TNM (which also edits split
+  # policy) before verifying it: a check-only run here would fail with
+  # "absent or duplicated" whenever no earlier stage installed the block.
+  # The integrate step is idempotent (it replaces an existing managed
+  # block instead of duplicating it) and deletes stale precompiled caches.
+  python3 "$target_dir/KAORIOS_TOOLBOX/mod/integrate-advanced-policy-selinux.py" \
+    --images "$work_dir/build/baserom/images" \
+    --report-dir "$work_dir/build/reports/kaorios/advanced-policy-selinux" || exit 1
   python3 "$target_dir/KAORIOS_TOOLBOX/mod/integrate-advanced-policy-selinux.py" \
     --images "$work_dir/build/baserom/images" \
     --report-dir "$work_dir/build/reports/kaorios/advanced-policy-selinux-final" \
