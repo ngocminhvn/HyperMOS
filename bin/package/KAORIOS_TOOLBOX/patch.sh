@@ -28,6 +28,7 @@ SCRIPT_DIR="$KAORIOS_DIR/script"
 MOD_DIR="$KAORIOS_DIR/mod"
 PATCHER="$SCRIPT_DIR/kaorios_patcher.py"
 MOD_ADAPTER="$MOD_DIR/mod-kaorios-adapter.py"
+DEVSTATUS_PATCHER="$MOD_DIR/patch-settings-namevaluecache.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
 SMALI="$work_dir/bin/apktool/smaliv2.jar"
 DRIVER_DEX="$ASSET_DIR/classes.dex"
@@ -474,18 +475,34 @@ ensure_no_existing_driver() {
   fi
 }
 
-# Per-app "hide Developer options / ADB" using the current upstream caller.
-# An enabled but unsupported layout fails closed; KAORIOS_SKIP_DEVSTATUS=1 is
-# retained as a legacy opt-out and is equivalent to disabling the feature.
+# Per-app "hide Developer options / ADB" using the 2060 dev-status patcher.
+# 2060 patcher does NOT have Settings$NameValueCache in its mode-1 targets,
+# so calling it via patch_target_file fails with "not in target list".
+# Use mod/patch-settings-namevaluecache.py instead, like 2060 patch.sh did.
+# Unsupported layout (rc=3) only warns, it does not abort the build.
 apply_devstatus_patch() {
-  local root="$1"
+  local root="$1" rc=0
   if ! is_enabled "$KAORIOS_ENABLE_DEVSTATUS" || [[ "${KAORIOS_SKIP_DEVSTATUS:-0}" == "1" ]]; then
     info "KAORIOS: dev-status (Developer options/ADB) patch disabled"
     return 0
   fi
-  patch_target_file "$root" 'android/provider/Settings$NameValueCache.smali' \
-    'Settings$NameValueCache' 1 || return 1
-  info "KAORIOS: upstream Settings\$NameValueCache dev-status hook applied"
+  if [[ ! -f "$DEVSTATUS_PATCHER" ]]; then
+    error "KAORIOS: missing dev-status patcher: $DEVSTATUS_PATCHER"
+    return 1
+  fi
+  python3 "$DEVSTATUS_PATCHER" "$root" || rc=$?
+  case "$rc" in
+    0)
+      info "KAORIOS: Settings\$NameValueCache dev-status hook applied"
+      ;;
+    3)
+      warn "KAORIOS: Settings\$NameValueCache layout unsupported; dev-status hook not applied"
+      ;;
+    *)
+      error "KAORIOS: dev-status patcher failed (rc=$rc)"
+      return 1
+      ;;
+  esac
 }
 
 update_archive_dexes() {
