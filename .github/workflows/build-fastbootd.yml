@@ -167,6 +167,9 @@ jobs:
           test -s out/fastbootd/manifest.json
           FASTBOOTD_ARTIFACT_NAME=$(python3 -c \
             'import json; print(json.load(open("out/fastbootd/manifest.json"))["artifact_name"])')
+          # Rename the packed artifact to include the Actions run number,
+          # so downloaded zips are distinguishable: ...#system#system_ext#16
+          FASTBOOTD_ARTIFACT_NAME="${FASTBOOTD_ARTIFACT_NAME}#${GITHUB_RUN_NUMBER}"
           echo "artifact_name=$FASTBOOTD_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
           echo "[FASTBOOTD] Artifact: ${FASTBOOTD_ARTIFACT_NAME}.zip"
           echo "### FastbootD images" >> "$GITHUB_STEP_SUMMARY"
