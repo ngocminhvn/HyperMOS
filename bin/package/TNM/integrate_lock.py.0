@@ -1,0 +1,5 @@
+# Temporary LOCK disable flag.
+# While this file exists, bin/package/TNM/patch.sh skips integrate_lock.py
+# (both the normal patch step and --check-lock) and continues with App Privacy.
+# The original integrate_lock.py is untouched.
+# To re-enable LOCK: delete this file only. No code change is needed then.
