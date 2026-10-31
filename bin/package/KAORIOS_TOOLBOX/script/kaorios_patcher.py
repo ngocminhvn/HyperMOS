@@ -8,7 +8,6 @@ assuming that every OEM ROM of the same Android generation is identical.
 Supported targets:
 - ActivityThread.smali (process initialization hook)
 - ComputerEngine.smali (Hidden App / package visibility filter hook)
-- SettingsProvider.smali (per-app Advanced Settings spoof hook with call & query)
 - SystemServer.smali (initSystemServer lifecycle hook)
 - AndroidKeyStoreKeyPairGeneratorSpi.smali (keypair generation hook)
 - AndroidKeyStoreSpi.smali (certificate chain hook and single-leaf delegation)
@@ -60,12 +59,10 @@ def _load_sibling(filename: str, module_name: str):
 mod_at = _load_sibling("patch-activitythread-a17.py", "at_patcher")
 mod_ce = _load_sibling("patch-services-a17.py", "ce_patcher")
 mod_ss = _load_sibling("patch-systemserver-a17.py", "ss_patcher")
-mod_sp = _load_sibling("patch-settingsprovider-a17.py", "sp_patcher")
 
 mod_v_fw = _load_sibling("verify-framework-a17-hooks.py", "v_fw")
 mod_v_ce = _load_sibling("verify-services-a17-hooks.py", "v_ce")
 mod_v_ss = _load_sibling("verify-systemserver-a17-hooks.py", "v_ss")
-mod_v_sp = _load_sibling("verify-settingsprovider-a17-hooks.py", "v_sp")
 
 
 class PatchStatus:
@@ -99,21 +96,76 @@ def patch_system_server(content: str) -> tuple[str, bool]:
     return patched, (patched != content)
 
 
-def patch_settings_provider(content: str) -> tuple[str, bool]:
-    if mod_sp is not None:
-        return mod_sp.patch(content)
-    raise ValueError("patch-settingsprovider-a17.py required for SettingsProvider patch but unavailable")
-
-
 def _canonicalize_param_aliases(method_body: str, registers: int, param_count: int) -> str:
     """Replace v(R-P+N) aliases with pN so .registers bump doesn't corrupt them."""
     first_param_v = registers - param_count
-    for n in range(param_count):
-        vN = f"v{first_param_v + n}"
-        pN = f"p{n}"
-        # Replace only whole-word occurrences — e.g. v5 but not v50
-        method_body = re.sub(rf'\b{re.escape(vN)}\b', pN, method_body)
-    return method_body
+    if first_param_v < 0 or registers + 1 > 65535:
+        raise ValueError("unsupported register allocation")
+    # A range spanning the local/parameter boundary would gain a register after the bump.
+    for line in method_body.splitlines():
+        instruction = re.sub(r'"(?:\\.|[^"\\])*"|#.*', '', line)
+        if '/range' not in instruction:
+            continue
+        for start, end in re.findall(r'\{\s*v(\d+)\s*\.\.\s*([vp]\d+)\s*\}', instruction):
+            if int(start) < first_param_v and (end.startswith('p') or int(end[1:]) >= first_param_v):
+                raise ValueError('unsupported register shift: /range crosses local/parameter boundary')
+    # Register names inside strings/comments are data and must retain their bytes.
+    parts = re.split(r'("(?:\\.|[^"\\])*"|#[^\n]*)', method_body)
+    for index in range(0, len(parts), 2):
+        for n in range(param_count):
+            parts[index] = re.sub(rf'(?<![\w/$;>:])v{first_param_v + n}(?![\w/$;])', f'p{n}', parts[index])
+    normalized = ''.join(parts)
+    _verify_register_encoding(normalized, registers + 1, param_count)
+    return normalized
+
+
+def _verify_register_encoding(method_body: str, registers: int, param_count: int) -> None:
+    """Reject stock operands whose encoding is invalid after a parameter shift."""
+    for line in method_body.splitlines():
+        instruction = re.sub(r'"(?:\\.|[^"\\])*"|#.*', '', line).strip()
+        if not instruction or instruction.startswith(('.', ':')):
+            continue
+        opcode = instruction.split()[0]
+        operands = re.split(r',\s*(?:L|\[)', instruction, maxsplit=1)[0]
+        operands = re.sub(r'(?<![\w]):[\w$]+', '', operands)
+        names = re.findall(r'\b([vp]\d+)\b', operands)
+        narrow = (opcode in ('move', 'move-wide', 'move-object', 'const/4', 'array-length',
+                             'rsub-int', 'add-int/lit16', 'and-int/lit16', 'or-int/lit16',
+                             'xor-int/lit16',
+                             'new-array', 'instance-of', 'if-eq', 'if-ne', 'if-lt',
+                             'if-ge', 'if-gt', 'if-le')
+                  or opcode.startswith(('iget', 'iput', 'neg-', 'not-'))
+                  or '-to-' in opcode or opcode.endswith('/2addr')
+                  or (opcode.startswith(('invoke-', 'filled-new-array')) and '/range' not in opcode))
+        for index, name in enumerate(names):
+            physical = int(name[1:]) + (registers - param_count if name.startswith('p') else 0)
+            limit = 15 if narrow else 255
+            if opcode.startswith(('invoke-', 'filled-new-array')) and '/range' in opcode or opcode.startswith('move') and opcode.endswith('/16'):
+                limit = 65535
+            elif opcode.startswith('move') and opcode.endswith('/from16') and index == 1:
+                limit = 65535
+            if physical > limit:
+                raise ValueError(f"unsupported register shift: {opcode} operand {name} becomes v{physical}, encoding limit v{limit}")
+
+
+def _generator_entry_offset(method_body: str, directive_end: int) -> int:
+    """Locate the first instruction after parameter and annotation metadata."""
+    offset = directive_end
+    annotation_depth = 0
+    for line in method_body[directive_end:].splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith(('.annotation ', '.subannotation ')):
+            annotation_depth += 1
+        elif stripped.startswith(('.end annotation', '.end subannotation')):
+            annotation_depth -= 1
+        elif annotation_depth == 0 and stripped and not stripped.startswith(('#', '.param ', '.end param', '.line ', '.local ', '.end local', '.restart local', '.prologue', '.epilogue')):
+            if stripped.startswith('.'):
+                raise ValueError(f'unsupported generateKeyPair metadata: {stripped}')
+            if stripped.startswith(':'):
+                raise ValueError('unsupported generateKeyPair entry label: hook could be bypassed')
+            return offset
+        offset += len(line)
+    raise ValueError('generateKeyPair stock instructions not found')
 
 
 def patch_keystore_generator(content: str) -> tuple[str, bool]:
@@ -126,6 +178,7 @@ def patch_keystore_generator(content: str) -> tuple[str, bool]:
 
     method_body = content[start:end]
     if "KaoriosHook;->initGenerateSoftwareKeyPair" in method_body:
+        verify_target_content('AndroidKeyStoreKeyPairGeneratorSpi.smali', content)
         return content, False
 
     match = re.search(r'\.(registers|locals)\s+(\d+)', method_body)
@@ -161,7 +214,9 @@ def patch_keystore_generator(content: str) -> tuple[str, bool]:
 
     {lbl}
 """
-    new_body = method_body[:match.start()] + f".{directive} {new_reg}" + inject + method_body[match.end():]
+    entry = _generator_entry_offset(method_body, match.end())
+    new_body = (method_body[:match.start()] + f".{directive} {new_reg}"
+                + method_body[match.end():entry] + inject + method_body[entry:])
     return content[:start] + new_body + content[end:], True
 
 
@@ -261,6 +316,13 @@ def patch_keystore_spi(content: str) -> tuple[str, bool]:
     return content[:start] + body + content[end:], True
 
 
+INSTRUMENTATION_HOOK_RE = re.compile(
+    r'(?m)^[ \t]*invoke-static(?:/range)?\s*\{p\d+(?:\s*\.\.\s*p\d+)?\},\s*'
+    r'Landroid/security/kaorios/KaoriosHook;->initContext\(Landroid/content/Context;\)V[ \t]*(?:#.*)?$'
+)
+INSTRUMENTATION_RETURN_RE = re.compile(r'(?m)^[ \t]*return-object\s+[vp]\d+')
+
+
 def patch_instrumentation(content: str) -> tuple[str, bool]:
     def patch_method(text: str, method_name: str, param: str) -> tuple[str, bool]:
         start = text.find(method_name)
@@ -274,7 +336,7 @@ def patch_instrumentation(content: str) -> tuple[str, bool]:
         header = text[text.rfind('.method', 0, start):start]
         if "Class;" in method_name and re.search(r'\bstatic\b', header):
             param = "p1"
-        if "KaoriosHook;->initContext" in method_body:
+        if INSTRUMENTATION_HOOK_RE.search(method_body):
             return text, False
 
         matches = list(re.finditer(r'(return-object\s+[vp]\d+\s*)', method_body))
@@ -397,7 +459,8 @@ def patch_build(content: str) -> tuple[str, bool]:
 
     patched = content
     for f in fields_null:
-        patched = re.sub(rf'(\.field public static[^\n]*?)final([^\n]*? {f}:Ljava/lang/String;)', r'\1\2 = null', patched)
+        patched = re.sub(rf'(\.field public static[^\n]*?)final([^\n]*? {f}:Ljava/lang/String;)(?:[ \t]*=[^\r\n]*)?', r'\1\2 = null', patched)
+        patched = re.sub(rf'(\.field public static[^\n]*? {f}:Ljava/lang/String;)[ \t]*=[^\r\n]*', r'\1 = null', patched)
 
     patched = re.sub(r'(\.field public static[^\n]*?)final([^\n]*? TIME:J)', r'\1\2', patched)
     return patched, (patched != content)
@@ -463,9 +526,6 @@ def verify_target_content(filename: str, content: str) -> None:
     elif filename == "SystemServer.smali":
         if mod_ss is not None:
             mod_ss.verify(content)
-    elif filename == "SettingsProvider.smali":
-        if mod_sp is not None:
-            mod_sp.verify(content)
     elif filename == "AndroidKeyStoreKeyPairGeneratorSpi.smali":
         body = _extract_method_body(
             content,
@@ -477,6 +537,29 @@ def verify_target_content(filename: str, content: str) -> None:
             raise ValueError(
                 f"AndroidKeyStoreKeyPairGeneratorSpi: expected exactly 1 initGenerateSoftwareKeyPair hook in generateKeyPair, found {count}"
             )
+        directive = re.search(r'\.(registers|locals)\s+(\d+)', body)
+        if directive is None:
+            raise ValueError("generateKeyPair register directive not found")
+        registers = int(directive[2]) + (1 if directive[1] == 'locals' else 0)
+        _verify_register_encoding(body, registers, 1)
+        entry = _generator_entry_offset(body, directive.end())
+        sequence = re.match(
+            r'\s*invoke-static(?P<range>/range)?\s*\{p0(?:(?(range)\s*\.\.\s*p0))?\},\s*'
+            r'Landroid/security/kaorios/KaoriosHook;->initGenerateSoftwareKeyPair\(Ljava/lang/Object;\)Ljava/security/KeyPair;\s+'
+            r'move-result-object\s+(?P<scratch>v\d+)\s+'
+            r'if-eqz\s+(?P=scratch),\s*(?P<label>:[\w$]+)\s+'
+            r'return-object\s+(?P=scratch)\s*'
+            r'(?:\.(?:line|local|end local|restart local)[^\n]*\n|\s)*'
+            r'(?P=label)\s*', body[entry:]
+        )
+        if sequence is None or int(sequence['scratch'][1:]) != registers - 2:
+            raise ValueError('generateKeyPair hook must be at entry with a dedicated local and stock fallback')
+        label = sequence['label']
+        if len(re.findall(rf'(?m)^\s*{re.escape(label)}\s*$', body)) != 1:
+            raise ValueError('generateKeyPair stock fallback label is not unique')
+        stock_lines = body[entry + sequence.end():].splitlines()
+        if not any(re.match(r'^\s*(?:return-object|throw)\b', line) for line in stock_lines):
+            raise ValueError('unsupported generateKeyPair stock fallback: no exit')
     elif filename == "AndroidKeyStoreSpi.smali":
         body = _extract_method_body(
             content,
@@ -535,10 +618,10 @@ def verify_target_content(filename: str, content: str) -> None:
             "newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;",
             "Instrumentation"
         )
-        returns1 = len(re.findall(r'return-object\s+[vp]\d+', body1))
-        returns2 = len(re.findall(r'return-object\s+[vp]\d+', body2))
-        hooks1 = len(re.findall(r'KaoriosHook;->initContext', body1))
-        hooks2 = len(re.findall(r'KaoriosHook;->initContext', body2))
+        returns1 = len(INSTRUMENTATION_RETURN_RE.findall(body1))
+        returns2 = len(INSTRUMENTATION_RETURN_RE.findall(body2))
+        hooks1 = len(INSTRUMENTATION_HOOK_RE.findall(body1))
+        hooks2 = len(INSTRUMENTATION_HOOK_RE.findall(body2))
         if returns1 > 0 and hooks1 != returns1:
             raise ValueError(
                 f"Instrumentation: newApplication(Class,Context) expected {returns1} initContext hooks, found {hooks1}"
@@ -552,11 +635,11 @@ def verify_target_content(filename: str, content: str) -> None:
         class_header = content[content.rfind('.method', 0, content.find("newApplication(Ljava/lang/Class;Landroid/content/Context;)Landroid/app/Application;")):content.find("newApplication(Ljava/lang/Class;Landroid/content/Context;)Landroid/app/Application;")]
         class_context = 'p1' if re.search(r'\bstatic\b', class_header) else 'p2'
         for body, context_reg in ((body1, class_context), (body2, 'p3')):
-            for ret in re.finditer(r'\breturn-object\s+[vp]\d+', body):
+            for ret in INSTRUMENTATION_RETURN_RE.finditer(body):
                 preceding = body[:ret.start()]
                 hook = re.search(
-                    rf'invoke-static(?:/range)?\s*\{{{context_reg}(?:\s*\.\.\s*{context_reg})?\}},\s*'
-                    r'Landroid/security/kaorios/KaoriosHook;->initContext\(Landroid/content/Context;\)V\s*$',
+                    rf'(?m)^[ \t]*invoke-static(?:/range)?\s*\{{{context_reg}(?:\s*\.\.\s*{context_reg})?\}},\s*'
+                    r'Landroid/security/kaorios/KaoriosHook;->initContext\(Landroid/content/Context;\)V[ \t]*(?:#.*)?\s*\Z',
                     preceding
                 )
                 if hook is None:
@@ -566,6 +649,11 @@ def verify_target_content(filename: str, content: str) -> None:
         if pat is None:
             raise ValueError("ApplicationPackageManager: hasSystemFeature(Ljava/lang/String;I)Z method not found")
         body = pat.group(1)
+        directive = re.search(r'\.(registers|locals)\s+(\d+)', body)
+        if directive is None:
+            raise ValueError("hasSystemFeature register directive not found")
+        registers = int(directive[2]) + (3 if directive[1] == 'locals' else 0)
+        _verify_register_encoding(body, registers, 3)
         sequence = re.search(
             r'invoke-static(?:/range)?\s*\{p1(?:,\s*p2|\s*\.\.\s*p2)\},\s*'
             r'Landroid/security/kaorios/KaoriosHook;->hasSystemFeature\(Ljava/lang/String;I\)Ljava/lang/Boolean;\s+'
@@ -601,6 +689,9 @@ def verify_target_content(filename: str, content: str) -> None:
                 raise ValueError(f"Build.smali post-patch: field {f} not found")
             if "final" in m.group(0):
                 raise ValueError(f"Build.smali post-patch: field {f} still has 'final' modifier — patch did not apply")
+            initializer = content[m.end():content.find('\n', m.end()) if '\n' in content[m.end():] else len(content)]
+            if initializer.strip() not in ('', '= null'):
+                raise ValueError(f"Build.smali post-patch: field {f} must have a null initializer")
         m_time = re.search(r'\.field public static[^\n]* TIME:J', content)
         if not m_time:
             raise ValueError("Build.smali post-patch: field TIME:J not found")
@@ -624,6 +715,22 @@ def apply_target_patch(filename: str, content: str, targets: dict) -> tuple[str,
     patch_fn = targets.get(filename)
     if patch_fn is None:
         return PatchStatus.NOT_TARGET, content, None
+
+    owners = {
+        'ActivityThread.smali': 'Landroid/app/ActivityThread;',
+        'ComputerEngine.smali': 'Lcom/android/server/pm/ComputerEngine;',
+        'SystemServer.smali': 'Lcom/android/server/SystemServer;',
+        'AndroidKeyStoreKeyPairGeneratorSpi.smali': 'Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;',
+        'AndroidKeyStoreSpi.smali': 'Landroid/security/keystore2/AndroidKeyStoreSpi;',
+        'Instrumentation.smali': 'Landroid/app/Instrumentation;',
+        'ApplicationPackageManager.smali': 'Landroid/app/ApplicationPackageManager;',
+        'Build.smali': 'Landroid/os/Build;',
+        'Build$VERSION.smali': 'Landroid/os/Build$VERSION;',
+    }
+    owner = owners.get(filename)
+    declarations = re.findall(r'(?m)^\.class\s+[^\n]*?\s+(L[^\s;]+;)[ \t]*$', content)
+    if owner is None or declarations != [owner]:
+        return PatchStatus.UNSUPPORTED_LAYOUT, content, f'{filename}: expected class descriptor {owner}'
 
     try:
         patched_content, changed = patch_fn(content)
@@ -663,12 +770,6 @@ def run_directory_verifiers(root_path: Path, processed_filenames: set[str]) -> l
         except Exception as e:
             errors.append(f"Services verifier (SystemServer): {e}")
 
-    if "SettingsProvider.smali" in processed_filenames and mod_v_sp is not None:
-        try:
-            mod_v_sp.verify_caller(root_path)
-        except Exception as e:
-            errors.append(f"SettingsProvider verifier: {e}")
-
     return errors
 
 
@@ -678,7 +779,6 @@ def process_files(root_path: str | Path, mode: str, slow: bool = True) -> bool:
         targets.update({
             "ActivityThread.smali": patch_activity_thread,
             "ComputerEngine.smali": patch_computer_engine,
-            "SettingsProvider.smali": patch_settings_provider,
             "SystemServer.smali": patch_system_server,
             "AndroidKeyStoreKeyPairGeneratorSpi.smali": patch_keystore_generator,
             "AndroidKeyStoreSpi.smali": patch_keystore_spi,

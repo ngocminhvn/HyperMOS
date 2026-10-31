@@ -43,7 +43,10 @@ done
 test -f "$TASK_INPUT"
 test -f "$TASK_BAKSMALI"
 test -f "$TASK_SMALI"
-test "$TASK_INPUT" != "$TASK_OUTPUT"
+if [[ $(realpath -m -- "$TASK_INPUT") == $(realpath -m -- "$TASK_OUTPUT") ]] || [[ -e "$TASK_OUTPUT" && "$TASK_INPUT" -ef "$TASK_OUTPUT" ]]; then
+    echo "Input and output must be different files." >&2
+    exit 2
+fi
 
 run_baksmali() {
     local dex=$1 out_dir=$2
@@ -80,7 +83,7 @@ unzip -q "$TASK_INPUT" -d "$TASK_UNPACKED"
 # 2. Plan patch: discover ComputerEngine and SystemServer owner DEXes, snapshot hashes
 TASK_PLAN_OUTPUT="$TASK_WORK/plan.txt"
 TASK_HASHES_JSON="$TASK_WORK/before_hashes.json"
-python "$TASK_DIR/patch-dex-artifact-plan.py" plan "$TASK_UNPACKED" \
+python3 "$TASK_DIR/patch-dex-artifact-plan.py" plan "$TASK_UNPACKED" \
     "Lcom/android/server/pm/ComputerEngine;" \
     "Lcom/android/server/SystemServer;" \
     --save-hashes "$TASK_HASHES_JSON" > "$TASK_PLAN_OUTPUT"
@@ -99,11 +102,11 @@ if [[ "$TASK_DEX_CE" == "$TASK_DEX_SS" ]]; then
     TASK_OWNER_SMALI="$TASK_WORK/owner_smali"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_OWNER_SMALI"
 
-    python "$TASK_DIR/patch-services-a17.py" "$TASK_OWNER_SMALI/com/android/server/pm/ComputerEngine.smali"
-    python "$TASK_DIR/patch-systemserver-a17.py" "$TASK_OWNER_SMALI/com/android/server/SystemServer.smali"
+    python3 "$TASK_DIR/patch-services-a17.py" "$TASK_OWNER_SMALI/com/android/server/pm/ComputerEngine.smali"
+    python3 "$TASK_DIR/patch-systemserver-a17.py" "$TASK_OWNER_SMALI/com/android/server/SystemServer.smali"
 
-    python "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_OWNER_SMALI"
-    python "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_OWNER_SMALI"
+    python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_OWNER_SMALI"
+    python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_OWNER_SMALI"
 
     TASK_NEW_DEX="$TASK_WORK/$TASK_DEX_CE"
     run_smali "$TASK_OWNER_SMALI" "$TASK_NEW_DEX"
@@ -113,8 +116,8 @@ else
     # Classes in distinct owner DEXes
     TASK_SMALI_CE="$TASK_WORK/smali_ce"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_SMALI_CE"
-    python "$TASK_DIR/patch-services-a17.py" "$TASK_SMALI_CE/com/android/server/pm/ComputerEngine.smali"
-    python "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_SMALI_CE"
+    python3 "$TASK_DIR/patch-services-a17.py" "$TASK_SMALI_CE/com/android/server/pm/ComputerEngine.smali"
+    python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_SMALI_CE"
     TASK_NEW_DEX_CE="$TASK_WORK/$TASK_DEX_CE"
     run_smali "$TASK_SMALI_CE" "$TASK_NEW_DEX_CE"
     test -s "$TASK_NEW_DEX_CE"
@@ -122,8 +125,8 @@ else
 
     TASK_SMALI_SS="$TASK_WORK/smali_ss"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_SS" "$TASK_SMALI_SS"
-    python "$TASK_DIR/patch-systemserver-a17.py" "$TASK_SMALI_SS/com/android/server/SystemServer.smali"
-    python "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_SMALI_SS"
+    python3 "$TASK_DIR/patch-systemserver-a17.py" "$TASK_SMALI_SS/com/android/server/SystemServer.smali"
+    python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_SMALI_SS"
     TASK_NEW_DEX_SS="$TASK_WORK/$TASK_DEX_SS"
     run_smali "$TASK_SMALI_SS" "$TASK_NEW_DEX_SS"
     test -s "$TASK_NEW_DEX_SS"
@@ -131,7 +134,7 @@ else
 fi
 
 # 6. Assert all untouched DEX files are byte-for-byte identical
-python "$TASK_DIR/patch-dex-artifact-plan.py" verify-untouched "$TASK_HASHES_JSON" "$TASK_UNPACKED" "$TASK_MODIFIED_DEXES"
+python3 "$TASK_DIR/patch-dex-artifact-plan.py" verify-untouched "$TASK_HASHES_JSON" "$TASK_UNPACKED" "$TASK_MODIFIED_DEXES"
 
 # 7. Pack candidate patched services JAR in temporary workspace
 TASK_CANDIDATE="$TASK_WORK/services-candidate.jar"
@@ -142,18 +145,18 @@ unzip -tq "$TASK_CANDIDATE"
 if [[ "$TASK_DEX_CE" == "$TASK_DEX_SS" ]]; then
     TASK_VERIFY_ROOT="$TASK_WORK/verify"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_VERIFY_ROOT"
-    python "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_VERIFY_ROOT"
-    python "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_VERIFY_ROOT"
+    python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_VERIFY_ROOT"
+    python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_VERIFY_ROOT"
 else
     TASK_VERIFY_CE="$TASK_WORK/verify_ce"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_CE" "$TASK_VERIFY_CE"
-    python "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_VERIFY_CE"
+    python3 "$TASK_DIR/verify-services-a17-hooks.py" "$TASK_VERIFY_CE"
 
     TASK_VERIFY_SS="$TASK_WORK/verify_ss"
     run_baksmali "$TASK_UNPACKED/$TASK_DEX_SS" "$TASK_VERIFY_SS"
-    python "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_VERIFY_SS"
+    python3 "$TASK_DIR/verify-systemserver-a17-hooks.py" "$TASK_VERIFY_SS"
 fi
 
 # 9. Publish via destination-local staging
-python "$TASK_DIR/publish-verified-artifact.py" "$TASK_CANDIDATE" "$TASK_OUTPUT"
+python3 "$TASK_DIR/publish-verified-artifact.py" "$TASK_CANDIDATE" "$TASK_OUTPUT"
 echo "Successfully published verified Android 17 services.jar to $TASK_OUTPUT"
