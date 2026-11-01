@@ -22,7 +22,6 @@ CORE_FEATURES = (
 )
 OPTIONAL_FEATURES = (
     "native_pif",
-    "init_boot",
 )
 FEATURES = CORE_FEATURES + OPTIONAL_FEATURES
 
@@ -55,7 +54,6 @@ def load_config(path: Path) -> dict[str, bool]:
     if invalid:
         raise ValueError(f"feature values must be JSON booleans: {invalid}")
     config.setdefault("native_pif", config.get("pif_spoof", True))
-    config.setdefault("init_boot", True)
     return config
 
 
@@ -76,7 +74,6 @@ def assignments(config: dict[str, bool]) -> dict[str, bool]:
         "KAORIOS_ENABLE_SECURE_FLAG": config["secure_flag"],
         "KAORIOS_ENABLE_COREPATCH": config["corepatch"],
         "KAORIOS_ENABLE_NATIVE_PIF": config["native_pif"],
-        "KAORIOS_ENABLE_INIT_BOOT": config["init_boot"],
         "KAORIOS_INSTALL_TOOLBOX": config["enabled"],
         "KAORIOS_VERBOSE_LOG": False,
     }

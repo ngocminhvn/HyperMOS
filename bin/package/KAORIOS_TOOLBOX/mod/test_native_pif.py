@@ -10,19 +10,18 @@ KAORIOS_DIR = MOD_DIR.parent
 REPO_ROOT = KAORIOS_DIR.parents[2]
 
 
-class NativePifAndInitTest(unittest.TestCase):
-    def test_config_json_includes_native_pif_and_init_boot(self):
+class NativePifTest(unittest.TestCase):
+    def test_config_json_includes_native_pif_and_no_init_boot(self):
         config_path = KAORIOS_DIR / "config.json"
         self.assertTrue(config_path.is_file())
         with open(config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         cfg = data["KaoriosToolbox"][0]
         self.assertIn("native_pif", cfg)
-        self.assertIn("init_boot", cfg)
         self.assertTrue(cfg["native_pif"])
-        self.assertFalse(cfg["init_boot"])
+        self.assertNotIn("init_boot", cfg)
 
-    def test_load_config_emits_native_pif_and_init_boot(self):
+    def test_load_config_emits_native_pif_and_no_init_boot(self):
         loader = MOD_DIR / "load-config.py"
         config_path = KAORIOS_DIR / "config.json"
         res = subprocess.run(
@@ -32,7 +31,7 @@ class NativePifAndInitTest(unittest.TestCase):
             check=True,
         )
         self.assertIn("KAORIOS_ENABLE_NATIVE_PIF=true", res.stdout)
-        self.assertIn("KAORIOS_ENABLE_INIT_BOOT=false", res.stdout)
+        self.assertNotIn("KAORIOS_ENABLE_INIT_BOOT", res.stdout)
 
         res_pif = subprocess.run(
             [sys.executable, str(loader), str(config_path), "--get", "native_pif"],
@@ -41,14 +40,6 @@ class NativePifAndInitTest(unittest.TestCase):
             check=True,
         )
         self.assertEqual(res_pif.stdout.strip(), "true")
-
-        res_init = subprocess.run(
-            [sys.executable, str(loader), str(config_path), "--get", "init_boot"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        self.assertEqual(res_init.stdout.strip(), "false")
 
     def test_native_libraries_present(self):
         lib_dir = KAORIOS_DIR / "bin/lib"
@@ -65,28 +56,9 @@ class NativePifAndInitTest(unittest.TestCase):
                 with open(target, "rb") as f:
                     self.assertEqual(f.read(4), b"\x7fELF")
 
-    def test_kaorihelper_binary_present_and_executable(self):
-        helper = KAORIOS_DIR / "bin/resetprop/kaorihelper"
-        self.assertTrue(helper.is_file())
-        self.assertGreater(helper.stat().st_size, 0)
-        with open(helper, "rb") as f:
-            header = f.read(5)
-            # ELF 64-bit ARM64
-            self.assertEqual(header[:4], b"\x7fELF")
-            self.assertEqual(header[4], 2)  # 64-bit
-
-    def test_init_kaorios_rc_contents(self):
-        rc = KAORIOS_DIR / "bin/init/init.kaorios.rc"
-        self.assertTrue(rc.is_file())
-        text = rc.read_text(encoding="utf-8")
-        self.assertIn("on post-fs-data", text)
-        self.assertIn("/system/bin/kaorihelper --init ro.boot.vbmeta.device_state locked", text)
-        self.assertIn("/system/bin/kaorihelper --init ro.boot.verifiedbootstate green", text)
-        self.assertIn("/system/bin/kaorihelper --init ro.boot.flash.locked 1", text)
-        self.assertIn("/system/bin/kaorihelper --init ro.debuggable 0", text)
-        self.assertIn("/system/bin/kaorihelper --init ro.secure 1", text)
-        self.assertIn("/system/bin/kaorihelper --init ro.build.type user", text)
-        self.assertIn("/system/bin/kaorihelper --init ro.secureboot.lockstate locked", text)
+    def test_init_boot_files_absent(self):
+        self.assertFalse((KAORIOS_DIR / "bin/resetprop").exists())
+        self.assertFalse((KAORIOS_DIR / "bin/init").exists())
 
     def test_fix_selinux_maps_system_lib_file(self):
         import importlib.util

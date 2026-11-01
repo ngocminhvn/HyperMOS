@@ -18,8 +18,7 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
 - Android 17 `Build` / `Build$VERSION` spoof;
 - Native PIF libraries (`libkaoripif.so`, `libkaoriospif.so`, `libshadowhook_kaorios.so`) in `/system/lib64` and `/system/lib`;
-- Init boot property enforcement (`init.kaorios.rc` + `kaorihelper`) in `/system/etc/init` and `/system/bin`;
-- Toolbox APK as a `system_ext` priv-app and optional standalone Rust CLI `kaorios-toolbox` in `/system/bin`.
+- Toolbox APK as a `system_ext` priv-app.
 
 Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Its CorePatch pass owns the static signature/downgrade bypass. HyperMOS CorePatch runs first with those overlapping methods disabled and retains only its Xiaomi-specific patches. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state.
 
@@ -45,7 +44,6 @@ Custom boot animation is disabled for all builds: the module entrypoint has been
 | `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar` and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
 | `KAORIOS_ENABLE_COREPATCH` | Run the Kaorios CorePatch signature/downgrade pass after the non-overlapping HyperMOS CorePatch pass |
 | `KAORIOS_ENABLE_NATIVE_PIF` | Install native PIF libraries (`libkaoripif.so`, `libkaoriospif.so`, `libshadowhook_kaorios.so`) into `/system/lib64/` and `/system/lib/` for libc property hook in DroidGuard |
-| `KAORIOS_ENABLE_INIT_BOOT` | Install `init.kaorios.rc` to `/system/etc/init/` and `kaorihelper` / `kaorios-toolbox` to `/system/bin/` to enforce locked bootloader properties at `on post-fs-data` |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
 | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
 | `KAORIOS_DEVSTATUS_STRICT` | Fail instead of warning when the dev-status layout is unsupported |
