@@ -5,6 +5,10 @@ import sys
 
 MAP_RULE_A = {
     r"^(/.*)?/lost\+found": "u:object_r:rootfs:s0",
+    r"^(/system)?/system/lib(64)?(/.*)?": "u:object_r:system_lib_file:s0",
+    r"^/system/lib(64)?(/.*)?": "u:object_r:system_lib_file:s0",
+    r"^/system_ext/lib(64)?(/.*)?": "u:object_r:system_lib_file:s0",
+    r"^/product/lib(64)?(/.*)?": "u:object_r:system_lib_file:s0",
     r"^/odm(/.*)?": "u:object_r:vendor_file:s0",
     r"^/vendor(/.*)?": "u:object_r:vendor_file:s0",
     r"^/product(/.*)?": "u:object_r:system_file:s0",

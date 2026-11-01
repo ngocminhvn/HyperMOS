@@ -9,7 +9,9 @@
       "devstatus": true,
       "build_spoof": true,
       "secure_flag": true,
-      "corepatch": true
+      "corepatch": true,
+      "native_pif": true,
+      "init_boot": true
     }
   ]
 }

@@ -1,2 +1,5 @@
 # Generated Gradle intermediates from bundled host tools.
 **/build/tmp/
+__pycache__/
+*.py[cod]
+

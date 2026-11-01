@@ -66,6 +66,8 @@ KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF="${KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF:-true
 KAORIOS_VALIDATE_KEYBOX="${KAORIOS_VALIDATE_KEYBOX:-true}"
 KAORIOS_INSTALL_TOOLBOX="${KAORIOS_INSTALL_TOOLBOX:-true}"
 KAORIOS_DEVSTATUS_STRICT="${KAORIOS_DEVSTATUS_STRICT:-false}"
+KAORIOS_ENABLE_NATIVE_PIF="${KAORIOS_ENABLE_NATIVE_PIF:-true}"
+KAORIOS_ENABLE_INIT_BOOT="${KAORIOS_ENABLE_INIT_BOOT:-true}"
 
 # Translate config.json names to #190 names when the loader set them.
 [[ -n "${enabled:-}" ]] && KAORIOS_MASTER="$enabled"
@@ -76,6 +78,8 @@ KAORIOS_DEVSTATUS_STRICT="${KAORIOS_DEVSTATUS_STRICT:-false}"
 [[ -n "${build_spoof:-}" ]] && KAORIOS_ENABLE_BUILD_SPOOF="$build_spoof"
 [[ -n "${secure_flag:-}" ]] && KAORIOS_ENABLE_SECURE_FLAG="$secure_flag"
 [[ -n "${corepatch:-}" ]] && KAORIOS_ENABLE_COREPATCH="$corepatch"
+[[ -n "${native_pif:-}" ]] && KAORIOS_ENABLE_NATIVE_PIF="$native_pif"
+[[ -n "${init_boot:-}" ]] && KAORIOS_ENABLE_INIT_BOOT="$init_boot"
 
 is_enabled() {
   case "${1,,}" in
@@ -112,6 +116,8 @@ for flag in \
   KAORIOS_INSTALL_TOOLBOX \
   KAORIOS_VALIDATE_KEYBOX \
   KAORIOS_DEVSTATUS_STRICT \
+  KAORIOS_ENABLE_NATIVE_PIF \
+  KAORIOS_ENABLE_INIT_BOOT \
   KAORIOS_VERBOSE_LOG; do
   validate_bool "$flag"
 done
@@ -824,6 +830,124 @@ patch_archive() {
   info "KAORIOS: installed verified $kind artifact"
 }
 
+get_system_target_dir() {
+  local images="$work_dir/build/baserom/images"
+  if [[ -d "$images/system/system" ]]; then
+    printf '%s\n' "$images/system/system"
+  elif [[ -d "$images/system" ]]; then
+    printf '%s\n' "$images/system"
+  else
+    return 1
+  fi
+}
+
+install_native_pif() {
+  local sys_target
+  if ! sys_target=$(get_system_target_dir); then
+    warn "KAORIOS: system partition directory missing; skipping Native PIF installation"
+    return 0
+  fi
+
+  local lib_src="$KAORIOS_DIR/bin/lib"
+  if [[ ! -d "$lib_src" ]]; then
+    error "KAORIOS: Native PIF source directory missing: $lib_src"
+    return 1
+  fi
+
+  # 64-bit libraries
+  local arm64_dir="$lib_src/arm64-v8a"
+  local target_lib64="$sys_target/lib64"
+  if [[ -d "$arm64_dir" ]]; then
+    mkdir -p "$target_lib64"
+    for lib in libkaoripif.so libkaoriospif.so libshadowhook_kaorios.so; do
+      if [[ -f "$arm64_dir/$lib" ]]; then
+        cp -f "$arm64_dir/$lib" "$target_lib64/$lib"
+        chmod 0644 "$target_lib64/$lib"
+        chown 0:0 "$target_lib64/$lib" 2>/dev/null || true
+        command -v chcon >/dev/null 2>&1 && chcon u:object_r:system_lib_file:s0 "$target_lib64/$lib" 2>/dev/null || true
+        patch_file_context "system" "/system/lib64/$lib" "u:object_r:system_lib_file:s0"
+        patch_file_context "system" "/system/system/lib64/$lib" "u:object_r:system_lib_file:s0"
+      fi
+    done
+    info "KAORIOS: installed 64-bit Native PIF libraries to $target_lib64"
+  fi
+
+  # 32-bit libraries
+  local arm_dir="$lib_src/armeabi-v7a"
+  local target_lib="$sys_target/lib"
+  if [[ -d "$arm_dir" ]]; then
+    mkdir -p "$target_lib"
+    for lib in libkaoripif.so libkaoriospif.so libshadowhook_kaorios.so; do
+      if [[ -f "$arm_dir/$lib" ]]; then
+        cp -f "$arm_dir/$lib" "$target_lib/$lib"
+        chmod 0644 "$target_lib/$lib"
+        chown 0:0 "$target_lib/$lib" 2>/dev/null || true
+        command -v chcon >/dev/null 2>&1 && chcon u:object_r:system_lib_file:s0 "$target_lib/$lib" 2>/dev/null || true
+        patch_file_context "system" "/system/lib/$lib" "u:object_r:system_lib_file:s0"
+        patch_file_context "system" "/system/system/lib/$lib" "u:object_r:system_lib_file:s0"
+      fi
+    done
+    info "KAORIOS: installed 32-bit Native PIF libraries to $target_lib"
+  fi
+}
+
+install_init_boot() {
+  local sys_target
+  if ! sys_target=$(get_system_target_dir); then
+    warn "KAORIOS: system partition directory missing; skipping Init Boot installation"
+    return 0
+  fi
+
+  local helper_src="$KAORIOS_DIR/bin/resetprop/kaorihelper"
+  local rc_src="$KAORIOS_DIR/bin/init/init.kaorios.rc"
+  local cli_src="$KAORIOS_DIR/bin/kaorios-toolbox/kaorios-toolbox"
+
+  # 1. Install kaorihelper to /system/bin
+  if [[ -f "$helper_src" ]]; then
+    local target_bin="$sys_target/bin"
+    mkdir -p "$target_bin"
+    cp -f "$helper_src" "$target_bin/kaorihelper"
+    chmod 0755 "$target_bin/kaorihelper"
+    chown 0:2000 "$target_bin/kaorihelper" 2>/dev/null || chown 0:0 "$target_bin/kaorihelper" 2>/dev/null || true
+    command -v chcon >/dev/null 2>&1 && chcon u:object_r:system_file:s0 "$target_bin/kaorihelper" 2>/dev/null || true
+    patch_file_context "system" "/system/bin/kaorihelper" "u:object_r:system_file:s0"
+    patch_file_context "system" "/system/system/bin/kaorihelper" "u:object_r:system_file:s0"
+    info "KAORIOS: installed kaorihelper to $target_bin/kaorihelper"
+  else
+    error "KAORIOS: kaorihelper binary not found at $helper_src"
+    return 1
+  fi
+
+  # 2. Install init.kaorios.rc to /system/etc/init
+  if [[ -f "$rc_src" ]]; then
+    local target_init="$sys_target/etc/init"
+    mkdir -p "$target_init"
+    cp -f "$rc_src" "$target_init/init.kaorios.rc"
+    chmod 0644 "$target_init/init.kaorios.rc"
+    chown 0:0 "$target_init/init.kaorios.rc" 2>/dev/null || true
+    command -v chcon >/dev/null 2>&1 && chcon u:object_r:system_file:s0 "$target_init/init.kaorios.rc" 2>/dev/null || true
+    patch_file_context "system" "/system/etc/init/init\.kaorios\.rc" "u:object_r:system_file:s0"
+    patch_file_context "system" "/system/system/etc/init/init\.kaorios\.rc" "u:object_r:system_file:s0"
+    info "KAORIOS: installed init.kaorios.rc to $target_init/init.kaorios.rc"
+  else
+    error "KAORIOS: init.kaorios.rc not found at $rc_src"
+    return 1
+  fi
+
+  # 3. Install kaorios-toolbox standalone CLI binary if available
+  if [[ -f "$cli_src" ]]; then
+    local target_bin="$sys_target/bin"
+    mkdir -p "$target_bin"
+    cp -f "$cli_src" "$target_bin/kaorios-toolbox"
+    chmod 0755 "$target_bin/kaorios-toolbox"
+    chown 0:2000 "$target_bin/kaorios-toolbox" 2>/dev/null || chown 0:0 "$target_bin/kaorios-toolbox" 2>/dev/null || true
+    command -v chcon >/dev/null 2>&1 && chcon u:object_r:system_file:s0 "$target_bin/kaorios-toolbox" 2>/dev/null || true
+    patch_file_context "system" "/system/bin/kaorios-toolbox" "u:object_r:system_file:s0"
+    patch_file_context "system" "/system/system/bin/kaorios-toolbox" "u:object_r:system_file:s0"
+    info "KAORIOS: installed kaorios-toolbox CLI to $target_bin/kaorios-toolbox"
+  fi
+}
+
 install_toolbox() {
   local sys_ext="$work_dir/build/baserom/images/system_ext"
   if [[ ! -d "$sys_ext" ]]; then
@@ -867,6 +991,7 @@ info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, System
 info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
 info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
 info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=$KAORIOS_ENABLE_COREPATCH (separate preceding pass)"
+info "KAORIOS config: NativePIF=$KAORIOS_ENABLE_NATIVE_PIF, InitBoot=$KAORIOS_ENABLE_INIT_BOOT"
 
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   validate_optional_keybox_input
@@ -892,12 +1017,22 @@ if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
   fi
 fi
 
+if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
+  install_native_pif
+fi
+
+if is_enabled "$KAORIOS_ENABLE_INIT_BOOT"; then
+  install_init_boot
+fi
+
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
   install_toolbox
 fi
 
 if ! archive_patch_needed &&
    ! is_enabled "$KAORIOS_INSTALL_TOOLBOX" &&
+   ! is_enabled "$KAORIOS_ENABLE_NATIVE_PIF" &&
+   ! is_enabled "$KAORIOS_ENABLE_INIT_BOOT" &&
    ! is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   info "KAORIOS: all feature switches are OFF; nothing to do"
 fi

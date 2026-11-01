@@ -9,7 +9,7 @@ import sys
 
 
 ROOT_KEY = "KaoriosToolbox"
-FEATURES = (
+CORE_FEATURES = (
     "enabled",
     "pif_spoof",
     "keybox",
@@ -20,6 +20,11 @@ FEATURES = (
     "secure_flag",
     "corepatch",
 )
+OPTIONAL_FEATURES = (
+    "native_pif",
+    "init_boot",
+)
+FEATURES = CORE_FEATURES + OPTIONAL_FEATURES
 
 
 def unique_object(pairs):
@@ -42,13 +47,15 @@ def load_config(path: Path) -> dict[str, bool]:
     if not isinstance(entries, list) or len(entries) != 1 or not isinstance(entries[0], dict):
         raise ValueError(f"{ROOT_KEY} must be an array containing exactly one object")
     config = entries[0]
-    missing = sorted(set(FEATURES) - set(config))
+    missing = sorted(set(CORE_FEATURES) - set(config))
     unknown = sorted(set(config) - set(FEATURES))
     if missing or unknown:
         raise ValueError(f"feature keys mismatch; missing={missing}, unknown={unknown}")
     invalid = sorted(key for key, item in config.items() if type(item) is not bool)
     if invalid:
         raise ValueError(f"feature values must be JSON booleans: {invalid}")
+    config.setdefault("native_pif", config.get("pif_spoof", True))
+    config.setdefault("init_boot", True)
     return config
 
 
@@ -68,6 +75,8 @@ def assignments(config: dict[str, bool]) -> dict[str, bool]:
         "KAORIOS_ENABLE_BUILD_SPOOF": config["build_spoof"],
         "KAORIOS_ENABLE_SECURE_FLAG": config["secure_flag"],
         "KAORIOS_ENABLE_COREPATCH": config["corepatch"],
+        "KAORIOS_ENABLE_NATIVE_PIF": config["native_pif"],
+        "KAORIOS_ENABLE_INIT_BOOT": config["init_boot"],
         "KAORIOS_INSTALL_TOOLBOX": config["enabled"],
         "KAORIOS_VERBOSE_LOG": False,
     }
