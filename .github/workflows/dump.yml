@@ -13,7 +13,7 @@ on:
         type: string
         default: artifact
       dump_mode:
-        description: 'base = 5 named JAR/APK files; full = complete target list; init_boot = only init_boot.img'
+        description: 'base = 5 named JAR/APK files; full = complete target list'
         required: false
         type: string
         default: base
@@ -37,14 +37,13 @@ on:
           - artifact
           - drive
       dump_mode:
-        description: 'Dump mode (base: 5 files, full: target list, init_boot: only init_boot.img)'
+        description: 'Dump mode (base: 5 files, full: target list)'
         required: true
         type: choice
         default: base
         options:
           - base
           - full
-          - init_boot
       expected_md5:
         description: 'Optional known full ROM ZIP MD5 (32 hex characters)'
         required: false
@@ -93,7 +92,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq aria2 curl unzip brotli zstd lz4 xz-utils erofs-utils android-sdk-libsparse-utils e2fsprogs rclone zip
           bash -n bin/dump/extract.sh
-          python3 -m py_compile bin/dump/init_boot.py
           test -s bin/dump/targets.txt
 
       - name: Download ROM
@@ -174,14 +172,6 @@ jobs:
               python3 bin/dump/collect.py \
                 --images "$RUNNER_TEMP/hypermos-dump/work/images" \
                 --targets bin/dump/targets.txt \
-                --output "$RUNNER_TEMP/hypermos-dump/output" \
-                --source-url "$ROM_URL"
-              ;;
-            init_boot)
-              python3 bin/dump/init_boot.py \
-                --partitions "$RUNNER_TEMP/hypermos-dump/work/partitions" \
-                --zip "$RUNNER_TEMP/hypermos-dump/source.zip" \
-                --entries "$RUNNER_TEMP/hypermos-dump/work/entries.txt" \
                 --output "$RUNNER_TEMP/hypermos-dump/output" \
                 --source-url "$ROM_URL"
               ;;
