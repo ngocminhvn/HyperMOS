@@ -10,10 +10,22 @@ lock_action() {
     info "TNM LOCK: skipped (integrate_lock.py not present)"
     return 0
   fi
+  # Seed mode (hybrid LOCK): if LOCK_SEED_ONLY exists, install/check
+  # helper + policy + metadata only, with NO ROM init.rc block. The
+  # post-fs trigger then comes from the SukiSU/KernelSU module's
+  # initrc injection, not from the ROM. Deleting LOCK_SEED_ONLY
+  # restores the original full-LOCK behaviour on the next build.
+  # This flag must also reach --check-lock, because the workflow's
+  # pre-pack check runs through lock_action --check.
+  local seed_args=()
+  if [[ -f "$base/LOCK_SEED_ONLY" ]]; then
+    seed_args=(--helper-only)
+    info "TNM LOCK seed: helper-only mode (no ROM init block; trigger via module initrc)"
+  fi
   python3 "$base/integrate_lock.py" \
     --images "$work_dir/build/baserom/images" \
     --binary "$base/system_ext/xbin/tnm_helper" \
-    --report "$work_dir/build/reports/tnm/lock" "$@"
+    --report "$work_dir/build/reports/tnm/lock" "${seed_args[@]}" "$@"
 }
 
 # Keep LOCK staging pre-pack sanity check; the duplicate Hide App List
@@ -25,7 +37,10 @@ fi
 [[ "$#" -eq 0 ]] || { error "TNM: unknown arguments"; exit 2; }
 
 lock_action
-if [[ -f "$base/integrate_lock.py" ]]; then
+if [[ -f "$base/LOCK_SEED_ONLY" && -f "$base/integrate_lock.py" ]]; then
+  mods "TNM LOCK seed: helper-only staging verified (no ROM init block; trigger via module)"
+  info "TNM LOCK seed: helper + SELinux staging configured; no hardware bootloader/TEE operation performed"
+elif [[ -f "$base/integrate_lock.py" ]]; then
   mods "TNM LOCK: post-fs property integration and SELinux staging verified"
   info "TNM LOCK: property reporting configured; no hardware bootloader/TEE operation performed"
 else

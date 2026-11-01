@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Stage the TNM post-fs property action in an extracted image, never run it here."""
+"""Stage the TNM post-fs property action in an extracted image, never run it here.
+
+Helper-only (seed) mode (--helper-only) installs exactly the same helper,
+SELinux policy, file_contexts and fs_config rows, and deletes the same
+vendor/odm precompiled policy caches, but does NOT append the managed
+`on post-fs` block to init.rc. The trigger then comes from the root
+module's initrc injection (SukiSU/KernelSU), not from the ROM. Without
+the flag the original full-LOCK behaviour is unchanged.
+"""
 import argparse
 import hashlib
 import json
@@ -158,7 +166,7 @@ def validate_binary(binary):
     return data
 
 
-def integrate(images, binary, report, check=False):
+def integrate(images, binary, report, check=False, helper_only=False):
     images = images.absolute()
     payload = validate_binary(binary)
     init = checked(images, 'system/system/etc/init/hw/init.rc')
@@ -182,10 +190,16 @@ def integrate(images, binary, report, check=False):
             raise ValueError(f'Missing ARM64 runtime dependency path: {relative}')
     original_init, installed_init = managed(init.read_bytes(), INIT_BLOCK)
     original_policy, installed_policy = managed(policy.read_bytes(), POLICY_BLOCK)
-    if installed_init != installed_policy:
-        raise ValueError('Partial LOCK installation; rebuild a clean image')
-    if not installed_init and helper.exists():
-        raise ValueError('Unmanaged helper already installed; rebuild a clean image')
+    if not helper_only:
+        if installed_init != installed_policy:
+            raise ValueError('Partial LOCK installation; rebuild a clean image')
+        if not installed_init and helper.exists():
+            raise ValueError('Unmanaged helper already installed; rebuild a clean image')
+    # Helper-only (seed) mode: a helper without a ROM init block is the
+    # expected final state, and a full-LOCK input (init + policy) is
+    # converted to seed by stripping the init block in `proposed` below,
+    # so neither full-mode partial check applies here. The helper hash
+    # check below and the walk below still reject unmanaged payloads.
     if helper.exists() and hashlib.sha256(helper.read_bytes()).hexdigest() != HASH:
         raise ValueError('Conflicting installed helper')
     expected_context = f'{RUNTIME} {CONTEXT}'.encode()
@@ -224,7 +238,9 @@ def integrate(images, binary, report, check=False):
             if any(token in data for token in TOKENS):
                 raise ValueError(f'Unmanaged/duplicate LOCK reference: {path.relative_to(images)}')
     proposed = {
-        init: init.read_bytes() if installed_init else append(original_init, INIT_BLOCK),
+        # Seed mode: original_init is already the managed block stripped
+        # out, so the final init.rc never carries the ROM trigger.
+        init: original_init if helper_only else (init.read_bytes() if installed_init else append(original_init, INIT_BLOCK)),
         policy: policy.read_bytes() if installed_policy else append(original_policy, POLICY_BLOCK),
         **{p: row(p.read_bytes(), RUNTIME.encode(), expected_context) for p in contexts},
         dac: row(dac.read_bytes(), b'system_ext/xbin/tnm_helper', expected_dac),
@@ -240,7 +256,10 @@ def integrate(images, binary, report, check=False):
     for path in caches:
         checked(images, str(path.relative_to(images)))
     if check:
-        if not installed_init or not helper.is_file() or caches or stat.S_IMODE(helper.stat().st_mode) != 0o755:
+        if helper_only:
+            if installed_init or not helper.is_file() or caches or stat.S_IMODE(helper.stat().st_mode) != 0o755:
+                raise ValueError('Incomplete LOCK seed staging or stale precompiled policy (seed mode expects no ROM init block)')
+        elif not installed_init or not helper.is_file() or caches or stat.S_IMODE(helper.stat().st_mode) != 0o755:
             raise ValueError('Incomplete LOCK staging or stale precompiled policy')
         if any(not p.exists() or p.read_bytes() != data for p, data in proposed.items()):
             raise ValueError('LOCK payload/metadata does not match managed configuration')
@@ -274,8 +293,10 @@ def integrate(images, binary, report, check=False):
             raise
     else:
         native_init = verify_init(images, report)
-    result = {'mode': 'check' if check else 'install', 'helper_sha256': HASH,
-              'init_path': '/system/etc/init/hw/init.rc', 'trigger': 'post-fs',
+    result = {'mode': ('check-helper-only' if check else 'install-helper-only') if helper_only else ('check' if check else 'install'),
+              'helper_only': helper_only, 'rom_init_block_installed': False if helper_only else True,
+              'helper_sha256': HASH,
+              'init_path': '/system/etc/init/hw/init.rc', 'trigger': 'none (module initrc post-fs)' if helper_only else 'post-fs',
               'helper_commands': len(PROPERTIES), 'blacklist_added': False,
               'split_policy': compilation, 'native_init': native_init,
               'runtime_tested': False, 'hardware_bootloader_or_tee_operations_added': False}
@@ -291,8 +312,10 @@ def main():
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('--helper-only', action='store_true',
+                        help='Seed mode: install helper/policy/metadata only, no ROM init.rc block')
     args = parser.parse_args()
-    print(json.dumps(integrate(args.images, args.binary, args.report, args.check), indent=2))
+    print(json.dumps(integrate(args.images, args.binary, args.report, args.check, args.helper_only), indent=2))
 
 
 if __name__ == '__main__':

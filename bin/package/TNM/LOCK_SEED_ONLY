@@ -1,0 +1,17 @@
+HyperMOS LOCK seed mode (hybrid) — marker file, existence is the switch.
+
+When this file is present, bin/package/TNM/patch.sh calls
+integrate_lock.py --helper-only: the ROM installs system_ext/xbin/tnm_helper
+plus its SELinux policy, file_contexts and fs_config rows, and deletes the
+vendor/odm precompiled_sepolicy caches, but does NOT append the managed
+`on post-fs` block to system/etc/init/hw/init.rc.
+
+The post-fs trigger then comes from the SukiSU/KernelSU root module
+(hypermos_lock v1.1.0-hybrid, initrc/hypermos_lock.rc), not from the ROM.
+Toggling LOCK after the seed ROM is flashed is therefore a module
+enable/disable in the manager, with no ROM rebuild.
+
+Deleting this file restores the original full-LOCK behaviour on the next
+build (ROM init.rc block included). Do not delete it while the hybrid
+module is the intended trigger, or the ROM and module blocks will run
+twice with the same values (harmless but redundant).

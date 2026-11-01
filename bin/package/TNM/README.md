@@ -33,9 +33,22 @@ comma-separated package list. No resident process is used. The A16 helper caches
 
 ## Post-fs property reporting (former LOCK package)
 
-The build installs `system_ext/xbin/tnm_helper` and appends one managed
+By default the build installs `system_ext/xbin/tnm_helper` and appends one managed
 `on post-fs` action to Xiaomi's `/system/etc/init/hw/init.rc`. Original init
 content is preserved. No standalone LOCK rc, blacklist or daemon is installed.
+
+### Seed mode (hybrid LOCK) — `LOCK_SEED_ONLY` present
+
+When `TNM/LOCK_SEED_ONLY` exists, `patch.sh` calls `integrate_lock.py
+--helper-only`: the ROM installs the same helper, SELinux policy,
+file_contexts and fs_config rows, and deletes the same vendor/odm
+precompiled policy caches, but does NOT append the `on post-fs` block.
+The trigger then comes from the SukiSU/KernelSU root module
+(`hypermos_lock` v1.1.0-hybrid, `initrc/hypermos_lock.rc`), which execs
+the seeded `/system_ext/xbin/tnm_helper` at `post-fs`. `patch.sh
+--check-lock` (used by the FastbootD workflow before packing) checks the
+seed state, not the full-LOCK state, so it expects no ROM init block.
+Deleting `LOCK_SEED_ONLY` restores full-LOCK behaviour on the next build.
 
 The helper bytes are unchanged (SHA-256
 `6d82fc8e92089ce24226636ec4d24deb15655d7a7473d37d24fa4ae53588c1df`).
