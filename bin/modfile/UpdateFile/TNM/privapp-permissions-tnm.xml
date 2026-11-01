@@ -9,8 +9,11 @@
     -->
     <privapp-permissions package="com.android.trinhngocminh">
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
-        <!-- Read Xiaomi AppOps as TNM app UID; no global write/grant rights. -->
+        <!-- AppOps management for notification quick toggles (lockscreen, popup, badge) -->
         <permission name="android.permission.GET_APP_OPS_STATS" />
+        <permission name="android.permission.MANAGE_APP_OPS_MODES" />
+        <permission name="android.permission.GRANT_RUNTIME_PERMISSIONS" />
+        <permission name="android.permission.MANAGE_ROLE_HOLDERS" />
         <permission name="android.permission.REBOOT" />
         <permission name="android.permission.POWER_SAVER" />
         <permission name="android.permission.DUMP" />
