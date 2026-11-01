@@ -8,6 +8,7 @@ PARTS="system system_ext product vendor odm mi_ext mi_product system_dlkm vendor
 MODE="${3:-base}"
 case "$MODE" in
   base) PARTS="system system_ext product" ;;
+  init_boot) PARTS="" ;;
   full) ;;
   *) echo "[ERROR] Unsupported dump mode: $MODE"; exit 1 ;;
 esac
@@ -51,9 +52,13 @@ PY
     mv "${segments[0]}" "$WORK/input/super.raw.img"
   fi
   rm -f "${segments[@]}"
-  requested=""
-  for part in $PARTS; do requested+="$part,$part""_a,$part""_b,"; done
-  python3 "$ROOT/bin/lpunpack.py" -p "${requested%,}" "$WORK/input/super.raw.img" "$WORK/partitions"
+  if [[ -n "$PARTS" ]]; then
+    requested=""
+    for part in $PARTS; do requested+="$part,$part""_a,$part""_b,"; done
+    python3 "$ROOT/bin/lpunpack.py" -p "${requested%,}" "$WORK/input/super.raw.img" "$WORK/partitions"
+  else
+    echo '[DUMP] init_boot mode: super unpack skipped, init_boot is taken directly from the ZIP by init_boot.py'
+  fi
   rm -f "$WORK/input/super.raw.img"
 elif grep -Eq '\.new\.dat\.br$' "$WORK/entries.txt"; then
   echo '[DUMP] new.dat.br'
@@ -70,8 +75,12 @@ elif grep -Eq '\.new\.dat\.br$' "$WORK/entries.txt"; then
     rm -f "$WORK/input/$part.new.dat" "$WORK/input/$part.transfer.list"
   done
 else
-  echo '[DUMP] Standard layout not found, inspecting custom ROM formats'
-  python3 "$ROOT/bin/dump/archive_fallback.py" "$ZIP" "$WORK" "$MODE"
+  if [[ "$MODE" == init_boot ]]; then
+    echo '[DUMP] init_boot mode: standard layout not needed, init_boot is taken directly from the ZIP by init_boot.py'
+  else
+    echo '[DUMP] Standard layout not found, inspecting custom ROM formats'
+    python3 "$ROOT/bin/dump/archive_fallback.py" "$ZIP" "$WORK" "$MODE"
+  fi
 fi
 
 count=0
@@ -98,7 +107,9 @@ for part in $PARTS; do
   count=$((count + 1))
   rm -f "$img" "$WORK/input/$part.raw.img"
 done
-if (( count == 0 )) && [[ -z "$(find "$WORK/images" -type f -print -quit)" ]]; then
+if [[ "$MODE" == init_boot ]]; then
+  echo '[DUMP] init_boot mode: filesystem extraction skipped, partitions in work/partitions are kept for init_boot.py'
+elif (( count == 0 )) && [[ -z "$(find "$WORK/images" -type f -print -quit)" ]]; then
   echo '[ERROR] No usable partition or direct ROM files extracted; see entries.txt'
   exit 1
 fi
