@@ -50,7 +50,7 @@ validation is consolidated into `integrate_lock.py`; the temporary comparison wo
 offline test suite have been removed. Rebuild from clean images after this
 rename; previously staged helper paths and managed policy blocks are obsolete.
 
-The nine helper commands overwrite reported security properties. They do not
+The seventeen helper commands overwrite reported security properties. They do not
 physically lock a bootloader, sign AVB images or change hardware attestation.
 Policy compilation and file checks do not establish runtime compatibility;
 full-build, boot, linker namespace and AVC checks remain separate requirements.

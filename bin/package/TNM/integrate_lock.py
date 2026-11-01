@@ -79,6 +79,11 @@ PROPERTIES = (
     ('ro.boot.warranty_bit', '0'), ('ro.boot.verifiedbootstate', 'green'),
     ('ro.secureboot.devicelock', '1'), ('ro.secureboot.lockstate', 'locked'),
     ('sys.oem_unlock_allowed', '0'),
+    ('ro.debuggable', '0'), ('ro.force.debuggable', '0'),
+    ('ro.secure', '1'), ('ro.adb.secure', '1'),
+    ('ro.build.type', 'user'), ('ro.build.tags', 'release-keys'),
+    ('vendor.boot.vbmeta.device_state', 'locked'),
+    ('vendor.boot.verifiedbootstate', 'green'),
 )
 INIT_BLOCK = ('# BEGIN HyperMOS LOCK (managed)\non post-fs\n' + ''.join(
     f'    exec u:r:init:s0 root root -- {RUNTIME} -n {name} {value}\n'

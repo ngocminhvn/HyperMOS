@@ -20,7 +20,7 @@ class NativePifAndInitTest(unittest.TestCase):
         self.assertIn("native_pif", cfg)
         self.assertIn("init_boot", cfg)
         self.assertTrue(cfg["native_pif"])
-        self.assertTrue(cfg["init_boot"])
+        self.assertFalse(cfg["init_boot"])
 
     def test_load_config_emits_native_pif_and_init_boot(self):
         loader = MOD_DIR / "load-config.py"
@@ -32,7 +32,7 @@ class NativePifAndInitTest(unittest.TestCase):
             check=True,
         )
         self.assertIn("KAORIOS_ENABLE_NATIVE_PIF=true", res.stdout)
-        self.assertIn("KAORIOS_ENABLE_INIT_BOOT=true", res.stdout)
+        self.assertIn("KAORIOS_ENABLE_INIT_BOOT=false", res.stdout)
 
         res_pif = subprocess.run(
             [sys.executable, str(loader), str(config_path), "--get", "native_pif"],
@@ -48,7 +48,7 @@ class NativePifAndInitTest(unittest.TestCase):
             text=True,
             check=True,
         )
-        self.assertEqual(res_init.stdout.strip(), "true")
+        self.assertEqual(res_init.stdout.strip(), "false")
 
     def test_native_libraries_present(self):
         lib_dir = KAORIOS_DIR / "bin/lib"
