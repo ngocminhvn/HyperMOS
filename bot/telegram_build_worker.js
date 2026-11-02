@@ -251,7 +251,7 @@ function sessionView(s,user) {
  const btn=(text,action)=>({text,callback_data:["ui",user,s.id,s.rev,action].join(":")});
  const rows=[];
  let text="HyperMOS — "+({b:"🔨 Build ROM",dump:"📦 Dump",fastbootd:"⚡ FastbootD"}[s.kind]);
- if(!s.url) text+="\nGửi link ROM HTTPS vào cuộc trò chuyện này.\nPhiên chọn hết hạn sau 30 phút.";
+ if(!s.url) text+="\nGửi link ROM HTTPS vào cuộc trò chuyện này.\nPhiên chọn hết hạn sau 5 phút.";
  else {
   text+="\nROM: "+s.url;
   if(s.kind==="b") text+="\nRoot mode • tải lên Drive";
@@ -309,9 +309,34 @@ export class BotSession extends DurableObject {
  }
  read() {
   const row=this.ctx.storage.sql.exec("SELECT data FROM session WHERE id=1").toArray()[0];
-  return row ? JSON.parse(row.data) : null;
+  const s = row ? JSON.parse(row.data) : null;
+  // Migrate selections created before the five-minute limit.
+  if(s && !s.fiveMinutes) { s.expires -= 1500000; s.fiveMinutes=true; }
+  return s;
  }
  save(s) { this.ctx.storage.sql.exec("INSERT OR REPLACE INTO session VALUES (1,?)",JSON.stringify(s)); }
+
+ async clean(s,keepId) {
+  if(!s?.chat) return;
+  for(const id of [...new Set(s.messageIds || [])]) {
+   if(id===keepId) continue;
+   try { await telegram(this.env,"deleteMessage",{chat_id:s.chat,message_id:id}); }
+   catch { /* Missing messages or insufficient chat permissions must not block builds. */ }
+  }
+ }
+ track(id,sessionId) {
+  const s=this.read();
+  if(!s || s.id!==sessionId || !Number.isSafeInteger(id)) return;
+  s.messageIds=[...new Set([...(s.messageIds || []),id])];
+  this.save(s);
+ }
+ async alarm() {
+  const s=this.read();
+  if(!s || s.status!=="editing") return;
+  if(s.expires>Date.now()) { await this.ctx.storage.setAlarm(s.expires); return; }
+  s.status="expired";s.rev++;this.save(s);
+  await this.clean(s);
+ }
  async handle(update) {
   const q=update.callback_query, msg=q?.message || update.message;
   const chat=msg?.chat?.id, user=String((q?.from || msg?.from)?.id || "");
@@ -336,10 +361,21 @@ export class BotSession extends DurableObject {
      await home(this.env,chat,user,HELP); return;
     }
     if(!["b","dump","fastbootd"].includes(action)) return;
-    s={id:crypto.randomUUID().slice(0,8),rev:0,kind:action,url:null,mode:"base",upload:"artifact",parts:PARTITIONS.slice(0,4),expires:Date.now()+1800000,status:"editing"};
+    const previous=s;
+    s={id:crypto.randomUUID().slice(0,8),rev:0,kind:action,url:null,mode:"base",upload:"artifact",parts:PARTITIONS.slice(0,4),expires:Date.now()+300000,status:"editing",fiveMinutes:true,chat,messageIds:[msg.message_id]};
     this.save(s);
     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id});
-    await telegram(this.env,"sendMessage",{chat_id:chat,...sessionView(s,user)}); return;
+    await this.ctx.storage.setAlarm(s.expires);
+    await this.clean(previous);
+    const menuRow=this.ctx.storage.sql.exec("SELECT data FROM session WHERE id=2").toArray()[0];
+    if(menuRow) {
+     await this.clean(JSON.parse(menuRow.data));
+     this.ctx.storage.sql.exec("DELETE FROM session WHERE id=2");
+    }
+    await this.clean(s);
+    s.messageIds=[];this.save(s);
+    const prompt=await telegram(this.env,"sendMessage",{chat_id:chat,...sessionView(s,user)});
+    this.track(prompt.message_id,s.id); return;
    }
    action=data[4];
    if(!s || s.id!==data[2] || String(s.rev)!==data[3] || s.expires<Date.now() || s.status!=="editing") {
@@ -348,8 +384,10 @@ export class BotSession extends DurableObject {
    if(action==="cancel") {
     s.status="cancelled";s.rev++;this.save(s);
     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Đã hủy."});
-    await telegram(this.env,"editMessageText",{chat_id:chat,message_id:msg.message_id,text:"Đã hủy tác vụ.",reply_markup:{inline_keyboard:[]}});
-    await home(this.env,chat,user);return;
+    this.track(msg.message_id,s.id);
+    await this.ctx.storage.deleteAlarm();
+    await this.clean(this.read());
+    return;
    }
    if(action==="run") {
     if(!s.url || (s.kind==="fastbootd"&&!s.parts.length)) {
@@ -363,6 +401,12 @@ export class BotSession extends DurableObject {
     s.status="submitted";s.rev++;this.save(s);
     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Đang gửi yêu cầu…"});
     // Confirmation is consumed even if the network result is uncertain.
+    await this.ctx.storage.deleteAlarm();
+    await this.clean(this.read(),msg.message_id);
+    const submitted=this.read();
+    if(submitted?.id===s.id && submitted.status==="submitted") {
+     submitted.messageIds=[];this.save(submitted);
+    }
     await dispatchTask(this.env,chat,task,msg.message_id);
     return;
    }
@@ -378,7 +422,12 @@ export class BotSession extends DurableObject {
   if(!text) return;
   if(/^\/(start|menu)(?:@[A-Za-z0-9_]+)?$/iu.test(text)) {
    const s=this.read();if(s){s.status="cancelled";this.save(s);}
-   await home(this.env,chat,user);return;
+   await this.ctx.storage.deleteAlarm();
+   await this.clean(s);
+   // Track the command in the next selection so it can be removed with the menu.
+   const menu=await home(this.env,chat,user);
+   this.ctx.storage.sql.exec("INSERT OR REPLACE INTO session VALUES (2,?)",JSON.stringify({chat,messageIds:[msg.message_id,menu.message_id]}));
+   return;
   }
   if(/^\/help(?:@[A-Za-z0-9_]+)?$/iu.test(text)) {await home(this.env,chat,user,HELP);return;}
   if(text.startsWith("/")) {
@@ -390,7 +439,17 @@ export class BotSession extends DurableObject {
   if(!s || s.status!=="editing" || s.expires<Date.now()) {await home(this.env,chat,user,"Chọn tác vụ trước khi gửi link ROM:");return;}
   const url=validateRomUrl(text,romHosts(this.env));
   if(!url) {await say(this.env,chat,"Link không hợp lệ. Gửi URL HTTPS thuộc nguồn ROM đã cho phép.");return;}
-  s.url=url;s.rev++;this.save(s);
-  await telegram(this.env,"sendMessage",{chat_id:chat,...sessionView(s,user)});
+  s.url=url;s.rev++;s.chat=chat;
+  s.messageIds=[...new Set([...(s.messageIds || []),msg.message_id])];this.save(s);
+  // Reuse the ROM prompt as the option panel instead of adding another message.
+  const promptId=(s.messageIds || []).find(id=>id!==msg.message_id);
+  if(promptId) {
+   try {
+    await telegram(this.env,"editMessageText",{chat_id:chat,message_id:promptId,...sessionView(s,user)});
+    return;
+   } catch { /* Recreate the panel if the original prompt was removed. */ }
+  }
+  const panel=await telegram(this.env,"sendMessage",{chat_id:chat,...sessionView(s,user)});
+  this.track(panel.message_id,s.id);
  }
 }
