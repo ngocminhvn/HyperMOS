@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: base
+      builder_id:
+        description: 'Telegram user ID for requester notifications'
+        required: false
+        type: string
+        default: ''
       expected_md5:
         description: 'Optional 32-character MD5 for ROM ZIP integrity verification'
         required: false
@@ -44,6 +49,11 @@ on:
         options:
           - base
           - full
+      builder_id:
+        description: 'Telegram user ID for requester notifications'
+        required: false
+        type: string
+        default: ''
       expected_md5:
         description: 'Optional known full ROM ZIP MD5 (32 hex characters)'
         required: false
@@ -259,6 +269,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          BUILDER_ID: ${{ inputs.builder_id }}
           DUMP_JOB_STATUS: ${{ job.status }}
           DUMP_UPLOAD_METHOD: ${{ inputs.upload_method }}
           DUMP_PREFLIGHT_RESULT: ${{ steps.preflight.conclusion }}
@@ -325,27 +336,30 @@ jobs:
           lines.append(f'• <b>Actions:</b> <a href="{run_url}">Run #{html.escape(run_no)}</a>')
           message = "\n".join(lines)
           print("[DUMP] " + ("Completed" if uploaded else "Failed") + " - " + (url if url else run_url))
-          if not token or not chat_id:
+          recipients = list(dict.fromkeys(value.strip() for value in
+              (chat_id, os.environ.get("BUILDER_ID", "")) if value.strip()))
+          if not token or not recipients:
               print("::warning::Telegram secrets missing; final dump notification was skipped.")
               sys.exit(0)
-          payload = json.dumps({
-              "chat_id": chat_id,
-              "text": message,
-              "parse_mode": "HTML",
-              "disable_web_page_preview": True,
-          }).encode("utf-8")
-          request = urllib.request.Request(
-              f"https://api.telegram.org/bot{token}/sendMessage",
-              data=payload,
-              headers={"Content-Type": "application/json"},
-              method="POST",
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=25) as response:
-                  result = json.load(response)
-              if not result.get("ok"):
-                  raise RuntimeError("Telegram returned ok=false")
-              print("[DUMP] Final Telegram notification sent.")
-          except (urllib.error.URLError, ValueError, RuntimeError) as exc:
-              print("::warning::Could not send final Telegram notification: " + str(exc))
+          for recipient in recipients:
+              payload = json.dumps({
+                  "chat_id": recipient,
+                  "text": message,
+                  "parse_mode": "HTML",
+                  "disable_web_page_preview": True,
+              }).encode("utf-8")
+              request = urllib.request.Request(
+                  f"https://api.telegram.org/bot{token}/sendMessage",
+                  data=payload,
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      result = json.load(response)
+                  if not result.get("ok"):
+                      raise RuntimeError("Telegram returned ok=false")
+                  print("[DUMP] Final Telegram notification sent.")
+              except (urllib.error.URLError, ValueError, RuntimeError) as exc:
+                  print("::warning::Could not send final Telegram notification to a recipient.")
           PY
