@@ -179,7 +179,7 @@ async function setupWebhook(request, env) {
     return new Response("Telegram webhook setup failed (HTTP " + response.status + ")", { status: 502 });
   }
   await registerCommands(env);
-  return new Response("Da kich hoat webhook: " + webhookUrl + "\\nBay gio gui /b https://ROM-URL trong Telegram.", {
+  return new Response("Da kich hoat webhook: " + webhookUrl + "\nBay gio gui /b https://ROM-URL trong Telegram.", {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
 }
@@ -270,20 +270,36 @@ function sessionView(s,user) {
  rows.push([btn("✖ Hủy","cancel")]);
  return {text,reply_markup:{inline_keyboard:rows}};
 }
-async function dispatchTask(env,chat,task) {
+async function dispatchTask(env,chat,task,messageId) {
+ const notify = (text) => telegram(env,messageId ? "editMessageText" : "sendMessage",{
+  chat_id:chat,...(messageId ? {message_id:messageId,reply_markup:{inline_keyboard:[]}} : {}),
+  text,parse_mode:"HTML",disable_web_page_preview:true
+ });
  let response;
  try {
   response=await fetch("https://api.github.com/repos/"+REPO+"/actions/workflows/"+task.workflow+"/dispatches",{
    method:"POST",headers:{"Authorization":"Bearer "+env.GITHUB_WORKFLOW_TOKEN,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"HyperMOS-Telegram-Build-Bot","Content-Type":"application/json"},
-   body:JSON.stringify({ref:"main",inputs:task.inputs}),signal:AbortSignal.timeout(15000)
+   body:JSON.stringify({ref:"main",inputs:task.inputs,return_run_details:true}),signal:AbortSignal.timeout(15000)
   });
  } catch {
-  await say(env,chat,"Chưa xác định GitHub đã nhận yêu cầu hay chưa. Kiểm tra Actions trước khi tạo lại để tránh chạy trùng: https://github.com/"+REPO+"/actions");
+  await notify("Chưa xác định GitHub đã nhận yêu cầu. Kiểm tra Actions trước khi thử lại: https://github.com/"+REPO+"/actions");
   return;
  }
- await say(env,chat,response.status===204
-  ? "Đã gửi yêu cầu "+task.label+" vào GitHub Actions. Xem: https://github.com/"+REPO+"/actions/workflows/"+task.workflow
-  : "GitHub từ chối yêu cầu (HTTP "+response.status+"). Kiểm tra token và workflow rồi mở /start để thử lại.");
+ if(response.status===200) {
+  let result;
+  try { result=await response.json(); } catch { /* Dispatch accepted; do not retry. */ }
+  const prefix="https://github.com/"+REPO+"/actions/runs/";
+  const link=result?.html_url;
+  if(typeof link==="string" && link.startsWith(prefix) && /^\d+$/.test(link.slice(prefix.length))) {
+   await notify('✅ <b>Success</b>\n<a href="'+link+'">Info ↗</a>');
+   return;
+  }
+  await notify("✅ <b>Success</b>\nGitHub chưa trả link lượt chạy. Xem: https://github.com/"+REPO+"/actions");
+ } else if(response.status===204) {
+  await notify("✅ <b>Success</b>\nGitHub chưa trả link lượt chạy. Xem: https://github.com/"+REPO+"/actions");
+ } else {
+  await notify("GitHub từ chối yêu cầu (HTTP "+response.status+"). Mở /start để thử lại.");
+ }
 }
 export class BotSession extends DurableObject {
  constructor(ctx,env) {
@@ -347,8 +363,7 @@ export class BotSession extends DurableObject {
     s.status="submitted";s.rev++;this.save(s);
     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Đang gửi yêu cầu…"});
     // Confirmation is consumed even if the network result is uncertain.
-    await dispatchTask(this.env,chat,task);
-    await telegram(this.env,"editMessageText",{chat_id:chat,message_id:msg.message_id,text:"Đã xử lý xác nhận. Xem thông báo kết quả gửi yêu cầu bên dưới.",reply_markup:{inline_keyboard:[]}});
+    await dispatchTask(this.env,chat,task,msg.message_id);
     return;
    }
    if(s.kind==="dump"&&["base","full"].includes(action)) s.mode=action;
