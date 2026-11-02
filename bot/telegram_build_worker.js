@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 /**
  * HyperMOS Telegram /b <rom-url> webhook receiver.
  * Deploy as a Cloudflare Worker; it does NOT run in GitHub Actions.
@@ -17,7 +18,7 @@ const COMMANDS = [
  {command:"dump",description:"Dump ROM: /dump <URL> [base|full] [artifact|drive]"},
  {command:"fastbootd",description:"Build ảnh FastbootD: /fastbootd <URL> [phân_vùng]"},
  {command:"help",description:"Hướng dẫn và ví dụ các lệnh"},
- {command:"start",description:"Bắt đầu và xem danh sách lệnh"}
+ {command:"start",description:"Mở menu nút bấm"}
 ];
 const HELP = [
  "HyperMOS — các lệnh:",
@@ -217,43 +218,164 @@ export default {
     } catch {
       return new Response("Bad JSON", { status: 400 });
     }
-    const msg = update?.message;
-    const fromId = String(msg?.from?.id ?? "");
-    const chatId = msg?.chat?.id;
-    if (!fromId || !chatId || typeof msg.text !== "string") {
-      return new Response("ok", { status: 200 });
-    }
-    const text = msg.text.trim();
-    if (!text.startsWith("/")) return new Response("ok");
-    const hosts = String(env.ALLOWED_ROM_HOSTS || "").split(",").map(s=>s.trim()).filter(Boolean);
-    const task = parseBuildCommand(text, fromId, hosts.length ? hosts : DEFAULT_HOSTS);
-    if(task.help || task.error) {
-      await say(env, chatId, task.error || HELP);
-      return new Response("ok");
-    }
-    // Public command: configure abuse protection before sharing the bot widely.
-    const response = await fetch(
-      "https://api.github.com/repos/" + REPO + "/actions/workflows/" + task.workflow + "/dispatches",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": "Bearer " + env.GITHUB_WORKFLOW_TOKEN,
-          "Accept": "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "HyperMOS-Telegram-Build-Bot",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ref: "main",
-          inputs: task.inputs,
-        }),
-      }
-    );
-    if (response.status === 204) {
-      await say(env, chatId, "Đã gửi yêu cầu " + task.label + " vào GitHub Actions. Xem: https://github.com/" + REPO + "/actions/workflows/" + task.workflow);
-    } else {
-      await say(env, chatId, "Không thể tạo build: GitHub API trả về HTTP " + response.status + ". Kiểm tra quyền Actions: write của token.");
-    }
-    return new Response("ok", { status: 200 });
+    const msg = update.callback_query?.message || update.message;
+    const user = update.callback_query?.from || msg?.from;
+    if(!msg?.chat?.id || !user?.id || !Number.isSafeInteger(update.update_id)) return new Response("ok");
+    await env.BOT_SESSIONS.getByName(msg.chat.id+":"+user.id).handle(update);
+    return new Response("ok");
   },
 };
+
+
+const PARTITIONS = ["system","system_ext","product","mi_ext","vendor","odm"];
+function romHosts(env) {
+ const hosts = String(env.ALLOWED_ROM_HOSTS || "").split(",").map(s=>s.trim()).filter(Boolean);
+ return hosts.length ? hosts : DEFAULT_HOSTS;
+}
+async function telegram(env, method, payload) {
+ const r = await fetch("https://api.telegram.org/bot"+env.TELEGRAM_BOT_TOKEN+"/"+method,{
+  method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(12000)
+ });
+ const data=await r.json();
+ if(!r.ok || !data.ok) throw new Error("Telegram "+method+" failed: "+r.status);
+ return data.result;
+}
+function homeKeyboard(user) {
+ const button=(text,action)=>({text,callback_data:"ui:"+user+":home:"+action});
+ return {inline_keyboard:[[button("🔨 Build ROM","b"),button("📦 Dump","dump")],[button("⚡ FastbootD","fastbootd")],[button("❓ Hướng dẫn","help")]]};
+}
+async function home(env,chat,user,text="HyperMOS — chọn tác vụ bên dưới:") {
+ return telegram(env,"sendMessage",{chat_id:chat,text,reply_markup:homeKeyboard(user)});
+}
+function sessionView(s,user) {
+ const btn=(text,action)=>({text,callback_data:["ui",user,s.id,s.rev,action].join(":")});
+ const rows=[];
+ let text="HyperMOS — "+({b:"🔨 Build ROM",dump:"📦 Dump",fastbootd:"⚡ FastbootD"}[s.kind]);
+ if(!s.url) text+="\nGửi link ROM HTTPS vào cuộc trò chuyện này.\nPhiên chọn hết hạn sau 30 phút.";
+ else {
+  text+="\nROM: "+s.url;
+  if(s.kind==="b") text+="\nRoot mode • tải lên Drive";
+  if(s.kind==="dump") {
+   text+="\nChế độ: "+s.mode+" • lưu: "+s.upload;
+   rows.push([btn((s.mode==="base"?"✅ ":"")+"Base","base"),btn((s.mode==="full"?"✅ ":"")+"Full","full")]);
+   rows.push([btn((s.upload==="artifact"?"✅ ":"")+"Artifact","artifact"),btn((s.upload==="drive"?"✅ ":"")+"Drive","drive")]);
+  }
+  if(s.kind==="fastbootd") {
+   text+="\nChọn phân vùng cần xuất:";
+   for(let i=0;i<PARTITIONS.length;i+=2) rows.push(PARTITIONS.slice(i,i+2).map(p=>btn((s.parts.includes(p)?"✅ ":"⬜ ")+p,p)));
+  }
+  text+="\nKiểm tra cấu hình rồi bấm Chạy.";
+  rows.push([btn("🚀 Chạy","run")]);
+ }
+ rows.push([btn("✖ Hủy","cancel")]);
+ return {text,reply_markup:{inline_keyboard:rows}};
+}
+async function dispatchTask(env,chat,task) {
+ let response;
+ try {
+  response=await fetch("https://api.github.com/repos/"+REPO+"/actions/workflows/"+task.workflow+"/dispatches",{
+   method:"POST",headers:{"Authorization":"Bearer "+env.GITHUB_WORKFLOW_TOKEN,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"HyperMOS-Telegram-Build-Bot","Content-Type":"application/json"},
+   body:JSON.stringify({ref:"main",inputs:task.inputs}),signal:AbortSignal.timeout(15000)
+  });
+ } catch {
+  await say(env,chat,"Chưa xác định GitHub đã nhận yêu cầu hay chưa. Kiểm tra Actions trước khi tạo lại để tránh chạy trùng: https://github.com/"+REPO+"/actions");
+  return;
+ }
+ await say(env,chat,response.status===204
+  ? "Đã gửi yêu cầu "+task.label+" vào GitHub Actions. Xem: https://github.com/"+REPO+"/actions/workflows/"+task.workflow
+  : "GitHub từ chối yêu cầu (HTTP "+response.status+"). Kiểm tra token và workflow rồi mở /start để thử lại.");
+}
+export class BotSession extends DurableObject {
+ constructor(ctx,env) {
+  super(ctx,env);
+  ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS session (id INTEGER PRIMARY KEY, data TEXT)");
+  ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS seen (id INTEGER PRIMARY KEY)");
+ }
+ read() {
+  const row=this.ctx.storage.sql.exec("SELECT data FROM session WHERE id=1").toArray()[0];
+  return row ? JSON.parse(row.data) : null;
+ }
+ save(s) { this.ctx.storage.sql.exec("INSERT OR REPLACE INTO session VALUES (1,?)",JSON.stringify(s)); }
+ async handle(update) {
+  const q=update.callback_query, msg=q?.message || update.message;
+  const chat=msg?.chat?.id, user=String((q?.from || msg?.from)?.id || "");
+  if(!chat || !user) return;
+  if(this.ctx.storage.sql.exec("SELECT id FROM seen WHERE id=?",update.update_id).toArray().length) {
+   if(q) await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Yêu cầu này đã được xử lý."});
+   return;
+  }
+  // Synchronous writes consume each update and confirmation before external I/O.
+  this.ctx.storage.sql.exec("INSERT INTO seen VALUES (?)",update.update_id);
+  this.ctx.storage.sql.exec("DELETE FROM seen WHERE id NOT IN (SELECT id FROM seen ORDER BY id DESC LIMIT 200)");
+  if(q) {
+   const data=String(q.data||"").split(":");
+   if(data[0]!=="ui" || data[1]!==user) {
+    await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Menu này thuộc người khác. Gửi /start để mở menu riêng."}); return;
+   }
+   let s=this.read(), action;
+   if(data[2]==="home") {
+    action=data[3];
+    if(action==="help") {
+     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id});
+     await home(this.env,chat,user,HELP); return;
+    }
+    if(!["b","dump","fastbootd"].includes(action)) return;
+    s={id:crypto.randomUUID().slice(0,8),rev:0,kind:action,url:null,mode:"base",upload:"artifact",parts:PARTITIONS.slice(0,4),expires:Date.now()+1800000,status:"editing"};
+    this.save(s);
+    await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id});
+    await telegram(this.env,"sendMessage",{chat_id:chat,...sessionView(s,user)}); return;
+   }
+   action=data[4];
+   if(!s || s.id!==data[2] || String(s.rev)!==data[3] || s.expires<Date.now() || s.status!=="editing") {
+    await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Nút đã cũ hoặc phiên đã kết thúc. Dùng menu mới nhất hoặc /start."}); return;
+   }
+   if(action==="cancel") {
+    s.status="cancelled";s.rev++;this.save(s);
+    await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Đã hủy."});
+    await telegram(this.env,"editMessageText",{chat_id:chat,message_id:msg.message_id,text:"Đã hủy tác vụ.",reply_markup:{inline_keyboard:[]}});
+    await home(this.env,chat,user);return;
+   }
+   if(action==="run") {
+    if(!s.url || (s.kind==="fastbootd"&&!s.parts.length)) {
+     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Hãy gửi link ROM và chọn ít nhất một phân vùng."});return;
+    }
+    const command="/"+s.kind+" "+s.url+(s.kind==="dump"?" "+s.mode+" "+s.upload:s.kind==="fastbootd"?" "+s.parts.join(","):"");
+    const task=parseBuildCommand(command,user,romHosts(this.env));
+    if(task.error) {
+     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Cấu hình không hợp lệ. Mở /start để tạo lại."});return;
+    }
+    s.status="submitted";s.rev++;this.save(s);
+    await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Đang gửi yêu cầu…"});
+    // Confirmation is consumed even if the network result is uncertain.
+    await dispatchTask(this.env,chat,task);
+    await telegram(this.env,"editMessageText",{chat_id:chat,message_id:msg.message_id,text:"Đã xử lý xác nhận. Xem thông báo kết quả gửi yêu cầu bên dưới.",reply_markup:{inline_keyboard:[]}});
+    return;
+   }
+   if(s.kind==="dump"&&["base","full"].includes(action)) s.mode=action;
+   else if(s.kind==="dump"&&["artifact","drive"].includes(action)) s.upload=action;
+   else if(s.kind==="fastbootd"&&PARTITIONS.includes(action)) s.parts=s.parts.includes(action)?s.parts.filter(p=>p!==action):[...s.parts,action];
+   else return;
+   s.rev++;this.save(s);
+   await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id});
+   await telegram(this.env,"editMessageText",{chat_id:chat,message_id:msg.message_id,...sessionView(s,user)});return;
+  }
+  const text=msg.text?.trim();
+  if(!text) return;
+  if(/^\/(start|menu)(?:@[A-Za-z0-9_]+)?$/iu.test(text)) {
+   const s=this.read();if(s){s.status="cancelled";this.save(s);}
+   await home(this.env,chat,user);return;
+  }
+  if(/^\/help(?:@[A-Za-z0-9_]+)?$/iu.test(text)) {await home(this.env,chat,user,HELP);return;}
+  if(text.startsWith("/")) {
+   const task=parseBuildCommand(text,user,romHosts(this.env));
+   if(task.error || task.help) {await home(this.env,chat,user,task.error||HELP);return;}
+   await dispatchTask(this.env,chat,task);return;
+  }
+  const s=this.read();
+  if(!s || s.status!=="editing" || s.expires<Date.now()) {await home(this.env,chat,user,"Chọn tác vụ trước khi gửi link ROM:");return;}
+  const url=validateRomUrl(text,romHosts(this.env));
+  if(!url) {await say(this.env,chat,"Link không hợp lệ. Gửi URL HTTPS thuộc nguồn ROM đã cho phép.");return;}
+  s.url=url;s.rev++;this.save(s);
+  await telegram(this.env,"sendMessage",{chat_id:chat,...sessionView(s,user)});
+ }
+}
