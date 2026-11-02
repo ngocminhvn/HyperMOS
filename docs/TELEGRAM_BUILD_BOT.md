@@ -97,7 +97,7 @@ partition toggles; at least one partition is required. **Hủy** cancels.
 Opening /start cancels your current selection.
 
 Selections are isolated by chat and Telegram user, persist in the
-BOT_SESSIONS SQLite Durable Object, and expire after 30 minutes.
+BOT_SESSIONS SQLite Durable Object, and expire after 5 minutes.
 Old revision buttons and repeated confirmations are rejected. A confirmation
 is consumed before GitHub dispatch; uncertain network outcomes require checking
 Actions manually before creating another request. Existing slash commands
@@ -127,3 +127,9 @@ Delivery failures are isolated so one recipient cannot block the other.
 The requester must have started the bot privately and must not block it.
 GitHub's TELEGRAM_BOT_TOKEN secret must belong to the bot they started.
 Workflow changes apply to new runs, not jobs already running an older commit.
+
+Interactive selection messages are cleaned up after Run, Cancel or five-minute
+expiry. The ROM prompt is edited into the options panel. The supplied ROM URL
+message is deleted when the selection ends; Success + Info is preserved across
+later menus. A Durable Object alarm cleans expired selections automatically.
+Telegram deletion permission errors do not block dispatch.
