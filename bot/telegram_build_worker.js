@@ -11,7 +11,63 @@
  * and can trigger GitHub Actions for any Telegram sender.
  */
 const REPO = "ngocminhvn/HyperMOS";
-const WORKFLOW = "build.yml";
+
+const COMMANDS = [
+ {command:"b",description:"Build ROM root: /b <URL>"},
+ {command:"dump",description:"Dump ROM: /dump <URL> [base|full] [artifact|drive]"},
+ {command:"fastbootd",description:"Build ảnh FastbootD: /fastbootd <URL> [phân_vùng]"},
+ {command:"help",description:"Hướng dẫn và ví dụ các lệnh"},
+ {command:"start",description:"Bắt đầu và xem danh sách lệnh"}
+];
+const HELP = [
+ "HyperMOS — các lệnh:",
+ "/b <URL> — build ROM root, tải lên Drive.",
+ "/dump <URL> [base|full] [artifact|drive] — mặc định base, artifact.",
+ "/fastbootd <URL> [phân_vùng] — mặc định system,system_ext,product,mi_ext.",
+ "Phân vùng hợp lệ: system,system_ext,product,mi_ext,vendor,odm; ngăn cách bằng dấu phẩy.",
+ "Ví dụ: /dump https://sourceforge.net/.../rom.zip/download full drive",
+ "Ví dụ: /fastbootd https://sourceforge.net/.../rom.zip/download system,system_ext",
+ "URL phải dùng HTTPS và thuộc nguồn được cho phép.",
+ "Kết quả: https://github.com/" + REPO + "/actions",
+ "/help — xem lại hướng dẫn."
+].join("\n");
+
+async function registerCommands(env) {
+ const response = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/setMyCommands", {
+  method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({commands:COMMANDS})
+ });
+ const result = await response.json();
+ if(!response.ok || result.ok !== true) throw new Error("Telegram command registration failed");
+}
+
+function parseBuildCommand(text, fromId, hosts) {
+ const match = /^\/([a-z]+)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/iu.exec(text);
+ if (!match) return {error: HELP};
+ const command = match[1].toLowerCase();
+ if (["start","help"].includes(command)) return {help:true};
+ if (!["b","dump","fastbootd"].includes(command)) return {error:HELP};
+ const args = (match[2] || "").trim().split(/\s+/u).filter(Boolean);
+ const romUrl = validateRomUrl(args[0], hosts);
+ if (!romUrl) return {error:"Link ROM phải dùng HTTPS và thuộc nguồn ROM đã cho phép.\n\n" + HELP};
+ if(command === "b") {
+  if(args.length !== 1) return {error:"Cú pháp: /b <URL>"};
+  return {workflow:"build.yml",label:"build ROM (root mode)",inputs:{input_url:romUrl,builder_id:fromId,root_mode:"root",upload_method:"drive",debug:"false"}};
+ }
+ if(command === "dump") {
+  const mode = args[1] || "base", upload = args[2] || "artifact";
+  if(args.length > 3 || !["base","full"].includes(mode) || !["artifact","drive"].includes(upload))
+   return {error:"Cú pháp: /dump <URL> [base|full] [artifact|drive]"};
+  return {workflow:"dump.yml",label:"Dump ("+mode+", "+upload+")",inputs:{rom_url:romUrl,dump_mode:mode,upload_method:upload}};
+ }
+ const all = ["system","system_ext","product","mi_ext","vendor","odm"];
+ const selected = (args[1] || "system,system_ext,product,mi_ext").split(",");
+ if(args.length > 2 || selected.some(p=>!all.includes(p)) || new Set(selected).size !== selected.length)
+  return {error:"Cú pháp: /fastbootd <URL> [system,system_ext,product,mi_ext,vendor,odm]\nChỉ liệt kê phân vùng muốn xuất, ngăn cách bằng dấu phẩy."};
+ const inputs = {input_url:romUrl,builder_id:fromId};
+ for(const p of all) inputs["export_"+p] = selected.includes(p) ? "true" : "false";
+ return {workflow:"build-fastbootd.yml",label:"FastbootD ("+selected.join(", ")+")",inputs};
+}
+
 const DEFAULT_HOSTS = [
   "sourceforge.net",
   "*.sourceforge.net",
@@ -121,6 +177,7 @@ async function setupWebhook(request, env) {
   if (!response.ok || result.ok !== true || result.result !== true) {
     return new Response("Telegram webhook setup failed (HTTP " + response.status + ")", { status: 502 });
   }
+  await registerCommands(env);
   return new Response("Da kich hoat webhook: " + webhookUrl + "\\nBay gio gui /b https://ROM-URL trong Telegram.", {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
@@ -167,24 +224,16 @@ export default {
       return new Response("ok", { status: 200 });
     }
     const text = msg.text.trim();
-    const match = /^\/b(?:@[A-Za-z0-9_]+)?\s+(https:\/\/\S+)$/iu.exec(text);
-    if (!text.startsWith("/b")) {
-      return new Response("ok", { status: 200 });
-    }
-    if (!match) {
-      await say(env, chatId, "Cú pháp: /b https://link-ROM.zip");
-      return new Response("ok", { status: 200 });
-    }
-    const hosts = String(env.ALLOWED_ROM_HOSTS || "").split(",")
-      .map((s) => s.trim()).filter(Boolean);
-    const romUrl = validateRomUrl(match[1], hosts.length ? hosts : DEFAULT_HOSTS);
-    if (!romUrl) {
-      await say(env, chatId, "Link ROM phải dùng HTTPS và thuộc nguồn ROM đã cho phép.");
-      return new Response("ok", { status: 200 });
+    if (!text.startsWith("/")) return new Response("ok");
+    const hosts = String(env.ALLOWED_ROM_HOSTS || "").split(",").map(s=>s.trim()).filter(Boolean);
+    const task = parseBuildCommand(text, fromId, hosts.length ? hosts : DEFAULT_HOSTS);
+    if(task.help || task.error) {
+      await say(env, chatId, task.error || HELP);
+      return new Response("ok");
     }
     // Public command: configure abuse protection before sharing the bot widely.
     const response = await fetch(
-      "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
+      "https://api.github.com/repos/" + REPO + "/actions/workflows/" + task.workflow + "/dispatches",
       {
         method: "POST",
         headers: {
@@ -196,18 +245,12 @@ export default {
         },
         body: JSON.stringify({
           ref: "main",
-          inputs: {
-            input_url: romUrl,
-            builder_id: fromId,
-            root_mode: "root",
-            upload_method: "drive",
-            debug: "false",
-          },
+          inputs: task.inputs,
         }),
       }
     );
     if (response.status === 204) {
-      await say(env, chatId, "Đã gửi yêu cầu build vào GitHub Actions (root mode). Xem: https://github.com/" + REPO + "/actions/workflows/" + WORKFLOW);
+      await say(env, chatId, "Đã gửi yêu cầu " + task.label + " vào GitHub Actions. Xem: https://github.com/" + REPO + "/actions/workflows/" + task.workflow);
     } else {
       await say(env, chatId, "Không thể tạo build: GitHub API trả về HTTP " + response.status + ". Kiểm tra quyền Actions: write của token.");
     }
