@@ -1,4 +1,4 @@
-# HyperMOS Telegram build command: /b <rom-zip-URL>
+# HyperMOS Telegram workflow commands
 
 ## How it works
 
@@ -65,3 +65,25 @@ Allow only trusted ROM download hosts; `ALLOWED_ROM_HOSTS` is an optional
 comma-separated variable to narrow the default list. A public `/b` command
 can consume GitHub Actions minutes and storage; add Cloudflare rate limits
 and duplicate-command protection before publishing the bot widely.
+
+## Telegram commands and suggestions
+
+Telegram's slash-command menu includes `b`, `dump`, `fastbootd`, `help` and
+`start`. Webhook setup also registers this menu with `setMyCommands`.
+Use `/help` or `/start` for syntax and examples.
+
+- `/b <URL>`: dispatch build.yml on main, root mode, Drive upload.
+- `/dump <URL> [base|full] [artifact|drive]`: dispatch dump.yml on main.
+  Defaults: base and artifact. Example: `/dump <URL> full drive`.
+- `/fastbootd <URL> [partitions]`: dispatch build-fastbootd.yml on main.
+  Defaults: system,system_ext,product,mi_ext.
+  Partitions are comma-separated with no spaces; valid names are system,
+  system_ext,product,mi_ext,vendor,odm.
+  Example: `/fastbootd <URL> system,system_ext`.
+
+The same HTTPS source-host validation applies to all three commands. Invalid
+arguments display help without dispatching a workflow. Commands addressed to
+the bot, such as `/dump@trinhngocminh_bot`, are supported. Confirmation means
+GitHub accepted the request; follow the workflow link for results. FastbootD
+results are GitHub Actions artifacts, without a new Telegram completion
+notification added by this Worker.
