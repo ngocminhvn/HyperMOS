@@ -149,3 +149,24 @@ always the actual Telegram sender; no manual override is exposed.
 
 The persistent home reply keyboard has been removed. Existing users receive
 ReplyKeyboardRemove on their next interaction; use /start to open the task menu.
+
+## One unfinished workflow per user
+
+Every Telegram sender has a shared Durable Object guard keyed by their user ID,
+independent of chat ID and workflow type. Build ROM, Dump and FastbootD share
+the same guard. There are no owner/admin exemptions.
+
+The guard reserves a slot synchronously before dispatch, persists the returned
+GitHub run ID before Telegram confirmation, and checks that exact run before
+allowing another dispatch. All statuses other than completed remain blocked,
+including queued, waiting and in_progress. A completed success, failure or
+cancellation allows the next request. Failed status checks keep the slot closed.
+
+A definite dispatch rejection releases the reservation. An ambiguous network
+or server failure, or an accepted response missing a run ID, keeps it closed
+to prevent duplicate builds; inspect Actions and reconcile that user's
+build-limit:<Telegram user ID> state before retrying. No timeout silently
+releases an uncertain request.
+
+This applies to requests created by this version of the bot. Runs launched
+before deployment, or launched manually through GitHub, are not backfilled.
