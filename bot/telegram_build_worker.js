@@ -13,13 +13,7 @@ import { DurableObject } from "cloudflare:workers";
  */
 const REPO = "ngocminhvn/HyperMOS";
 
-const COMMANDS = [
- {command:"b",description:"Build ROM root: /b <URL>"},
- {command:"dump",description:"Dump ROM: /dump <URL> [base|full] [artifact|drive]"},
- {command:"fastbootd",description:"Build ảnh FastbootD: /fastbootd <URL> [phân_vùng]"},
- {command:"help",description:"Hướng dẫn và ví dụ các lệnh"},
- {command:"start",description:"Mở menu nút bấm"}
-];
+const COMMANDS = [{command:"start",description:"Mở menu chọn tác vụ HyperMOS"}];
 const HELP = [
  "HyperMOS — các lệnh:",
  "/b <URL> — build ROM root, tải lên Drive.",
@@ -227,6 +221,7 @@ export default {
 };
 
 
+const DEFAULT_ROM_URLS = {"b":"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip","fastbootd":"https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip/download"};
 const PARTITIONS = ["system","system_ext","product","mi_ext","vendor","odm"];
 function romHosts(env) {
  const hosts = String(env.ALLOWED_ROM_HOSTS || "").split(",").map(s=>s.trim()).filter(Boolean);
@@ -251,24 +246,55 @@ function sessionView(s,user) {
  const btn=(text,action)=>({text,callback_data:["ui",user,s.id,s.rev,action].join(":")});
  const rows=[];
  let text="HyperMOS — "+({b:"🔨 Build ROM",dump:"📦 Dump",fastbootd:"⚡ FastbootD"}[s.kind]);
- if(!s.url) text+="\nGửi link ROM HTTPS vào cuộc trò chuyện này.\nPhiên chọn hết hạn sau 5 phút.";
+ if(s.awaiting==="md5") {
+  text+="\nGửi MD5 của ROM (32 ký tự hex).";
+  rows.push([btn("Bỏ MD5","md5clear")]);
+ } else if(!s.url) {
+  text+="\nGửi link ROM HTTPS vào cuộc trò chuyện này.\nPhiên chọn hết hạn sau 5 phút.";
+  if(DEFAULT_ROM_URLS[s.kind]) rows.push([btn("📎 Dùng ROM mặc định trên GitHub","defaultrom")]);
+ }
  else {
   text+="\nROM: "+s.url;
-  if(s.kind==="b") text+="\nRoot mode • tải lên Drive";
+  if(s.kind==="b") {
+   text+="\nRoot: "+(s.rootMode || "root")+" • lưu: "+(s.buildUpload || "drive")+" • Debug: "+(s.debug?"Bật":"Tắt");
+   rows.push([btn((s.rootMode!=="stock"?"✅ ":"")+"Root","root"),btn((s.rootMode==="stock"?"✅ ":"")+"Stock","stock")]);
+   rows.push([btn((s.buildUpload!=="pixeldrain"?"✅ ":"")+"Drive","builddrive"),btn((s.buildUpload==="pixeldrain"?"✅ ":"")+"Pixeldrain","pixeldrain")]);
+   rows.push([btn((s.debug?"✅ ":"⬜ ")+"Debug","debug")]);
+  }
   if(s.kind==="dump") {
    text+="\nChế độ: "+s.mode+" • lưu: "+s.upload;
    rows.push([btn((s.mode==="base"?"✅ ":"")+"Base","base"),btn((s.mode==="full"?"✅ ":"")+"Full","full")]);
    rows.push([btn((s.upload==="artifact"?"✅ ":"")+"Artifact","artifact"),btn((s.upload==="drive"?"✅ ":"")+"Drive","drive")]);
   }
+  if(s.kind==="dump") {
+   text+="\nMD5: "+(s.md5 || "Không kiểm tra");
+   rows.push([btn("✏ MD5","md5"),btn("Bỏ MD5","md5clear")]);
+  }
   if(s.kind==="fastbootd") {
    text+="\nChọn phân vùng cần xuất:";
    for(let i=0;i<PARTITIONS.length;i+=2) rows.push(PARTITIONS.slice(i,i+2).map(p=>btn((s.parts.includes(p)?"✅ ":"⬜ ")+p,p)));
   }
+  rows.push([btn("🔗 Đổi link ROM","changeurl")]);
   text+="\nKiểm tra cấu hình rồi bấm Chạy.";
   rows.push([btn("🚀 Chạy","run")]);
  }
  rows.push([btn("✖ Hủy","cancel")]);
  return {text,reply_markup:{inline_keyboard:rows}};
+}
+function taskFromSession(s,user,hosts) {
+ const command="/"+s.kind+" "+s.url+(s.kind==="dump"?" "+s.mode+" "+s.upload:s.kind==="fastbootd"?" "+s.parts.join(","):"");
+ const task=parseBuildCommand(command,user,hosts);
+ if(task.error) return task;
+ if(s.kind==="b") {
+  const root=s.rootMode || "root",upload=s.buildUpload || "drive";
+  if(!["root","stock"].includes(root) || !["drive","pixeldrain"].includes(upload)) return {error:"Invalid build options"};
+  Object.assign(task.inputs,{root_mode:root,upload_method:upload,debug:s.debug?"true":"false"});
+ }
+ if(s.kind==="dump") {
+  if(s.md5 && !/^[a-f0-9]{32}$/i.test(s.md5)) return {error:"Invalid MD5"};
+  task.inputs.expected_md5=s.md5 || "";
+ }
+ return task;
 }
 async function dispatchTask(env,chat,task,messageId) {
  const notify = (text) => telegram(env,messageId ? "editMessageText" : "sendMessage",{
@@ -390,11 +416,11 @@ export class BotSession extends DurableObject {
     return;
    }
    if(action==="run") {
-    if(!s.url || (s.kind==="fastbootd"&&!s.parts.length)) {
+    if(s.awaiting || !s.url || (s.kind==="fastbootd"&&!s.parts.length)) {
      await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Hãy gửi link ROM và chọn ít nhất một phân vùng."});return;
     }
-    const command="/"+s.kind+" "+s.url+(s.kind==="dump"?" "+s.mode+" "+s.upload:s.kind==="fastbootd"?" "+s.parts.join(","):"");
-    const task=parseBuildCommand(command,user,romHosts(this.env));
+
+    const task=taskFromSession(s,user,romHosts(this.env));
     if(task.error) {
      await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"Cấu hình không hợp lệ. Mở /start để tạo lại."});return;
     }
@@ -410,7 +436,20 @@ export class BotSession extends DurableObject {
     await dispatchTask(this.env,chat,task,msg.message_id);
     return;
    }
-   if(s.kind==="dump"&&["base","full"].includes(action)) s.mode=action;
+   if(action==="defaultrom" && DEFAULT_ROM_URLS[s.kind]) {
+    const url=validateRomUrl(DEFAULT_ROM_URLS[s.kind],romHosts(this.env));
+    if(!url) {
+     await telegram(this.env,"answerCallbackQuery",{callback_query_id:q.id,text:"ROM mặc định không thuộc nguồn được cho phép."});return;
+    }
+    s.url=url;s.awaiting=null;
+   }
+   else if(action==="changeurl") {s.url=null;s.awaiting=null;}
+   else if(s.kind==="b" && ["root","stock"].includes(action)) s.rootMode=action;
+   else if(s.kind==="b" && ["builddrive","pixeldrain"].includes(action)) s.buildUpload=action==="builddrive"?"drive":"pixeldrain";
+   else if(s.kind==="b" && action==="debug") s.debug=!s.debug;
+   else if(s.kind==="dump" && action==="md5") s.awaiting="md5";
+   else if(s.kind==="dump" && action==="md5clear") {s.md5="";s.awaiting=null;}
+   else if(s.kind==="dump"&&["base","full"].includes(action)) s.mode=action;
    else if(s.kind==="dump"&&["artifact","drive"].includes(action)) s.upload=action;
    else if(s.kind==="fastbootd"&&PARTITIONS.includes(action)) s.parts=s.parts.includes(action)?s.parts.filter(p=>p!==action):[...s.parts,action];
    else return;
@@ -450,9 +489,15 @@ export class BotSession extends DurableObject {
   }
   const s=this.read();
   if(!s || s.status!=="editing" || s.expires<Date.now()) {await home(this.env,chat,user,"Chọn tác vụ trước khi gửi link ROM:");return;}
-  const url=validateRomUrl(text,romHosts(this.env));
-  if(!url) {await say(this.env,chat,"Link không hợp lệ. Gửi URL HTTPS thuộc nguồn ROM đã cho phép.");return;}
-  s.url=url;s.rev++;s.chat=chat;
+  if(s.awaiting==="md5") {
+   if(!/^[a-f0-9]{32}$/i.test(text)) {await say(this.env,chat,"MD5 phải gồm đúng 32 ký tự 0–9, a–f. Gửi lại hoặc bấm Bỏ MD5.");return;}
+   s.md5=text.toLowerCase();s.awaiting=null;
+  } else {
+   const url=validateRomUrl(text,romHosts(this.env));
+   if(!url) {await say(this.env,chat,"Link không hợp lệ. Gửi URL HTTPS thuộc nguồn ROM đã cho phép.");return;}
+   s.url=url;
+  }
+  s.rev++;s.chat=chat;
   s.messageIds=[...new Set([...(s.messageIds || []),msg.message_id])];this.save(s);
   // Reuse the ROM prompt as the option panel instead of adding another message.
   const promptId=(s.messageIds || []).find(id=>id!==msg.message_id);
