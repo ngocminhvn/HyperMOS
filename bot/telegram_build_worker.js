@@ -58,7 +58,7 @@ function parseBuildCommand(text, fromId, hosts) {
   const mode = args[1] || "base", upload = args[2] || "artifact";
   if(args.length > 3 || !["base","full"].includes(mode) || !["artifact","drive"].includes(upload))
    return {error:"Cú pháp: /dump <URL> [base|full] [artifact|drive]"};
-  return {workflow:"dump.yml",label:"Dump ("+mode+", "+upload+")",inputs:{rom_url:romUrl,dump_mode:mode,upload_method:upload}};
+  return {workflow:"dump.yml",label:"Dump ("+mode+", "+upload+")",inputs:{rom_url:romUrl,dump_mode:mode,upload_method:upload,builder_id:fromId}};
  }
  const all = ["system","system_ext","product","mi_ext","vendor","odm"];
  const selected = (args[1] || "system,system_ext,product,mi_ext").split(",");
