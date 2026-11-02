@@ -5,3 +5,11 @@ keep_vars = true
 
 # Do not put tokens or Telegram user IDs here.
 # Runtime secrets and allowlisted Telegram users are configured in Cloudflare Dashboard.
+
+[[durable_objects.bindings]]
+name = "BOT_SESSIONS"
+class_name = "BotSession"
+
+[[migrations]]
+tag = "bot-ui-v1"
+new_sqlite_classes = ["BotSession"]
