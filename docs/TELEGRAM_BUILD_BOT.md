@@ -85,8 +85,8 @@ The same HTTPS source-host validation applies to all three commands. Invalid
 arguments display help without dispatching a workflow. Commands addressed to
 the bot, such as `/dump@trinhngocminh_bot`, are supported. Confirmation means
 GitHub accepted the request; follow the workflow link for results. FastbootD
-results are GitHub Actions artifacts, without a new Telegram completion
-notification added by this Worker.
+results are GitHub Actions artifacts. The workflow sends progress and final
+notifications to the repo channel and requester.
 
 ## Interactive buttons
 
@@ -107,3 +107,23 @@ The webhook must include message and callback_query in allowed_updates.
 The deployed webhook enables both without dropping queued updates.
 The session binding and bot-ui-v1 class migration are defined in
 bot/wrangler.toml.
+
+## Repo and requester notifications
+
+All bot commands pass the Telegram sender ID as builder_id. Notifications
+continue to reach TELEGRAM_CHANNEL_ID (the configured repo owner/channel),
+and also reach the requesting Telegram user in a private message.
+
+- Standard build: notify.py mirrors progress and final results, with separate
+  progress message IDs for the channel and builder. Failure logs remain private
+  to the builder.
+- FastbootD: bot/notify_workflow.py sends start, packaging, upload and final
+  status, with the exact run link and artifact link on success.
+- Dump: the existing final result (including Drive/artifact link) is delivered
+  to both recipients.
+
+Recipients are deduplicated when the owner/channel ID equals builder_id.
+Delivery failures are isolated so one recipient cannot block the other.
+The requester must have started the bot privately and must not block it.
+GitHub's TELEGRAM_BOT_TOKEN secret must belong to the bot they started.
+Workflow changes apply to new runs, not jobs already running an older commit.
