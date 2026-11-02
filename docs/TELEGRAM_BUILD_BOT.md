@@ -90,7 +90,7 @@ notifications to the repo channel and requester.
 
 ## Interactive buttons
 
-Send `/start` (or `/menu`) to open Build ROM, Dump and FastbootD buttons.
+Send `/start` to open Build ROM, Dump and FastbootD buttons.
 Select a task, send a trusted HTTPS ROM URL, choose options and press **Chạy**.
 Dump has Base/Full and Artifact/Drive buttons. FastbootD has individual
 partition toggles; at least one partition is required. **Hủy** cancels.
@@ -136,7 +136,7 @@ Telegram deletion permission errors do not block dispatch.
 
 ## Workflow options in the bot
 
-After sending /start or pressing the persistent 🏠 Menu keyboard button,
+After sending /start,
 choose a task and provide a ROM URL. Build ROM and FastbootD also offer the
 current workflow's default ROM URL as a button.
 
@@ -146,3 +146,6 @@ current workflow's default ROM URL as a button.
 
 Use Change ROM URL to replace the source before confirming. builder_id is
 always the actual Telegram sender; no manual override is exposed.
+
+The persistent home reply keyboard has been removed. Existing users receive
+ReplyKeyboardRemove on their next interaction; use /start to open the task menu.
