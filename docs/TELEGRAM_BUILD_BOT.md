@@ -68,8 +68,8 @@ and duplicate-command protection before publishing the bot widely.
 
 ## Telegram commands and suggestions
 
-Telegram's slash-command menu includes `b`, `dump`, `fastbootd`, `help` and
-`start`. Webhook setup also registers this menu with `setMyCommands`.
+Telegram's slash-command suggestion menu includes only `start`. The other
+commands remain available when typed manually. Webhook setup also registers this menu with `setMyCommands`.
 Use `/help` or `/start` for syntax and examples.
 
 - `/b <URL>`: dispatch build.yml on main, root mode, Drive upload.
@@ -133,3 +133,16 @@ expiry. The ROM prompt is edited into the options panel. The supplied ROM URL
 message is deleted when the selection ends; Success + Info is preserved across
 later menus. A Durable Object alarm cleans expired selections automatically.
 Telegram deletion permission errors do not block dispatch.
+
+## Workflow options in the bot
+
+After sending /start or pressing the persistent 🏠 Menu keyboard button,
+choose a task and provide a ROM URL. Build ROM and FastbootD also offer the
+current workflow's default ROM URL as a button.
+
+- Build ROM: Root/Stock, Drive/Pixeldrain, Debug on/off.
+- Dump: Base/Full, Artifact/Drive, optional 32-hex-character MD5 (editable/clearable).
+- FastbootD: independently select system, system_ext, product, mi_ext, vendor, odm.
+
+Use Change ROM URL to replace the source before confirming. builder_id is
+always the actual Telegram sender; no manual override is exposed.
