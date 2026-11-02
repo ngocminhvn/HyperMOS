@@ -649,7 +649,7 @@ def delete_telegram_message(base_url: str, chat_id: str, message_id) -> bool:
     return False
 
 
-def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id=None, build_id="Không rõ", builder_id=""):
+def _send_notification_to_chat(status, repo_name, rom_link, channel_id, bot_token, msg_id=None, build_id="Không rõ", builder_id="", msg_env_key="TELEGRAM_MSG_ID"):
     status = normalize_status(status)
     message = compose_message(status, repo_name, rom_link, build_id)
 
@@ -678,13 +678,13 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
                         response.raise_for_status()
                         new_msg_id = data.get("result", {}).get("message_id")
                         if new_msg_id:
-                            save_env("TELEGRAM_MSG_ID", str(new_msg_id))
+                            save_env(msg_env_key, str(new_msg_id))
             else:
                 response, data = post_telegram(f"{base_url}/sendMessage", payload)
                 response.raise_for_status()
                 new_msg_id = data.get("result", {}).get("message_id")
                 if new_msg_id:
-                    save_env("TELEGRAM_MSG_ID", str(new_msg_id))
+                    save_env(msg_env_key, str(new_msg_id))
                     print(f"Đã lưu TELEGRAM_MSG_ID={new_msg_id} vào GITHUB_ENV.")
                 print("Đã gửi thông báo Telegram.")
             return
@@ -696,57 +696,30 @@ def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id
         final_msg_id = data.get("result", {}).get("message_id")
         print(f"Đã gửi thông báo cuối ({status}), message_id={final_msg_id}.")
 
-        # Nếu builder_id khác channel_id thì gửi bản riêng cho người yêu cầu.
-        # Nếu trùng nhau thì message cuối phía trên đã là thông báo cần giữ.
-        if builder_id and str(builder_id) != str(channel_id):
-            pm_title = {
-                "success": "YÊU CẦU BUILD ROM CỦA BẠN ĐÃ HOÀN TẤT",
-                "fail": "YÊU CẦU BUILD ROM CỦA BẠN BỊ LỖI",
-                "cancelled": "YÊU CẦU BUILD ROM CỦA BẠN ĐÃ BỊ HỦY",
-            }[status]
-            pm_lines = [f"<b>{escape(pm_title)}</b>", "", message]
-            if status == "success":
-                download_url = (
-                    os.environ.get("NOTIFY_DOWNLOAD_URL")
-                    or os.environ.get("RCLONE_DOWNLOAD_URL")
-                    or read_file_if_exists("bin/ddevice/download_url.txt")
-                )
-                if is_available(download_url):
-                    pm_lines.extend(["", f"<b>Tải ROM:</b> <a href=\"{escape(download_url)}\">Nhấn vào đây để tải</a>"])
-                else:
-                    pm_lines.extend(["", "<b>Tải ROM:</b> chưa tạo được link tải công khai."])
-            elif status == "fail":
-                pm_lines.extend(["", "<b>Log lỗi:</b> file .txt sẽ được gửi riêng ngay sau tin nhắn này nếu tìm thấy log."])
-            else:
-                pm_lines.extend(["", "<b>Chi tiết:</b> mở Build log để xem lý do workflow bị hủy."])
-
-            pm_text = "\n".join(pm_lines)
-            if len(pm_text) > 3900:
-                pm_text = pm_text[:3800] + "\n...\n(Nội dung đã được rút gọn.)"
-            pm_payload = {
-                "chat_id": builder_id,
-                "text": pm_text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            }
-            pm_response, pm_data = post_telegram(f"{base_url}/sendMessage", pm_payload)
-            if pm_response.ok:
-                print(f"Đã gửi tin nhắn riêng cho người dùng {builder_id}.")
-            else:
-                print(f"Không thể gửi tin nhắn riêng cho người dùng {builder_id}: {pm_data or pm_response.text}")
-
-        # Build lỗi: giữ lại thông báo lỗi cuối + file log gửi cho builder.
-        if status == "fail" and builder_id and os.environ.get("TELEGRAM_ERROR_LOG_SENT") != "1":
-            if send_error_log_document(base_url, builder_id, status, repo_name, build_id):
-                os.environ["TELEGRAM_ERROR_LOG_SENT"] = "1"
-                save_env("TELEGRAM_ERROR_LOG_SENT", "1")
-
         # Cuối cùng mới xóa message tiến trình cũ. Không bao giờ xóa message cuối.
         if msg_id and str(msg_id) != str(final_msg_id):
             delete_telegram_message(base_url, channel_id, msg_id)
 
     except Exception as exc:
         print(f"Lỗi khi gửi/cập nhật thông báo Telegram: {exc}")
+
+
+
+def send_notification(status, repo_name, rom_link, channel_id, bot_token, msg_id=None, build_id="Không rõ", builder_id=""):
+    """Notify the configured repo channel and builder independently."""
+    status = normalize_status(status)
+    if channel_id:
+        _send_notification_to_chat(status, repo_name, rom_link, channel_id, bot_token,
+                                   msg_id, build_id, msg_env_key="TELEGRAM_MSG_ID")
+    if builder_id and str(builder_id) != str(channel_id):
+        _send_notification_to_chat(status, repo_name, rom_link, builder_id, bot_token,
+                                   os.environ.get("TELEGRAM_BUILDER_MSG_ID"), build_id,
+                                   msg_env_key="TELEGRAM_BUILDER_MSG_ID")
+    if status == "fail" and builder_id and os.environ.get("TELEGRAM_ERROR_LOG_SENT") != "1":
+        if send_error_log_document(f"https://api.telegram.org/bot{bot_token}", builder_id,
+                                   status, repo_name, build_id):
+            os.environ["TELEGRAM_ERROR_LOG_SENT"] = "1"
+            save_env("TELEGRAM_ERROR_LOG_SENT", "1")
 
 
 if __name__ == "__main__":
@@ -772,7 +745,7 @@ if __name__ == "__main__":
 
     write_file("bin/ddevice/telegram_build_id.txt", build_id_arg)
 
-    if not bot_token_arg or not channel_id_arg:
+    if not bot_token_arg or not (channel_id_arg or builder_id_arg):
         print("Lỗi: thiếu TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHANNEL_ID trong biến môi trường.")
         sys.exit(1)
 
