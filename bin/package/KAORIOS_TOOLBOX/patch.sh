@@ -38,7 +38,6 @@ BUILD_SPOOF_VERIFIER="$MOD_DIR/verify-build-spoof-a17.py"
 SECURE_FLAG_PATCHER="$MOD_DIR/patch-secure-flag.py"
 CONFIG="$KAORIOS_DIR/config.json"
 CONFIG_LOADER="$MOD_DIR/load-config.py"
-FINAL_HOOK_VERIFIER="$MOD_DIR/verify-selected-hooks.py"
 ADVANCED_POLICY_SELINUX="$MOD_DIR/integrate-advanced-policy-selinux.py"
 
 if [[ ! -f "$CONFIG" || ! -f "$CONFIG_LOADER" ]]; then
@@ -857,7 +856,7 @@ install_native_pif() {
     return 0
   fi
 
-  local lib_src="$KAORIOS_DIR/bin/lib"
+  local lib_src="$MOD_DIR/native_pif"
   if [[ ! -d "$lib_src" ]]; then
     error "KAORIOS: Native PIF source directory missing: $lib_src"
     return 1

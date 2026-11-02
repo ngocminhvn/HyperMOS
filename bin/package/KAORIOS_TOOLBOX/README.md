@@ -17,7 +17,7 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - `ComputerEngine` package visibility / installer-source hooks;
 - optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
 - Android 17 `Build` / `Build$VERSION` spoof;
-- a source-built native PIF backend (`libkaoripif.so`) in `/system/lib64` and `/system/lib`, with its JNI bridge embedded in `app/classes.dex`;
+- a source-built native PIF backend from `mod/native_pif/`, installed into `/system/lib64` and `/system/lib`, with its JNI bridge embedded in `app/classes.dex`;
 - Toolbox APK as a `system_ext` priv-app.
 
 Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Its CorePatch pass owns the static signature/downgrade bypass. HyperMOS CorePatch runs first with those overlapping methods disabled and retains only its Xiaomi-specific patches. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state.

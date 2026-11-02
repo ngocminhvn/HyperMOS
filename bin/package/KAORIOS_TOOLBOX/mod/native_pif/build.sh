@@ -10,6 +10,7 @@ ndk="$1"
 toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
 src="$(cd "$(dirname "$0")" && pwd)/property_overlay.c"
 kaorios_dir="$(cd "$(dirname "$0")/../.." && pwd)"
+native_dir="$kaorios_dir/mod/native_pif"
 
 build_one() {
   local compiler="$1" output="$2"
@@ -21,6 +22,6 @@ build_one() {
 }
 
 build_one "$toolchain/aarch64-linux-android33-clang" \
-  "$kaorios_dir/bin/lib/arm64-v8a/libkaoripif.so"
+  "$native_dir/arm64-v8a/libkaoripif.so"
 build_one "$toolchain/armv7a-linux-androideabi33-clang" \
-  "$kaorios_dir/bin/lib/armeabi-v7a/libkaoripif.so"
+  "$native_dir/armeabi-v7a/libkaoripif.so"
