@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 MOD_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,45 @@ class NativePifTest(unittest.TestCase):
                 # Ensure ELF header
                 with open(target, "rb") as f:
                     self.assertEqual(f.read(4), b"\x7fELF")
+
+    def test_native_bridge_round_trip_and_jni_export(self):
+        driver = KAORIOS_DIR / "app/classes.dex"
+        baksmali = REPO_ROOT / "bin/apktool/baksmaliv2.jar"
+        smali = REPO_ROOT / "bin/apktool/smaliv2.jar"
+        patcher = MOD_DIR / "patch-native-pif-driver.py"
+        bridge = MOD_DIR / "PifNative.smali"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            rebuilt = root / "rebuilt.dex"
+            verified = root / "verified"
+            subprocess.run(
+                ["java", "-jar", str(baksmali), "d", "--api", "36", str(driver), "-o", str(source)],
+                check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                [sys.executable, str(patcher), str(source), "--template", str(bridge)],
+                check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["java", "-jar", str(smali), "a", "--api", "36", str(source), "-o", str(rebuilt)],
+                check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["java", "-jar", str(baksmali), "d", "--api", "36", str(rebuilt), "-o", str(verified)],
+                check=True, capture_output=True, text=True,
+            )
+            hook = (verified / "android/security/kaorios/KaoriosHook.smali").read_text()
+            native = (verified / "android/security/ntmanager/PifNative.smali").read_text()
+            self.assertIn("PifNative;->install(Landroid/content/Context;)V", hook)
+            self.assertIn("nativeInstall([Ljava/lang/String;[Ljava/lang/String;)Z", native)
+            self.assertIn("com.google.android.gms.unstable", native)
+
+        exported = subprocess.run(
+            ["readelf", "-Ws", str(KAORIOS_DIR / "bin/lib/arm64-v8a/libkaoripif.so")],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertIn("Java_android_security_ntmanager_PifNative_nativeInstall", exported)
 
     def test_init_boot_files_absent(self):
         self.assertFalse((KAORIOS_DIR / "bin/resetprop").exists())

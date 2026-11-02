@@ -30,6 +30,8 @@ MOD_ADAPTER="$MOD_DIR/mod-kaorios-adapter.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
 SMALI="$work_dir/bin/apktool/smaliv2.jar"
 DRIVER_DEX="$KAORIOS_DIR/app/classes.dex"
+NATIVE_PIF_DRIVER_PATCHER="$MOD_DIR/patch-native-pif-driver.py"
+NATIVE_PIF_BRIDGE="$MOD_DIR/PifNative.smali"
 TOOLBOX_APK="$KAORIOS_DIR/app/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
@@ -123,6 +125,10 @@ if ! is_enabled "$KAORIOS_MASTER"; then
   mods "Kaorios Toolbox disabled by config"
   exit 0
 fi
+if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF" && ! is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
+  error "KAORIOS: Native PIF requires the Instrumentation context hook"
+  exit 1
+fi
 
 framework_callsite_features_enabled() {
   is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD" ||
@@ -151,7 +157,8 @@ services_driver_needed() {
 framework_driver_needed() {
   framework_callsite_features_enabled ||
   services_driver_needed ||
-  is_enabled "$KAORIOS_ENABLE_DEVSTATUS"
+  is_enabled "$KAORIOS_ENABLE_DEVSTATUS" ||
+  is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"
 }
 
 build_spoof_enabled_for_target() {
@@ -210,6 +217,10 @@ if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTAL
 fi
 if framework_driver_needed; then
   require_file "$DRIVER_DEX" "framework driver DEX"
+fi
+if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
+  require_file "$NATIVE_PIF_DRIVER_PATCHER" "native PIF driver patcher"
+  require_file "$NATIVE_PIF_BRIDGE" "native PIF JNI bridge"
 fi
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
   require_file "$TOOLBOX_APK" "Toolbox APK"
@@ -279,6 +290,17 @@ run_smali() {
   rm -f "$out"
   java -jar "$SMALI" a --api "$SDK_LEVEL" "$src" -o "$out"
   [[ -s "$out" ]]
+}
+
+prepare_driver_dex() {
+  local output="$1" smali="$TEMP_ROOT/native-pif-driver"
+  if ! is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
+    cp -f "$DRIVER_DEX" "$output"
+    return 0
+  fi
+  run_baksmali "$DRIVER_DEX" "$smali"
+  python3 "$NATIVE_PIF_DRIVER_PATCHER" "$smali" --template "$NATIVE_PIF_BRIDGE"
+  run_smali "$smali" "$output"
 }
 
 tree_hash() {
@@ -612,6 +634,13 @@ verify_framework_final() {
   if framework_driver_needed; then
     require_one_target "$root" "android/security/kaorios/KaoriosHook.smali" "KaoriosHook framework driver"
 
+    if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
+      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
+        'PifNative;->install(Landroid/content/Context;)V' "native PIF driver call"
+      verify_hook "$root" "android/security/ntmanager/PifNative.smali" \
+        'nativeInstall([Ljava/lang/String;[Ljava/lang/String;)Z' "native PIF JNI bridge"
+    fi
+
     if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
       verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
         'initActivityThread(Ljava/lang/Object;)V' "driver ActivityThread implementation"
@@ -816,7 +845,7 @@ patch_archive() {
   if [[ "$kind" == "framework" ]] && framework_driver_needed; then
     local driver_name
     driver_name=$(next_dex_name "$raw")
-    cp -f "$DRIVER_DEX" "$built/$driver_name"
+    prepare_driver_dex "$built/$driver_name"
     info "KAORIOS: framework driver staged as $driver_name"
   fi
 

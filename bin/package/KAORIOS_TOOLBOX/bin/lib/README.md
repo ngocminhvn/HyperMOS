@@ -29,5 +29,5 @@ sh install.sh /path/to/rom_root
 ```
 
 ## Security & Verification
-- Intercepts property lookups without leaking companion APK class loader in DroidGuard.
-- Enables Google Play Integrity `MEETS_DEVICE_INTEGRITY` and `MEETS_STRONG_INTEGRITY`.
+- The MOD-owned framework bridge loads `libkaoripif.so` in the GMS unstable process and passes Toolbox's PIF values to the libc property callback hook.
+- Check `KaoriosNativePIF` in logcat and the GMS unstable process maps to confirm the bridge is active. Integrity labels are decided by Google and are not guaranteed by this library.
