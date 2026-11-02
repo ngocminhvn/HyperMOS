@@ -301,32 +301,26 @@ async function dispatchTask(env,chat,task,messageId) {
   chat_id:chat,...(messageId ? {message_id:messageId,reply_markup:{inline_keyboard:[]}} : {}),
   text,parse_mode:"HTML",disable_web_page_preview:true
  });
- let response;
- try {
-  response=await fetch("https://api.github.com/repos/"+REPO+"/actions/workflows/"+task.workflow+"/dispatches",{
-   method:"POST",headers:{"Authorization":"Bearer "+env.GITHUB_WORKFLOW_TOKEN,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"HyperMOS-Telegram-Build-Bot","Content-Type":"application/json"},
-   body:JSON.stringify({ref:"main",inputs:task.inputs,return_run_details:true}),signal:AbortSignal.timeout(15000)
-  });
- } catch {
-  await notify("Chưa xác định GitHub đã nhận yêu cầu. Kiểm tra Actions trước khi thử lại: https://github.com/"+REPO+"/actions");
-  return;
- }
- if(response.status===200) {
-  let result;
-  try { result=await response.json(); } catch { /* Dispatch accepted; do not retry. */ }
-  const prefix="https://github.com/"+REPO+"/actions/runs/";
-  const link=result?.html_url;
-  if(typeof link==="string" && link.startsWith(prefix) && /^\d+$/.test(link.slice(prefix.length))) {
-   await notify('✅ <b>Success</b>\n<a href="'+link+'">Info ↗</a>');
-   return;
-  }
-  await notify("✅ <b>Success</b>\nGitHub chưa trả link lượt chạy. Xem: https://github.com/"+REPO+"/actions");
- } else if(response.status===204) {
-  await notify("✅ <b>Success</b>\nGitHub chưa trả link lượt chạy. Xem: https://github.com/"+REPO+"/actions");
+ const user=String(task.inputs.builder_id);
+ let result;
+ try { result=await env.BOT_SESSIONS.getByName("build-limit:"+user).runLimited(task); }
+ catch {await notify("Không thể kiểm tra giới hạn. Vui lòng thử lại sau.");return;}
+ const info=result.url ? '\n<a href="'+result.url+'">Info ↗</a>' : "";
+ if(result.kind==="accepted") {
+  await notify("✅ <b>Success</b>"+(info || "\nGitHub chưa trả link lượt chạy. Xem: https://github.com/"+REPO+"/actions"));
+ } else if(result.kind==="busy") {
+  await notify(result.uncertain
+   ? "Chưa xác định kết quả yêu cầu trước. Kiểm tra Actions và liên hệ chủ repo trước khi tạo lại."
+   : "⏳ Bạn còn một lượt chưa hoàn tất. Vui lòng đợi lượt đó kết thúc."+info);
+ } else if(result.kind==="check_error") {
+  await notify("Không kiểm tra được trạng thái lượt trước. Chưa tạo lượt mới."+info);
+ } else if(result.kind==="uncertain") {
+  await notify("Chưa xác định GitHub đã nhận yêu cầu. Kiểm tra Actions trước khi tạo lại: https://github.com/"+REPO+"/actions");
  } else {
-  await notify("GitHub từ chối yêu cầu (HTTP "+response.status+"). Mở /start để thử lại.");
+  await notify("GitHub từ chối yêu cầu (HTTP "+result.status+"). Mở /start để thử lại.");
  }
 }
+
 export class BotSession extends DurableObject {
  constructor(ctx,env) {
   super(ctx,env);
@@ -363,6 +357,57 @@ export class BotSession extends DurableObject {
   s.status="expired";s.rev++;this.save(s);
   await this.clean(s);
  }
+
+ limitRead() {
+  const row=this.ctx.storage.sql.exec("SELECT data FROM session WHERE id=4").toArray()[0];
+  return row ? JSON.parse(row.data) : null;
+ }
+ limitSave(value) {
+  if(value) this.ctx.storage.sql.exec("INSERT OR REPLACE INTO session VALUES (4,?)",JSON.stringify(value));
+  else this.ctx.storage.sql.exec("DELETE FROM session WHERE id=4");
+ }
+ async runLimited(task) {
+  let active=this.limitRead();
+  const headers={"Authorization":"Bearer "+this.env.GITHUB_WORKFLOW_TOKEN,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"HyperMOS-Telegram-Build-Bot","Content-Type":"application/json"};
+  if(active) {
+   if(active.phase!=="active" || !active.runId) return {kind:"busy",url:active.url || null,uncertain:active.phase==="uncertain"};
+   // Claim the check before yielding so concurrent chats cannot both dispatch.
+   this.limitSave({...active,phase:"checking"});
+   try {
+    const check=await fetch("https://api.github.com/repos/"+REPO+"/actions/runs/"+active.runId,{headers,signal:AbortSignal.timeout(12000)});
+    if(!check.ok) {this.limitSave(active);return {kind:"check_error",url:active.url};}
+    const run=await check.json();
+    if(run.status!=="completed") {this.limitSave(active);return {kind:"busy",url:active.url};}
+   } catch {this.limitSave(active);return {kind:"check_error",url:active.url};}
+  }
+  this.limitSave({phase:"pending",workflow:task.workflow,createdAt:Date.now()});
+  let response;
+  try {
+   response=await fetch("https://api.github.com/repos/"+REPO+"/actions/workflows/"+task.workflow+"/dispatches",{
+    method:"POST",headers,body:JSON.stringify({ref:"main",inputs:task.inputs,return_run_details:true}),signal:AbortSignal.timeout(15000)
+   });
+  } catch {
+   this.limitSave({phase:"uncertain",createdAt:Date.now()});
+   return {kind:"uncertain"};
+  }
+  if(response.status===200 || response.status===204) {
+   let result;
+   if(response.status===200) {try {result=await response.json();} catch {}}
+   const prefix="https://github.com/"+REPO+"/actions/runs/";
+   let runId=null;
+   if(typeof result?.html_url==="string" && result.html_url.startsWith(prefix) && /^\d+$/.test(result.html_url.slice(prefix.length))) runId=result.html_url.slice(prefix.length);
+   if(!runId && Number.isSafeInteger(result?.workflow_run_id) && result.workflow_run_id>0) runId=String(result.workflow_run_id);
+   const url=runId?prefix+runId:null;
+   this.limitSave({phase:runId?"active":"uncertain",runId,url,createdAt:Date.now()});
+   return {kind:"accepted",url};
+  }
+  // A definite validation/auth rejection creates no run. Network/server errors
+  // keep the reservation closed because GitHub may already have accepted it.
+  const definite=[400,401,403,404,405,422,429].includes(response.status);
+  this.limitSave(definite?null:{phase:"uncertain",createdAt:Date.now()});
+  return {kind:"rejected",status:response.status};
+ }
+
  async handle(update) {
   const q=update.callback_query, msg=q?.message || update.message;
   const chat=msg?.chat?.id, user=String((q?.from || msg?.from)?.id || "");
