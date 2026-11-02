@@ -374,6 +374,11 @@ export class BotSession extends DurableObject {
   // Synchronous writes consume each update and confirmation before external I/O.
   this.ctx.storage.sql.exec("INSERT INTO seen VALUES (?)",update.update_id);
   this.ctx.storage.sql.exec("DELETE FROM seen WHERE id NOT IN (SELECT id FROM seen ORDER BY id DESC LIMIT 200)");
+  const oldKeyboard=this.ctx.storage.sql.exec("SELECT data FROM session WHERE id=3").toArray()[0];
+  if(oldKeyboard && JSON.parse(oldKeyboard.data).keyboard===true) {
+   await telegram(this.env,"sendMessage",{chat_id:chat,text:"Dùng /start để mở bảng chọn tác vụ.",reply_markup:{remove_keyboard:true}});
+   this.ctx.storage.sql.exec("INSERT OR REPLACE INTO session VALUES (3,?)",JSON.stringify({keyboard:false}));
+  }
   if(q) {
    const data=String(q.data||"").split(":");
    if(data[0]!=="ui" || data[1]!==user) {
@@ -463,17 +468,6 @@ export class BotSession extends DurableObject {
    const s=this.read();if(s){s.status="cancelled";this.save(s);}
    await this.ctx.storage.deleteAlarm();
    await this.clean(s);
-   const keyboard=this.ctx.storage.sql.exec("SELECT data FROM session WHERE id=3").toArray()[0];
-   if(!keyboard) {
-    await telegram(this.env,"sendMessage",{
-     chat_id:chat,text:"Bấm 🏠 Menu trên bàn phím để mở bảng chọn tác vụ bất kỳ lúc nào.",
-     reply_markup:{
-      keyboard:[[{text:"🏠 Menu"}]],resize_keyboard:true,is_persistent:true,
-      one_time_keyboard:false,input_field_placeholder:"Gửi link ROM hoặc bấm 🏠 Menu"
-     }
-    });
-    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO session VALUES (3,?)",JSON.stringify({keyboard:true}));
-   }
    const oldMenu=this.ctx.storage.sql.exec("SELECT data FROM session WHERE id=2").toArray()[0];
    if(oldMenu) await this.clean(JSON.parse(oldMenu.data));
    // Track the command in the next selection so it can be removed with the menu.
