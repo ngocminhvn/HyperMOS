@@ -1,23 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# HyperMOS integration for Kaorios Toolbox.
-# Upstream-owned scripts are vendored byte-for-byte from Kaorios upstream.
-# MOD-only behavior is kept outside those files in mod-kaorios-adapter.py.
-# Upstream script snapshot: 9a50d37fbe160279925218703653122c0671f383
-# The package driver applies Kaorios CorePatch immediately before this stage.
-# This stage adds Toolbox hooks and MOD-local static FLAG_SECURE bypasses.
-#
-# Applied Kaorios features (per the upstream Patch_Guide_2.0.6.1_VI):
-#   - process/context initialisation (ActivityThread + Instrumentation);
-#   - Play Integrity / keybox keystore hooks;
-#   - ApplicationPackageManager.hasSystemFeature(...) spoof;
-#   - SystemServer initialisation;
-#   - ComputerEngine package visibility + installer-source hooks;
-#   - Settings$NameValueCache dev-status hook (hide Developer options / ADB);
-#   - Android 17 Build / Build$VERSION spoof (Android 17 only, like upstream).
-# CorePatch is selected before this stage; SELinux policy mutation is skipped.
-# The upstream AdvancedPolicy SELinux checker is kept for diagnostics only.
+# Upstream code stays in script/; all HyperMOS helpers use mod/kaorios_mod.py.
+# CorePatch runs first, then this stage applies and verifies selected hooks.
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
@@ -25,26 +10,21 @@ source "$work_dir/functions.sh"
 KAORIOS_DIR="$work_dir/bin/package/KAORIOS_TOOLBOX"
 SCRIPT_DIR="$KAORIOS_DIR/script"
 MOD_DIR="$KAORIOS_DIR/mod"
+MOD_TOOL="$MOD_DIR/kaorios_mod.py"
 PATCHER="$SCRIPT_DIR/kaorios_patcher.py"
-MOD_ADAPTER="$MOD_DIR/mod-kaorios-adapter.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
 SMALI="$work_dir/bin/apktool/smaliv2.jar"
 DRIVER_DEX="$KAORIOS_DIR/app/classes.dex"
 TOOLBOX_APK="$KAORIOS_DIR/app/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
-DEVSTATUS_PATCHER="$MOD_DIR/patch-settings-namevaluecache.py"
-BUILD_SPOOF_VERIFIER="$MOD_DIR/verify-build-spoof-a17.py"
-SECURE_FLAG_PATCHER="$MOD_DIR/patch-secure-flag.py"
 CONFIG="$KAORIOS_DIR/config.json"
-CONFIG_LOADER="$MOD_DIR/load-config.py"
-ADVANCED_POLICY_SELINUX="$MOD_DIR/integrate-advanced-policy-selinux.py"
 
-if [[ ! -f "$CONFIG" || ! -f "$CONFIG_LOADER" ]]; then
+if [[ ! -f "$CONFIG" || ! -f "$MOD_TOOL" ]]; then
   error "KAORIOS: missing config.json or its loader"
   exit 1
 fi
-if ! config_values=$(python3 "$CONFIG_LOADER" "$CONFIG"); then
+if ! config_values=$(python3 "$MOD_TOOL" config "$CONFIG"); then
   exit 1
 fi
 while IFS='=' read -r config_name config_value; do
@@ -210,7 +190,7 @@ if archive_patch_needed; then
   require_file "$SMALI" "smali"
 fi
 if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-  require_file "$MOD_ADAPTER" "MOD Kaorios adapter"
+  require_file "$MOD_TOOL" "Kaorios MOD helper"
 fi
 if framework_driver_needed; then
   require_file "$DRIVER_DEX" "framework driver DEX"
@@ -223,13 +203,13 @@ if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
   require_file "$VALIDATE_KEYBOX" "keybox validator"
 fi
 if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
-  require_file "$DEVSTATUS_PATCHER" "dev-status patcher"
+  require_file "$MOD_TOOL" "Kaorios MOD helper"
 fi
 if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-  require_file "$SECURE_FLAG_PATCHER" "Secure Flag patcher"
+  require_file "$MOD_TOOL" "Kaorios MOD helper"
 fi
 if build_spoof_enabled_for_target; then
-  require_file "$BUILD_SPOOF_VERIFIER" "Build spoof verifier"
+  require_file "$MOD_TOOL" "Kaorios MOD helper"
 fi
 
 if archive_patch_needed; then
@@ -405,7 +385,7 @@ patch_target_file() {
 patch_computer_engine() {
   local root="$1" file
   file=$(find_target_file "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine") || return 1
-  if ! python3 "$MOD_ADAPTER" "$file" \
+  if ! python3 "$MOD_TOOL" adapter "$file" \
     --hidden-app "$KAORIOS_ENABLE_HIDDEN_APP" \
     --installer-source "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
     error "KAORIOS: MOD adapter failed for ComputerEngine"
@@ -447,11 +427,11 @@ patch_selected_targets() {
         patch_target_file "$root" "com/android/server/SystemServer.smali" "SystemServer" 1
       fi
       if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-        python3 "$SECURE_FLAG_PATCHER" "$root" --archive services
+        python3 "$MOD_TOOL" secure-flag "$root" --archive services
       fi
       ;;
     miui-services)
-      python3 "$SECURE_FLAG_PATCHER" "$root" --archive miui-services
+      python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services
       ;;
     *)
       error "KAORIOS: unknown patch kind: $kind"
@@ -529,9 +509,9 @@ apply_devstatus_patch() {
     return 0
   fi
   if is_enabled "$KAORIOS_DEVSTATUS_STRICT" || [[ "${KAORIOS_STRICT_DEVSTATUS:-0}" == "1" ]]; then
-    python3 "$DEVSTATUS_PATCHER" "$root" --strict || rc=$?
+    python3 "$MOD_TOOL" devstatus "$root" --strict || rc=$?
   else
-    python3 "$DEVSTATUS_PATCHER" "$root" || rc=$?
+    python3 "$MOD_TOOL" devstatus "$root" || rc=$?
   fi
   case "$rc" in
     0)
@@ -679,7 +659,7 @@ verify_framework_final() {
   fi
 
   if build_spoof_enabled_for_target; then
-    python3 "$BUILD_SPOOF_VERIFIER" "$root" >/dev/null || {
+    python3 "$MOD_TOOL" verify-build "$root" >/dev/null || {
       error "KAORIOS: final verification failed: Android 17 Build spoof"
       return 1
     }
@@ -687,7 +667,7 @@ verify_framework_final() {
   fi
 
   if (( NVC_APPLIED == 1 )); then
-    python3 "$DEVSTATUS_PATCHER" "$root" --verify-only --verify-roundtrip >/dev/null || {
+    python3 "$MOD_TOOL" devstatus "$root" --verify-only --verify-roundtrip >/dev/null || {
       error "KAORIOS: final verification failed: dev-status (Developer options/ADB) hook"
       return 1
     }
@@ -703,7 +683,7 @@ verify_services_final() {
 
   if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
     file=$(find "$root" -type f -path '*/com/android/server/pm/ComputerEngine.smali' -print -quit)
-    python3 "$MOD_ADAPTER" "$file" \
+    python3 "$MOD_TOOL" adapter "$file" \
       --hidden-app "$KAORIOS_ENABLE_HIDDEN_APP" \
       --installer-source "$KAORIOS_ENABLE_INSTALLER_SOURCE" \
       --check-only >/dev/null || {
@@ -730,7 +710,7 @@ verify_services_final() {
   fi
 
   if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-    python3 "$SECURE_FLAG_PATCHER" "$root" --archive services --check-only >/dev/null || {
+    python3 "$MOD_TOOL" secure-flag "$root" --archive services --check-only >/dev/null || {
       error "KAORIOS: final verification failed: static Secure Flag bypasses"
       return 1
     }
@@ -743,7 +723,7 @@ verify_services_final() {
 verify_miui_services_final() {
   local root="$1"
   require_miui_services_targets "$root"
-  python3 "$SECURE_FLAG_PATCHER" "$root" --archive miui-services --check-only >/dev/null || {
+  python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services --check-only >/dev/null || {
     error "KAORIOS: final verification failed: Xiaomi static Secure Flag bypass"
     return 1
   }

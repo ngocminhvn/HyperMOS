@@ -33,7 +33,7 @@ class SupportedScopeTest(unittest.TestCase):
     def test_hypermos_and_kaorios_corepatch_run_in_order(self):
         driver = (REPO / "bin/package/patchpackage.sh").read_text(encoding="utf-8")
         hypermos = 'COREPATCH/update.sh"'
-        kaorios = 'KAORIOS_TOOLBOX/mod/corepatch.sh"'
+        kaorios = 'KAORIOS CorePatch: applying signature/downgrade patch set'
         toolbox = 'KAORIOS_TOOLBOX/patch.sh"'
         self.assertIn(hypermos, driver)
         self.assertIn(kaorios, driver)
@@ -48,13 +48,9 @@ class SupportedScopeTest(unittest.TestCase):
         self.assertIn("COREPATCH_DISABLE_SIGNATURE_VERIFICATION=0", dispatcher)
         self.assertEqual(dispatcher.count("COREPATCH_RUN_HYPERMOS_EXTRAS=1"), 2)
 
-        kaorios_driver = (
-            REPO / "bin/package/KAORIOS_TOOLBOX/mod/corepatch.sh"
-        ).read_text(encoding="utf-8")
-        self.assertIn("COREPATCH_DISABLE_SIGNATURE_VERIFICATION=1", kaorios_driver)
-        self.assertIn("COREPATCH_RUN_HYPERMOS_EXTRAS=0", kaorios_driver)
-        for version in ("a15", "a16", "a17"):
-            self.assertIn(f"jar_patcher_{version}.sh", kaorios_driver)
+        self.assertIn("COREPATCH_DISABLE_SIGNATURE_VERIFICATION=1", driver)
+        self.assertIn("COREPATCH_RUN_HYPERMOS_EXTRAS=0", driver)
+        self.assertIn('jar_patcher_a${android_version}.sh', driver)
 
     def test_build_and_kaorios_reject_unsupported_versions(self):
         guarded_entrypoints = (

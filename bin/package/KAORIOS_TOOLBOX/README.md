@@ -4,7 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-`script/` is reserved for byte-for-byte upstream Kaorios files. MOD-specific host helpers live under `mod/` and do not modify the upstream patcher. `app/classes.dex` is the reviewed HyperMOS driver payload and includes the native PIF bridge directly, so the build does not patch that payload at runtime. Current upstream script snapshot: `9a50d37fbe160279925218703653122c0671f383`.
+`script/` is reserved for byte-for-byte upstream Kaorios files. HyperMOS commands are consolidated in `mod/kaorios_mod.py`; `mod/native_pif/` contains only its C source and two ABI binaries. `app/classes.dex` includes the native PIF bridge directly. Current upstream script snapshot: `9a50d37fbe160279925218703653122c0671f383`.
 
 ## Scope
 
@@ -98,6 +98,8 @@ The ROM contains the Kaorios keystore hooks and Toolbox support. Import the keyb
 Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 build. The upstream profile can track a different Android/Pixel generation; manage the spoof profile through Toolbox instead.
 
 After boot, run a Play Integrity check and inspect `logcat -d -s KaoriosNativePIF` plus `/proc/<GMS unstable PID>/maps`. A successful native install logs `Process-local property view verified` and maps `libkaoripif.so`. The backend is built from `mod/native_pif/property_overlay.c`, changes only the GMS unstable process view, and does not use ShadowHook. Final integrity labels still depend on Google's verdict and the active keybox.
+
+Rebuild both native binaries with `python3 mod/kaorios_mod.py build-native /path/to/android-ndk`.
 
 ## Upstream
 

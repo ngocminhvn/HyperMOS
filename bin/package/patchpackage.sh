@@ -7,16 +7,16 @@ target_dir="$work_dir/bin/package/"
 # HyperMOS and Kaorios CorePatch run separately. HyperMOS owns only its
 # non-overlapping Xiaomi patches; Kaorios owns signature/downgrade and Secure Flag.
 kaorios_config="$target_dir/KAORIOS_TOOLBOX/config.json"
-kaorios_config_loader="$target_dir/KAORIOS_TOOLBOX/mod/load-config.py"
+kaorios_mod="$target_dir/KAORIOS_TOOLBOX/mod/kaorios_mod.py"
 if [[ -v KAORIOS_MASTER ]]; then
   kaorios_enabled_value="$KAORIOS_MASTER"
 else
-  kaorios_enabled_value=$(python3 "$kaorios_config_loader" "$kaorios_config" --get enabled) || exit 1
+  kaorios_enabled_value=$(python3 "$kaorios_mod" config "$kaorios_config" --get enabled) || exit 1
 fi
 if [[ -v KAORIOS_ENABLE_COREPATCH ]]; then
   kaorios_corepatch_value="$KAORIOS_ENABLE_COREPATCH"
 else
-  kaorios_corepatch_value=$(python3 "$kaorios_config_loader" "$kaorios_config" --get corepatch) || exit 1
+  kaorios_corepatch_value=$(python3 "$kaorios_mod" config "$kaorios_config" --get corepatch) || exit 1
 fi
 case "${kaorios_enabled_value,,}" in
   1|true|yes|on) kaorios_enabled=1 ;;
@@ -58,7 +58,18 @@ bash "$target_dir/NOTIFICATION_FIX/notificationFIX.sh" || exit 1
 # signature/downgrade methods that were disabled in the first CorePatch pass.
 info "PATCH 4/6: Kaorios CorePatch (signature / downgrade)"
 if [[ "$kaorios_corepatch" == "1" ]]; then
-  bash "$target_dir/KAORIOS_TOOLBOX/mod/corepatch.sh" || exit 1
+  info "KAORIOS CorePatch: applying signature/downgrade patch set"
+  android_version="$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")"
+  case "$android_version" in
+    15|16|17)
+      corepatch_args=()
+      [[ "$android_version" == "16" ]] && corepatch_args+=(--disable-signature-verification)
+      COREPATCH_DISABLE_SIGNATURE_VERIFICATION=1 \
+      COREPATCH_RUN_HYPERMOS_EXTRAS=0 \
+        bash "$target_dir/COREPATCH/jar_patcher_a${android_version}.sh" "${corepatch_args[@]}" || exit 1
+      ;;
+    *) error "KAORIOS CorePatch: unsupported Android version: $android_version"; exit 1 ;;
+  esac
 else
   info "KAORIOS CorePatch disabled by KAORIOS_ENABLE_COREPATCH"
 fi
@@ -80,7 +91,7 @@ bash "$target_dir/TNM/patch.sh" || exit 1
 if [[ -v KAORIOS_ENABLE_SYSTEM_SERVER ]]; then
   kaorios_system_server_value="$KAORIOS_ENABLE_SYSTEM_SERVER"
 else
-  kaorios_system_server_value=$(python3 "$kaorios_config_loader" "$kaorios_config" | \
+  kaorios_system_server_value=$(python3 "$kaorios_mod" config "$kaorios_config" | \
     awk -F= '$1 == "KAORIOS_ENABLE_SYSTEM_SERVER" { print $2; exit }') || exit 1
 fi
 case "${kaorios_system_server_value,,}" in
@@ -94,10 +105,10 @@ if [[ "$kaorios_enabled" == "1" && "$kaorios_system_server_enabled" == "1" ]]; t
   # "absent or duplicated" whenever no earlier stage installed the block.
   # The integrate step is idempotent (it replaces an existing managed
   # block instead of duplicating it) and deletes stale precompiled caches.
-  python3 "$target_dir/KAORIOS_TOOLBOX/mod/integrate-advanced-policy-selinux.py" \
+  python3 "$kaorios_mod" selinux \
     --images "$work_dir/build/baserom/images" \
     --report-dir "$work_dir/build/reports/kaorios/advanced-policy-selinux" || exit 1
-  python3 "$target_dir/KAORIOS_TOOLBOX/mod/integrate-advanced-policy-selinux.py" \
+  python3 "$kaorios_mod" selinux \
     --images "$work_dir/build/baserom/images" \
     --report-dir "$work_dir/build/reports/kaorios/advanced-policy-selinux-final" \
     --check || exit 1
