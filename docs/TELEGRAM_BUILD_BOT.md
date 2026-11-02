@@ -87,3 +87,23 @@ the bot, such as `/dump@trinhngocminh_bot`, are supported. Confirmation means
 GitHub accepted the request; follow the workflow link for results. FastbootD
 results are GitHub Actions artifacts, without a new Telegram completion
 notification added by this Worker.
+
+## Interactive buttons
+
+Send `/start` (or `/menu`) to open Build ROM, Dump and FastbootD buttons.
+Select a task, send a trusted HTTPS ROM URL, choose options and press **Chạy**.
+Dump has Base/Full and Artifact/Drive buttons. FastbootD has individual
+partition toggles; at least one partition is required. **Hủy** cancels.
+Opening /start cancels your current selection.
+
+Selections are isolated by chat and Telegram user, persist in the
+BOT_SESSIONS SQLite Durable Object, and expire after 30 minutes.
+Old revision buttons and repeated confirmations are rejected. A confirmation
+is consumed before GitHub dispatch; uncertain network outcomes require checking
+Actions manually before creating another request. Existing slash commands
+still dispatch immediately.
+
+The webhook must include message and callback_query in allowed_updates.
+The deployed webhook enables both without dropping queued updates.
+The session binding and bot-ui-v1 class migration are defined in
+bot/wrangler.toml.
