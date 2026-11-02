@@ -7,7 +7,7 @@
 .method static constructor <clinit>()V
     .registers 4
 
-    const/16 v0, 0xd
+    const/16 v0, 0x8
     new-array v1, v0, [Ljava/lang/String;
     new-array v2, v0, [Ljava/lang/String;
 
@@ -18,21 +18,21 @@
     aput-object v3, v2, v0
 
     const/4 v0, 0x1
-    const-string v3, "FINGERPRINT"
+    const-string v3, "ID"
     aput-object v3, v1, v0
-    const-string v3, "ro.system.build.fingerprint"
+    const-string v3, "ro.build.id"
     aput-object v3, v2, v0
 
     const/4 v0, 0x2
-    const-string v3, "MANUFACTURER"
+    const-string v3, "DEVICE"
     aput-object v3, v1, v0
-    const-string v3, "ro.product.manufacturer"
+    const-string v3, "ro.product.device"
     aput-object v3, v2, v0
 
     const/4 v0, 0x3
-    const-string v3, "MODEL"
+    const-string v3, "PRODUCT"
     aput-object v3, v1, v0
-    const-string v3, "ro.product.model"
+    const-string v3, "ro.product.name"
     aput-object v3, v2, v0
 
     const/4 v0, 0x4
@@ -42,48 +42,18 @@
     aput-object v3, v2, v0
 
     const/4 v0, 0x5
-    const-string v3, "PRODUCT"
+    const-string v3, "MODEL"
     aput-object v3, v1, v0
-    const-string v3, "ro.product.name"
+    const-string v3, "ro.product.model"
     aput-object v3, v2, v0
 
     const/4 v0, 0x6
-    const-string v3, "DEVICE"
-    aput-object v3, v1, v0
-    const-string v3, "ro.product.device"
-    aput-object v3, v2, v0
-
-    const/4 v0, 0x7
-    const-string v3, "RELEASE"
-    aput-object v3, v1, v0
-    const-string v3, "ro.build.version.release"
-    aput-object v3, v2, v0
-
-    const/16 v0, 0x8
-    const-string v3, "ID"
-    aput-object v3, v1, v0
-    const-string v3, "ro.build.id"
-    aput-object v3, v2, v0
-
-    const/16 v0, 0x9
-    const-string v3, "INCREMENTAL"
-    aput-object v3, v1, v0
-    const-string v3, "ro.build.version.incremental"
-    aput-object v3, v2, v0
-
-    const/16 v0, 0xa
-    const-string v3, "TAGS"
-    aput-object v3, v1, v0
-    const-string v3, "ro.build.tags"
-    aput-object v3, v2, v0
-
-    const/16 v0, 0xb
     const-string v3, "SECURITY_PATCH"
     aput-object v3, v1, v0
     const-string v3, "ro.build.version.security_patch"
     aput-object v3, v2, v0
 
-    const/16 v0, 0xc
+    const/4 v0, 0x7
     const-string v3, "DEVICE_INITIAL_SDK_INT"
     aput-object v3, v1, v0
     const-string v3, "ro.product.first_api_level"
@@ -183,7 +153,7 @@
     move-result v11
     if-eqz v11, :failed
     const-string v0, "KaoriosNativePIF"
-    const-string v1, "DroidGuard property hook installed"
+    const-string v1, "DroidGuard process-local property view installed"
     invoke-static {v0, v1}, Landroid/util/Log;->i(Ljava/lang/String;Ljava/lang/String;)I
     goto :done
 

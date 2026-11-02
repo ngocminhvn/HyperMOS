@@ -885,7 +885,7 @@ install_native_pif() {
   local target_lib64="$sys_target/lib64"
   if [[ -d "$arm64_dir" ]]; then
     mkdir -p "$target_lib64"
-    for lib in libkaoripif.so libkaoriospif.so libshadowhook_kaorios.so; do
+    for lib in libkaoripif.so; do
       if [[ -f "$arm64_dir/$lib" ]]; then
         cp -f "$arm64_dir/$lib" "$target_lib64/$lib"
         chmod 0644 "$target_lib64/$lib"
@@ -903,7 +903,7 @@ install_native_pif() {
   local target_lib="$sys_target/lib"
   if [[ -d "$arm_dir" ]]; then
     mkdir -p "$target_lib"
-    for lib in libkaoripif.so libkaoriospif.so libshadowhook_kaorios.so; do
+    for lib in libkaoripif.so; do
       if [[ -f "$arm_dir/$lib" ]]; then
         cp -f "$arm_dir/$lib" "$target_lib/$lib"
         chmod 0644 "$target_lib/$lib"

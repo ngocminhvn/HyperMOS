@@ -17,7 +17,7 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - `ComputerEngine` package visibility / installer-source hooks;
 - optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
 - Android 17 `Build` / `Build$VERSION` spoof;
-- Native PIF libraries (`libkaoripif.so`, `libkaoriospif.so`, `libshadowhook_kaorios.so`) in `/system/lib64` and `/system/lib`, with a MOD-owned JNI bridge in the framework driver;
+- a source-built native PIF backend (`libkaoripif.so`) in `/system/lib64` and `/system/lib`, with a MOD-owned JNI bridge in the framework driver;
 - Toolbox APK as a `system_ext` priv-app.
 
 Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Its CorePatch pass owns the static signature/downgrade bypass. HyperMOS CorePatch runs first with those overlapping methods disabled and retains only its Xiaomi-specific patches. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state.
@@ -43,7 +43,7 @@ Custom boot animation is disabled for all builds: the module entrypoint has been
 | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
 | `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar` and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
 | `KAORIOS_ENABLE_COREPATCH` | Run the Kaorios CorePatch signature/downgrade pass after the non-overlapping HyperMOS CorePatch pass |
-| `KAORIOS_ENABLE_NATIVE_PIF` | Install native PIF libraries and call the property hook in the GMS unstable process using Toolbox's PIF JSON; requires `KAORIOS_ENABLE_INSTRUMENTATION` |
+| `KAORIOS_ENABLE_NATIVE_PIF` | Install the process-local property backend and call it in GMS unstable using Toolbox's PIF JSON; requires `KAORIOS_ENABLE_INSTRUMENTATION` |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
 | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
 | `KAORIOS_DEVSTATUS_STRICT` | Fail instead of warning when the dev-status layout is unsupported |
@@ -97,7 +97,7 @@ The ROM contains the Kaorios keystore hooks and Toolbox support. Import the keyb
 
 Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 build. The upstream profile can track a different Android/Pixel generation; manage the spoof profile through Toolbox instead.
 
-After boot, run a Play Integrity check and inspect `logcat -d -s KaoriosNativePIF NTPifNative` plus `/proc/<GMS unstable PID>/maps`. A successful native install logs `DroidGuard property hook installed` and maps `libkaoripif.so`. The final integrity labels still depend on Google's verdict and the active keybox; the bridge does not guarantee any label.
+After boot, run a Play Integrity check and inspect `logcat -d -s KaoriosNativePIF` plus `/proc/<GMS unstable PID>/maps`. A successful native install logs `Process-local property view verified` and maps `libkaoripif.so`. The backend is built from `mod/native_pif/property_overlay.c`, changes only the GMS unstable process view, and does not use ShadowHook. Final integrity labels still depend on Google's verdict and the active keybox.
 
 ## Upstream
 

@@ -49,13 +49,15 @@ class NativePifTest(unittest.TestCase):
         for arch in ("arm64-v8a", "armeabi-v7a"):
             arch_dir = lib_dir / arch
             self.assertTrue(arch_dir.is_dir())
-            for lib_name in ("libkaoripif.so", "libkaoriospif.so", "libshadowhook_kaorios.so"):
+            for lib_name in ("libkaoripif.so",):
                 target = arch_dir / lib_name
                 self.assertTrue(target.is_file(), f"Missing {target}")
                 self.assertGreater(target.stat().st_size, 0)
                 # Ensure ELF header
                 with open(target, "rb") as f:
                     self.assertEqual(f.read(4), b"\x7fELF")
+            self.assertFalse((arch_dir / "libkaoriospif.so").exists())
+            self.assertFalse((arch_dir / "libshadowhook_kaorios.so").exists())
 
     def test_native_bridge_round_trip_and_jni_export(self):
         driver = KAORIOS_DIR / "app/classes.dex"
@@ -95,6 +97,14 @@ class NativePifTest(unittest.TestCase):
             check=True, capture_output=True, text=True,
         ).stdout
         self.assertIn("Java_android_security_ntmanager_PifNative_nativeInstall", exported)
+        self.assertNotIn("shadowhook", exported.lower())
+
+        strings = subprocess.run(
+            ["strings", "-a", str(KAORIOS_DIR / "bin/lib/arm64-v8a/libkaoripif.so")],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertIn("Process-local property view", strings)
+        self.assertNotIn("Init linker mod failed", strings)
 
     def test_init_boot_files_absent(self):
         self.assertFalse((KAORIOS_DIR / "bin/resetprop").exists())
