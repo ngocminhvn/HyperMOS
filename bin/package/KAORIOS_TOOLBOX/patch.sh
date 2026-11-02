@@ -169,7 +169,7 @@ archive_patch_needed() {
 
 # Pin both reviewed v2.0.6.1 release payloads. Updating either asset requires an
 # explicit integration update instead of silently changing a ROM build.
-DRIVER_GIT_BLOB="391745ecb46a6d8576d98d2a5380f666fb1409fd"
+DRIVER_GIT_BLOB="5b080d35e1c24c65c27a39b3add3fdedb8c4074d"
 TOOLBOX_GIT_BLOB="182c355137aa6cb8f0bb2942ad3e95ec88514960"
 
 # Set to 1 once the dev-status hook is confirmed present in the framework smali,
