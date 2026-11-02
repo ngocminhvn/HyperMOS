@@ -4,7 +4,7 @@ This directory integrates Kaorios Toolbox using the maintained upstream patcher 
 
 ### Upstream ownership rule
 
-Files copied from Kaorios upstream must remain byte-for-byte unmodified so a future Kaorios update can replace them wholesale. MOD-specific helpers live under `mod/`; `script/` is reserved for upstream Kaorios files. The dev-status helper remains MOD-local and does not modify the upstream patcher. Current upstream script snapshot: `9a50d37fbe160279925218703653122c0671f383`.
+`script/` is reserved for byte-for-byte upstream Kaorios files. MOD-specific host helpers live under `mod/` and do not modify the upstream patcher. `app/classes.dex` is the reviewed HyperMOS driver payload and includes the native PIF bridge directly, so the build does not patch that payload at runtime. Current upstream script snapshot: `9a50d37fbe160279925218703653122c0671f383`.
 
 ## Scope
 
@@ -17,7 +17,7 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - `ComputerEngine` package visibility / installer-source hooks;
 - optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
 - Android 17 `Build` / `Build$VERSION` spoof;
-- a source-built native PIF backend (`libkaoripif.so`) in `/system/lib64` and `/system/lib`, with a MOD-owned JNI bridge in the framework driver;
+- a source-built native PIF backend (`libkaoripif.so`) in `/system/lib64` and `/system/lib`, with its JNI bridge embedded in `app/classes.dex`;
 - Toolbox APK as a `system_ext` priv-app.
 
 Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Its CorePatch pass owns the static signature/downgrade bypass. HyperMOS CorePatch runs first with those overlapping methods disabled and retains only its Xiaomi-specific patches. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state.
@@ -71,7 +71,7 @@ Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notificatio
 
 `patch.sh`:
 
-- pins both reviewed v2.0.6.1 release payloads (`KaoriosToolbox.apk` SHA-256 `b6d7a83fef7dd5ec2f43319597def24371cd05d64d91fb9e5e3c161f2f407fcf`, `classes.dex` SHA-256 `ca9489f388e8717463c1f33a56c298a4b6bd5785b82d11f20da1deb65c799c9a`);
+- pins the upstream Toolbox APK (SHA-256 `b6d7a83fef7dd5ec2f43319597def24371cd05d64d91fb9e5e3c161f2f407fcf`) and the compact HyperMOS driver payload (`classes.dex` SHA-256 `eaf6640a65b9d362cb418f703a69be6a1a530196156a6d81a5481e2dadedccae`);
 - decompiles every `classes*.dex` separately;
 - requires the expected target classes before modifying anything;
 - uses upstream `kaorios_patcher.py --mode 1` for hook targets and `--mode 2` for the Android 17 Build spoof targets;

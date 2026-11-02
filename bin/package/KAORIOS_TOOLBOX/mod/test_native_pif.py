@@ -62,28 +62,10 @@ class NativePifTest(unittest.TestCase):
     def test_native_bridge_round_trip_and_jni_export(self):
         driver = KAORIOS_DIR / "app/classes.dex"
         baksmali = REPO_ROOT / "bin/apktool/baksmaliv2.jar"
-        smali = REPO_ROOT / "bin/apktool/smaliv2.jar"
-        patcher = MOD_DIR / "patch-native-pif-driver.py"
-        bridge = MOD_DIR / "PifNative.smali"
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "source"
-            rebuilt = root / "rebuilt.dex"
-            verified = root / "verified"
+            verified = Path(temporary) / "verified"
             subprocess.run(
-                ["java", "-jar", str(baksmali), "d", "--api", "36", str(driver), "-o", str(source)],
-                check=True, capture_output=True, text=True,
-            )
-            subprocess.run(
-                [sys.executable, str(patcher), str(source), "--template", str(bridge)],
-                check=True, capture_output=True, text=True,
-            )
-            subprocess.run(
-                ["java", "-jar", str(smali), "a", "--api", "36", str(source), "-o", str(rebuilt)],
-                check=True, capture_output=True, text=True,
-            )
-            subprocess.run(
-                ["java", "-jar", str(baksmali), "d", "--api", "36", str(rebuilt), "-o", str(verified)],
+                ["java", "-jar", str(baksmali), "d", "--api", "36", str(driver), "-o", str(verified)],
                 check=True, capture_output=True, text=True,
             )
             hook = (verified / "android/security/kaorios/KaoriosHook.smali").read_text()

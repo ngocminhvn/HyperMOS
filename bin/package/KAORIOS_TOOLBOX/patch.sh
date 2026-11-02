@@ -30,8 +30,6 @@ MOD_ADAPTER="$MOD_DIR/mod-kaorios-adapter.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
 SMALI="$work_dir/bin/apktool/smaliv2.jar"
 DRIVER_DEX="$KAORIOS_DIR/app/classes.dex"
-NATIVE_PIF_DRIVER_PATCHER="$MOD_DIR/patch-native-pif-driver.py"
-NATIVE_PIF_BRIDGE="$MOD_DIR/PifNative.smali"
 TOOLBOX_APK="$KAORIOS_DIR/app/KaoriosToolbox.apk"
 PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
 VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
@@ -176,7 +174,7 @@ archive_patch_needed() {
 
 # Pin both reviewed v2.0.6.1 release payloads. Updating either asset requires an
 # explicit integration update instead of silently changing a ROM build.
-DRIVER_GIT_BLOB="f7acc3a103884583937939472c16548c50b77143"
+DRIVER_GIT_BLOB="acb9cc9be8a2d73ed9380f30e029b0ae1657c4b3"
 TOOLBOX_GIT_BLOB="182c355137aa6cb8f0bb2942ad3e95ec88514960"
 
 # Set to 1 once the dev-status hook is confirmed present in the framework smali,
@@ -217,10 +215,6 @@ if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTAL
 fi
 if framework_driver_needed; then
   require_file "$DRIVER_DEX" "framework driver DEX"
-fi
-if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
-  require_file "$NATIVE_PIF_DRIVER_PATCHER" "native PIF driver patcher"
-  require_file "$NATIVE_PIF_BRIDGE" "native PIF JNI bridge"
 fi
 if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
   require_file "$TOOLBOX_APK" "Toolbox APK"
@@ -290,17 +284,6 @@ run_smali() {
   rm -f "$out"
   java -jar "$SMALI" a --api "$SDK_LEVEL" "$src" -o "$out"
   [[ -s "$out" ]]
-}
-
-prepare_driver_dex() {
-  local output="$1" smali="$TEMP_ROOT/native-pif-driver"
-  if ! is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
-    cp -f "$DRIVER_DEX" "$output"
-    return 0
-  fi
-  run_baksmali "$DRIVER_DEX" "$smali"
-  python3 "$NATIVE_PIF_DRIVER_PATCHER" "$smali" --template "$NATIVE_PIF_BRIDGE"
-  run_smali "$smali" "$output"
 }
 
 tree_hash() {
@@ -845,7 +828,7 @@ patch_archive() {
   if [[ "$kind" == "framework" ]] && framework_driver_needed; then
     local driver_name
     driver_name=$(next_dex_name "$raw")
-    prepare_driver_dex "$built/$driver_name"
+    cp -f "$DRIVER_DEX" "$built/$driver_name"
     info "KAORIOS: framework driver staged as $driver_name"
   fi
 
