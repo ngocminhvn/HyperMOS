@@ -89,7 +89,8 @@ for source in (helper, loop):
         declaration = method.splitlines()[0]
         num_local = re.search(r"\.locals\s+(\d+)", method)
         assert num_local, declaration
-        max_register = max(map(int, re.findall(r"\bv(\d+)\b", method)), default=-1)
+        instructions = "\n".join(line.split("#", 1)[0] for line in method.splitlines())
+        max_register = max(map(int, re.findall(r"\bv(\d+)\b", instructions)), default=-1)
         assert max_register < int(num_local.group(1)), declaration
         labels = set(re.findall(r"^\s*(:[\w\d_]+)\s*$", method, re.M))
         for line in method.splitlines():
