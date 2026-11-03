@@ -132,7 +132,7 @@ def main() -> int:
     view_patch = patch_view(view.read_text(encoding="utf-8"))
     helper = (args.sources / "HyperChanger.smali").read_text(encoding="utf-8")
     loop = (args.sources / "HyperChangerLoop.smali").read_text(encoding="utf-8")
-    for symbol in ("->bind(Landroid/widget/TextView;)V", "->render(", "->refresh("):
+    for symbol in (".method public static bind(Landroid/widget/TextView;)V", "->render(", "->refresh("):
         if symbol not in helper + loop:
             raise ValueError(f"Missing HyperChanger method contract: {symbol}")
 
