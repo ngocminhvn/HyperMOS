@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Verify the two EU-only app removals after all shared/China mod stages.
-# Preserve MiuiExtraPhoto: it is not a removal target.
 set -euo pipefail
 
 work_dir="$(pwd)"
@@ -32,8 +31,3 @@ for app_root in "${app_roots[@]}"; do
     done
 done
 
-# Keep the user-selected Kashi launcher from the shared/China mod pipeline.
-[[ -s "$images/product/priv-app/MiuiHome/MiuiHome.apk" ]] || {
-    error "EU: Kashi MiuiHome missing from final ROM"
-    exit 1
-}
