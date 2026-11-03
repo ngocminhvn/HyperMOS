@@ -1,0 +1,41 @@
+name: HyperChanger patch validation
+
+on:
+  push:
+    paths:
+      - 'bin/modfile/UpdateFile/ZZ_HyperChanger/**'
+      - 'tests/test_hyperchanger.py'
+      - '.github/workflows/hyperchanger-check.yml'
+  pull_request:
+    paths:
+      - 'bin/modfile/UpdateFile/ZZ_HyperChanger/**'
+      - 'tests/test_hyperchanger.py'
+      - '.github/workflows/hyperchanger-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Validate patcher, metadata and smali payload
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bin/modfile/UpdateFile/ZZ_HyperChanger/*.py
+          python3 tests/test_hyperchanger.py
+          bash -n bin/modfile/UpdateFile/ZZ_HyperChanger/update.sh
+          temp="$(mktemp -d)"
+          trap 'rm -rf "$temp"' EXIT
+          path="$temp/com/hypermos/hyperchanger"
+          mkdir -p "$path"
+          cp bin/modfile/UpdateFile/ZZ_HyperChanger/HyperChanger.smali "$path/"
+          cp bin/modfile/UpdateFile/ZZ_HyperChanger/HyperChangerLoop.smali \
+            "$path/HyperChanger\$Loop.smali"
+          java -jar bin/apktool/smaliv2.jar a --api 36 "$temp" -o "$temp/classes.dex"
+          test -s "$temp/classes.dex"
