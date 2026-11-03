@@ -133,11 +133,14 @@
 .method private static metrics(Landroid/content/Context;)Ljava/lang/String;
     .locals 16
 
+    # p0 aliases v16 in this method; use a low register for invoke-35c.
+    move-object/from16 v13, p0
+
     new-instance v0, Ljava/lang/StringBuilder;
     invoke-direct {v0}, Ljava/lang/StringBuilder;-><init>()V
 
     const-string v1, "batterymanager"
-    invoke-virtual {p0, v1}, Landroid/content/Context;->getSystemService(Ljava/lang/String;)Ljava/lang/Object;
+    invoke-virtual {v13, v1}, Landroid/content/Context;->getSystemService(Ljava/lang/String;)Ljava/lang/Object;
     move-result-object v1
     check-cast v1, Landroid/os/BatteryManager;
     const v14, -0x80000000
@@ -147,7 +150,7 @@
     move-result v14
     :no_current
 
-    invoke-static {p0}, Lcom/hypermos/hyperchanger/HyperChanger;->battery(Landroid/content/Context;)Landroid/content/Intent;
+    invoke-static {v13}, Lcom/hypermos/hyperchanger/HyperChanger;->battery(Landroid/content/Context;)Landroid/content/Intent;
     move-result-object v2
     if-eqz v2, :done
 
@@ -167,7 +170,7 @@
 
     const-string v9, "hyperchanger_show_power"
     const/4 v10, 0x1
-    invoke-static {p0, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
+    invoke-static {v13, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
     move-result v9
     if-eqz v9, :ampere_check
 
@@ -185,7 +188,7 @@
     :ampere_check
     const-string v9, "hyperchanger_show_ampere"
     const/4 v10, 0x1
-    invoke-static {p0, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
+    invoke-static {v13, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
     move-result v9
     if-eqz v9, :voltage_check
     int-to-double v5, v14
@@ -201,7 +204,7 @@
     if-lez v3, :temp_check
     const-string v9, "hyperchanger_show_voltage"
     const/4 v10, 0x0
-    invoke-static {p0, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
+    invoke-static {v13, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
     move-result v9
     if-eqz v9, :temp_check
     int-to-double v5, v3
@@ -215,7 +218,7 @@
     if-lez v4, :done
     const-string v9, "hyperchanger_show_temp"
     const/4 v10, 0x1
-    invoke-static {p0, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
+    invoke-static {v13, v9, v10}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
     move-result v9
     if-eqz v9, :done
     int-to-double v5, v4
