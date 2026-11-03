@@ -3,6 +3,8 @@
 
 .field private static sBase:Ljava/lang/String;
 .field private static sDisplayed:Ljava/lang/String;
+.field private static sOnceMetrics:Ljava/lang/String;
+.field private static sOnceValid:Z
 
 .method public static setting(Landroid/content/Context;Ljava/lang/String;I)I
     .locals 1
@@ -244,8 +246,26 @@
     move-result v0
     if-eqz v0, :original
 
+    const-string v1, "hyperchanger_update_mode"
+    const/4 v2, 0x1
+    invoke-static {p0, v1, v2}, Lcom/hypermos/hyperchanger/HyperChanger;->setting(Landroid/content/Context;Ljava/lang/String;I)I
+    move-result v1
+    if-nez v1, :sample
+    sget-boolean v2, Lcom/hypermos/hyperchanger/HyperChanger;->sOnceValid:Z
+    if-eqz v2, :sample
+    sget-object v0, Lcom/hypermos/hyperchanger/HyperChanger;->sOnceMetrics:Ljava/lang/String;
+    if-eqz v0, :sample
+    goto :metrics_ready
+
+    :sample
     invoke-static {p0}, Lcom/hypermos/hyperchanger/HyperChanger;->metrics(Landroid/content/Context;)Ljava/lang/String;
     move-result-object v0
+    if-nez v1, :metrics_ready
+    sput-object v0, Lcom/hypermos/hyperchanger/HyperChanger;->sOnceMetrics:Ljava/lang/String;
+    const/4 v2, 0x1
+    sput-boolean v2, Lcom/hypermos/hyperchanger/HyperChanger;->sOnceValid:Z
+
+    :metrics_ready
     invoke-virtual {v0}, Ljava/lang/String;->length()I
     move-result v1
     if-lez v1, :original
@@ -270,6 +290,7 @@
     return-object v0
 
     :original
+    invoke-static {}, Lcom/hypermos/hyperchanger/HyperChanger;->resetOnce()V
     sput-object p1, Lcom/hypermos/hyperchanger/HyperChanger;->sDisplayed:Ljava/lang/String;
     return-object p1
 .end method
@@ -330,5 +351,14 @@
 
     new-instance v0, Lcom/hypermos/hyperchanger/HyperChanger$Loop;
     invoke-direct {v0, p0}, Lcom/hypermos/hyperchanger/HyperChanger$Loop;-><init>(Landroid/widget/TextView;)V
+    return-void
+.end method
+
+.method public static resetOnce()V
+    .locals 1
+
+    const/4 v0, 0x0
+    sput-boolean v0, Lcom/hypermos/hyperchanger/HyperChanger;->sOnceValid:Z
+    sput-object v0, Lcom/hypermos/hyperchanger/HyperChanger;->sOnceMetrics:Ljava/lang/String;
     return-void
 .end method
