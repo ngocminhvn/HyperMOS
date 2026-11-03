@@ -55,6 +55,7 @@
     move-result v0
     if-eqz v0, :restart
     invoke-direct {p0}, Lcom/hypermos/hyperchanger/HyperChanger$Loop;->stop()V
+    invoke-static {}, Lcom/hypermos/hyperchanger/HyperChanger;->resetOnce()V
     goto :done
 
     :restart
@@ -101,6 +102,7 @@
     .locals 2
 
     invoke-direct {p0}, Lcom/hypermos/hyperchanger/HyperChanger$Loop;->stop()V
+    invoke-static {}, Lcom/hypermos/hyperchanger/HyperChanger;->resetOnce()V
     iget-boolean v0, p0, Lcom/hypermos/hyperchanger/HyperChanger$Loop;->mRegistered:Z
     if-eqz v0, :done
     const/4 v0, 0x0
