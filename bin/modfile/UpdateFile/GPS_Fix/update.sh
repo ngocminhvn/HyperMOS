@@ -4,18 +4,17 @@ set -euo pipefail
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
-# Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
-if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
-   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
-    exit 0
+rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
+rom_source=""
+if [[ -s "$rom_source_file" ]]; then
+  rom_source="$(tr -d '\r\n' < "$rom_source_file")"
 fi
-
 regionTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 GPS_CONF="$work_dir/build/baserom/images/vendor/etc/gps.conf"
 
-# Apply GPS NTP fix to China ROM bases only. Keep Global bases untouched.
-if [[ "$regionTYPE" != *"China"* ]]; then
-  info "GPS Fix: non-China ROM, skipped"
+# Apply GPS NTP fix to Xiaomi.eu and China ROM bases. Keep other regions untouched.
+if [[ "$rom_source" != "xiaomi_eu" && "$regionTYPE" != *"China"* ]]; then
+  info "GPS Fix: unsupported ROM source/region, skipped"
   exit 0
 fi
 
