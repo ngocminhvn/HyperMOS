@@ -114,10 +114,20 @@ def main() -> int:
     cli.add_argument("--sources", type=Path, default=Path(__file__).parent)
     args = cli.parse_args()
 
-    hint = find_exact(
-        args.unpacked, "ChargeUtils.smali",
+    # Xiaomi has shipped both charge utility package locations.
+    charge_candidates = []
+    for descriptor in (
         "Lcom/miui/charge/ChargeUtils;",
-    )
+        "Lcom/android/keyguard/charge/ChargeUtils;",
+    ):
+        try:
+            charge_candidates.append(find_exact(args.unpacked, "ChargeUtils.smali", descriptor))
+        except ValueError as error:
+            if "found 0" not in str(error):
+                raise
+    if len(charge_candidates) != 1:
+        raise ValueError(f"ambiguous or missing ChargeUtils: {len(charge_candidates)}")
+    hint = charge_candidates[0]
     view = find_exact(
         args.unpacked, "KeyguardIndicationTextView.smali",
         "Lcom/android/systemui/statusbar/phone/KeyguardIndicationTextView;",
