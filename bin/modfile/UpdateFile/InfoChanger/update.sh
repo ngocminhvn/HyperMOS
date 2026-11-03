@@ -5,7 +5,7 @@ set -euo pipefail
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
-base="$work_dir/bin/modfile/UpdateFile/ZZ_HyperChanger"
+base="$work_dir/bin/modfile/UpdateFile/InfoChanger"
 images="$work_dir/build/baserom/images"
 rom_os="$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_os.txt")"
 android_ver="$(tr -d '\r\n' < "$work_dir/bin/ddevice/androidver.txt")"
@@ -64,29 +64,17 @@ fi
     error "HyperChanger: output APK missing"
     exit 1
 }
-python3 "$base/restore_metadata.py" \
-    --base "$target" --rebuilt "$tmp/MiuiSystemUI.apk" \
-    --output "$tmp/MiuiSystemUI.preserved.apk" || {
-    error "HyperChanger: could not restore source APK metadata"
-    exit 1
-}
-unzip -tqq "$tmp/MiuiSystemUI.preserved.apk" || {
+unzip -tqq "$tmp/MiuiSystemUI.apk" || {
     error "HyperChanger: corrupt output APK"
     exit 1
 }
-aapt dump badging "$tmp/MiuiSystemUI.preserved.apk" | grep -q "package: name='com.android.systemui'" || {
+aapt dump badging "$tmp/MiuiSystemUI.apk" | grep -q "package: name='com.android.systemui'" || {
     error "HyperChanger: wrong output package"
-    exit 1
-}
-python3 "$base/verify_metadata.py" \
-    --base "$target" --patched "$tmp/MiuiSystemUI.preserved.apk" \
-    --report "$work_dir/build/reports/hyperchanger/apk-metadata.json" || {
-    error "HyperChanger: APK identity/metadata preservation check failed"
     exit 1
 }
 
 # Only publish marker after all checks and replacement have succeeded.
-install -m 0644 "$tmp/MiuiSystemUI.preserved.apk" "$target"
+install -m 0644 "$tmp/MiuiSystemUI.apk" "$target"
 rm -rf "$(dirname "$target")/oat"
 install -d -m 0755 "$(dirname "$marker")"
 printf 'schema=1\nbackend=systemui\n' > "$marker"

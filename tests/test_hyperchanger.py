@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""HyperChanger patcher and APK metadata-preservation smoke tests."""
+"""HyperChanger patcher smoke tests."""
 from pathlib import Path
-import copy
 import importlib.util
 import re
-import tempfile
 import textwrap
-import zipfile
 
 
 repo = Path(__file__).resolve().parents[1]
-base = repo / "bin/modfile/UpdateFile/ZZ_HyperChanger"
+base = repo / "bin/modfile/UpdateFile/InfoChanger"
 
 
 def load(name: str, path: Path):
@@ -22,8 +19,6 @@ def load(name: str, path: Path):
 
 
 patcher = load("hyperchanger_patch", base / "patch.py")
-verifier = load("hyperchanger_metadata", base / "verify_metadata.py")
-restorer = load("hyperchanger_restore", base / "restore_metadata.py")
 
 injector = textwrap.dedent("""\
 .class public final Lcom/android/keyguard/injector/KeyguardIndicationInjector;
@@ -56,8 +51,6 @@ for invalid in (
 helper = (base / "HyperChanger.smali").read_text(encoding="utf-8")
 loop = (base / "HyperChangerLoop.smali").read_text(encoding="utf-8")
 update = (base / "update.sh").read_text(encoding="utf-8")
-metadata_source = (base / "verify_metadata.py").read_text(encoding="utf-8")
-restore_source = (base / "restore_metadata.py").read_text(encoding="utf-8")
 expected = {
     "enabled", "show_power", "show_ampere", "show_voltage", "show_temp",
     "hide_original_text", "text_size", "update_mode", "update_interval",
@@ -68,9 +61,6 @@ assert "Settings$System" in helper
 assert "SCREEN_OFF" in loop and "removeCallbacks" in loop
 assert "isInteractive" in helper and "isKeyguardLocked" in helper
 assert "WAKE_LOCK" not in helper + loop
-assert "added_dex" in metadata_source
-assert "signing block" in metadata_source.lower()
-assert "v2/v3 signing block was not stripped" in restore_source
 assert "apksigner" not in update.lower()
 assert "hyperchanger-v1" in update
 assert not re.search(r"projectryu", helper + loop + update, re.I)
@@ -92,38 +82,4 @@ for source in (helper, loop):
                 target = re.findall(r":[A-Za-z_0-9]+", line)
                 assert target and target[-1] in labels, (declaration, line)
 
-# A small ZIP fixture proves the verifier permits only classes.dex plus the new
-# classes4.dex while retaining every original member's metadata.
-with tempfile.TemporaryDirectory() as folder:
-    folder = Path(folder)
-    original = folder / "base.apk"
-    patched = folder / "patched.apk"
-    entries = {
-        "AndroidManifest.xml": b"manifest",
-        "classes.dex": b"dex\n035\0original",
-        "classes2.dex": b"dex\n035\0second",
-        "classes3.dex": b"dex\n035\0third",
-        "META-INF/CERT.RSA": b"certificate",
-    }
-    with zipfile.ZipFile(original, "w") as archive:
-        archive.comment = b"source-comment"
-        for name, data in entries.items():
-            info = zipfile.ZipInfo(name, (2009, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            archive.writestr(info, data)
-    with zipfile.ZipFile(original) as source, zipfile.ZipFile(patched, "w") as output:
-        output.comment = source.comment
-        for info in source.infolist():
-            data = b"dex\n035\0patched" if info.filename == "classes.dex" else source.read(info)
-            output.writestr(copy.copy(info), data)
-        extra = zipfile.ZipInfo("classes4.dex", (2009, 1, 1, 0, 0, 0))
-        extra.compress_type = zipfile.ZIP_DEFLATED
-        output.writestr(extra, b"dex\n035\0hyperchanger")
-    restored = folder / "restored.apk"
-    restorer.restore(original, patched, restored)
-    result = verifier.verify(original, restored)
-    assert result["resigned"] is False
-    assert result["patched_signing_block_present"] is False
-    assert result["changed_members"] == ["classes.dex", "classes4.dex"]
-
-print("PASS: HyperChanger RYU hook, TNM contract, smali and metadata preservation")
+print("PASS: HyperChanger RYU hook, TNM contract and smali validation")
