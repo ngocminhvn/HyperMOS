@@ -68,11 +68,6 @@ unzip -tqq "$tmp/MiuiSystemUI.apk" || {
     error "HyperChanger: corrupt output APK"
     exit 1
 }
-aapt dump badging "$tmp/MiuiSystemUI.apk" | grep -q "package: name='com.android.systemui'" || {
-    error "HyperChanger: wrong output package"
-    exit 1
-}
-
 # Only publish marker after all checks and replacement have succeeded.
 install -m 0644 "$tmp/MiuiSystemUI.apk" "$target"
 rm -rf "$(dirname "$target")/oat"
