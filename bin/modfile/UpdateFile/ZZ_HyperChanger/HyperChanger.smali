@@ -324,3 +324,11 @@
     :done
     return-void
 .end method
+
+.method public static bind(Landroid/widget/TextView;)V
+    .locals 1
+
+    new-instance v0, Lcom/hypermos/hyperchanger/HyperChanger$Loop;
+    invoke-direct {v0, p0}, Lcom/hypermos/hyperchanger/HyperChanger$Loop;-><init>(Landroid/widget/TextView;)V
+    return-void
+.end method
