@@ -14,28 +14,8 @@ source_file="$work_dir/bin/ddevice/rom_source.txt"
 images="$work_dir/build/baserom/images"
 [[ -d "$images/product/priv-app" ]] || { error "EU: extracted product/priv-app missing"; exit 1; }
 
-# Preserve original Xiaomi.eu metadata by default (bootable build #170 behavior).
-# Optional A/B diagnostics only: normalize mod_device and remove four EU metadata
-# keys when HYPERMOS_EU_PROP_CLEANUP=1; never touch China or runtime properties.
-eu_prop="$images/mi_ext/etc/build.prop"
-if [[ -L "$eu_prop" ]]; then
-    error "EU: refusing symlinked mi_ext build.prop"
-    exit 1
-fi
-# Default 0: leave all five properties untouched as in build #170.
-# Set HYPERMOS_EU_PROP_CLEANUP=1 only to explicitly re-test the #171 behavior.
-if [[ "${HYPERMOS_EU_PROP_CLEANUP:-0}" == "1" && -f "$eu_prop" ]]; then
-    sed -E -i \
-        -e 's/^(ro\.product\.mod_device=)([[:alnum:]_.-]+)_xiaomieu(_[[:alnum:]_.-]+)?$/\1\2_global/' \
-        -e '/^ro\.build\.host=/d' \
-        -e '/^ro\.xiaomi\.developerid=/d' \
-        -e '/^ro\.xiaomi\.eu\.ota_device=/d' \
-        -e '/^ro\.xiaomi\.eu\.version\.code_time=/d' \
-        "$eu_prop" || { error "EU: failed to clean mi_ext build.prop"; exit 1; }
-fi
-
 # Remove only these two exact Xiaomi.eu app containers, in standard partition
-# app locations. Preserve MiuiExtraPhoto during EU bootloop investigation.
+# app locations.
 components=(XiaomiEUExt XiaomiEUInject)
 app_roots=(
     "$images/product/priv-app" "$images/product/app"
