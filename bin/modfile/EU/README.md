@@ -5,16 +5,12 @@ This directory runs **only** for a ROM whose source filename starts with
 `bin/ddevice/rom_source.txt` independently of the ROM's China-derived version
 suffix `CNXM` or the legacy `device_type.txt` region.
 
-- EU-only `mi_ext/etc/build.prop` metadata edits are **disabled by default**, matching the bootable #170 behavior. Keep the original `ro.product.mod_device`, `ro.build.host`, `ro.xiaomi.developerid`, `ro.xiaomi.eu.ota_device`, and `ro.xiaomi.eu.version.code_time` untouched. The experimental #171 behavior (normalize `mod_device` to `<codename>_global` and delete the other four keys) is opt-in only with `HYPERMOS_EU_PROP_CLEANUP=1`. No property post-check in `verify.sh`. China builds are unchanged; `MiuiExtraPhoto` remains preserved.
 - `System_MultiDisableFeature/update.sh` skips its memory-extension and priv-app property rewrites on EU when the target value is already absent (as on EU 3.0.309); it still applies them if a future EU base has a value needing replacement. Audio safety props, recovery-image cleanup and theme-permission logic retain their existing behavior. China is unchanged.
 - `update.sh`: remove only the exact `XiaomiEUExt` and `XiaomiEUInject`
   app containers from the **extracted Xiaomi.eu build tree** in standard
-  `app`/`priv-app` locations; missing components are ignored. Temporarily
-  **preserve the original `MiuiExtraPhoto`** during bootloop investigation,
-  consistent with the RYU-EU reference. China builds are untouched.
+  `app`/`priv-app` locations; missing components are ignored. China builds are untouched.
 - `verify.sh`: after all shared mods, ensure neither of the two removed app
-  containers has been reintroduced and Kashi MiuiHome is still installed.
-  `MiuiExtraPhoto` is not a removal target or absence requirement.
+  containers has been reintroduced.
 - Every China-only mod checks `bin/ddevice/rom_source.txt` at the start
   of its **own** `update.sh`. There is no central EU skip-list and no special
   filtering in `Universal/insfile.sh` or `UpdateFile/insupdate.sh`.
@@ -30,7 +26,7 @@ suffix `CNXM` or the legacy `device_type.txt` region.
   `MiuiShortcutTriggerHelper$ShortcutSettingsObserver` class, requires exactly
   three `IS_GLOBAL_BUILD` reads, and re-disassembles the rebuilt DEX before
   replacing the JAR. A mismatch fails the build while retaining the source JAR.
-  China ROM behavior and the five EU build properties are unchanged. Device runtime
+  China ROM behavior is unchanged. Device runtime
   behavior (power menu, key shortcuts, lock/unlock) still requires testing.
 - `Provisions_RegionPatch` and `System_MultiDisableFeature`
   intentionally run for Xiaomi.eu. Provision requires exactly one
