@@ -111,10 +111,6 @@ jobs:
           [[ "$EXPORT_VENDOR" == true ]] && chosen+=(vendor) || true
           [[ "$EXPORT_ODM" == true ]] && chosen+=(odm) || true
           (( ${#chosen[@]} > 0 )) || { echo "::error::Select at least one partition"; exit 1; }
-          if [[ "$EXPORT_SYSTEM" != "$EXPORT_SYSTEM_EXT" ]]; then
-            echo "::error::HyperMOS patches system and system_ext as a coupled framework set; export/flash both together to avoid a bootloop"
-            exit 1
-          fi
           FASTBOOTD_PARTITIONS="$(IFS=,; printf '%s' "${chosen[*]}")"
           python3 bin/fastbootd/export.py --select "$FASTBOOTD_PARTITIONS"
           echo "FASTBOOTD_PARTITIONS=$FASTBOOTD_PARTITIONS" >> "$GITHUB_ENV"
