@@ -1,0 +1,80 @@
+name: Sync LiteGapps17 Android 17 assets
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/sync-litegapps17.yml'
+      - 'bin/modfile/Universal/LiteGapps17/stage.py'
+      - 'bin/modfile/Universal/LiteGapps17/sources.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: litegapps17-assets-main
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout main without downloading unrelated A16 binaries
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: true
+
+      - name: Prepare Git LFS and Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git-lfs
+          git lfs install --local
+          python3 -m py_compile bin/modfile/Universal/LiteGapps17/stage.py
+
+      - name: Download and verify pinned Android 17 Core and addons
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --hydrate-repo
+          python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --verify-repo
+          echo '### LiteGapps17 materialized APK/JAR/XML inventory' >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          index = json.loads(Path("bin/modfile/Universal/LiteGapps17/inventory.json").read_text())
+          names = sorted(index["files"])
+          apks = [name for name in names if name.endswith(".apk")]
+          print(f"Materialized {len(names)} files ({len(apks)} APKs)")
+          with open(__import__("os").environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write(f"- Files: {len(names)}\n- APKs: {len(apks)}\n")
+              out.write(f"- Source: Android {index['android']} / API {index['api']} / {index['source_date']}\n")
+          PY
+
+      - name: Commit actual A17 files with Git LFS
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- bin/modfile/Universal/LiteGapps17
+          if git diff --cached --quiet; then
+            echo "[OK] LiteGapps17 assets already match pinned sources"
+            exit 0
+          fi
+          # Refuse any directly committed APK/JAR that should use LFS.
+          bad="$(git diff --cached --name-only --diff-filter=AM |
+            grep -E 'bin/modfile/Universal/LiteGapps17/.*[.](apk|jar)$' |
+            while IFS= read -r file; do
+              [ "$(git check-attr filter -- "$file" | awk '{print $3}')" = lfs ] || echo "$file"
+            done)"
+          [ -z "$bad" ] || { echo "::error::Untracked Git LFS patterns: $bad"; exit 1; }
+          git commit -m "assets(litegapps17): materialize verified A17 Core and addons via Git LFS"
+          git lfs push origin HEAD
+          git push origin HEAD:main
+          echo "[OK] Published verified Android 17 payload to main"
