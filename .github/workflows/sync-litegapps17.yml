@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/sync-litegapps17.yml'
       - 'bin/modfile/Universal/LiteGapps17/stage.py'
+      - 'bin/modfile/Universal/LiteGapps17/mirror_fetch.py'
+      - 'bin/modfile/Universal/LiteGapps17/tests/**'
       - 'bin/modfile/Universal/LiteGapps17/sources.json'
 
 permissions:
@@ -13,7 +15,8 @@ permissions:
 
 concurrency:
   group: litegapps17-assets-main
-  cancel-in-progress: false
+  # Cancel the earlier stuck downloader when a faster revision is pushed.
+  cancel-in-progress: true
 
 jobs:
   materialize:
@@ -33,14 +36,28 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq git-lfs
+          sudo apt-get install -y -qq git-lfs aria2 curl
           git lfs install --local
-          python3 -m py_compile bin/modfile/Universal/LiteGapps17/stage.py
+          python3 -m py_compile \
+            bin/modfile/Universal/LiteGapps17/stage.py \
+            bin/modfile/Universal/LiteGapps17/mirror_fetch.py
 
-      - name: Download and verify pinned Android 17 Core and addons
+      - name: Test fastest mirror selection and automatic failover (offline)
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m unittest discover \
+            -s bin/modfile/Universal/LiteGapps17/tests \
+            -p 'test_*.py' -v
+
+      - name: Benchmark mirrors, download and verify Android 17 Core and addons
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          echo '[MIRROR] Probing actual SourceForge mirrors from this runner (1 MiB samples)'
+          echo '[MIRROR] Each ZIP: measured fastest first, bounded failover, SHA-256 required'
           python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --hydrate-repo
           python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --verify-repo
           echo '### LiteGapps17 materialized APK/JAR/XML inventory' >> "$GITHUB_STEP_SUMMARY"
