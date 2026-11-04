@@ -35,40 +35,9 @@ def digest(path):
 
 
 def download(entry, cache):
-    url = entry["url"]
-    expected = entry["sha256"].lower()
-    if not url.startswith(SOURCE) or not re.fullmatch(r"[a-f0-9]{64}", expected):
-        fail("Untrusted URL or invalid SHA256 in pinned manifest")
-    name = PurePosixPath(url.split("/download")[0]).name
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+[.]zip", name):
-        fail("Unsafe archive name: " + name)
-    dest = cache / name
-    if dest.is_file() and digest(dest) == expected:
-        print("[CACHE]", name)
-        return dest
-    dest.unlink(missing_ok=True)
-    for attempt in range(3):
-        tmp = dest.with_suffix(".part")
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "HyperMOS-LiteGapps17/1.0"})
-            with urllib.request.urlopen(req, timeout=180) as resp, tmp.open("wb") as out:
-                while True:
-                    chunk = resp.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-            if digest(tmp) != expected:
-                fail("SHA256 mismatch: " + name)
-            if not zipfile.is_zipfile(tmp):
-                fail("Source is not a ZIP: " + name)
-            tmp.replace(dest)
-            return dest
-        except (OSError, RuntimeError, ValueError) as exc:
-            tmp.unlink(missing_ok=True)
-            if attempt == 2 or "SHA256 mismatch" in str(exc):
-                raise
-            time.sleep(2 * (attempt + 1))
-    fail("Failed downloading: " + name)
+    # Mirror probing, watchdog, progress, and SHA-256 are centralized here.
+    from mirror_fetch import fetch
+    return fetch(entry, cache)
 
 
 def target_path(filename):
