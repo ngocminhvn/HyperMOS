@@ -21,8 +21,24 @@ recovery installers. It overlays allowed app/priv-app/etc/framework/overlay
 payloads into the extracted ROM, validates real APK ZIPs, and stops the build
 on hash, download, archive or required-package failure.
 
-These are build-time downloads, not checked-in APKs; the build needs network
-access to SourceForge and enough free space for the Core/addon archives.
+This directory is initially **not a full APK payload**. To publish the actual
+Android 17 assets under product/, system_ext/ and system/ in Git LFS, run the
+[Sync LiteGapps17 assets](https://github.com/ngocminhvn/HyperMOS/actions/workflows/sync-litegapps17.yml)
+GitHub Action (or execute locally):
+
+```sh
+python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --hydrate-repo
+python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --verify-repo
+```
+
+The sync action downloads the exact pinned archives, verifies SHA-256,
+extracts real APK/JAR/XML content, and pushes the resulting files through
+Git LFS to main. It cannot publish files if SourceForge, validation, write
+permissions or Git LFS uploads fail. Until inventory.json appears, ROM
+builds still download the verified packages at build time. After the files
+have been committed, ROM builds use the verified on-repo payload.
+
+APK/JAR bytes are never substituted with Android 16 payloads.
 The file structure and device boot are **not yet validated** against an
 actual Android 17 China base ROM. If a release changes archive layouts,
 the build must fail and the extractor must be updated after inspecting
