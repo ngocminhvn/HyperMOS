@@ -14,8 +14,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: litegapps17-assets-main
-  # Cancel the earlier stuck downloader when a faster revision is pushed.
+  group: litegapps17-fast-mirrors-main
+  # Fast downloader has its own group to avoid waiting on the legacy stalled job.
   cancel-in-progress: true
 
 jobs:
