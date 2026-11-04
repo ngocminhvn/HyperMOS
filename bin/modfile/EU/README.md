@@ -14,7 +14,7 @@ suffix `CNXM` or the legacy `device_type.txt` region.
 - Every China-only mod checks `bin/ddevice/rom_source.txt` at the start
   of its **own** `update.sh`. There is no central EU skip-list and no special
   filtering in `Universal/insfile.sh` or `UpdateFile/insupdate.sh`.
-- `gmsservices` and `gmsservices16` skip Google APK/framework injection.
+- `LiteGapps16` and `LiteGapps17` skip Google APK/framework injection.
   `MultiLang` skips China translation overlays.
 - `Settings_GoogleShowUpCN`, `GPS_Fix`,
   `SystemUI_NotificationColorIcon`, `Settings_FixNotificationHistory` and

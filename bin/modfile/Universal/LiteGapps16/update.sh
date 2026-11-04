@@ -13,7 +13,7 @@ fi
 androidVER=$(cat "$work_dir/bin/ddevice/androidver.txt")
 regionTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 MAIN_FOLDER="$work_dir/build/baserom/images"
-GMS_SOURCE="$work_dir/bin/modfile/Universal/gmsservices16"
+GMS_SOURCE="$work_dir/bin/modfile/Universal/LiteGapps16"
 APKEDITOR="java -jar $work_dir/bin/apktool/apke.jar"
 
 patch_enhanced_keyboard() {
@@ -90,17 +90,17 @@ patch_enhanced_keyboard() {
 }
 
 if [[ $regionTYPE != "China" ]]; then
-  mods "Detected Xiaomi Global ROM! Skipped Added GMS16."
+  mods "Detected Xiaomi Global ROM! Skipped Added LiteGapps16."
   exit 0
 fi
 
 if [[ $androidVER != "16" ]]; then
-  mods "Android ${androidVER}: skip gmsservices16"
+  mods "Android ${androidVER}: skip LiteGapps16"
   exit 0
 fi
 
 if [[ ! -d "$GMS_SOURCE/product" || ! -d "$GMS_SOURCE/system_ext" ]]; then
-  error "gmsservices16 payload is incomplete"
+  error "LiteGapps16 payload is incomplete"
   exit 1
 fi
 
@@ -114,22 +114,22 @@ required_payload=(
 )
 for required in "${required_payload[@]}"; do
   if [[ ! -s "$required" ]]; then
-    error "gmsservices16 required payload missing: $required"
+    error "LiteGapps16 required payload missing: $required"
     exit 1
   fi
 done
 
 [[ -f "$MAIN_FOLDER/system/system/build.prop" ]] || {
-  error "gmsservices16: system build.prop not found"
+  error "LiteGapps16: system build.prop not found"
   exit 1
 }
 
 cp -rf "$GMS_SOURCE/product/." "$MAIN_FOLDER/product/" || {
-  error "gmsservices16: product payload copy failed"
+  error "LiteGapps16: product payload copy failed"
   exit 1
 }
 cp -rf "$GMS_SOURCE/system_ext/." "$MAIN_FOLDER/system_ext/" || {
-  error "gmsservices16: system_ext payload copy failed"
+  error "LiteGapps16: system_ext payload copy failed"
   exit 1
 }
 
@@ -139,7 +139,7 @@ fi
 
 mkdir -p "$MAIN_FOLDER/product/framework"
 cp -f "$GMS_SOURCE/maps/com.google.android.maps.jar" "$MAIN_FOLDER/product/framework/" || {
-  error "gmsservices16: maps framework copy failed"
+  error "LiteGapps16: maps framework copy failed"
   exit 1
 }
 
@@ -153,13 +153,13 @@ required_installed=(
 )
 for required in "${required_installed[@]}"; do
   if [[ ! -s "$required" ]]; then
-    error "gmsservices16 installed payload missing: $required"
+    error "LiteGapps16 installed payload missing: $required"
     exit 1
   fi
 done
 
 patch_enhanced_keyboard || {
-  error "gmsservices16: Enhanced Keyboard patch failed"
+  error "LiteGapps16: Enhanced Keyboard patch failed"
   exit 1
 }
-mods "Added GMS16 Done"
+mods "Added LiteGapps16 Done"

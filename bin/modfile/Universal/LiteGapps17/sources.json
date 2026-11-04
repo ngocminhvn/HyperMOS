@@ -1,0 +1,73 @@
+{
+  "arch": "arm64",
+  "android": 17,
+  "api": 37,
+  "source_date": "2026-10-01",
+  "core": {
+    "name": "LiteGapps Core",
+    "url": "https://sourceforge.net/projects/litegapps/files/litegapps/arm64/37/core/2026-10-01/LiteGapps-core-arm64-17.0-20261001-official.zip/download",
+    "sha256": "5a37c129e905f99114b5facbdf8780bf25b44df5e75031ebd1cca6b7c7fa4115"
+  },
+  "addons": [
+    {
+      "name": "Common",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/core/Common/Common-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "b8b27d65102bec661484443f5aee35ab008cc8143b622ca630061dca692ea00f"
+    },
+    {
+      "name": "GmsCore",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/core/GmsCore/GmsCore-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "9b7d070a39525a37b173da282509919c3335f40d27ab0c9e0b95b576aef2e6b4"
+    },
+    {
+      "name": "GoogleServicesFramework",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/core/GoogleServicesFramework/GoogleServicesFramework-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "76619f9d68965c480adca06a2285491ba3aa465142f08e13c9fc1010ea1ba459"
+    },
+    {
+      "name": "PlayStore",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/core/PlayStore/PlayStore-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "1eb8196a07406f5ecef968afbb156e73a72fc5ae0f401c81a894a1f3c051eacc"
+    },
+    {
+      "name": "GoogleExtShared",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/core/GoogleExtShared/GoogleExtShared-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "96006398f5b833a7d883862c4cac87d83469cb9b61f2803f57b08cb1f012c99c"
+    },
+    {
+      "name": "ConfigUpdater",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/gapps_etc/ConfigUpdater/ConfigUpdater-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "f9c7a8972bf48437166cd78bb1740a9700e7f8a08b85bea787e0b53d6bc91d4f"
+    },
+    {
+      "name": "AndroidAuto",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/gapps/AndroidAuto/AndroidAuto-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "04f9dd4da40c2899213877171b9810e29587a5d95279e61d9e0805470225c668"
+    },
+    {
+      "name": "GoogleKeyboard",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/gapps/GoogleKeyboard/GoogleKeyboard-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "3603eaf8b8c557ba6110f5293dd32d8ec6edf6d93e97fd3b036ae6387a6afffb"
+    },
+    {
+      "name": "Gmail",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/gapps/Gmail/Gmail-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "1a080edbc7e4643cc71cecd147e1984beef27b24d113757171b4ca84484b4d6c"
+    },
+    {
+      "name": "GoogleSearch",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/gapps/GoogleSearch/GoogleSearch-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "f8ccde978baa8b9ca347b653d6c8c35f21b7ca927e1ab8956827bb4f6ef6e3ac"
+    },
+    {
+      "name": "Maps",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/gapps/Maps/Maps-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "6d8c3b53e873c657ba7ffc801fb371476b03280d94af20b146bc78a4a40ec702"
+    },
+    {
+      "name": "GoogleDialer",
+      "url": "https://sourceforge.net/projects/litegapps/files/addon/arm64/37/gapps/GoogleDialer/GoogleDialer-LiteGapps-Addon-arm64-17.0.zip/download",
+      "sha256": "cb63b573990e7307df57efb1e70433ec7ed9fabe28392904c96467203022f533"
+    }
+  ]
+}
