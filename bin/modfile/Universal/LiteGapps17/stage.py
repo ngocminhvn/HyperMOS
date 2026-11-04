@@ -80,6 +80,8 @@ def target_path(filename):
     if parts[:2] == ("arm64", "37"):
         parts = parts[2:]
     if parts[:1] == ("system",):
+        if len(parts) >= 4 and parts[1] == "etc" and parts[2] in ("permissions", "sysconfig"):
+            return Path("system/system", *parts[1:])
         parts = parts[1:]
     if len(parts) < 3:
         return None
@@ -133,6 +135,9 @@ def unpack_zip(path, staging, core=False):
             fail("Corrupted ZIP member in " + path.name + ": " + bad)
         for member in archive.infolist():
             if member.is_dir():
+                continue
+            # Do not turn ZIP symlinks into regular partition files.
+            if (member.external_attr >> 16) & 0o170000 == 0o120000:
                 continue
             name = member.filename
             if core and re.fullmatch(r"(?:files/)?files[.]tar[.](?:xz|gz|bz2)", name):
