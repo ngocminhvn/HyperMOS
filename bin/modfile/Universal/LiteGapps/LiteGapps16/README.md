@@ -1,16 +1,22 @@
-# LiteGapps16 — China ROM Android 16
+# LiteGapps16 — Android 16 (China)
 
-Dữ liệu dùng chung nằm ở `../Gapps/` (APK/XML/DER có **cùng nội dung** với A17 và Maps framework JAR).
-Thư mục `LiteGapps16/` **chỉ** chứa dữ liệu riêng của Android 16; không chuyển APK khác phiên bản sang đây.
+Dữ liệu dùng chung với A17 nằm ở `../Gapps/`. Thư mục này chỉ giữ
+những APK/XML/JAR khác phiên bản, các tệp riêng Android 16 và script build.
 
-- `update.sh`: kiểm tra GApps, áp dụng `Gapps/` trước, sau đó phần riêng A16, rồi vá Enhanced Keyboard như cũ.
-- `validate-sysconfig.py`: kiểm tra XML đặc thù A16, gồm ZK permissions và không cài Maps APK.
-- `product/` và `system_ext/`: các APK/XML khác nội dung A17, hoặc chỉ có ở A16.
-- `../Gapps/maps/com.google.android.maps.jar`: framework Maps duy nhất dùng cho cả hai bản.
+- **Không cài Gmail**: `PrebuiltGmail.apk` đã được xóa khỏi `Gapps/`.
+  `update.sh` cũng loại thư mục `product/app/PrebuiltGmail` nếu tồn tại trong ROM gốc.
+- **Bắt buộc trên A16 và A17**: `GoogleVelvet_CTS.apk`, `Velvet.apk`
+  (đều ở `../Gapps/product/priv-app/`) và `../Gapps/maps/com.google.android.maps.jar`.
+- **Riêng A16**: GmsCore, Phonesky, GoogleServicesFramework, XML quyền/ZK,
+  XML preinstall, và vá Enhanced Keyboard của `MIUIFrequentPhrase.apk`.
+- Trình kiểm tra chung chặn thiếu CTS/Velvet/Maps JAR, Gmail xuất hiện trở lại,
+  con trỏ Git LFS chưa hydrate hoặc APK/XML sai định dạng.
 
-```bash
+Kiểm tra:
+
+```sh
 python3 bin/modfile/Universal/LiteGapps/validate.py 16
 python3 bin/modfile/Universal/LiteGapps/LiteGapps16/validate-sysconfig.py
 ```
 
-**Lưu ý:** LiteGapps16 đã có một số XML tùy chỉnh HyperMOS không phải cấu hình SourceForge nguyên bản. Không tự đồng bộ sang A17. Giữ nguyên patch `MIUIFrequentPhrase.apk`.
+Bản gốc A16 vẫn có một số XML tùy chỉnh HyperMOS; không tự mang qua A17.

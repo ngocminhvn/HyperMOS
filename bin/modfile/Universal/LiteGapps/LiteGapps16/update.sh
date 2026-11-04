@@ -116,7 +116,8 @@ required_payload=(
   "$GMS_COMMON/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk"
   "$GMS_SOURCE/product/priv-app/GmsCore/GmsCore.apk"
   "$GMS_SOURCE/product/priv-app/Phonesky/Phonesky.apk"
-  "$GMS_SOURCE/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
+  "$GMS_COMMON/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
+  "$GMS_COMMON/product/priv-app/Velvet/Velvet.apk"
   "$GMS_SOURCE/system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk"
   "$GMS_COMMON/maps/com.google.android.maps.jar"
 )
@@ -145,7 +146,16 @@ for partition in product system_ext; do
   done
 done
 
-if ! grep -q '^ro.miui.has_gmscore=1$' "$MAIN_FOLDER/system/system/build.prop"; then
+# Gmail was explicitly excluded from both LiteGapps variants. Remove any
+# existing PrebuiltGmail app from the source image as well.
+if [[ -e "$MAIN_FOLDER/product/app/PrebuiltGmail" ]]; then
+  rm -rf -- "$MAIN_FOLDER/product/app/PrebuiltGmail" || {
+    error "LiteGapps16: failed to remove PrebuiltGmail"
+    exit 1
+  }
+fi
+
+if ! grep -q '^ro.miui.has_gmscore=1
   echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
 fi
 
@@ -160,6 +170,38 @@ required_installed=(
   "$MAIN_FOLDER/product/priv-app/GmsCore/GmsCore.apk"
   "$MAIN_FOLDER/product/priv-app/Phonesky/Phonesky.apk"
   "$MAIN_FOLDER/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
+  "$MAIN_FOLDER/product/priv-app/Velvet/Velvet.apk"
+  "$MAIN_FOLDER/system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk"
+  "$MAIN_FOLDER/product/framework/com.google.android.maps.jar"
+)
+for required in "${required_installed[@]}"; do
+  if [[ ! -s "$required" ]]; then
+    error "LiteGapps16 installed payload missing: $required"
+    exit 1
+  fi
+done
+
+patch_enhanced_keyboard || {
+  error "LiteGapps16: Enhanced Keyboard patch failed"
+  exit 1
+}
+mods "Added LiteGapps16 Done"
+ "$MAIN_FOLDER/system/system/build.prop"; then
+  echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
+fi
+
+mkdir -p "$MAIN_FOLDER/product/framework"
+cp -f "$GMS_COMMON/maps/com.google.android.maps.jar" "$MAIN_FOLDER/product/framework/" || {
+  error "LiteGapps16: maps framework copy failed"
+  exit 1
+}
+
+required_installed=(
+  "$MAIN_FOLDER/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk"
+  "$MAIN_FOLDER/product/priv-app/GmsCore/GmsCore.apk"
+  "$MAIN_FOLDER/product/priv-app/Phonesky/Phonesky.apk"
+  "$MAIN_FOLDER/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
+  "$MAIN_FOLDER/product/priv-app/Velvet/Velvet.apk"
   "$MAIN_FOLDER/system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk"
   "$MAIN_FOLDER/product/framework/com.google.android.maps.jar"
 )

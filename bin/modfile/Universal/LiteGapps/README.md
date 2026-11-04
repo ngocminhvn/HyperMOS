@@ -1,28 +1,42 @@
-# LiteGapps — chia sẻ GApps giữa Android 16 và Android 17
+# LiteGapps — GApps chia sẻ giữa Android 16 và 17
 
 ```text
 LiteGapps/
-├── Gapps/                # 35 file y hệt nhau + Maps framework JAR
-│   ├── product/
-│   └── maps/com.google.android.maps.jar
-├── LiteGapps16/         # Chỉ file riêng A16, update.sh, kiểm tra XML
-├── LiteGapps17/         # Chỉ file riêng A17, stage.py, sources/inventory
-├── validate.py          # Kiểm tra payload + Git LFS, dùng chung
+├── Gapps/                # APK/XML/DER dùng chung, GoogleVelvet_CTS, Velvet và Maps JAR
+├── LiteGapps16/         # Chỉ phần riêng Android 16 + vá Enhanced Keyboard
+├── LiteGapps17/         # Chỉ phần riêng Android 17 + manifest/checksum
+├── validate.py          # Kiểm tra bắt buộc A16/A17
 └── README.md
 ```
 
-## Cách hoạt động
+## Cấu trúc sau cập nhật
 
-- `Gapps/`: 35 file có **cùng Git blob SHA** ở hai bản trước khi dọn, nên nội dung hoàn toàn trùng; 6 trong số đó là APK Git LFS. Maps JAR của A16 đang được cả A16/A17 dùng cũng chuyển vào đây.
-- `LiteGapps16/`: 28 file payload khác biệt A17 hoặc chỉ A16 có. Chứa GmsCore, Phonesky, GoogleServicesFramework, ZK permissions, GoogleVelvet_CTS, XML preinstall và bản vá Enhanced Keyboard.
-- `LiteGapps17/`: 30 file payload riêng của A17, giữ các thành phần đúng API 37 và `inventory.json` của SourceForge.
-- Khi build: **Gapps dùng chung + phiên bản tương ứng**. Không ghi đè file từ A16 sang A17. Trình kiểm tra từ chối đường dẫn trùng ở hai lớp và bắt buộc APK thật, XML hợp lệ; A17 còn kiểm tra SHA-256 của 65 file hiệu lực.
-- JAR Maps duy nhất: `Gapps/maps/com.google.android.maps.jar`; được kiểm tra Git blob SHA-1 cố định và chép tới `product/framework/com.google.android.maps.jar`. **Không cài Maps.apk.**
+- **Gapps/**: 36 file dùng chung, gồm 34 file cùng nội dung giữa A16/A17,
+  1 file `GoogleVelvet_CTS.apk` gốc A16 được chủ động chia sẻ cho A17,
+  và 1 Maps framework JAR. `Velvet.apk` nằm ở đây.
+- **LiteGapps16/**: 27 file payload riêng A16.
+- **LiteGapps17/**: 30 file payload riêng A17.
+- Mỗi ROM lấy `Gapps/` + một thư mục theo Android version.
+  Các APK/XML khác nội dung không bị trộn giữa hai bản.
 
-```bash
-# Sau checkout phải có Git LFS thực
+## Quy tắc bắt buộc
+
+- **Không được có Gmail**: đã xóa `PrebuiltGmail.apk` khỏi repository;
+  quá trình build còn xóa thư mục `product/app/PrebuiltGmail` của base ROM.
+- **Bắt buộc cả A16 lẫn A17**: `GoogleVelvet_CTS.apk`, `Velvet.apk` và
+  `com.google.android.maps.jar`. Hai APK ở `Gapps/product/priv-app/`,
+  JAR ở `Gapps/maps/`, khi build đưa JAR vào `product/framework/`.
+- CTS là **bản A16** được chia sẻ cho A17 theo yêu cầu: SHA-256
+  `b8c5be9f1ffb22011fd9f393d0a871711c73e8a26bfffbee67da190e1728035f`.
+  **Chưa xác minh CTS này có tương thích với Android 17 hay không.**
+- Cấm Maps APK; chỉ dùng Maps JAR chung. Các nguồn Gmail/Maps trong
+  `LiteGapps17/sources.json` là bản ghi nguồn ban đầu, không được cài.
+
+Kiểm tra payload sau khi tải Git LFS:
+
+```sh
 python3 bin/modfile/Universal/LiteGapps/validate.py 16
 python3 bin/modfile/Universal/LiteGapps/validate.py 17
 ```
 
-**Không thay đổi**: điều kiện China/EU, APK/XML khác nội dung, logic bản vá bàn phím A16, nguồn ZIP A17 và build workflow chính. Chỉ dọn những file trùng nội dung. Mọi bản A17 vẫn chưa được thử boot thực tế.
+Không thay đổi workflow build ROM hoặc điều kiện chỉ cài GApps lên China ROM.

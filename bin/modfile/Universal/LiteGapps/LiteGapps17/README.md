@@ -1,20 +1,31 @@
-# LiteGapps17 — China ROM Android 17 / API 37 / arm64
+# LiteGapps17 — Android 17 / API 37 / arm64 (China)
 
-**Thư mục này chỉ giữ phần khác biệt so với Android 16.**
-Các tệp APK/XML/DER trùng byte và Maps framework JAR nằm trong `../Gapps/`.
-Sau khi hợp nhất hai lớp, toàn bộ 65 file A17 vẫn được xác thực bằng SHA-256 theo `inventory.json`.
+Chỉ chứa những file khác với A16. Những APK/XML/DER có nội dung giống nhau
+nằm ở `../Gapps/`. Trình kiểm tra xác thực SHA-256 của 65 file hiệu lực
+(gồm Gapps chung và dữ liệu riêng A17) theo `inventory.json`.
 
-- `sources.json`: 13 ZIP SourceForge đã tải và xác minh trước đây (Core + 12 addon). Addon Maps được **lưu thông tin để truy xuất**, không cài Maps APK.
-- `inventory.json`: 65 đường dẫn payload và SHA-256; những đường dẫn nằm ở `Gapps/` được tra cứu chung, những đường dẫn khác lấy từ `LiteGapps17/`.
-- `stage.py`: xác minh đủ hai lớp, sao chép file vào ROM và dùng `Gapps/maps/com.google.android.maps.jar` cho `product/framework/`.
-- `update.sh`: chỉ chạy trên China Android 17, không tải lại ZIP trong lúc build.
+- **Loại Gmail và Maps APK**: không cài `PrebuiltGmail.apk` hoặc `Maps.apk`.
+  Hai addon này vẫn được liệt kê trong `sources.json` làm lịch sử tải
+  SourceForge; **không phải danh sách APK thực sự được cài vào ROM**.
+- **Yêu cầu cả hai bản**: `GoogleVelvet_CTS.apk`, `Velvet.apk` và
+  `com.google.android.maps.jar` lấy từ `../Gapps/`.
+- `GoogleVelvet_CTS.apk` là **file gốc A16 được chia sẻ theo yêu cầu**, không
+  phải APK CTS A17 trên SourceForge; SHA-256 được ghim vào trình kiểm tra.
+  Tương thích và khả năng boot A17 **chưa được xác nhận**; dung lượng thêm
+  khoảng 305 MB vào image so với bản A17 trước đó.
+- `stage.py` chỉ dùng file Git LFS đã xác minh, xóa thư mục PrebuiltGmail
+  nếu có từ ROM gốc, cài CTS/Velvet và chép Maps JAR tới
+  `product/framework/com.google.android.maps.jar`.
 
-Nguồn: [Core A17 01/10/2026](https://sourceforge.net/projects/litegapps/files/litegapps/arm64/37/core/2026-10-01/), [addon API 37](https://sourceforge.net/projects/litegapps/files/addon/arm64/37/).
+Nguồn gốc gói A17 được ghi ở `sources.json` (Core 01/10/2026 + 12 addon
+đã tải ở lần đồng bộ ban đầu), cùng checksum của bản đã giải nén ở
+`inventory.json`.
 
-```bash
+```sh
 git lfs pull
 python3 bin/modfile/Universal/LiteGapps/validate.py 17
 python3 bin/modfile/Universal/LiteGapps/LiteGapps17/stage.py --verify-repo
 ```
 
-Không lấy GmsCore/Phonesky/GSF hoặc XML riêng A16 làm nguồn A17. Không cài `Maps.apk`; chỉ dùng JAR framework Maps chung. Chưa kiểm chứng boot A17 thực tế.
+Chưa thử flash/boot trên ROM China Android 17. A16/A17 vẫn giữ GmsCore,
+Phonesky, GSF và các XML có nội dung khác nhau ở thư mục riêng.

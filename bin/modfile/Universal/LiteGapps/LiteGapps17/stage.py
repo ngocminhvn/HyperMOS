@@ -47,6 +47,15 @@ def main() -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
 
+    # Do not let PrebuiltGmail from the base ROM survive either Android variant.
+    gmail_target = images / "product/app/PrebuiltGmail"
+    if gmail_target.is_symlink():
+        raise RuntimeError("Refusing to delete symlinked PrebuiltGmail directory")
+    if gmail_target.is_dir():
+        shutil.rmtree(gmail_target)
+    elif gmail_target.exists():
+        raise RuntimeError("Unexpected non-directory PrebuiltGmail in ROM image")
+
     # User-selected legacy Maps shared library in place of the Google Maps app.
     # verify_payload(17) already confirms that this JAR is the pinned A16 blob.
     maps_jar = BASE.parent / "Gapps/maps/com.google.android.maps.jar"
@@ -68,6 +77,9 @@ def main() -> None:
         "source": "verified-committed-lfs",
         "file_count": len(files) + 1,
         "maps_app_installed": False,
+        "gmail_app_installed": False,
+        "google_velvet_cts_required": True,
+        "velvet_required": True,
         "maps_framework_source": "Gapps/maps/com.google.android.maps.jar",
         "files": [
             p.relative_to(BASE.parent / "Gapps" if p.is_relative_to(BASE.parent / "Gapps") else BASE).as_posix()
@@ -75,7 +87,7 @@ def main() -> None:
         ]
                  + ["product/framework/com.google.android.maps.jar"],
     }, indent=2) + "\n", encoding="utf-8")
-    print(f"[OK] LiteGapps17: {len(files)} verified A17 files + Maps framework JAR; no Maps APK", flush=True)
+    print(f"[OK] LiteGapps17: {len(files)} verified files + Maps framework JAR; no Maps/Gmail APK", flush=True)
 
 
 if __name__ == "__main__":

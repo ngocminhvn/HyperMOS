@@ -22,7 +22,6 @@
     "product/app/GoogleExtShared/GoogleExtShared.apk": "f8126faabddd752e408530764618c33156c0d7fa4420a62cbfaacc243d9756a0",
     "product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk": "dce96b08812304387c30e45c67548cff6f00f5a1ed6f457ac7b66618acc1350e",
     "product/app/LocationHistoryPrebuilt/LocationHistoryPrebuilt.apk": "bca584aeeb3d1be4eacc8812c189bbb9ed0ba354bfa27ccfdae5695d4ccf1259",
-    "product/app/PrebuiltGmail/PrebuiltGmail.apk": "8ff22be0d2e5ff1bd9aee09ad6da7f371e4f2ded28912fc9fce0d6100c1e0a28",
     "product/etc/default-permissions/default-permissions-safetyhub.xml": "317e8ef25dd77b958ae8b7dfd96dbc5ca14c8fe6a38561aa928e79ada6382b53",
     "product/etc/default-permissions/default-permissions.xml": "e24f1253ddba10d22e1938943bcd1e40361782d05f0767d4af8994fbfd6a6909",
     "product/etc/default-permissions/default-permissions_nowplaying.xml": "92bae58c43d2e5fb0db30004573a86af4fd0dc326c2b54054074680dd2f173ba",
@@ -81,7 +80,8 @@
     "product/priv-app/Velvet/Velvet.apk": "f34e67605a554104e36e5a8d084c8accd79ac1dcd22a049c14259999ae32ecdd",
     "system_ext/etc/permissions/com.google.android.gsf.xml": "f90db4cba663a8d67525d8904e312ffc93c292c36272cf51b53f9a3cf6c419a7",
     "system_ext/etc/permissions/privapp-permissions-google-se.xml": "6cf2ef71c52a4749a81e614ea65f5675d0fe487ddf1300060fe2e600a98c4ef5",
-    "system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk": "61e2a4863d51a9281c8212118a13a940edc519e40120a28fc097319d649b865d"
+    "system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk": "61e2a4863d51a9281c8212118a13a940edc519e40120a28fc097319d649b865d",
+    "product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk": "b8c5be9f1ffb22011fd9f393d0a871711c73e8a26bfffbee67da190e1728035f"
   },
   "source_date": "2026-10-01",
   "sources_sha256": "f5124908f5f6ef594d1e08643db335b58b43022c5d31d3746491726efc91bc13",
@@ -90,5 +90,18 @@
     "reuse": "Gapps/maps/com.google.android.maps.jar",
     "destination": "product/framework/com.google.android.maps.jar",
     "reason": "No Maps APK in either ROM; both use the pinned shared Gapps/maps framework JAR."
+  },
+  "package_policy": {
+    "excluded_apks": [
+      "product/app/PrebuiltGmail/PrebuiltGmail.apk",
+      "product/app/Maps/Maps.apk"
+    ],
+    "shared_requirements": [
+      "product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk",
+      "product/priv-app/Velvet/Velvet.apk",
+      "maps/com.google.android.maps.jar"
+    ],
+    "cts_provenance": "Original HyperMOS A16 GoogleVelvet_CTS.apk LFS object; reused on A17 by user request, A17 boot compatibility untested",
+    "original_source_archives": "sources.json and archive_file_counts record the original 2026-10-01 downloads; excluded Gmail/Maps addon ZIPs are not installed"
   }
 }

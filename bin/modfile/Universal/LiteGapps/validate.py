@@ -24,17 +24,19 @@ REQUIRED = {
         "product/priv-app/GmsCore/GmsCore.apk",
         "product/priv-app/Phonesky/Phonesky.apk",
         "product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk",
+        "product/priv-app/Velvet/Velvet.apk",
         "system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk",
         "maps/com.google.android.maps.jar",
     ),
     17: (
         "product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk",
-        "product/app/PrebuiltGmail/PrebuiltGmail.apk",
+        "product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk",
         "product/priv-app/GmsCore/GmsCore.apk",
         "product/priv-app/Phonesky/Phonesky.apk",
         "product/priv-app/Velvet/Velvet.apk",
         "product/priv-app/GoogleDialer/GoogleDialer.apk",
         "system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk",
+        "maps/com.google.android.maps.jar",
     ),
 }
 PARTITIONS = ("product", "system_ext")
@@ -96,6 +98,18 @@ def verify_payload(android: int) -> list[Path]:
     payload = [path for _, path in sorted({**common, **specific}.items())]
     if not payload:
         fail(f"LiteGapps{android} has no partition payload")
+
+    # Gmail must be absent from shared, version-specific and installed bundles.
+    forbidden = "product/app/PrebuiltGmail/PrebuiltGmail.apk"
+    if forbidden in common or forbidden in specific:
+        fail(f"LiteGapps{android} must not include PrebuiltGmail.apk")
+
+    # CTS comes from the original A16 LFS object, explicitly shared with A17.
+    cts = SHARED / "product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
+    if not cts.is_file() or cts.is_symlink():
+        fail("Missing shared GoogleVelvet_CTS.apk")
+    if sha256(cts) != "b8c5be9f1ffb22011fd9f393d0a871711c73e8a26bfffbee67da190e1728035f":
+        fail("Shared GoogleVelvet_CTS.apk differs from the original A16 LFS asset")
     for path in payload:
         layer = SHARED if path.is_relative_to(SHARED) else base
         relative = path.relative_to(layer).as_posix()
