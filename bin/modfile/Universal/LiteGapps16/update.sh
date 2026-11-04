@@ -99,6 +99,13 @@ if [[ $androidVER != "16" ]]; then
   exit 0
 fi
 
+# Same fail-closed APK/LFS/XML payload verification as LiteGapps17.
+# Keep the Android 16-specific keyboard patch and Maps framework untouched.
+if ! python3 "$work_dir/bin/modfile/Universal/litegapps_validate.py" 16; then
+  error "LiteGapps16: payload integrity check failed"
+  exit 1
+fi
+
 if [[ ! -d "$GMS_SOURCE/product" || ! -d "$GMS_SOURCE/system_ext" ]]; then
   error "LiteGapps16 payload is incomplete"
   exit 1

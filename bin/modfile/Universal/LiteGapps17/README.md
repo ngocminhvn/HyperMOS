@@ -1,46 +1,42 @@
 # LiteGapps17 — Android 17 / API 37 / arm64
 
-This module is called by Universal/insfile.sh for **China Android 17**
-and deliberately skips Xiaomi.eu/Global. Android 16 continues to use
-LiteGapps16 unchanged apart from its path.
+Bộ GApps dành cho **China ROM Android 17**. Xiaomi.eu/Global được bỏ qua,
+Android 16 dùng `LiteGapps16/` riêng. APK/JAR/XML/DER đã được lấy từ
+SourceForge, kiểm tra SHA-256 và commit qua **Git LFS** tại `product/` và
+`system_ext/`; ROM build **không tải lại ZIP**.
 
-## Pinned upstream packages
+## Nguồn đã được đối chiếu
 
-- Core: https://sourceforge.net/projects/litegapps/files/litegapps/arm64/37/core/2026-10-01/
-- Addons: https://sourceforge.net/projects/litegapps/files/addon/arm64/37/
-- The exact archive URLs and upstream-published SHA-256 digests are in sources.json.
-- Includes Common, GmsCore, GoogleServicesFramework, PlayStore,
+- Core (01/10/2026): https://sourceforge.net/projects/litegapps/files/litegapps/arm64/37/core/2026-10-01/
+- Addon (API 37): https://sourceforge.net/projects/litegapps/files/addon/arm64/37/
+- `sources.json`: đường dẫn và SHA-256 của 13 ZIP (Core + 12 addon).
+- `inventory.json`: SHA-256 của **66 file được trích xuất** và mã băm
+  `sources.json`. Cả danh sách được kiểm tra trước khi đưa file vào ROM.
+- Các addon đã chọn: Common, GmsCore, GoogleServicesFramework, PlayStore,
   GoogleExtShared, ConfigUpdater, AndroidAuto, GoogleKeyboard, Gmail,
-  GoogleSearch, Maps and GoogleDialer.
+  GoogleSearch, Maps, GoogleDialer.
 
-No APK or JAR from A16 is reused in the Android 17 staging path.
-The Core archive contains files/files.tar.xz (or another supported tar
-compression); addons expose their product/system_ext content under system/.
-The staging script reads **data only**, never executes upstream module or
-recovery installers. It overlays allowed app/priv-app/etc/framework/overlay
-payloads into the extracted ROM, validates real APK ZIPs, and stops the build
-on hash, download, archive or required-package failure.
+## Cách build và kiểm tra
 
-This directory is initially **not a full APK payload**. To publish the actual
-Android 17 assets under product/, system_ext/ and system/ in Git LFS, run the
-[Sync LiteGapps17 assets](https://github.com/ngocminhvn/HyperMOS/actions/workflows/sync-litegapps17.yml)
-GitHub Action (or execute locally):
-
-```sh
-python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --hydrate-repo
-python3 bin/modfile/Universal/LiteGapps17/stage.py --root . --verify-repo
+```bash
+# Phải checkout Git LFS trước, không dùng các file pointer 130 byte.
+git lfs pull
+python3 bin/modfile/Universal/litegapps_validate.py 17
+python3 bin/modfile/Universal/LiteGapps17/stage.py --verify-repo
 ```
 
-The sync action downloads the exact pinned archives, verifies SHA-256,
-extracts real APK/JAR/XML content, and pushes the resulting files through
-Git LFS to main. It cannot publish files if SourceForge, validation, write
-permissions or Git LFS uploads fail. Until inventory.json appears, ROM
-builds still download the verified packages at build time. After the files
-have been committed, ROM builds use the verified on-repo payload.
+`update.sh` gọi `stage.py` để **chỉ** sao chép file đã có từ Git LFS
+vào `build/baserom/images/`; không dùng mạng hoặc chạy installer Magisk.
 
-APK/JAR bytes are never substituted with Android 16 payloads.
-The file structure and device boot are **not yet validated** against an
-actual Android 17 China base ROM. If a release changes archive layouts,
-the build must fail and the extractor must be updated after inspecting
-upstream contents. Do not silently copy A16 permissions, system config, or
-GApps framework JARs to A17.
+**Khác biệt được giữ lại so với A16**: Maps APK thay vì maps JAR; A17 có
+GoogleDialer/Calendar/Contacts Sync và SearchSelector, còn A16 có
+`GoogleVelvet_CTS.apk`, ZK permissions, XML preinstall và vá
+`MIUIFrequentPhrase.apk`. Không sao chép những thành phần riêng A16 vào A17.
+Không dùng chung binary Android 16 để thay thế binary Android 17.
+
+Workflow đồng bộ tạm thời đã được dọn sau khi Git LFS upload thành công.
+Giữ `sources.json`, `inventory.json` để truy xuất nguồn gốc.
+Khi cần cập nhật phiên bản GApps phải tạo manifest mới và xác thực các
+file thực tế rồi mới chỉnh inventory, không ghi đè bằng bản A16.
+
+Chưa kiểm chứng boot thực tế trên ROM China Android 17.

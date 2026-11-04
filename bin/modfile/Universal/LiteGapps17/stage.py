@@ -1,304 +1,72 @@
 #!/usr/bin/env python3
-"""Extract verified LiteGapps Android 17 Core and addons into HyperMOS images.
+"""Install only the committed, integrity-verified Android 17 GApps payload.
 
-Do not execute upstream Magisk/recovery installers. Reject mismatched hashes
-and unexpected staging layouts instead of silently injecting Android 16 APKs.
+ROM builds must never download or substitute GApps from another Android
+version. A17's archived SourceForge URLs and SHA-256 remain in sources.json;
+inventory.json pins the exact unpacked files already stored via Git LFS.
 """
+from __future__ import annotations
+
 import argparse
-import hashlib
 import json
-import re
 import shutil
 import sys
-import tarfile
-import tempfile
-import time
-import urllib.request
-import zipfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
-SAFE_SUBDIRS = {"app", "priv-app", "etc", "framework", "overlay"}
-SOURCE = "https://sourceforge.net/projects/litegapps/files/"
+sys.path.insert(0, str(BASE.parent))
+
+from litegapps_validate import verify_payload  # noqa: E402
 
 
-def fail(message):
-    raise RuntimeError(message)
-
-
-def digest(path):
-    h = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def download(entry, cache):
-    # Mirror probing, watchdog, progress, and SHA-256 are centralized here.
-    from mirror_fetch import fetch
-    return fetch(entry, cache)
-
-
-def target_path(filename):
-    # Never extract with ZipFile.extractall() / TarFile.extractall().
-    path = PurePosixPath(filename)
-    parts = path.parts
-    if not parts or path.is_absolute() or ".." in parts or "\\" in filename:
-        fail("Unsafe archive member: " + filename)
-    if parts[:2] == ("arm64", "37"):
-        parts = parts[2:]
-    if parts[:1] == ("system",):
-        if len(parts) >= 4 and parts[1] == "etc" and parts[2] in ("permissions", "sysconfig"):
-            return Path("system/system", *parts[1:])
-        parts = parts[1:]
-    if len(parts) < 3:
-        return None
-    if parts[0] in ("product", "system_ext") and parts[1] in SAFE_SUBDIRS:
-        return Path(*parts)
-    if parts[0] == "system" and parts[1] == "etc" and len(parts) >= 4 and parts[2] in ("permissions", "sysconfig"):
-        return Path("system/system", *parts[1:])
-    return None
-
-
-def copy_member(source, name, size, staging):
-    relative = target_path(name)
-    if relative is None:
-        return None
-    if not 0 < size <= 512 * 1024 * 1024:
-        fail("Empty or oversized file: " + name)
-    destination = staging / relative
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("wb") as output:
-        shutil.copyfileobj(source, output, length=1024 * 1024)
-    if destination.stat().st_size != size:
-        fail("Short read: " + name)
-    destination.chmod(0o644)
-    return relative.as_posix()
-
-
-def unpack_tar(stream, staging):
-    extracted = []
-    with tarfile.open(fileobj=stream, mode="r|*") as archive:
-        for member in archive:
-            if member.isdir():
-                continue
-            if not member.isfile():
-                # Never turn upstream symlinks/devices into partition files.
-                continue
-            handle = archive.extractfile(member)
-            if handle is None:
-                fail("Invalid tar member: " + member.name)
-            with handle:
-                relative = copy_member(handle, member.name, member.size, staging)
-                if relative:
-                    extracted.append(relative)
-    return extracted
-
-
-def unpack_zip(path, staging, core=False):
-    extracted = []
-    with zipfile.ZipFile(path) as archive:
-        bad = archive.testzip()
-        if bad:
-            fail("Corrupted ZIP member in " + path.name + ": " + bad)
-        for member in archive.infolist():
-            if member.is_dir():
-                continue
-            # Do not turn ZIP symlinks into regular partition files.
-            if (member.external_attr >> 16) & 0o170000 == 0o120000:
-                continue
-            name = member.filename
-            if core and re.fullmatch(r"(?:files/)?files[.]tar[.](?:xz|gz|bz2)", name):
-                with archive.open(member) as stream:
-                    extracted.extend(unpack_tar(stream, staging))
-                continue
-            # Standalone addons provide their payload under system/.
-            # Do not execute installer scripts or recursively run modules/.
-            with archive.open(member) as stream:
-                relative = copy_member(stream, name, member.file_size, staging)
-                if relative:
-                    extracted.append(relative)
-    if not extracted:
-        fail("No usable product/system_ext payload in " + path.name)
-    return extracted
-
-
-def validate(staging):
-    files = [p for p in staging.rglob("*") if p.is_file()]
-    apks = [p for p in files if p.suffix.lower() == ".apk"]
-    if len(apks) < 6:
-        fail("A17 payload has too few APK files")
-    for path in apks:
-        if path.stat().st_size < 1024 or not zipfile.is_zipfile(path):
-            fail("Invalid APK or Git LFS pointer: " + str(path))
-    names = [path.as_posix().lower() for path in apks]
-    mandatory = {
-        "GmsCore": ("gmscore",),
-        "PlayStore": ("phonesky", "playstore"),
-        "GoogleServicesFramework": ("googleservicesframework",),
-        "GoogleKeyboard": ("latinimegoogle", "googlekeyboard"),
-        "Gmail": ("gmail",),
-        "GoogleSearch": ("velvet", "googlesearch"),
-        "Maps": ("/maps/", "maps.apk"),
-    }
-    for label, alternatives in mandatory.items():
-        if not any(any(key in name for key in alternatives) for name in names):
-            fail("Missing Android 17 APK component: " + label)
-    return files
-
-
-
-def load_manifest():
-    manifest = json.loads((BASE / "sources.json").read_text())
-    if (manifest.get("android"), manifest.get("api"), manifest.get("arch")) != (17, 37, "arm64"):
-        fail("Wrong LiteGapps manifest target")
-    if not manifest.get("addons") or len(set(x["name"] for x in manifest["addons"])) != len(manifest["addons"]):
-        fail("Missing or duplicated LiteGapps17 addons")
-    return manifest
-
-
-def stage_archives(root, staging, manifest):
-    cache = root / "build/cache/litegapps17"
-    cache.mkdir(parents=True, exist_ok=True)
-    archives = {"Core": unpack_zip(download(manifest["core"], cache), staging, core=True)}
-    for addon in manifest["addons"]:
-        archives[addon["name"]] = unpack_zip(download(addon, cache), staging)
-    files = sorted(validate(staging))
-    return archives, files
-
-
-def source_digest():
-    return digest(BASE / "sources.json")
-
-
-def load_checked_in():
-    """Use real version-pinned LFS assets if repository hydration completed."""
-    index_path = BASE / "inventory.json"
-    if not index_path.is_file():
-        return None
-    index = json.loads(index_path.read_text())
-    if index.get("sources_sha256") != source_digest():
-        fail("LiteGapps17 inventory is out of date with sources.json")
-    expected = index.get("files")
-    if not isinstance(expected, dict) or not expected:
-        fail("LiteGapps17 inventory has no files")
-    files = []
-    for raw, checksum in expected.items():
-        relative = Path(raw)
-        if relative.is_absolute() or ".." in relative.parts:
-            fail("Unsafe inventory path: " + raw)
-        path = BASE / relative
-        if not path.is_file() or digest(path) != checksum:
-            fail("LiteGapps17 Git LFS file missing, pointer-only or damaged: " + raw)
-        files.append(path)
-    validate_tree = {p.name for p in files if p.suffix.lower() == ".apk"}
-    if len(validate_tree) < 6:
-        fail("LiteGapps17 inventory has too few APKs")
-    print("[OK] Reusing", len(files), "verified checked-in A17 assets")
-    return sorted(files)
-
-
-def hydrate_repository(root, manifest):
-    """Fill product/system_ext with real A17 source data, never A16 pointers."""
-    build = root / "build"
-    build.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="lg17-source-", dir=build) as directory:
-        staging = Path(directory)
-        archives, files = stage_archives(root, staging, manifest)
-        for part in ("product", "system_ext", "system"):
-            # These are owned, generated A17 payload directories only.
-            destination = BASE / part
-            if destination.is_symlink():
-                fail("Refusing to replace symlink payload directory " + part)
-            if destination.exists():
-                shutil.rmtree(destination)
-        inventory = {}
-        for source in files:
-            rel = source.relative_to(staging)
-            destination = BASE / rel
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            inventory[rel.as_posix()] = digest(destination)
-        # Match A16 maps folder only if A17 provides a Maps framework JAR.
-        jar = BASE / "product/framework/com.google.android.maps.jar"
-        if jar.is_file():
-            maps = BASE / "maps"
-            maps.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(jar, maps / jar.name)
-        (BASE / "inventory.json").write_text(json.dumps({
-            "android": 17,
-            "api": 37,
-            "source_date": manifest["source_date"],
-            "sources_sha256": source_digest(),
-            "archive_file_counts": {name: len(items) for name, items in archives.items()},
-            "files": inventory,
-        }, indent=2, sort_keys=True) + "\n")
-        print("[OK] Hydrated", len(files), "real A17 files into", BASE)
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--hydrate-repo", action="store_true",
-                        help="Download, verify, extract and materialize actual A17 files in Git tree")
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, required=False, default=Path.cwd())
     parser.add_argument("--verify-repo", action="store_true",
-                        help="Verify all stored Git LFS APK assets and manifest without building ROM")
+                        help="Validate the checked-in A17 data without modifying a ROM")
     args = parser.parse_args()
-    root = args.root.resolve()
-    manifest = load_manifest()
+
+    files = verify_payload(17)
     if args.verify_repo:
-        assets = load_checked_in()
-        if assets is None:
-            fail("No hydrated LiteGapps17 asset inventory; use --hydrate-repo")
-        validate(BASE)
-        print("[OK] Verified", len(assets), "committed Android 17 assets")
         return
-    if args.hydrate_repo:
-        hydrate_repository(root, manifest)
-        return
+
+    root = args.root.resolve()
     images = root / "build/baserom/images"
     if not (images / "product").is_dir() or not (images / "system_ext").is_dir():
-        fail("Extracted product/system_ext partitions are missing")
-    prop = images / "system/system/build.prop"
-    if not prop.is_file():
-        fail("System build.prop missing")
-    files = load_checked_in()
-    if files is not None:
-        archives = {"Git LFS": len(files)}
-        stage_report_files = [path.relative_to(BASE).as_posix() for path in files]
-        for source in files:
-            rel = source.relative_to(BASE)
-            destination = images / rel
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-    else:
-        (root / "build").mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="lg17-", dir=root / "build") as directory:
-            staging = Path(directory)
-            archives, files = stage_archives(root, staging, manifest)
-            stage_report_files = [path.relative_to(staging).as_posix() for path in files]
-            for source in files:
-                rel = source.relative_to(staging)
-                destination = images / rel
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, destination)
-    if "ro.miui.has_gmscore=1" not in prop.read_text().splitlines():
-        with prop.open("a") as output:
-            output.write("\nro.miui.has_gmscore=1\n")
+        raise RuntimeError("Extracted ROM product/system_ext partitions are missing")
+    build_prop = images / "system/system/build.prop"
+    if not build_prop.is_file():
+        raise RuntimeError("System build.prop is missing")
+
+    # Only the manifest-verified product/system_ext files; no downloads and
+    # no old A16 maps framework, keyboard/CTS or custom XML transplanted.
+    for source in files:
+        relative = source.relative_to(BASE)
+        destination = images / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    with build_prop.open("r", encoding="utf-8") as stream:
+        has_gms = "ro.miui.has_gmscore=1" in stream.read().splitlines()
+    if not has_gms:
+        with build_prop.open("a", encoding="utf-8") as stream:
+            stream.write("\nro.miui.has_gmscore=1\n")
+
     report = root / "build/reports/litegapps17/staged.json"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps({
-        "target": "arm64/37", "source_date": manifest["source_date"],
-        "archives": {name: len(paths) if isinstance(paths, list) else paths for name, paths in archives.items()},
-        "files": stage_report_files,
-    }, indent=2) + "\n")
-    print("[OK] LiteGapps17:", len(files), "Android 17 files staged")
+        "android": 17,
+        "api": 37,
+        "source": "verified-committed-lfs",
+        "file_count": len(files),
+        "files": [p.relative_to(BASE).as_posix() for p in files],
+    }, indent=2) + "\n", encoding="utf-8")
+    print(f"[OK] LiteGapps17: staged {len(files)} local, verified files", flush=True)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, tarfile.TarError) as exc:
-        print("[ERROR] LiteGapps17:", exc, file=sys.stderr)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        print("[ERROR] LiteGapps17: " + str(exc), file=sys.stderr)
         sys.exit(1)
