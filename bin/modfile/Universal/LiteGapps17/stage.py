@@ -179,44 +179,143 @@ def validate(staging):
     return files
 
 
+
+def load_manifest():
+    manifest = json.loads((BASE / "sources.json").read_text())
+    if (manifest.get("android"), manifest.get("api"), manifest.get("arch")) != (17, 37, "arm64"):
+        fail("Wrong LiteGapps manifest target")
+    if not manifest.get("addons") or len(set(x["name"] for x in manifest["addons"])) != len(manifest["addons"]):
+        fail("Missing or duplicated LiteGapps17 addons")
+    return manifest
+
+
+def stage_archives(root, staging, manifest):
+    cache = root / "build/cache/litegapps17"
+    cache.mkdir(parents=True, exist_ok=True)
+    archives = {"Core": unpack_zip(download(manifest["core"], cache), staging, core=True)}
+    for addon in manifest["addons"]:
+        archives[addon["name"]] = unpack_zip(download(addon, cache), staging)
+    files = sorted(validate(staging))
+    return archives, files
+
+
+def source_digest():
+    return digest(BASE / "sources.json")
+
+
+def load_checked_in():
+    """Use real version-pinned LFS assets if repository hydration completed."""
+    index_path = BASE / "inventory.json"
+    if not index_path.is_file():
+        return None
+    index = json.loads(index_path.read_text())
+    if index.get("sources_sha256") != source_digest():
+        fail("LiteGapps17 inventory is out of date with sources.json")
+    expected = index.get("files")
+    if not isinstance(expected, dict) or not expected:
+        fail("LiteGapps17 inventory has no files")
+    files = []
+    for raw, checksum in expected.items():
+        relative = Path(raw)
+        if relative.is_absolute() or ".." in relative.parts:
+            fail("Unsafe inventory path: " + raw)
+        path = BASE / relative
+        if not path.is_file() or digest(path) != checksum:
+            fail("LiteGapps17 Git LFS file missing, pointer-only or damaged: " + raw)
+        files.append(path)
+    validate_tree = {p.name for p in files if p.suffix.lower() == ".apk"}
+    if len(validate_tree) < 6:
+        fail("LiteGapps17 inventory has too few APKs")
+    print("[OK] Reusing", len(files), "verified checked-in A17 assets")
+    return sorted(files)
+
+
+def hydrate_repository(root, manifest):
+    """Fill product/system_ext with real A17 source data, never A16 pointers."""
+    build = root / "build"
+    build.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="lg17-source-", dir=build) as directory:
+        staging = Path(directory)
+        archives, files = stage_archives(root, staging, manifest)
+        for part in ("product", "system_ext", "system"):
+            # These are owned, generated A17 payload directories only.
+            destination = BASE / part
+            if destination.is_symlink():
+                fail("Refusing to replace symlink payload directory " + part)
+            if destination.exists():
+                shutil.rmtree(destination)
+        inventory = {}
+        for source in files:
+            rel = source.relative_to(staging)
+            destination = BASE / rel
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            inventory[rel.as_posix()] = digest(destination)
+        # Match A16 maps folder only if A17 provides a Maps framework JAR.
+        jar = BASE / "product/framework/com.google.android.maps.jar"
+        if jar.is_file():
+            maps = BASE / "maps"
+            maps.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(jar, maps / jar.name)
+        (BASE / "inventory.json").write_text(json.dumps({
+            "android": 17,
+            "api": 37,
+            "source_date": manifest["source_date"],
+            "sources_sha256": source_digest(),
+            "archive_file_counts": {name: len(items) for name, items in archives.items()},
+            "files": inventory,
+        }, indent=2, sort_keys=True) + "\n")
+        print("[OK] Hydrated", len(files), "real A17 files into", BASE)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--hydrate-repo", action="store_true",
+                        help="Download, verify, extract and materialize actual A17 files in Git tree")
     args = parser.parse_args()
     root = args.root.resolve()
+    manifest = load_manifest()
+    if args.hydrate_repo:
+        hydrate_repository(root, manifest)
+        return
     images = root / "build/baserom/images"
     if not (images / "product").is_dir() or not (images / "system_ext").is_dir():
         fail("Extracted product/system_ext partitions are missing")
     prop = images / "system/system/build.prop"
     if not prop.is_file():
         fail("System build.prop missing")
-    manifest = json.loads((BASE / "sources.json").read_text())
-    if (manifest.get("android"), manifest.get("api"), manifest.get("arch")) != (17, 37, "arm64"):
-        fail("Wrong LiteGapps manifest target")
-    cache = root / "build/cache/litegapps17"
-    cache.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="lg17-", dir=root / "build") as directory:
-        staging = Path(directory)
-        archives = {"Core": unpack_zip(download(manifest["core"], cache), staging, core=True)}
-        for addon in manifest["addons"]:
-            archives[addon["name"]] = unpack_zip(download(addon, cache), staging)
-        files = validate(staging)
-        for file in files:
-            relative = file.relative_to(staging)
-            destination = images / relative
+    files = load_checked_in()
+    if files is not None:
+        archives = {"Git LFS": len(files)}
+        stage_report_files = [path.relative_to(BASE).as_posix() for path in files]
+        for source in files:
+            rel = source.relative_to(BASE)
+            destination = images / rel
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(file, destination)
-        if "ro.miui.has_gmscore=1" not in prop.read_text().splitlines():
-            with prop.open("a") as output:
-                output.write("\nro.miui.has_gmscore=1\n")
-        report = root / "build/reports/litegapps17/staged.json"
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text(json.dumps({
-            "target": "arm64/37", "source_date": manifest["source_date"],
-            "archives": {name: len(paths) for name, paths in archives.items()},
-            "files": [path.relative_to(staging).as_posix() for path in files],
-        }, indent=2) + "\n")
-        print("[OK] LiteGapps17:", len(files), "Android 17 files staged")
+            shutil.copy2(source, destination)
+    else:
+        (root / "build").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="lg17-", dir=root / "build") as directory:
+            staging = Path(directory)
+            archives, files = stage_archives(root, staging, manifest)
+            stage_report_files = [path.relative_to(staging).as_posix() for path in files]
+            for source in files:
+                rel = source.relative_to(staging)
+                destination = images / rel
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+    if "ro.miui.has_gmscore=1" not in prop.read_text().splitlines():
+        with prop.open("a") as output:
+            output.write("\nro.miui.has_gmscore=1\n")
+    report = root / "build/reports/litegapps17/staged.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(json.dumps({
+        "target": "arm64/37", "source_date": manifest["source_date"],
+        "archives": {name: len(paths) if isinstance(paths, list) else paths for name, paths in archives.items()},
+        "files": stage_report_files,
+    }, indent=2) + "\n")
+    print("[OK] LiteGapps17:", len(files), "Android 17 files staged")
 
 
 if __name__ == "__main__":
