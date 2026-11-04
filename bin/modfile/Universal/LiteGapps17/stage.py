@@ -273,9 +273,18 @@ def main():
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--hydrate-repo", action="store_true",
                         help="Download, verify, extract and materialize actual A17 files in Git tree")
+    parser.add_argument("--verify-repo", action="store_true",
+                        help="Verify all stored Git LFS APK assets and manifest without building ROM")
     args = parser.parse_args()
     root = args.root.resolve()
     manifest = load_manifest()
+    if args.verify_repo:
+        assets = load_checked_in()
+        if assets is None:
+            fail("No hydrated LiteGapps17 asset inventory; use --hydrate-repo")
+        validate(BASE)
+        print("[OK] Verified", len(assets), "committed Android 17 assets")
+        return
     if args.hydrate_repo:
         hydrate_repository(root, manifest)
         return
