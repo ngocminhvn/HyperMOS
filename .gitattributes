@@ -4,3 +4,5 @@
 *.SH text eol=lf
 bin/modfile/Universal/LiteGapps16/**/*.apk filter=lfs diff=lfs merge=lfs -text
 
+bin/modfile/Universal/LiteGapps17/**/*.apk filter=lfs diff=lfs merge=lfs -text
+bin/modfile/Universal/LiteGapps17/**/*.jar filter=lfs diff=lfs merge=lfs -text
