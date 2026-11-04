@@ -38,13 +38,20 @@ def main() -> None:
     if not build_prop.is_file():
         raise RuntimeError("System build.prop is missing")
 
-    # Only the manifest-verified product/system_ext files; no downloads and
-    # no old A16 maps framework, keyboard/CTS or custom XML transplanted.
+    # Copy verified A17 product/system_ext files only (no Maps APK).
+    # The one explicit shared binary exception is the A16 Maps framework JAR.
     for source in files:
         relative = source.relative_to(BASE)
         destination = images / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+
+    # User-selected legacy Maps shared library in place of the Google Maps app.
+    # verify_payload(17) already confirms that this JAR is the pinned A16 blob.
+    maps_jar = BASE.parent / "LiteGapps16/maps/com.google.android.maps.jar"
+    maps_destination = images / "product/framework/com.google.android.maps.jar"
+    maps_destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(maps_jar, maps_destination)
 
     with build_prop.open("r", encoding="utf-8") as stream:
         has_gms = "ro.miui.has_gmscore=1" in stream.read().splitlines()
@@ -58,10 +65,13 @@ def main() -> None:
         "android": 17,
         "api": 37,
         "source": "verified-committed-lfs",
-        "file_count": len(files),
-        "files": [p.relative_to(BASE).as_posix() for p in files],
+        "file_count": len(files) + 1,
+        "maps_app_installed": False,
+        "maps_framework_source": "LiteGapps16/maps/com.google.android.maps.jar",
+        "files": [p.relative_to(BASE).as_posix() for p in files]
+                 + ["product/framework/com.google.android.maps.jar"],
     }, indent=2) + "\n", encoding="utf-8")
-    print(f"[OK] LiteGapps17: staged {len(files)} local, verified files", flush=True)
+    print(f"[OK] LiteGapps17: {len(files)} verified A17 files + Maps framework JAR; no Maps APK", flush=True)
 
 
 if __name__ == "__main__":

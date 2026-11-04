@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline LiteGapps payload integrity checks shared by Android 16 and 17.
 
-No network calls, no APK modifications, no cross-version file copying.
+No network calls or APK modifications. A17 reuses only the existing A16 Maps framework JAR.
 Run after Git LFS checkout (actions/checkout with lfs: true).
 """
 from __future__ import annotations
@@ -28,7 +28,6 @@ REQUIRED = {
     17: (
         "product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk",
         "product/app/PrebuiltGmail/PrebuiltGmail.apk",
-        "product/app/Maps/Maps.apk",
         "product/priv-app/GmsCore/GmsCore.apk",
         "product/priv-app/Phonesky/Phonesky.apk",
         "product/priv-app/Velvet/Velvet.apk",
@@ -111,6 +110,24 @@ def verify_payload(android: int) -> list[Path]:
         if (inventory.get("android"), inventory.get("api"),
                 inventory.get("source_date")) != (17, 37, source.get("source_date")):
             fail("A17 inventory target/source date mismatches source list")
+        if (base / "product/app/Maps/Maps.apk").exists():
+            fail("A17 Maps APK must be removed; use the shared maps framework JAR")
+        maps = UNIVERSAL / "LiteGapps16/maps/com.google.android.maps.jar"
+        if (not maps.is_file() or maps.is_symlink() or maps.stat().st_size < 1024
+                or not zipfile.is_zipfile(maps)):
+            fail("Shared A16 Maps framework JAR is missing or invalid")
+        data = maps.read_bytes()
+        actual_git_blob = hashlib.sha1(
+            f"blob {len(data)}\0".encode("ascii") + data
+        ).hexdigest()
+        if actual_git_blob != "0f2ebaf76e1af43703dde3154b724693fd25531e":
+            fail("Shared Maps JAR differs from the original pinned A16 file")
+        policy = inventory.get("maps_install_policy")
+        if not isinstance(policy, dict) or (
+                policy.get("remove") != "product/app/Maps/Maps.apk"
+                or policy.get("reuse") != "LiteGapps16/maps/com.google.android.maps.jar"
+                or policy.get("destination") != "product/framework/com.google.android.maps.jar"):
+            fail("A17 Maps install policy is missing or unexpected")
         if inventory.get("sources_sha256") != sha256(sources_path):
             fail("A17 sources.json changed; inventory needs re-verification")
         expected = inventory.get("files")

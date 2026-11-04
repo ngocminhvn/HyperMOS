@@ -22,7 +22,6 @@
     "product/app/GoogleExtShared/GoogleExtShared.apk": "f8126faabddd752e408530764618c33156c0d7fa4420a62cbfaacc243d9756a0",
     "product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk": "dce96b08812304387c30e45c67548cff6f00f5a1ed6f457ac7b66618acc1350e",
     "product/app/LocationHistoryPrebuilt/LocationHistoryPrebuilt.apk": "bca584aeeb3d1be4eacc8812c189bbb9ed0ba354bfa27ccfdae5695d4ccf1259",
-    "product/app/Maps/Maps.apk": "8f1eefd9d9d03f24e9820cb04a2c17dac667ac895c939f1136757ca52b696e52",
     "product/app/PrebuiltGmail/PrebuiltGmail.apk": "8ff22be0d2e5ff1bd9aee09ad6da7f371e4f2ded28912fc9fce0d6100c1e0a28",
     "product/etc/default-permissions/default-permissions-safetyhub.xml": "317e8ef25dd77b958ae8b7dfd96dbc5ca14c8fe6a38561aa928e79ada6382b53",
     "product/etc/default-permissions/default-permissions.xml": "e24f1253ddba10d22e1938943bcd1e40361782d05f0767d4af8994fbfd6a6909",
@@ -85,5 +84,11 @@
     "system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk": "61e2a4863d51a9281c8212118a13a940edc519e40120a28fc097319d649b865d"
   },
   "source_date": "2026-10-01",
-  "sources_sha256": "f5124908f5f6ef594d1e08643db335b58b43022c5d31d3746491726efc91bc13"
+  "sources_sha256": "f5124908f5f6ef594d1e08643db335b58b43022c5d31d3746491726efc91bc13",
+  "maps_install_policy": {
+    "remove": "product/app/Maps/Maps.apk",
+    "reuse": "LiteGapps16/maps/com.google.android.maps.jar",
+    "destination": "product/framework/com.google.android.maps.jar",
+    "reason": "No Maps APK in ROM; use the existing A16 Maps framework JAR."
+  }
 }
