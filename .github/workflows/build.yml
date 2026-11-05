@@ -1,10 +1,6 @@
 name: HyperMOS ROM Build
 
 on:
-  # TEMPORARY paired OS3 China/EU regression run to validate ZIP-only cleanup.
-  push:
-    branches:
-      - fix/kaorios-a17-dex-rebalance
   workflow_dispatch:
     inputs:
       input_url:
@@ -42,19 +38,6 @@ permissions:
 
 jobs:
   build:
-    name: ZIP-only regression · ${{ matrix.region }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - region: China-308
-            input_url: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip'
-            root_mode: root
-            upload_method: drive
-          - region: EU-309
-            input_url: 'https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_HAOTIAN_OS3.0.309.0.WOBCNXM_16_f5fba57993.zip/download'
-            root_mode: root
-            upload_method: drive
     runs-on: ubuntu-24.04
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -139,10 +122,10 @@ jobs:
           chmod +x bin/magiskboot 2>/dev/null || true
           chmod +x bin/Linux/x86_64/* 2>/dev/null || true
 
-          python notify.py start "${{ github.repository }}" "${{ matrix.input_url || inputs.input_url }}" "xiaomi" \
+          python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || echo "[WARN] - Start notification failed"
 
-          if [ "${{ matrix.upload_method || inputs.upload_method }}" = "drive" ]; then
+          if [ "${{ inputs.upload_method }}" = "drive" ]; then
             echo "[INFO] - Validate Drive upload config"
             sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
           fi
@@ -151,8 +134,8 @@ jobs:
 
       - name: Build ROM
         env:
-          INPUT_URL: ${{ matrix.input_url || inputs.input_url }}
-          ROOT_MODE: ${{ matrix.root_mode || inputs.root_mode }}
+          INPUT_URL: ${{ inputs.input_url }}
+          ROOT_MODE: ${{ inputs.root_mode }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -189,7 +172,7 @@ jobs:
           fi
 
       - name: Cache SukiSU host patcher
-        if: ${{ (matrix.root_mode || inputs.root_mode) == 'root' }}
+        if: ${{ inputs.root_mode == 'root' }}
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/hypermos-sukisu-host-cache
@@ -197,11 +180,11 @@ jobs:
           restore-keys: sukisu-host-v3-${{ runner.os }}-${{ hashFiles('bin/root/prepare_sukisu.sh', 'bin/root/patch_sukisu_host_source.py') }}-
 
       - name: Prepare and patch SukiSU Ultra
-        if: ${{ (matrix.root_mode || inputs.root_mode) == 'root' }}
+        if: ${{ inputs.root_mode == 'root' }}
         shell: bash
         env:
           SUKISU_HOST_CACHE_DIR: ${{ runner.temp }}/hypermos-sukisu-host-cache
-          ROOT_MODE: ${{ matrix.root_mode || inputs.root_mode }}
+          ROOT_MODE: ${{ inputs.root_mode }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -233,7 +216,7 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
-          python notify.py pack "${{ github.repository }}" "${{ matrix.input_url || inputs.input_url }}" "xiaomi" \
+          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log
           sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
@@ -241,13 +224,13 @@ jobs:
       - name: Package and upload ROM
         shell: bash
         env:
-          UPLOAD_METHOD: ${{ matrix.upload_method || inputs.upload_method }}
-          ROOT_MODE: ${{ matrix.root_mode || inputs.root_mode }}
+          UPLOAD_METHOD: ${{ inputs.upload_method }}
+          ROOT_MODE: ${{ inputs.root_mode }}
           DEBUG_BUILD: ${{ inputs.debug }}
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
           set -euo pipefail
-          python notify.py upload "${{ github.repository }}" "${{ matrix.input_url || inputs.input_url }}" "xiaomi" \
+          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
 
           echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
@@ -333,7 +316,7 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
           NOTIFY_WORKFLOW_CONCLUSION: ${{ job.status }}
-          NOTIFY_UPLOAD_METHOD: ${{ matrix.upload_method || inputs.upload_method }}
+          NOTIFY_UPLOAD_METHOD: ${{ inputs.upload_method }}
           NOTIFY_ERROR_LOG: build_action.log
         run: |
           set +e
@@ -342,16 +325,16 @@ jobs:
               if [ -z "${NOTIFY_DOWNLOAD_URL:-}" ] && [ -n "${RCLONE_DOWNLOAD_URL:-}" ]; then
                 export NOTIFY_DOWNLOAD_URL="$RCLONE_DOWNLOAD_URL"
               fi
-              python notify.py success "${{ github.repository }}" "${{ matrix.input_url || inputs.input_url }}" "xiaomi" \
+              python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
             cancelled)
               export NOTIFY_ERROR_REASON="Workflow was cancelled before completion."
-              python notify.py cancelled "${{ github.repository }}" "${{ matrix.input_url || inputs.input_url }}" "xiaomi" \
+              python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
             *)
-              python notify.py fail "${{ github.repository }}" "${{ matrix.input_url || inputs.input_url }}" "xiaomi" \
+              python notify.py fail "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
           esac
