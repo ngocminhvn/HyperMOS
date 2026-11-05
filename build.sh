@@ -120,6 +120,17 @@ elif [[ "${is_base_rom_eu:-false}" == "true" ]]; then
             exit 1
         }
     done
+    # ZIP extraction succeeded, and all numbered super chunks are present.
+    # Release *only* the downloaded Xiaomi.eu ZIP, before creating the raw
+    # super image to avoid duplicate multi-GiB copies on the CI runner.
+    # Never delete a user-provided local archive.
+    if [[ "${eu_rom_downloaded:-0}" == "1" ]]; then
+        rm -f -- "$work_dir/$baserom" || {
+            error "EU: failed to release downloaded ROM ZIP"
+            exit 1
+        }
+        info "EU: released downloaded source ZIP after successful image extraction"
+    fi
 
     unpack "Converting ${#super_chunks[@]} sparse super.img chunks with system simg2img"
     raw_super="build/baserom/super.img"
@@ -160,11 +171,6 @@ if [[ ${baserom_type} == 'payload' ]]; then
         df -h "$work_dir" || true
         exit 1
     fi
-    # All requested partition images have been materialized; free the large
-    # payload *now*, not after every EROFS filesystem has been unpacked.
-    rm -f -- build/baserom/payload.bin
-    info "Released extracted OTA payload.bin before EROFS extraction"
-    df -h "$work_dir" || true
 elif [[ ${baserom_type} == 'br' ]];then
     super_list=$(cat build/baserom/dynamic_partitions_op_list | grep "add " | awk '{ print $2 }')
     unpack "Unpacking new.dat.br"
@@ -231,12 +237,6 @@ if [[ "${is_base_rom_eu:-false}" == "true" ]]; then
     info "EU: released raw source super.img after partition extraction"
 fi
 
-# Reclaim space after extracting an 8+ GiB Xiaomi.eu URL download.
-# Never delete a user-supplied local ZIP.
-if [[ "$rom_source" == "xiaomi_eu" && "${eu_rom_downloaded:-0}" == "1" ]]; then
-    rm -f -- "$work_dir/$baserom"
-    info "EU: removed downloaded source archive after successful extraction"
-fi
 
 phase "3/4 Apply HyperMOS modifications"
 mods "Gathering device information"
