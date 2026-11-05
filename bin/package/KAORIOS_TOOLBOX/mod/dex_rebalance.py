@@ -49,12 +49,23 @@ def dex_names(root: Path, suffix: str) -> list[Path]:
 
 
 def read_stats(path: Path) -> dict[str, int]:
-    data = path.read_bytes()[:112]
-    if len(data) < 112 or data[:4] != b"dex\n":
-        raise ValueError(f"Invalid DEX header: {path}")
+    """Validate every generated DEX *before* treating a successful smali exit as success.
+
+    smali v2 can finish writing an invalid output when a 16-bit reference
+    table overflows (observed for Android 17 framework classes3.dex).
+    A non-empty file is not proof of a valid DEX.
+    """
+    with path.open("rb") as handle:
+        data = handle.read(112)
+    if len(data) < 112 or data[:4] != b"dex\n" or data[7:8] != b"\x00":
+        raise ValueError(f"{path.name}: invalid DEX magic or truncated header")
+    size = path.stat().st_size
+    file_size = struct.unpack_from("<I", data, 0x20)[0]
+    if size < 112 or file_size < 112 or file_size > size:
+        raise ValueError(f"{path.name}: invalid DEX file_size={file_size}, actual={size}")
     stats = {key: struct.unpack_from("<I", data, offset)[0]
              for key, offset in FIELDS.items()}
-    for key in ("type_ids", "proto_ids", "field_ids", "method_ids"):
+    for key in ("type_ids", "proto_ids", "field_ids", "method_ids", "class_defs"):
         if stats[key] > LIMIT:
             raise ValueError(f"{path.name}: {key}={stats[key]} exceeds DEX limit {LIMIT}")
     return stats
@@ -165,6 +176,7 @@ def main() -> int:
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("audit", "inventory"):
         sub.add_parser(name).add_argument("root", type=Path)
+    sub.add_parser("check-file").add_argument("path", type=Path)
     move = sub.add_parser("relocate")
     move.add_argument("source", type=Path)
     move.add_argument("destination", type=Path)
@@ -175,6 +187,10 @@ def main() -> int:
     try:
         if args.command == "audit":
             audit(args.root)
+        elif args.command == "check-file":
+            stats = read_stats(args.path)
+            print(f"[DEX CHECK] {args.path.name}: " +
+                  ", ".join(f"{key}={value}" for key, value in stats.items()), flush=True)
         elif args.command == "inventory":
             for descriptor in sorted(inventory(args.root)):
                 print(descriptor)
