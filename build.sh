@@ -68,8 +68,22 @@ mkdir -p build/baserom/images/
 # Extract partitions
 if [[ ${baserom_type} == 'payload' ]]; then
     unpack "Extracting files payload.bin..."
-    unzip ${baserom} payload.bin -d build/baserom >/dev/null 2>&1 || error "Extracting payload.bin error"
+    if ! unzip "${baserom}" payload.bin -d build/baserom >/dev/null 2>&1 ||
+       [[ ! -s "build/baserom/payload.bin" ]]; then
+        error "Extracting payload.bin error"
+        exit 1
+    fi
     unpack "File payload.bin extracted."
+    # Once the OTA payload is intact on disk, its downloaded source ZIP only
+    # consumes disk space during the costly partition extraction phase.
+    # The local-ZIP input case is intentionally never removed.
+    if [[ "${downloaded_china_rom:-0}" == "1" ]]; then
+        rm -f -- "$work_dir/$baserom" || {
+            error "Cannot release downloaded China ROM ZIP before partition extraction"
+            exit 1
+        }
+        info "Released downloaded China OTA archive before unpacking payload.bin"
+    fi
 elif [[ ${baserom_type} == 'br' ]];then
     unpack "Extracting files *.new.dat.br"
     unzip ${baserom} -d build/baserom >/dev/null 2>&1 || error "Extracting new.dat.br error"
@@ -141,7 +155,16 @@ fi
 
 if [[ ${baserom_type} == 'payload' ]]; then
     unpack "Unpacking payload.bin"
-    payload-extract extract -o build/baserom/images/ build/baserom/payload.bin >/dev/null 2>&1 || error "Unpacking payload.bin failed"    
+    if ! payload-extract extract -o build/baserom/images/ build/baserom/payload.bin >/dev/null 2>&1; then
+        error "Unpacking payload.bin failed"
+        df -h "$work_dir" || true
+        exit 1
+    fi
+    # All requested partition images have been materialized; free the large
+    # payload *now*, not after every EROFS filesystem has been unpacked.
+    rm -f -- build/baserom/payload.bin
+    info "Released extracted OTA payload.bin before EROFS extraction"
+    df -h "$work_dir" || true
 elif [[ ${baserom_type} == 'br' ]];then
     super_list=$(cat build/baserom/dynamic_partitions_op_list | grep "add " | awk '{ print $2 }')
     unpack "Unpacking new.dat.br"
