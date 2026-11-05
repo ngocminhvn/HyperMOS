@@ -1,10 +1,6 @@
 name: HyperMOS ROM Build
 
 on:
-  # Temporary branch-only full-build regression test for Kaorios A17 DEX overflow.
-  push:
-    branches:
-      - fix/kaorios-a17-dex-rebalance
   workflow_dispatch:
     inputs:
       input_url:
@@ -82,15 +78,6 @@ jobs:
         with:
           lfs: true
 
-      - name: Verify Kaorios DEX fix syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash -n bin/package/KAORIOS_TOOLBOX/patch.sh
-          python3 -m py_compile bin/package/KAORIOS_TOOLBOX/mod/dex_rebalance.py
-          python3 bin/package/KAORIOS_TOOLBOX/mod/dex_rebalance.py --help >/dev/null
-          echo "[OK] Kaorios DEX fix syntax check passed"
-
       - name: Prepare build environment
         shell: bash
         run: |
@@ -135,10 +122,10 @@ jobs:
           chmod +x bin/magiskboot 2>/dev/null || true
           chmod +x bin/Linux/x86_64/* 2>/dev/null || true
 
-          python notify.py start "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.17.XOBCNXM/haotian-ota_full-OS4.0.0.17.XOBCNXM-user-17.0-052b694294.zip' }}" "xiaomi" \
+          python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || echo "[WARN] - Start notification failed"
 
-          if [ "${{ inputs.upload_method || 'drive' }}" = "drive" ]; then
+          if [ "${{ inputs.upload_method }}" = "drive" ]; then
             echo "[INFO] - Validate Drive upload config"
             sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
           fi
@@ -147,8 +134,8 @@ jobs:
 
       - name: Build ROM
         env:
-          INPUT_URL: ${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.17.XOBCNXM/haotian-ota_full-OS4.0.0.17.XOBCNXM-user-17.0-052b694294.zip' }}
-          ROOT_MODE: ${{ inputs.root_mode || 'root' }}
+          INPUT_URL: ${{ inputs.input_url }}
+          ROOT_MODE: ${{ inputs.root_mode }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -185,7 +172,7 @@ jobs:
           fi
 
       - name: Cache SukiSU host patcher
-        if: ${{ (inputs.root_mode || 'root') == 'root' }}
+        if: ${{ inputs.root_mode == 'root' }}
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/hypermos-sukisu-host-cache
@@ -193,11 +180,11 @@ jobs:
           restore-keys: sukisu-host-v3-${{ runner.os }}-${{ hashFiles('bin/root/prepare_sukisu.sh', 'bin/root/patch_sukisu_host_source.py') }}-
 
       - name: Prepare and patch SukiSU Ultra
-        if: ${{ (inputs.root_mode || 'root') == 'root' }}
+        if: ${{ inputs.root_mode == 'root' }}
         shell: bash
         env:
           SUKISU_HOST_CACHE_DIR: ${{ runner.temp }}/hypermos-sukisu-host-cache
-          ROOT_MODE: ${{ inputs.root_mode || 'root' }}
+          ROOT_MODE: ${{ inputs.root_mode }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -229,7 +216,7 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
-          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.17.XOBCNXM/haotian-ota_full-OS4.0.0.17.XOBCNXM-user-17.0-052b694294.zip' }}" "xiaomi" \
+          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log
           sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
@@ -237,13 +224,13 @@ jobs:
       - name: Package and upload ROM
         shell: bash
         env:
-          UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
-          ROOT_MODE: ${{ inputs.root_mode || 'root' }}
+          UPLOAD_METHOD: ${{ inputs.upload_method }}
+          ROOT_MODE: ${{ inputs.root_mode }}
           DEBUG_BUILD: ${{ inputs.debug }}
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
           set -euo pipefail
-          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.17.XOBCNXM/haotian-ota_full-OS4.0.0.17.XOBCNXM-user-17.0-052b694294.zip' }}" "xiaomi" \
+          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
 
           echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
@@ -329,7 +316,7 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
           NOTIFY_WORKFLOW_CONCLUSION: ${{ job.status }}
-          NOTIFY_UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
+          NOTIFY_UPLOAD_METHOD: ${{ inputs.upload_method }}
           NOTIFY_ERROR_LOG: build_action.log
         run: |
           set +e
@@ -338,16 +325,16 @@ jobs:
               if [ -z "${NOTIFY_DOWNLOAD_URL:-}" ] && [ -n "${RCLONE_DOWNLOAD_URL:-}" ]; then
                 export NOTIFY_DOWNLOAD_URL="$RCLONE_DOWNLOAD_URL"
               fi
-              python notify.py success "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.17.XOBCNXM/haotian-ota_full-OS4.0.0.17.XOBCNXM-user-17.0-052b694294.zip' }}" "xiaomi" \
+              python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
             cancelled)
               export NOTIFY_ERROR_REASON="Workflow was cancelled before completion."
-              python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.17.XOBCNXM/haotian-ota_full-OS4.0.0.17.XOBCNXM-user-17.0-052b694294.zip' }}" "xiaomi" \
+              python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
             *)
-              python notify.py fail "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.17.XOBCNXM/haotian-ota_full-OS4.0.0.17.XOBCNXM-user-17.0-052b694294.zip' }}" "xiaomi" \
+              python notify.py fail "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
           esac
