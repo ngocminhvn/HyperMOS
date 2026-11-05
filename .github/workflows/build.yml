@@ -1,6 +1,10 @@
 name: HyperMOS ROM Build
 
 on:
+  # Temporary, China-308-only disk regression run; removed after run is queued.
+  push:
+    branches:
+      - fix/kaorios-a17-dex-rebalance
   workflow_dispatch:
     inputs:
       input_url:
@@ -122,10 +126,10 @@ jobs:
           chmod +x bin/magiskboot 2>/dev/null || true
           chmod +x bin/Linux/x86_64/* 2>/dev/null || true
 
-          python notify.py start "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+          python notify.py start "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}" "xiaomi" \
             "${{ inputs.builder_id }}" || echo "[WARN] - Start notification failed"
 
-          if [ "${{ inputs.upload_method }}" = "drive" ]; then
+          if [ "${{ inputs.upload_method || 'drive' }}" = "drive" ]; then
             echo "[INFO] - Validate Drive upload config"
             sudo -E bash uploadROM.sh setup "${{ secrets.RCLONE_TOKEN_PATH }}" 2>&1 | tee -a build_action.log
           fi
@@ -134,8 +138,8 @@ jobs:
 
       - name: Build ROM
         env:
-          INPUT_URL: ${{ inputs.input_url }}
-          ROOT_MODE: ${{ inputs.root_mode }}
+          INPUT_URL: ${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}
+          ROOT_MODE: ${{ inputs.root_mode || 'root' }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -172,7 +176,7 @@ jobs:
           fi
 
       - name: Cache SukiSU host patcher
-        if: ${{ inputs.root_mode == 'root' }}
+        if: ${{ inputs.root_mode == 'root' || github.event_name == 'push' }}
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/hypermos-sukisu-host-cache
@@ -180,11 +184,11 @@ jobs:
           restore-keys: sukisu-host-v3-${{ runner.os }}-${{ hashFiles('bin/root/prepare_sukisu.sh', 'bin/root/patch_sukisu_host_source.py') }}-
 
       - name: Prepare and patch SukiSU Ultra
-        if: ${{ inputs.root_mode == 'root' }}
+        if: ${{ inputs.root_mode == 'root' || github.event_name == 'push' }}
         shell: bash
         env:
           SUKISU_HOST_CACHE_DIR: ${{ runner.temp }}/hypermos-sukisu-host-cache
-          ROOT_MODE: ${{ inputs.root_mode }}
+          ROOT_MODE: ${{ inputs.root_mode || 'root' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -216,7 +220,7 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
-          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+          python notify.py pack "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
           echo "[PHASE] - Pack ROM" | tee -a build_action.log
           sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
@@ -224,13 +228,13 @@ jobs:
       - name: Package and upload ROM
         shell: bash
         env:
-          UPLOAD_METHOD: ${{ inputs.upload_method }}
-          ROOT_MODE: ${{ inputs.root_mode }}
+          UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
+          ROOT_MODE: ${{ inputs.root_mode || 'root' }}
           DEBUG_BUILD: ${{ inputs.debug }}
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
           set -euo pipefail
-          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+          python notify.py upload "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}" "xiaomi" \
             "${{ inputs.builder_id }}" || true
 
           echo "[PHASE] - Package and upload via ${UPLOAD_METHOD}" | tee -a build_action.log
@@ -316,7 +320,7 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
           NOTIFY_WORKFLOW_CONCLUSION: ${{ job.status }}
-          NOTIFY_UPLOAD_METHOD: ${{ inputs.upload_method }}
+          NOTIFY_UPLOAD_METHOD: ${{ inputs.upload_method || 'drive' }}
           NOTIFY_ERROR_LOG: build_action.log
         run: |
           set +e
@@ -325,16 +329,16 @@ jobs:
               if [ -z "${NOTIFY_DOWNLOAD_URL:-}" ] && [ -n "${RCLONE_DOWNLOAD_URL:-}" ]; then
                 export NOTIFY_DOWNLOAD_URL="$RCLONE_DOWNLOAD_URL"
               fi
-              python notify.py success "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+              python notify.py success "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
             cancelled)
               export NOTIFY_ERROR_REASON="Workflow was cancelled before completion."
-              python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+              python notify.py cancelled "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
             *)
-              python notify.py fail "${{ github.repository }}" "${{ inputs.input_url }}" "xiaomi" \
+              python notify.py fail "${{ github.repository }}" "${{ inputs.input_url || 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.308.0.WOBCNXM/haotian-ota_full-OS3.0.308.0.WOBCNXM-user-16.0-9aea0c2b20.zip' }}" "xiaomi" \
                 "${{ inputs.builder_id }}"
               ;;
           esac
