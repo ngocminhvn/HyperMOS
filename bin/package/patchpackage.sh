@@ -83,6 +83,20 @@ fi
 
 # TNM owns mandatory post-fs property reporting and China-mandatory App
 # Privacy. On EU/other, TNM preserves the previous compatibility-gated opt-out.
+# Android 17 uses SELinux permissionx nlmsg. Ubuntu 24.04's secilc does
+# not support it, including when compiling *unmodified* platform CIL.
+# Build upstream secilc/libsepol from checksum-pinned sources once, then
+# continue normal TNM/Kaorios policy verification without disabling checks.
+android_version="$(tr -d ' \\r\\n' < "$work_dir/bin/ddevice/androidver.txt")"
+if [[ "$android_version" == "17" ]]; then
+  info "TNM: preparing Android 17 SELinux compiler with nlmsg support"
+  bash "$target_dir/TNM/install_secilc_a17.sh" || {
+    error "TNM: failed to prepare verified Android 17 SELinux compiler"
+    exit 1
+  }
+  export PATH="/usr/local/bin:$PATH"
+  export HYPERMOS_SECILC_BIN="/usr/local/bin/secilc"
+fi
 info "PATCH 6/6: TNM (post-fs + China-mandatory App Privacy)"
 bash "$target_dir/TNM/patch.sh" || exit 1
 
