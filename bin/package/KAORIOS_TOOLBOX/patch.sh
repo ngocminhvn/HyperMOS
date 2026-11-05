@@ -263,8 +263,14 @@ run_baksmali() {
 run_smali() {
   local src="$1" out="$2"
   rm -f "$out"
-  java -jar "$SMALI" a --api "$SDK_LEVEL" "$src" -o "$out"
-  [[ -s "$out" ]]
+  java -jar "$SMALI" a --api "$SDK_LEVEL" "$src" -o "$out" || return 1
+  [[ -s "$out" ]] || {
+    echo "[DEX ERROR] smali produced an empty output: $out" >&2
+    return 1
+  }
+  # A zero exit code is insufficient when method_ids exceeds the 16-bit DEX
+  # limit. Reject the generated file *before* replacing the original JAR DEX.
+  python3 "$DEX_REBALANCE" check-file "$out"
 }
 
 tree_hash() {
@@ -465,7 +471,7 @@ rebuild_changed_dexes() {
         # Move complete non-bootstrap class families into a fresh DEX, retaining
         # every class and every enabled Kaorios hook. Reject all other errors.
         if [[ "$kind" != "framework" || "$ANDROID_VER" != "17" ]] ||
-           ! grep -Eq 'Unsigned short value out of range|DexIndexOverflowException|Too many (method|field|type) references' "$log"; then
+           ! grep -Eq 'Unsigned short value out of range|DexIndexOverflowException|Too many (method|field|type) references|method_ids=[0-9]+ exceeds DEX limit|field_ids=[0-9]+ exceeds DEX limit|type_ids=[0-9]+ exceeds DEX limit' "$log"; then
           cat "$log" >&2
           error "KAORIOS: failed rebuilding ${name%.out}"
           return 1
@@ -484,7 +490,7 @@ rebuild_changed_dexes() {
             info "KAORIOS: reference overflow resolved in ${name%.out} (attempt $attempt)"
             break
           fi
-          if ! grep -Eq 'Unsigned short value out of range|DexIndexOverflowException|Too many (method|field|type) references' "$log"; then
+          if ! grep -Eq 'Unsigned short value out of range|DexIndexOverflowException|Too many (method|field|type) references|method_ids=[0-9]+ exceeds DEX limit|field_ids=[0-9]+ exceeds DEX limit|type_ids=[0-9]+ exceeds DEX limit' "$log"; then
             cat "$log" >&2
             error "KAORIOS: non-overflow error during DEX rebalance"
             return 1
@@ -792,6 +798,9 @@ verify_candidate() {
   local candidate="$1" kind="$2" root="$3"
   local raw="$root/verify-raw" smali="$root/verify-smali"
   extract_all_dex "$candidate" "$raw"
+  # Fail with the actual malformed-header/reference count rather than a
+  # misleading UnsupportedFileTypeException from baksmali.
+  python3 "$DEX_REBALANCE" audit "$raw"
   disassemble_all "$raw" "$smali"
   case "$kind" in
     framework) verify_framework_final "$smali" ;;
