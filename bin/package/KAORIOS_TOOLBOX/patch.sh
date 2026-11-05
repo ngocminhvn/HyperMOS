@@ -11,6 +11,7 @@ KAORIOS_DIR="$work_dir/bin/package/KAORIOS_TOOLBOX"
 SCRIPT_DIR="$KAORIOS_DIR/script"
 MOD_DIR="$KAORIOS_DIR/mod"
 MOD_TOOL="$MOD_DIR/kaorios_mod.py"
+DEX_REBALANCE="$MOD_DIR/dex_rebalance.py"
 PATCHER="$SCRIPT_DIR/kaorios_patcher.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
 SMALI="$work_dir/bin/apktool/smaliv2.jar"
@@ -188,6 +189,7 @@ if archive_patch_needed; then
   require_file "$PATCHER" "patcher"
   require_file "$BAKSMALI" "baksmali"
   require_file "$SMALI" "smali"
+  require_file "$DEX_REBALANCE" "DEX reference validation / rebalance helper"
 fi
 if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
   require_file "$MOD_TOOL" "Kaorios MOD helper"
@@ -441,10 +443,13 @@ patch_selected_targets() {
 }
 
 rebuild_changed_dexes() {
-  local smali_root="$1" snapshot="$2" built="$3"
-  local dir name before after changed=0
-  rm -rf "$built"
-  mkdir -p "$built"
+  local smali_root="$1" snapshot="$2" built="$3" kind="$4" raw="$5"
+  local dir name before after changed=0 log
+  local overflow_root="$built-overflow"
+  rm -rf "$built" "$overflow_root"
+  mkdir -p "$built" "$overflow_root"
+  log="$TEMP_ROOT/smali-$kind.log"
+
   shopt -s nullglob
   for dir in "$smali_root"/classes*.dex.out; do
     name=$(basename "$dir")
@@ -455,21 +460,73 @@ rebuild_changed_dexes() {
       return 1
     fi
     if [[ "$before" != "$after" ]]; then
-      run_smali "$dir" "$built/${name%.out}"
+      if ! run_smali "$dir" "$built/${name%.out}" >"$log" 2>&1; then
+        # Android 17's framework DEX can be at the 16-bit reference limit.
+        # Move complete non-bootstrap class families into a fresh DEX, retaining
+        # every class and every enabled Kaorios hook. Reject all other errors.
+        if [[ "$kind" != "framework" || "$ANDROID_VER" != "17" ]] ||
+           ! grep -Eq 'Unsigned short value out of range|DexIndexOverflowException|Too many (method|field|type) references' "$log"; then
+          cat "$log" >&2
+          error "KAORIOS: failed rebuilding ${name%.out}"
+          return 1
+        fi
+        warn "KAORIOS: ${name%.out} exceeded the DEX instruction reference limit; rebalancing"
+        local overflow_dir="$overflow_root/${name%.out}"
+        local attempt recovered=0
+        mkdir -p "$overflow_dir"
+        for attempt in {1..12}; do
+          if ! python3 "$DEX_REBALANCE" relocate "$dir" "$overflow_dir"; then
+            error "KAORIOS: unable to rebalance ${name%.out} safely"
+            return 1
+          fi
+          if run_smali "$dir" "$built/${name%.out}" >"$log" 2>&1; then
+            recovered=1
+            info "KAORIOS: reference overflow resolved in ${name%.out} (attempt $attempt)"
+            break
+          fi
+          if ! grep -Eq 'Unsigned short value out of range|DexIndexOverflowException|Too many (method|field|type) references' "$log"; then
+            cat "$log" >&2
+            error "KAORIOS: non-overflow error during DEX rebalance"
+            return 1
+          fi
+        done
+        if (( recovered == 0 )); then
+          cat "$log" >&2
+          error "KAORIOS: reference overflow unresolved after 12 safe relocations"
+          return 1
+        fi
+      fi
       info "KAORIOS: rebuilt changed DEX ${name%.out}"
       changed=$((changed + 1))
     fi
   done
   shopt -u nullglob
+
+  # Allocate additional DEXes only when necessary, without colliding with
+  # original DEX names. The Kaorios driver gets the next free slot after these.
+  shopt -s nullglob
+  for dir in "$overflow_root"/*; do
+    [[ -d "$dir" ]] || continue
+    name=$(next_dex_name "$raw" "$built")
+    if ! run_smali "$dir" "$built/$name" >"$log" 2>&1; then
+      cat "$log" >&2
+      error "KAORIOS: failed building overflow class family $name"
+      return 1
+    fi
+    info "KAORIOS: preserved relocated framework classes in $name"
+  done
+  shopt -u nullglob
+
   if (( changed == 0 )); then
     info "KAORIOS: no owner DEX changed; final candidate verification will decide validity"
   fi
 }
-
 next_dex_name() {
   local raw="$1" dex base n max=0
   shopt -s nullglob
-  for dex in "$raw"/classes*.dex; do
+  local root
+  for root in "$@"; do
+    for dex in "$root"/classes*.dex; do
     base=$(basename "$dex")
     if [[ "$base" == "classes.dex" ]]; then
       n=1
@@ -479,6 +536,7 @@ next_dex_name() {
       continue
     fi
     (( n > max )) && max=$n
+    done
   done
   shopt -u nullglob
   n=$((max + 1))
@@ -799,20 +857,24 @@ patch_archive() {
     *) error "KAORIOS: unsupported archive kind: $kind"; return 1 ;;
   esac
 
+  python3 "$DEX_REBALANCE" audit "$raw"
+  python3 "$DEX_REBALANCE" inventory "$smali" > "$root/original.classes"
   snapshot_hashes "$smali" "$snapshot"
 
   patch_selected_targets "$kind" "$smali"
-  rebuild_changed_dexes "$smali" "$snapshot" "$built"
+  rebuild_changed_dexes "$smali" "$snapshot" "$built" "$kind" "$raw"
 
   if [[ "$kind" == "framework" ]] && framework_driver_needed; then
     local driver_name
-    driver_name=$(next_dex_name "$raw")
+    driver_name=$(next_dex_name "$raw" "$built")
     cp -f "$DRIVER_DEX" "$built/$driver_name"
     info "KAORIOS: framework driver staged as $driver_name"
   fi
 
   update_archive_dexes "$artifact" "$built" "$candidate"
   verify_candidate "$candidate" "$kind" "$root"
+  python3 "$DEX_REBALANCE" audit "$root/verify-raw"
+  python3 "$DEX_REBALANCE" verify-classes "$root/original.classes" "$root/verify-smali"
 
   cp -f "$candidate" "$artifact"
   info "KAORIOS: installed verified $kind artifact"
