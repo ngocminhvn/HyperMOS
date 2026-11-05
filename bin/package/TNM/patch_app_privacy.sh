@@ -31,9 +31,13 @@ fail_or_skip() {
   exit 0
 }
 
-if [[ "$android_version" != "16" ]]; then
-  fail_or_skip "Android $android_version has no validated TNM APM layout (supported: Android 16)"
-fi
+# Android 17 is permitted only through the same strict six-signature gate,
+# full DEX round-trip, and mandatory on-disk audit as Android 16. An unknown
+# vendor layout still fails closed; no hook or SELinux rule is bypassed.
+case "$android_version" in
+  16|17) ;;
+  *) fail_or_skip "Android $android_version is unsupported for TNM APM (supported: 16/17 with signature and DEX audit)" ;;
+esac
 for file in "$baksmali" "$smali" "$base/patch_app_privacy.py" "$base/TnmAppPrivacy.smali"; do
   [[ -s "$file" ]] || { error "TNM App Privacy: missing $file"; exit 1; }
 done
@@ -183,5 +187,5 @@ chmod 0644 "$marker"
 if [[ "$strict" == "1" ]]; then
   audit_staged
 fi
-mods "TNM App Privacy -> A16 APM policy (schema 1, six verified APIs)"
+mods "TNM App Privacy -> A${android_version} APM policy (schema 1, six verified APIs)"
 
