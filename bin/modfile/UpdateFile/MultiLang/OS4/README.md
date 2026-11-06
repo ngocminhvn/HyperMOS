@@ -1,63 +1,25 @@
-# HyperOS 4 China — Vietnamese (Android 17)
+# HyperOS 4 China — Vietnamese overlays (Android 17)
 
-The root `MultiLang/update.sh` runs `OS4/update.sh` only for China OS4.
-Unlike the old XML-only validation, it now builds actual Vietnamese runtime
-resource overlay (RRO) APKs using the bundled Xiaomi.eu XML in
-`Vietnamese/main`. **No Xiaomi APK, SystemUI APK, framework-res APK, or DEX
-is replaced by this module.** OS3's 67 prebuilt overlays remain unchanged.
+## Cách hoạt động mới: biên dịch một lần, dùng chung nhiều máy
 
-## Build process
+- **Action riêng:** `Prebuild OS4 Vietnamese Overlays` nhận URL ROM China OS4 Android 17, giải nén APK nền (không chạy bất kỳ bản vá/mod ROM nào), dùng 281 XML tiếng Việt trong `Vietnamese/main` để tạo các APK RRO. APK được zipalign, ký, xác minh và commit vào `updatesource/<ROM version>/`.
+- **Build ROM hằng ngày:** `MultiLang/OS4/update.sh` **không biên dịch XML**. Chỉ chọn thư mục `updatesource/<ROM version>/`, kiểm tra SHA-256 và ZIP, rồi copy các APK vào `product/overlay/HyperMOS-OS4-VI`. Nếu ROM có `product/overlay/config/config.xml`, bổ sung cấu hình enabled/immutable cho overlay mà không xóa các cấu hình cũ.
+- **Không có thư mục thiết bị:** Ví dụ ROM `OS4.0.0.17.XOBCNXM` và `OS4.0.0.17.XOCCNXM` dùng chung bộ `updatesource/OS4.0.0.17/`. Chỉ số phiên bản số quyết định thư mục. *Một ROM tham chiếu* được dùng để tạo overlay cho phiên bản đó; bộ APK dự định dùng chung cho mọi thiết bị chạy cùng phiên bản.
+- **OS3 giữ nguyên:** 67 APK RRO ở `OS3/updatesource/` không thay đổi.
 
-1. Locate each matching app APK in `build/baserom/images` to obtain its real
-   Android target package name and eligible resource metadata automatically.
-   No manual Xiaomi.eu-versus-China XML audit is required.
-2. Compile Vietnamese `values-vi` and regional `values-*-vi` resources with
-   AAPT2 and generate Android 11+ `res/xml/overlays.xml` resource maps.
-   Skip names missing in the target or blocked by the target's overlayable
-   policy. For targets defining overlayable groups, create separate overlays
-   for groups permitting product overlays.
-3. Link against the ROM's own `framework-res.apk`, zipalign, sign with the
-   repository's shared AOSP test key, and verify using `apksigner`.
-4. Put generated RRO APKs in
-   `product/overlay/HyperMOS-OS4-VI/`. When
-   `product/overlay/config/config.xml` exists, append immutable, enabled
-   entries without deleting or disabling existing overlay entries.
-5. Write `build/baserom/os4-vietnamese-report.json` listing compiled and
-   skipped APKs. Fail the build if compilation/signing errors or no overlays
-   were generated; never silently report XML validation as Vietnamese support.
+### Tạo bộ APK
 
-## Tooling
+Vào **GitHub Actions → Prebuild OS4 Vietnamese Overlays → Run workflow**, nhập đường dẫn ZIP ROM China OS4 Android 17. Action chạy `build.sh` ở chế độ `HYPERMOS_OS4_VI_PREBUILD=1` nên dừng ngay sau bước giải nén và kiểm tra OS, không chạy mod ROM, không repack và không xuất ROM. Sau đó chạy `package_prebuilt.py` và commit các APK cùng `manifest.json` (SHA-256) vào `main`.
 
-GitHub-hosted Ubuntu Android SDK build-tools provide `aapt2`,
-`apksigner` and `zipalign` under `$ANDROID_HOME/build-tools/*/`.
-The builder also accepts these commands on `PATH`.
+Trong thư mục `updatesource/OS4.0.0.17/` sẽ có `manifest.json` và các `HyperMOS.OS4.VI.*.apk`. Muốn cập nhật bộ dịch cho phiên bản đó chỉ cần chạy lại Action, các file sẽ được thay thế.
 
-To run manually **after ROM extraction**:
-
-```bash
-bash bin/modfile/UpdateFile/MultiLang/OS4/update.sh
-```
-
-## Limitations & device verification
-
-A compiled RRO is not proof that every string is translated or that the
-device's `idmap2` will accept the overlay. Android 17 enforces overlayable
-and partition policies. Resources absent from the source ROM or not
-overlayable from product cannot be translated by this mechanism. Do not
-force re-signing Xiaomi framework/SystemUI as a workaround.
-
-After flashing the **complete matching build** on a test device:
+### Kiểm tra sau khi flash
 
 ```sh
 adb shell cmd overlay list --user 0
 adb shell cmd overlay list --user current
-adb shell cmd overlay dump com.hypermos.vi.os4.settings.r1
 adb shell getprop persist.sys.locale
+adb logcat -b all | grep -iE 'idmap|OverlayManager'
 ```
 
-Verify that the generated `com.hypermos.vi.os4.*` packages are **enabled**
-and that Settings, SystemUI, and system dialogs show Vietnamese. If overlays
-show errors, inspect `adb shell ls /data/resource-cache` and
-`adb logcat -b all | grep -iE 'idmap|OverlayManager'`. Device boot and
-locale switching must be tested; a successful build alone does not
-guarantee them.
+**Lưu ý về tương thích:** Dùng chung một bộ APK theo phiên bản ROM không chứng minh tính tương thích với mọi máy. Các bản OEM cùng số phiên bản vẫn có thể khác resource ID, target package hoặc overlayable policy. Action chỉ xác minh bằng ROM tham chiếu; cần thử `idmap2` và giao diện thực tế trên các thiết bị khác. Nếu chưa có bộ overlay của phiên bản đang build, bước MultiLang OS4 dừng rõ ràng thay vì tự sinh APK hoặc âm thầm báo đã có tiếng Việt. Bộ overlay mới không thay, không ký lại Settings/SystemUI/framework-res gốc.
