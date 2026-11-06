@@ -94,3 +94,37 @@ jobs:
           assert "com.hypermos.vi.os4.settings.r1" in packages
           print("OS4 Vietnamese: signed RRO and existing OverlayConfig verified")
           PY
+
+          # All devices with the same numeric OS4 release must share one key.
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "bin/modfile/UpdateFile/MultiLang/OS4")
+          from rom_version import version_key
+          assert version_key("OS4.0.0.17.XOBCNXM") == "OS4.0.0.17"
+          assert version_key("OS4.0.0.17.XOCCNXM") == "OS4.0.0.17"
+          print("Shared version key verified; device suffix is ignored")
+          PY
+
+          # Install a prebuilt, signed synthetic overlay without invoking AAPT2.
+          mkdir -p "$WORK/prebuilt/updatesource/OS4.0.0.17"
+          cp "$WORK/images/product/overlay/HyperMOS-OS4-VI/HyperMOS.OS4.VI.settings.r1.apk" \
+             "$WORK/prebuilt/updatesource/OS4.0.0.17/"
+          python3 - "$WORK/prebuilt/updatesource/OS4.0.0.17" <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import sys
+          folder=Path(sys.argv[1])
+          apk=folder/"HyperMOS.OS4.VI.settings.r1.apk"
+          m={"schema":1,"rom_version":"OS4.0.0.17","overlays":[{
+              "file":apk.name,"package":"com.hypermos.vi.os4.settings.r1",
+              "sha256":hashlib.sha256(apk.read_bytes()).hexdigest()
+          }]}
+          (folder/"manifest.json").write_text(json.dumps(m),encoding="utf-8")
+          PY
+          rm -rf "$WORK/images/product/overlay/HyperMOS-OS4-VI"
+          python3 bin/modfile/UpdateFile/MultiLang/OS4/install_prebuilt.py \
+            "$WORK/prebuilt" "$WORK/images" "OS4.0.0.17.XOBCNXM"
+          test -s "$WORK/images/product/overlay/HyperMOS-OS4-VI/HyperMOS.OS4.VI.settings.r1.apk"
+          echo "Shared ROM-version prebuilt overlay install PASS"
+
