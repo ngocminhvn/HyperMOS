@@ -45,18 +45,35 @@ def sync(source: Path, revision: str) -> tuple[int, int]:
                 raise ValueError(f"Upstream symlink rejected: {path}")
             rel = path.relative_to(source)
             if (
-                len(rel.parts) < 4
+                len(rel.parts) != 4
                 or not rel.parts[0].endswith(".apk")
                 or rel.parts[1] != "res"
-                or not re.search(r"(?:^|-)vi(?:-|$)", rel.parts[2])
-                or path.suffix.lower() != ".xml"
             ):
                 raise ValueError(f"Unexpected upstream file layout: {rel}")
-            if path.stat().st_size > 20 * 1024 * 1024:
-                raise ValueError(f"Source XML too large: {rel}")
-            root = ET.parse(path).getroot()
-            if root.tag != "resources":
-                raise ValueError(f"Unexpected XML root: {rel}: {root.tag}")
+            qualifier = rel.parts[2]
+            if qualifier.startswith("values-") and re.search(r"(?:^|-)vi(?:-|$)", qualifier):
+                if path.suffix.lower() != ".xml":
+                    raise ValueError(f"Expected XML in values directory: {rel}")
+                if path.stat().st_size > 20 * 1024 * 1024:
+                    raise ValueError(f"Source XML too large: {rel}")
+                root = ET.parse(path).getroot()
+                if root.tag != "resources":
+                    raise ValueError(f"Unexpected XML root: {rel}: {root.tag}")
+            elif (
+                qualifier == "raw-vi"
+                and rel.parts[0] == "Mms.apk"
+                and rel.name in {
+                    "pad_sms_frequently_used_phrase",
+                    "satellite_frequently_used_phrase",
+                    "sms_frequently_used_phrase",
+                }
+            ):
+                if path.stat().st_size > 1024 * 1024:
+                    raise ValueError(f"Source raw resource too large: {rel}")
+                if "\x00" in path.read_text(encoding="utf-8"):
+                    raise ValueError(f"Unexpected binary raw resource: {rel}")
+            else:
+                raise ValueError(f"Unexpected upstream resource: {rel}")
             target = staging / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
@@ -69,7 +86,7 @@ def sync(source: Path, revision: str) -> tuple[int, int]:
         os.replace(staging, dest)
 
     (output / "UPSTREAM_COMMIT.txt").write_text(revision + "\n", encoding="utf-8")
-    print(f"Synced {len(source_files)} Vietnamese XML files across {len(apk_names)} APKs; upstream {revision}")
+    print(f"Synced {len(source_files)} Vietnamese resource files across {len(apk_names)} APKs; upstream {revision}")
     return len(source_files), len(apk_names)
 
 
