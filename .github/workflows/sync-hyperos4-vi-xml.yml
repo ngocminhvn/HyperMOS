@@ -30,6 +30,9 @@ jobs:
     if: github.ref_type == 'branch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout HyperMOS
         uses: actions/checkout@v4
@@ -55,7 +58,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --quiet --depth=1 --filter=blob:none --sparse \
+          git -c credential.helper='!gh auth git-credential' \
+            clone --quiet --depth=1 --filter=blob:none --sparse \
             --branch master \
             https://github.com/ingbrzy/Xiaomi.eu-HyperOS-4.0-XML-Global.git \
             "$RUNNER_TEMP/xiaomi-eu-xml"

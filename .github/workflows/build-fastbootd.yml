@@ -52,6 +52,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
       HYPERMOS_FASTBOOTD_ONLY: '1'
       INPUT_URL: ${{ inputs.input_url }}
       BUILDER_ID: ${{ inputs.builder_id }}

@@ -27,7 +27,7 @@ esac
 
 mkdir -p "$out"
 python3 "$workdir/bin/root/fetch_sukisu_latest.py" --out "$out" --kmi "$kmi" ||
-  die "Latest official SukiSU release does not support $kmi or failed digest verification"
+  die "Could not retrieve or verify official SukiSU assets for KMI=$kmi (see API/download error above)"
 
 tag="$(cat "$out/tag.txt")"
 [[ "$tag" =~ ^v[0-9][0-9A-Za-z._-]*$ ]] || die "Invalid upstream release tag"
@@ -51,7 +51,10 @@ else
   command -v git >/dev/null || die "Git is needed to verify the matching release source"
   source_dir="$out/source"
   # Clone only the immutable release snapshot; history is not used by boot-patch.
-  git clone --quiet --depth 1 --branch "$tag" --single-branch \
+  # GitHub CLI credential helper uses GH_TOKEN if a remote asks for auth.
+  # No token is written to the clone URL or the Git configuration.
+  git -c credential.helper='!gh auth git-credential' \
+    clone --quiet --depth 1 --branch "$tag" --single-branch \
     https://github.com/SukiSU-Ultra/SukiSU-Ultra.git "$source_dir" ||
     die "Could not clone SukiSU upstream release $tag"
   head="$(git -C "$source_dir" rev-parse HEAD)" || die "Could not inspect upstream tag"

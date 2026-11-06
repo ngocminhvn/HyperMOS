@@ -9,7 +9,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -54,12 +57,65 @@ def download(url: str, destination: Path, expected_sha256: str | None = None) ->
             time.sleep(2 * (attempt + 1))
 
 
+def download_release_asset(tag: str, name: str, url: str, destination: Path, digest: str) -> None:
+    """Use authenticated gh for releases; public HTTPS is a safe fallback."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token and shutil.which("gh"):
+        env = os.environ.copy()
+        env["GH_TOKEN"] = token
+        try:
+            subprocess.run(
+                ["gh", "release", "download", tag, "--repo", "SukiSU-Ultra/SukiSU-Ultra",
+                 "--pattern", name, "--dir", str(destination.parent), "--clobber"],
+                env=env, check=True, timeout=240,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+            if not destination.is_file() or not destination.stat().st_size:
+                raise OSError("empty or missing GitHub release download")
+            if hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
+                destination.unlink(missing_ok=True)
+                raise RuntimeError(f"SHA-256 mismatch for official GitHub release asset: {name}")
+            return
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            destination.unlink(missing_ok=True)
+            print(f"[ROOT] Authenticated asset download unavailable for {name}; trying public HTTPS", file=sys.stderr)
+    download(url, destination, digest)
+
+
+def github_api_headers() -> dict[str, str]:
+    """Authenticate GitHub API lookups; never send the token to CDN URLs."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": USER_AGENT,
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def load_release() -> dict:
-    req = urllib.request.Request(API, headers={
-        "Accept": "application/vnd.github+json", "User-Agent": USER_AGENT,
-    })
-    with urllib.request.urlopen(req, timeout=45) as response:
-        release = json.load(response)
+    req = urllib.request.Request(API, headers=github_api_headers())
+    release = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=45) as response:
+                release = json.load(response)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            if exc.code in (403, 429):
+                authenticated = "authenticated" if "Authorization" in req.headers else "unauthenticated"
+                raise RuntimeError(
+                    f"GitHub API HTTP {exc.code} ({authenticated}) while resolving "
+                    "the latest SukiSU release; check token access/rate limits"
+                ) from exc
+            raise
+    if release is None:
+        raise RuntimeError("Could not retrieve the latest SukiSU release")
     tag = release.get("tag_name", "")
     if not re.fullmatch(r"v[0-9][0-9A-Za-z._-]*", tag):
         raise RuntimeError(f"unrecognized stable release tag: {tag!r}")
@@ -115,7 +171,7 @@ def run(out: Path, kmi: str) -> None:
             raise RuntimeError(f"untrusted source URL for {name}")
         digest = HEX.fullmatch(asset["digest"]).group(1).lower()
         dst = out / name
-        download(uri, dst, digest)
+        download_release_asset(tag, name, uri, dst, digest)
         verified[key] = {"asset": name, "sha256": digest}
         print(f"[ROOT] verified official {tag} asset: {name} SHA-256={digest}", flush=True)
     lkm_file = out / verified["lkm"]["asset"]
@@ -150,6 +206,7 @@ def main() -> int:
         assert len(KMIS) == 8
         assert HEX.fullmatch("sha256:" + "a" * 64)
         assert not HEX.fullmatch("sha256:no-digest")
+        assert github_api_headers()["Accept"] == "application/vnd.github+json"
         print("[ROOT] release resolver self-test PASS")
         return 0
     if not args.kmi or args.out is None:

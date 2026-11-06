@@ -58,6 +58,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
       DUMP_MODE: ${{ inputs.dump_mode }}
     steps:
       - name: Free runner space

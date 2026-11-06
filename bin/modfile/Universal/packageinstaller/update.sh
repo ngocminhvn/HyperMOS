@@ -1,5 +1,6 @@
 WDIR=$(pwd)
 source "$WDIR/functions.sh"
+source "$WDIR/bin/github_release.sh"
 
 MAINF="$WDIR/build/baserom/images"
 deviceTYPE=$(cat "$WDIR/bin/ddevice/device_type.txt")
@@ -55,10 +56,20 @@ fetch_latest_release() {
         release_mode="latest"
         latest_url="https://github.com/wxxsfxyzm/InstallerX-Revived/releases/latest"
 
-        effective_url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$latest_url" 2>/dev/null || true)
-        version="${effective_url##*/}"
+        # Prefer authenticated API; the public releases redirect remains a fallback.
+        version=""
+        if [[ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]] && command -v gh >/dev/null 2>&1; then
+            version=$(GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh api \
+                repos/wxxsfxyzm/InstallerX-Revived/releases/latest \
+                --jq '.tag_name' 2>/dev/null || true)
+        fi
+        if [[ -z "$version" ]]; then
+            effective_url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$latest_url" 2>/dev/null || true)
+            version="${effective_url##*/}"
+            [[ "$effective_url" == */releases/tag/* ]] || version=""
+        fi
 
-        if [[ -z "$version" || "$version" == "latest" || "$effective_url" != */releases/tag/* ]]; then
+        if [[ -z "$version" || "$version" == "latest" || ! "$version" =~ ^[A-Za-z0-9._+-]+$ ]]; then
             warn "InstallerX latest redirect unavailable; falling back to pinned stable $PINNED_INSTALLERX_VERSION"
             INSTALLERX_VERSION="$PINNED_INSTALLERX_VERSION"
             release_mode="fallback-pinned"
@@ -187,7 +198,8 @@ build_installerx_stable() {
 
     fetch_latest_release || return 1
 
-    if ! aria2c -q         --allow-overwrite=true         --auto-file-renaming=false         -d "$TMP_DIR"         -o "$(basename "$DOWNLOAD_APK")"         "$INSTALLERX_URL"; then
+    if ! github_release_download "wxxsfxyzm/InstallerX-Revived" "$INSTALLERX_VERSION" \
+        "InstallerX-Revived-online-$INSTALLERX_VERSION.apk" "$DOWNLOAD_APK"; then
         echo "[ERROR] Failed to download InstallerX Stable $INSTALLERX_VERSION"
         return 1
     fi
