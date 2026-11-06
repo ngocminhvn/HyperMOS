@@ -172,11 +172,28 @@ def main() -> int:
               file=sys.stderr)
         return 2
     source, images, out = map(lambda x: Path(x).resolve(), sys.argv[1:])
-    tools = {name: shutil.which(name) for name in ("aapt2", "apksigner", "zipalign")}
-    for name, path in tools.items():
-        if not path:
-            raise RuntimeError(f"{name} required for OS4 Vietnamese RRO build")
-    aapt2, signer, aligner = (tools[k] for k in ("aapt2", "apksigner", "zipalign"))
+    def find_tool(name: str) -> str:
+        installed = shutil.which(name)
+        if installed:
+            return installed
+        import os
+        sdk_roots = [
+            os.environ.get("ANDROID_HOME", ""),
+            os.environ.get("ANDROID_SDK_ROOT", ""),
+            "/usr/local/lib/android/sdk",
+            "/opt/android-sdk",
+        ]
+        choices = []
+        for root in filter(None, sdk_roots):
+            choices.extend(Path(root).glob(f"build-tools/*/{name}"))
+        choices = [p for p in choices if p.is_file()]
+        if choices:
+            def version(path: Path) -> tuple[int, ...]:
+                return tuple(int(n) for n in re.findall(r"\d+", path.parent.name))
+            return str(sorted(choices, key=version)[-1])
+        raise RuntimeError(f"{name} missing (ANDROID_HOME/build-tools unavailable)")
+
+    aapt2, signer, aligner = (find_tool(n) for n in ("aapt2", "apksigner", "zipalign"))
     repo = Path(__file__).resolve().parents[5]  # HyperMOS root
     cert = repo / "bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem"
     key = repo / "bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.pk8"
@@ -191,6 +208,9 @@ def main() -> int:
         raise RuntimeError("framework-res.apk missing in extracted ROM")
     framework = sorted(frame, key=lambda a: ("/system/framework/" not in str(a), str(a)))[0]
     output = out / "HyperMOS-OS4-VI"
+    # Discard only our previous generated overlays, not the ROM's stock overlays.
+    if output.is_dir():
+        shutil.rmtree(output)
     output.mkdir(parents=True, exist_ok=True)
     generated: list[str] = []
     report: dict[str, object] = {"built": [], "skipped": [], "source_apks": 0}
