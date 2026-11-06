@@ -7,6 +7,20 @@ if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
     exit 0
 fi
 
+# The bundled 67 Nothings overlay APKs were built for OS3 only.
+# OS4 has a separate XML source tree, NOT a compiled/validated overlay set.
+# Do not silently install OS3 overlay APKs into Android 17 / HyperOS 4.
+rom_os_file="$work_dir/bin/ddevice/rom_os.txt"
+if [[ ! -s "$rom_os_file" ]]; then
+  error "MultiLang: ROM OS identification missing"
+  exit 1
+fi
+rom_os="$(tr -d '\r\n' < "$rom_os_file")"
+if [[ "$rom_os" != "OS3" ]]; then
+  mods "MultiLang: skip OS3-only RRO APKs for $rom_os (OS4 XML staged separately)"
+  exit 0
+fi
+
 deviceTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 
 if [[ "$deviceTYPE" == "China" ]]; then
