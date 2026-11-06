@@ -91,7 +91,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 bin/modfile/UpdateFile/MultiLang/OS4/package_prebuilt.py \
+          # build.sh extracted the EROFS tree as root. Use the same identity
+          # when creating RROs inside product/overlay and writing the build report.
+          # Do not recursively chown the large unpacked ROM tree.
+          sudo -E python3 bin/modfile/UpdateFile/MultiLang/OS4/package_prebuilt.py \
             build/baserom/images bin/ddevice/base_rom_code.txt \
             2>&1 | tee -a build_action.log
           VERSION="$(python3 bin/modfile/UpdateFile/MultiLang/OS4/rom_version.py)"
