@@ -4,8 +4,8 @@ source $work_dir/functions.sh
 phase "System patch stage"
 target_dir="$work_dir/bin/package/"
 
-# HyperMOS and Kaorios CorePatch run separately. HyperMOS owns only its
-# non-overlapping Xiaomi patches; Kaorios owns signature/downgrade and Secure Flag.
+# Kaorios Toolbox is the only CorePatch provider. The retired HyperMOS
+# COREPATCH package must not be reintroduced as a separate static pass.
 kaorios_config="$target_dir/KAORIOS_TOOLBOX/config.json"
 kaorios_mod="$target_dir/KAORIOS_TOOLBOX/mod/kaorios_mod.py"
 if [[ -v KAORIOS_MASTER ]]; then
@@ -13,69 +13,18 @@ if [[ -v KAORIOS_MASTER ]]; then
 else
   kaorios_enabled_value=$(python3 "$kaorios_mod" config "$kaorios_config" --get enabled) || exit 1
 fi
-if [[ -v KAORIOS_ENABLE_COREPATCH ]]; then
-  kaorios_corepatch_value="$KAORIOS_ENABLE_COREPATCH"
-else
-  kaorios_corepatch_value=$(python3 "$kaorios_mod" config "$kaorios_config" --get corepatch) || exit 1
-fi
 case "${kaorios_enabled_value,,}" in
   1|true|yes|on) kaorios_enabled=1 ;;
   0|false|no|off) kaorios_enabled=0 ;;
   *) error "KAORIOS: invalid enabled boolean: $kaorios_enabled_value"; exit 1 ;;
 esac
-case "${kaorios_corepatch_value,,}" in
-  1|true|yes|on) kaorios_corepatch_enabled=1 ;;
-  0|false|no|off) kaorios_corepatch_enabled=0 ;;
-  *) error "KAORIOS: invalid CorePatch boolean: $kaorios_corepatch_value"; exit 1 ;;
-esac
-kaorios_corepatch=$((kaorios_enabled && kaorios_corepatch_enabled))
-hypermos_corepatch_args=()
-if [[ "$kaorios_corepatch" == "1" ]]; then
-  hypermos_corepatch_args+=(--kaorios)
-fi
-# ContentExtension=false and floating-window extras apply to every ROM.
-# FrameworkPatcher A16 CN alone handles its 4 coupled ProcessPolicy gates:
-# ContentCatcher=false and 3 RYU=true, avoiding the historical 3/4 mismatch.
-info "PATCH 1/6: HyperMOS CorePatch (non-overlapping patches)"
-# China A16 defers only its coupled ProcessPolicy gate to FrameworkPatcher.
-# Xiaomi.eu still preserves its other Gboard and regional policy variables.
-rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
-if [[ -s "$rom_source_file" ]] &&
-   [[ "$(tr -d '\r\n' < "$rom_source_file")" == "xiaomi_eu" ]]; then
-  HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=0 \
-  HYPERMOS_PRESERVE_EU_FRAMEWORK=1 \
-    bash "$target_dir/COREPATCH/update.sh" "${hypermos_corepatch_args[@]}" || exit 1
-else
-  HYPERMOS_DEFER_A16_CN_PROCESSPOLICY=1 \
-    bash "$target_dir/COREPATCH/update.sh" "${hypermos_corepatch_args[@]}" || exit 1
-fi
-info "PATCH 2/6: AVB"
+info "PATCH 1/4: AVB"
 bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
-info "PATCH 3/6: Notification fix"
+info "PATCH 2/4: Notification fix"
 bash "$target_dir/NOTIFICATION_FIX/notificationFIX.sh" || exit 1
 
-# Kaorios CorePatch sees the completed HyperMOS/notification state and owns all
-# signature/downgrade methods that were disabled in the first CorePatch pass.
-info "PATCH 4/6: Kaorios CorePatch (signature / downgrade)"
-if [[ "$kaorios_corepatch" == "1" ]]; then
-  info "KAORIOS CorePatch: applying signature/downgrade patch set"
-  android_version="$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")"
-  case "$android_version" in
-    15|16|17)
-      corepatch_args=()
-      [[ "$android_version" == "16" ]] && corepatch_args+=(--disable-signature-verification)
-      COREPATCH_DISABLE_SIGNATURE_VERIFICATION=1 \
-      COREPATCH_RUN_HYPERMOS_EXTRAS=0 \
-        bash "$target_dir/COREPATCH/jar_patcher_a${android_version}.sh" "${corepatch_args[@]}" || exit 1
-      ;;
-    *) error "KAORIOS CorePatch: unsupported Android version: $android_version"; exit 1 ;;
-  esac
-else
-  info "KAORIOS CorePatch disabled by KAORIOS_ENABLE_COREPATCH"
-fi
-
-# Toolbox hooks and Secure Flag run after Kaorios CorePatch.
-info "PATCH 5/6: Kaorios Toolbox"
+# The bundled Kaorios driver/toolbox is the sole CorePatch implementation.
+info "PATCH 3/4: Kaorios Toolbox (bundled CorePatch)"
 if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   error "KAORIOS: patch failed; aborting package stage"
   exit 1
@@ -97,7 +46,7 @@ if [[ "$android_version" == "17" ]]; then
   export PATH="/usr/local/bin:$PATH"
   export HYPERMOS_SECILC_BIN="/usr/local/bin/secilc"
 fi
-info "PATCH 6/6: TNM (post-fs + China-mandatory App Privacy)"
+info "PATCH 4/4: TNM (post-fs + China-mandatory App Privacy)"
 bash "$target_dir/TNM/patch.sh" || exit 1
 
 # TNM also edits split policy. Re-check the Kaorios service contract against
@@ -129,7 +78,7 @@ if [[ "$kaorios_enabled" == "1" && "$kaorios_system_server_enabled" == "1" ]]; t
 fi
 
 
-# Keep CorePatch / Kaorios output unmodified by MiCTS. MiCTS is only an APK
+# Keep Kaorios output unmodified by MiCTS. MiCTS is only an APK
 # installed separately through Universal/downloadapp on Android 16.
 
 ok "System patch stage completed"

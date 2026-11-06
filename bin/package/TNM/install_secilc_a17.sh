@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build an Android-17-compatible host secilc with verified upstream source.
+# Build an Android-17-compatible host secilc from the vendored source archive.
 # Ubuntu 24.04's apt secilc does not understand permissionx nlmsg.
 # Keep all SELinux validations enabled; never rewrite or strip platform CIL.
 set -euo pipefail
@@ -9,34 +9,34 @@ if (( EUID != 0 )); then
   exit 1
 fi
 
-# Release source and SHA-256 are published by SELinuxProject:
-# https://github.com/SELinuxProject/selinux/wiki/Releases
 version="3.11"
 expected_sha256="6b6d47ab0f35fe1c09bda0c62821c8d97a0cbe7f6e9404b338df7bde0182c4f4"
-url="https://github.com/SELinuxProject/selinux/releases/download/$version/selinux-$version.tar.gz"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+archive="$script_dir/source/selinux-$version.tar.gz"
 temp_dir="$(mktemp -d -t hypermos-secilc-XXXXXX)"
 trap 'rm -rf "$temp_dir"' EXIT
-archive="$temp_dir/selinux-$version.tar.gz"
 
-echo "[SELINUX] Fetching verified SELinuxProject userspace $version"
-curl --fail --location --silent --show-error \
-  --retry 4 --retry-delay 3 --connect-timeout 20 --max-time 300 \
-  "$url" --output "$archive"
+if [[ ! -s "$archive" ]]; then
+  echo "[SELINUX ERROR] Vendored source archive is missing: $archive" >&2
+  exit 1
+fi
+echo "[SELINUX] Verifying vendored SELinuxProject userspace $version"
 printf '%s  %s\n' "$expected_sha256" "$archive" | sha256sum --check --status || {
-  echo "[SELINUX ERROR] Upstream source digest mismatch; refusing unverified compiler" >&2
+  echo "[SELINUX ERROR] Vendored source digest mismatch; refusing unverified compiler" >&2
   exit 1
 }
 
 tar -xzf "$archive" -C "$temp_dir"
 source_dir="$temp_dir/selinux-$version"
 if [[ ! -f "$source_dir/libsepol/src/Makefile" ||
+      ! -f "$source_dir/libsepol/cil/include/cil/cil.h" ||
       ! -f "$source_dir/secilc/Makefile" ||
       ! -f "$source_dir/secilc/test/policy.cil" ]]; then
   echo "[SELINUX ERROR] Unexpected SELinuxProject source archive layout" >&2
   exit 1
 fi
 
-for program in make gcc curl sha256sum tar install; do
+for program in make gcc ln mkdir sha256sum tar install; do
   command -v "$program" >/dev/null || {
     echo "[SELINUX ERROR] Missing build dependency: $program" >&2
     exit 1
@@ -57,8 +57,14 @@ if [[ ! -s "$source_dir/libsepol/src/libsepol.a" ]]; then
   echo "[SELINUX ERROR] Missing compiled libsepol.a" >&2
   exit 1
 fi
+# The release archive keeps public CIL headers under cil/include/cil while
+# secilc includes them as sepol/cil/*. Stage that namespace without modifying
+# or downloading any source files.
+compat_include="$temp_dir/include"
+mkdir -p "$compat_include/sepol"
+ln -s "$source_dir/libsepol/cil/include/cil" "$compat_include/sepol/cil"
 if ! make -C "$source_dir/secilc" secilc \
-  CPPFLAGS="-I$source_dir/libsepol/include" \
+  CPPFLAGS="-I$compat_include -I$source_dir/libsepol/include" \
   LDFLAGS="-L$source_dir/libsepol/src" \
   >"$temp_dir/secilc-build.log" 2>&1; then
   tail -n 100 "$temp_dir/secilc-build.log" >&2

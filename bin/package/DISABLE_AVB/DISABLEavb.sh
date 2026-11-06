@@ -9,7 +9,7 @@ shopt -s nullglob
 
 # Match PenguinOS for devices in avb_list (including haotian):
 # patch boot/vendor_boot through HMATools/bbootimg instead of rebuilding
-# vendor_boot with HyperMOS vbpatcher.py.
+# vendor_boot with the active AVB patch pipeline.
 if grep -qw "$device_code" "$work_dir/bin/package/DISABLE_AVB/avb_list.txt"; then
     info "DISABLE_AVB: $device_code -> PenguinOS HMATools path"
     disable_avb_verify "$images/vendor"

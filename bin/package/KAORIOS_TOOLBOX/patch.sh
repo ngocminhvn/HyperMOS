@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Upstream code stays in script/; all HyperMOS helpers use mod/kaorios_mod.py.
-# CorePatch runs first, then this stage applies and verifies selected hooks.
+# This stage installs and verifies the Kaorios hooks, including its bundled
+# CorePatch implementation. No external COREPATCH package is used.
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
@@ -56,7 +57,6 @@ KAORIOS_ENABLE_NATIVE_PIF="${KAORIOS_ENABLE_NATIVE_PIF:-true}"
 [[ -n "${devstatus:-}" ]] && KAORIOS_ENABLE_DEVSTATUS="$devstatus"
 [[ -n "${build_spoof:-}" ]] && KAORIOS_ENABLE_BUILD_SPOOF="$build_spoof"
 [[ -n "${secure_flag:-}" ]] && KAORIOS_ENABLE_SECURE_FLAG="$secure_flag"
-[[ -n "${corepatch:-}" ]] && KAORIOS_ENABLE_COREPATCH="$corepatch"
 [[ -n "${native_pif:-}" ]] && KAORIOS_ENABLE_NATIVE_PIF="$native_pif"
 
 is_enabled() {
@@ -90,7 +90,6 @@ for flag in \
   KAORIOS_ENABLE_DEVSTATUS \
   KAORIOS_ENABLE_BUILD_SPOOF \
   KAORIOS_ENABLE_SECURE_FLAG \
-  KAORIOS_ENABLE_COREPATCH \
   KAORIOS_INSTALL_TOOLBOX \
   KAORIOS_VALIDATE_KEYBOX \
   KAORIOS_DEVSTATUS_STRICT \
@@ -986,13 +985,13 @@ validate_optional_keybox_input() {
   fi
 }
 
-mods "Kaorios Toolbox upstream 2.0.6.1 integration (CorePatch is a separate preceding pass)"
+mods "Kaorios Toolbox upstream 2.0.6.1 integration (bundled CorePatch)"
 
 info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
 info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
 info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
 info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
-info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=$KAORIOS_ENABLE_COREPATCH (separate preceding pass)"
+info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=bundled"
 info "KAORIOS config: NativePIF=$KAORIOS_ENABLE_NATIVE_PIF"
 
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then

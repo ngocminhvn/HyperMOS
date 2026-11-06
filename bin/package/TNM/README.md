@@ -60,3 +60,11 @@ The LOCK staging and SELinux helpers are consolidated into
 are unchanged. `TNM/patch.sh --check-lock` validates LOCK staging during Pack
 ROM. The six-API verifier now lives in `TNM/patch_app_privacy.py --verify`.
 Reports are written to `build/reports/tnm/lock`.
+
+## Android 17 SELinux compiler
+
+Android 17 policy uses `permissionx nlmsg`, which the Ubuntu 24.04 package does
+not understand. `install_secilc_a17.sh` builds secilc 3.11 from the fixed,
+SHA-256-verified archive at `source/selinux-3.11.tar.gz`; ROM builds do not fetch
+SELinuxProject source at runtime. Updating the archive requires updating the
+pinned digest and passing the upstream policy self-test.

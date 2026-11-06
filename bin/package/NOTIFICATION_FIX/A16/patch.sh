@@ -21,7 +21,7 @@ fi
 [[ "$rom_source" == china ]] || { error "A16 Notification: unknown source $rom_source"; exit 1; }
 
 # China A16 remains on its existing scoped FrameworkPatcher/PowerKeeper path.
-source "$work_dir/bin/package/COREPATCH/helper.sh"
+source "$base/jar_ops.sh"
 WORK_DIR="$work_dir"
 TOOLS_DIR="$work_dir/bin/apktool"
 API_LEVEL=36

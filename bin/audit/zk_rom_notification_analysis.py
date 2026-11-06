@@ -89,9 +89,8 @@ def src_inventory(src_root: Path) -> dict:
     result = {}
     for rel in (
         "bin/package/NOTIFICATION_FIX/A16/CN/PowerKeeper.sh",
-        "bin/package/COREPATCH/jar_patcher_a16.sh",
         "bin/package/NOTIFICATION_FIX",
-        "bin/package/COREPATCH",
+        "bin/package/KAORIOS_TOOLBOX",
     ):
         target = src_root / rel
         files = [target] if target.is_file() else (
