@@ -25,8 +25,8 @@ deviceTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 
 if [[ "$deviceTYPE" == "China" ]]; then
   mods "Adding existing MultiLanguage overlays to ROM..."
-  src="$work_dir/bin/modfile/UpdateFile/MultiLang/updatesource"
-  extra="$work_dir/bin/modfile/UpdateFile/MultiLang/supplemental"
+  src="$work_dir/bin/modfile/UpdateFile/MultiLang/OS3/updatesource"
+  extra="$work_dir/bin/modfile/UpdateFile/MultiLang/OS3/supplemental"
   target="$MAIN_FOLDER/product/overlay"
   mkdir -p "$target"
 
