@@ -1,0 +1,96 @@
+name: Validate OS4 Vietnamese RRO
+on:
+  push:
+    paths:
+      - "bin/modfile/UpdateFile/MultiLang/OS4/**"
+      - ".github/workflows/test-multilang-os4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rro-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/modfile/UpdateFile/MultiLang/OS4/update.sh
+          python3 -m py_compile bin/modfile/UpdateFile/MultiLang/OS4/build_vi_rro.py
+
+      - name: Build and verify Vietnamese RRO against a synthetic target
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$ANDROID_HOME"
+          BUILD_TOOLS="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          AAPT2="$BUILD_TOOLS/aapt2"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          FRAME="$(find "$SDK/platforms" -name android.jar | sort -V | tail -n1)"
+          test -x "$AAPT2"
+          test -x "$APKSIGNER"
+          test -x "$ZIPALIGN"
+          test -s "$FRAME"
+          echo "$BUILD_TOOLS" >> "$GITHUB_PATH"
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          mkdir -p "$WORK/images/system/framework" \
+                   "$WORK/images/system/app/Settings" \
+                   "$WORK/images/product/overlay/config" \
+                   "$WORK/target/res/values" "$WORK/target/flat" \
+                   "$WORK/src/Settings.apk/res/values-vi"
+          cp "$FRAME" "$WORK/images/system/framework/framework-res.apk"
+          cat > "$WORK/target/AndroidManifest.xml" <<'XML'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.hypermos.test.settings">
+            <application android:hasCode="false"/>
+          </manifest>
+          XML
+          cat > "$WORK/target/res/values/strings.xml" <<'XML'
+          <resources>
+            <string name="hello_test">Hello</string>
+          </resources>
+          XML
+          cat > "$WORK/src/Settings.apk/res/values-vi/strings.xml" <<'XML'
+          <resources>
+            <string name="hello_test">Xin chào</string>
+          </resources>
+          XML
+          cat > "$WORK/images/product/overlay/config/config.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <config>
+            <overlay package="com.vendor.existing.overlay" enabled="true" mutable="false"/>
+          </config>
+          XML
+          "$AAPT2" compile --dir "$WORK/target/res" -o "$WORK/target/flat"
+          "$AAPT2" link \
+            -o "$WORK/images/system/app/Settings/Settings.apk" \
+            -I "$FRAME" --manifest "$WORK/target/AndroidManifest.xml" \
+            "$WORK/target/flat/"*.flat
+
+          python3 bin/modfile/UpdateFile/MultiLang/OS4/build_vi_rro.py \
+            "$WORK/src" "$WORK/images" "$WORK/images/product/overlay"
+          test -s "$WORK/images/product/overlay/HyperMOS-OS4-VI/HyperMOS.OS4.VI.settings.r1.apk"
+          "$APKSIGNER" verify \
+            "$WORK/images/product/overlay/HyperMOS-OS4-VI/HyperMOS.OS4.VI.settings.r1.apk"
+          python3 - "$WORK" <<'PY'
+          from pathlib import Path
+          import json
+          import sys
+          import xml.etree.ElementTree as ET
+
+          work = Path(sys.argv[1])
+          report = json.loads((work / "os4-vietnamese-report.json").read_text())
+          assert len(report["built"]) == 1, report
+          assert report["built"][0]["entries"] == 1, report
+          config = ET.parse(work / "images/product/overlay/config/config.xml")
+          packages = {x.get("package") for x in config.findall(".//overlay")}
+          assert "com.vendor.existing.overlay" in packages
+          assert "com.hypermos.vi.os4.settings.r1" in packages
+          print("OS4 Vietnamese: signed RRO and existing OverlayConfig verified")
+          PY
