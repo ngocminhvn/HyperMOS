@@ -23,7 +23,7 @@ bash "$target_dir/DISABLE_AVB/DISABLEavb.sh" || exit 1
 info "PATCH 2/4: Notification fix"
 bash "$target_dir/NOTIFICATION_FIX/notificationFIX.sh" || exit 1
 
-# The bundled Kaorios driver/toolbox is the sole CorePatch implementation.
+# The KAORIOS_TOOLBOX package is the sole CorePatch implementation.
 info "PATCH 3/4: Kaorios Toolbox (bundled CorePatch)"
 if ! bash "$target_dir/KAORIOS_TOOLBOX/patch.sh"; then
   error "KAORIOS: patch failed; aborting package stage"

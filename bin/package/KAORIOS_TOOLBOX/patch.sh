@@ -12,6 +12,7 @@ KAORIOS_DIR="$work_dir/bin/package/KAORIOS_TOOLBOX"
 SCRIPT_DIR="$KAORIOS_DIR/script"
 MOD_DIR="$KAORIOS_DIR/mod"
 MOD_TOOL="$MOD_DIR/kaorios_mod.py"
+COREPATCH_TOOL="$MOD_DIR/corepatch.py"
 DEX_REBALANCE="$MOD_DIR/dex_rebalance.py"
 PATCHER="$SCRIPT_DIR/kaorios_patcher.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
@@ -57,6 +58,7 @@ KAORIOS_ENABLE_NATIVE_PIF="${KAORIOS_ENABLE_NATIVE_PIF:-true}"
 [[ -n "${devstatus:-}" ]] && KAORIOS_ENABLE_DEVSTATUS="$devstatus"
 [[ -n "${build_spoof:-}" ]] && KAORIOS_ENABLE_BUILD_SPOOF="$build_spoof"
 [[ -n "${secure_flag:-}" ]] && KAORIOS_ENABLE_SECURE_FLAG="$secure_flag"
+[[ -n "${corepatch:-}" ]] && KAORIOS_ENABLE_COREPATCH="$corepatch"
 [[ -n "${native_pif:-}" ]] && KAORIOS_ENABLE_NATIVE_PIF="$native_pif"
 
 is_enabled() {
@@ -90,6 +92,7 @@ for flag in \
   KAORIOS_ENABLE_DEVSTATUS \
   KAORIOS_ENABLE_BUILD_SPOOF \
   KAORIOS_ENABLE_SECURE_FLAG \
+  KAORIOS_ENABLE_COREPATCH \
   KAORIOS_INSTALL_TOOLBOX \
   KAORIOS_VALIDATE_KEYBOX \
   KAORIOS_DEVSTATUS_STRICT \
@@ -118,7 +121,13 @@ services_features_enabled() {
   is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER" ||
   is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" ||
   is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE" ||
-  is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"
+  is_enabled "$KAORIOS_ENABLE_SECURE_FLAG" ||
+  is_enabled "$KAORIOS_ENABLE_COREPATCH"
+}
+
+miui_services_features_enabled() {
+  is_enabled "$KAORIOS_ENABLE_SECURE_FLAG" ||
+  is_enabled "$KAORIOS_ENABLE_COREPATCH"
 }
 
 system_server_hook_needed() {
@@ -143,7 +152,9 @@ build_spoof_enabled_for_target() {
 }
 
 framework_archive_needed() {
-  framework_driver_needed || build_spoof_enabled_for_target
+  framework_driver_needed ||
+  build_spoof_enabled_for_target ||
+  is_enabled "$KAORIOS_ENABLE_COREPATCH"
 }
 
 archive_patch_needed() {
@@ -189,6 +200,9 @@ if archive_patch_needed; then
   require_file "$BAKSMALI" "baksmali"
   require_file "$SMALI" "smali"
   require_file "$DEX_REBALANCE" "DEX reference validation / rebalance helper"
+fi
+if is_enabled "$KAORIOS_ENABLE_COREPATCH"; then
+  require_file "$COREPATCH_TOOL" "Kaorios CorePatch patcher"
 fi
 if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
   require_file "$MOD_TOOL" "Kaorios MOD helper"
@@ -363,7 +377,9 @@ require_services_targets() {
 
 require_miui_services_targets() {
   local root="$1"
-  require_one_target "$root" "com/android/server/wm/WindowManagerServiceImpl.smali" "WindowManagerServiceImpl"
+  if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+    require_one_target "$root" "com/android/server/wm/WindowManagerServiceImpl.smali" "WindowManagerServiceImpl"
+  fi
 }
 
 find_target_file() {
@@ -425,6 +441,11 @@ patch_selected_targets() {
       if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
         apply_devstatus_patch "$root" || return 1
       fi
+      if is_enabled "$KAORIOS_ENABLE_COREPATCH"; then
+        python3 "$COREPATCH_TOOL" apply --kind framework --root "$root" \
+          --report "$work_dir/build/reports/kaorios/corepatch/framework-apply.json" || return 1
+        info "KAORIOS: full static CorePatch applied to framework.jar"
+      fi
       ;;
     services)
       if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
@@ -436,9 +457,21 @@ patch_selected_targets() {
       if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
         python3 "$MOD_TOOL" secure-flag "$root" --archive services
       fi
+      if is_enabled "$KAORIOS_ENABLE_COREPATCH"; then
+        python3 "$COREPATCH_TOOL" apply --kind services --root "$root" \
+          --report "$work_dir/build/reports/kaorios/corepatch/services-apply.json" || return 1
+        info "KAORIOS: full static CorePatch applied to services.jar"
+      fi
       ;;
     miui-services)
-      python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services
+      if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+        python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services
+      fi
+      if is_enabled "$KAORIOS_ENABLE_COREPATCH"; then
+        python3 "$COREPATCH_TOOL" apply --kind miui-services --root "$root" \
+          --report "$work_dir/build/reports/kaorios/corepatch/miui-services-apply.json" || return 1
+        info "KAORIOS: full static CorePatch applied to miui-services.jar"
+      fi
       ;;
     *)
       error "KAORIOS: unknown patch kind: $kind"
@@ -737,6 +770,15 @@ verify_framework_final() {
     info "KAORIOS: dev-status (Developer options/ADB) hook verified"
   fi
 
+  if is_enabled "$KAORIOS_ENABLE_COREPATCH"; then
+    python3 "$COREPATCH_TOOL" verify --kind framework --root "$root" \
+      --report "$work_dir/build/reports/kaorios/corepatch/framework-final.json" >/dev/null || {
+      error "KAORIOS: final verification failed: framework CorePatch"
+      return 1
+    }
+    info "KAORIOS: framework CorePatch verified from saved candidate"
+  fi
+
   info "KAORIOS: enabled framework features verified"
 }
 
@@ -780,17 +822,36 @@ verify_services_final() {
     info "KAORIOS: static Secure Flag bypasses verified"
   fi
 
+  if is_enabled "$KAORIOS_ENABLE_COREPATCH"; then
+    python3 "$COREPATCH_TOOL" verify --kind services --root "$root" \
+      --report "$work_dir/build/reports/kaorios/corepatch/services-final.json" >/dev/null || {
+      error "KAORIOS: final verification failed: services CorePatch"
+      return 1
+    }
+    info "KAORIOS: services CorePatch verified from saved candidate"
+  fi
+
   info "KAORIOS: enabled services features verified"
 }
 
 verify_miui_services_final() {
   local root="$1"
   require_miui_services_targets "$root"
-  python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services --check-only >/dev/null || {
-    error "KAORIOS: final verification failed: Xiaomi static Secure Flag bypass"
-    return 1
-  }
-  info "KAORIOS: Xiaomi static Secure Flag bypass verified"
+  if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+    python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services --check-only >/dev/null || {
+      error "KAORIOS: final verification failed: Xiaomi static Secure Flag bypass"
+      return 1
+    }
+    info "KAORIOS: Xiaomi static Secure Flag bypass verified"
+  fi
+  if is_enabled "$KAORIOS_ENABLE_COREPATCH"; then
+    python3 "$COREPATCH_TOOL" verify --kind miui-services --root "$root" \
+      --report "$work_dir/build/reports/kaorios/corepatch/miui-services-final.json" >/dev/null || {
+      error "KAORIOS: final verification failed: miui-services CorePatch"
+      return 1
+    }
+    info "KAORIOS: miui-services CorePatch verified from saved candidate"
+  fi
 }
 
 verify_candidate() {
@@ -991,7 +1052,7 @@ info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrument
 info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
 info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
 info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
-info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=bundled"
+info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=$KAORIOS_ENABLE_COREPATCH"
 info "KAORIOS config: NativePIF=$KAORIOS_ENABLE_NATIVE_PIF"
 
 if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
@@ -1009,12 +1070,12 @@ if services_features_enabled; then
   patch_archive "$SERVICES_JAR" services
 fi
 
-if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
+if miui_services_features_enabled; then
   MIUI_SERVICES_JAR=$(find_optional_unique_artifact "miui-services.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar") || exit 1
   if [[ -n "$MIUI_SERVICES_JAR" ]]; then
     patch_archive "$MIUI_SERVICES_JAR" miui-services
   else
-    info "KAORIOS: miui-services.jar not present; Xiaomi-specific Secure Flag bypass skipped"
+    info "KAORIOS: miui-services.jar not present; Xiaomi Secure Flag/CorePatch targets skipped"
   fi
 fi
 

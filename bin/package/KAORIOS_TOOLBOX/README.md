@@ -20,7 +20,22 @@ HyperMOS deliberately uses only the Kaorios hooks that are still needed:
 - a source-built native PIF backend from `mod/native_pif/`, installed into `/system/lib64` and `/system/lib`, with its JNI bridge embedded in `app/classes.dex`;
 - Toolbox APK as a `system_ext` priv-app.
 
-Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. CorePatch is provided only by the bundled Kaorios driver/toolbox; the retired standalone `bin/package/COREPATCH` pipeline is no longer run or shipped. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change the build-time Secure Flag patch.
+Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Static CorePatch is implemented inside this package by `mod/corepatch.py`, following the public Kaorios 2.0.6+ recipe; the retired standalone `bin/package/COREPATCH` pipeline is not used. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change the build-time Secure Flag patch.
+
+The CorePatch pass covers every documented target that exists in the ROM:
+
+- `framework.jar`: PackageParser/SigningDetails capability and ancestry checks,
+  APK signature scheme digest results, minimum/V1 signature verification,
+  StrictJar verification, and shared-user-name checks;
+- `services.jar`: downgrade, upgrade-keyset, signature comparison/verification,
+  shared-user migration, and reconciliation checks;
+- `miui-services.jar`: Xiaomi system-app isolation/update checks.
+
+Registers are derived from the actual smali operands. Reference registers from
+the guide are never copied blindly. Duplicate class owners, recognized classes
+with unsupported control flow, missing result/branch pairs, and failed final-JAR
+verification stop the build. Apply and final verification reports are written to
+`build/reports/kaorios/corepatch/`.
 
 ## Per-feature config
 
@@ -40,6 +55,7 @@ Custom boot animation is disabled for all builds: the module entrypoint has been
 | `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
 | `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
 | `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar` and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
+| `KAORIOS_ENABLE_COREPATCH` | Apply and verify the full Kaorios 2.0.6+ static CorePatch recipe |
 | `KAORIOS_ENABLE_NATIVE_PIF` | Install the process-local property backend and call it in GMS unstable using Toolbox's PIF JSON; requires `KAORIOS_ENABLE_INSTRUMENTATION` |
 | `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
 | `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
@@ -57,7 +73,7 @@ The framework driver DEX is added whenever an enabled feature needs `KaoriosHook
 
 1. DISABLE_AVB
 2. notification fix
-3. Kaorios upstream 2.0.6.1 hooks, bundled CorePatch, and MOD-local static Secure Flag
+3. Kaorios upstream 2.0.6.1 hooks, full static CorePatch, and MOD-local static Secure Flag
 4. TNM: post-fs property reporting + App Privacy (compatibility-gated)
 
 Kaorios patches after the notification fix and is the single CorePatch owner. TNM then installs the post-fs integration and runs App Privacy with its own compatibility checks; unsupported App Privacy layouts are skipped before changing `framework.jar`.
