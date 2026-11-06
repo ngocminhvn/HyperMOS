@@ -252,6 +252,21 @@ case "$android_version" in
         ;;
 esac
 
+# Standalone OS4 Vietnamese prebuild: extract the stock China Android 17
+# APK tree, then stop before all ROM mods. Overlays are compiled in a
+# dedicated Action and installed by MultiLang during normal ROM builds.
+if [[ "${HYPERMOS_OS4_VI_PREBUILD:-0}" == "1" ]]; then
+    rom_os="$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_os.txt")"
+    region="$(tr -d '\r\n' < "$work_dir/bin/ddevice/device_type.txt")"
+    if [[ "$rom_source" != "china" || "$region" != "China" ||
+          "$rom_os" != "OS4" || "$android_version" != "17" ]]; then
+        error "OS4 Vietnamese prebuild requires China OS4 / Android 17"
+        exit 1
+    fi
+    info "OS4 Vietnamese prebuild: ROM extracted; skip ROM modifications"
+    exit 0
+fi
+
 # Gửi thông báo đang Build với đầy đủ Codename và Version
 if [[ "${HYPERMOS_FASTBOOTD_ONLY:-0}" != "1" ]]; then
     python3 $work_dir/notify.py build "$repo_name" "$baserom" "$prefix_id" "$builder_id"
