@@ -155,38 +155,7 @@ if [[ -e "$MAIN_FOLDER/product/app/PrebuiltGmail" ]]; then
   }
 fi
 
-if ! grep -q '^ro.miui.has_gmscore=1
-  echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
-fi
-
-mkdir -p "$MAIN_FOLDER/product/framework"
-cp -f "$GMS_COMMON/maps/com.google.android.maps.jar" "$MAIN_FOLDER/product/framework/" || {
-  error "LiteGapps16: maps framework copy failed"
-  exit 1
-}
-
-required_installed=(
-  "$MAIN_FOLDER/product/app/LatinIMEGooglePrebuilt/LatinIMEGooglePrebuilt.apk"
-  "$MAIN_FOLDER/product/priv-app/GmsCore/GmsCore.apk"
-  "$MAIN_FOLDER/product/priv-app/Phonesky/Phonesky.apk"
-  "$MAIN_FOLDER/product/priv-app/GoogleVelvet_CTS/GoogleVelvet_CTS.apk"
-  "$MAIN_FOLDER/product/priv-app/Velvet/Velvet.apk"
-  "$MAIN_FOLDER/system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk"
-  "$MAIN_FOLDER/product/framework/com.google.android.maps.jar"
-)
-for required in "${required_installed[@]}"; do
-  if [[ ! -s "$required" ]]; then
-    error "LiteGapps16 installed payload missing: $required"
-    exit 1
-  fi
-done
-
-patch_enhanced_keyboard || {
-  error "LiteGapps16: Enhanced Keyboard patch failed"
-  exit 1
-}
-mods "Added LiteGapps16 Done"
- "$MAIN_FOLDER/system/system/build.prop"; then
+if ! grep -q '^ro.miui.has_gmscore=1$' "$MAIN_FOLDER/system/system/build.prop"; then
   echo "ro.miui.has_gmscore=1" >> "$MAIN_FOLDER/system/system/build.prop"
 fi
 
