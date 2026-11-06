@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 def sync(source: Path, revision: str) -> tuple[int, int]:
     source = source.resolve(strict=True)
     base = Path(__file__).resolve().parent
-    output = base / "OS4" / "Vietnamese"
+    output = base / "Vietnamese"
     dest = output / "main"
     if not source.is_dir():
         raise ValueError(f"Not a source directory: {source}")

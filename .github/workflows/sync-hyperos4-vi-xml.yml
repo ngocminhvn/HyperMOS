@@ -16,7 +16,7 @@ on:
   push:
     paths:
       - .github/workflows/sync-hyperos4-vi-xml.yml
-      - bin/modfile/UpdateFile/MultiLang/sync_os4_vi.py
+      - bin/modfile/UpdateFile/MultiLang/OS4/sync_os4_vi.py
 
 permissions:
   contents: write
@@ -37,6 +37,20 @@ jobs:
           persist-credentials: true
           lfs: false
 
+      - name: Check MultiLang dispatch layout and syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in bin/modfile/UpdateFile/insupdate.sh bin/modfile/UpdateFile/MultiLang/update.sh bin/modfile/UpdateFile/MultiLang/OS3/update.sh bin/modfile/UpdateFile/MultiLang/OS4/update.sh; do
+            bash -n "$path"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("bin/modfile/UpdateFile/MultiLang")
+          entries = {item.name for item in root.iterdir()}
+          assert entries == {"OS3", "OS4", "update.sh"}, entries
+          PY
+
       - name: Download only Qualcomm SDK37 Vietnamese XML source
         shell: bash
         run: |
@@ -54,7 +68,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 bin/modfile/UpdateFile/MultiLang/sync_os4_vi.py \
+          python3 bin/modfile/UpdateFile/MultiLang/OS4/sync_os4_vi.py \
             --source "$RUNNER_TEMP/xiaomi-eu-xml/qcom-sdk37/Vietnamese/main" \
             --revision "$UPSTREAM_REVISION"
           {

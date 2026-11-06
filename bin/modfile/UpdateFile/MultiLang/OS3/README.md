@@ -1,17 +1,9 @@
-# HyperOS 3 (OS3) Vietnamese overlays
+# HyperOS 3 Vietnamese module
 
-This is the canonical home of the existing OS3 China translation assets.
+The root `../update.sh` dispatches only China OS3 here.
+`update.sh` installs the unchanged 67 existing RRO APKs from `updatesource/`
+plus separately reviewed `supplemental/` APKs.
+`owned-additions-batch/` and Python utilities are OS3-only resources.
+See `HISTORY.md` for prior translation work and audit notes.
 
-- `updatesource/`: all **67 original prebuilt Nothings RRO APKs**, unchanged.
-- `supplemental/`: optional, separately reviewed add-on overlays.
-- `owned-additions-batch/`: original reviewed XML additions for the OS3 overlays.
-
-The previous top-level paths (`../updatesource/`, `../supplemental/` and
-`../owned-additions-batch/`) are **relative symlinks** maintained for
-compatibility with existing audit/merge workflows and external tooling.
-No APK bytes, signing certificates, or framework resources were modified
-during the directory move.
-
-The normal China OS3 build consumes these RROs via `../update.sh`.
-OS4 never consumes the OS3 prebuilt APKs. Its untranslated/raw source
-is staged separately under `../OS4/`.
+Never run the OS3 module for an OS4 ROM.

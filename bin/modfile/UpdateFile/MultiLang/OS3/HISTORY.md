@@ -2,12 +2,10 @@
 
 The bundled OS3 translations live in `OS3/updatesource/` (67 prebuilt
 `Nothings.*.apk` RRO packages). **Do not delete or overwrite these files
-automatically.** The former `updatesource/`, `supplemental/`, and
-`owned-additions-batch/` locations are backward-compatible symbolic links
-to `OS3/`; existing APK contents have not been changed.
+automatically.** The old root-level symlinks were removed; sources now live only in OS3. Existing APK contents are unchanged.
 
 OS4 is separate: `OS4/Vietnamese/main/` is populated by the
-[Sync HyperOS 4 Vietnamese XML](../../../../.github/workflows/sync-hyperos4-vi-xml.yml)
+[Sync HyperOS 4 Vietnamese XML](../../../../../.github/workflows/sync-hyperos4-vi-xml.yml)
 workflow from Qualcomm SDK 37 Vietnamese sources. This **only stages resources**
 and does not apply OS4 translations to ROM APKs. The OS3 overlay installer
 must never be used for OS4. Since the upstream repository declares no
@@ -29,7 +27,7 @@ independently authored** Vietnamese strings to the original existing RRO APKs:
 
 All additions are kept as original source XML under `owned-additions-batch/`.
 Workflow [Merge original Vietnamese translations into existing RROs]
-(../../../../.github/workflows/merge-reviewed-vietnamese-batch.yml) verifies
+(../../../../../.github/workflows/merge-reviewed-vietnamese-batch.yml) verifies
 each name against matching HyperOS 3 stock English `MISSING_VI` entries,
 rejects conflicting old translations or mismatched placeholders, and checks
 matching overlay package/target and signing certificate. The 4 existing APKs
@@ -58,7 +56,7 @@ The retired-language-region.keys list prevents future accidental re-addition.
 ## What changed
 
 - Read-only audit: `translation_audit.py`.
-- Dedicated workflow: [Vietnamese Translation Audit](../../../../.github/workflows/vietnamese-translation-audit.yml).
+- Dedicated workflow: [Vietnamese Translation Audit](../../../../../.github/workflows/vietnamese-translation-audit.yml).
 - Optional `supplemental/*.apk` files are copied to `product/overlay/`
   during the normal China ROM build, without replacing existing filenames.
 - No framework, system service, `boot.img`, `vendor_boot.img`, AVB, or runtime
@@ -209,11 +207,11 @@ UI resources.
 ## Local usage
 
 ```bash
-python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py --self-test
-python3 bin/modfile/UpdateFile/MultiLang/translation_audit.py \
+python3 bin/modfile/UpdateFile/MultiLang/OS3/translation_audit.py --self-test
+python3 bin/modfile/UpdateFile/MultiLang/OS3/translation_audit.py \
   --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
-  --overlays bin/modfile/UpdateFile/MultiLang/updatesource \
-  --extra-overlays bin/modfile/UpdateFile/MultiLang/supplemental \
+  --overlays bin/modfile/UpdateFile/MultiLang/OS3/updatesource \
+  --extra-overlays bin/modfile/UpdateFile/MultiLang/OS3/supplemental \
   --stock-apks /path/to/unpacked/rom \
   --output translation-audit
 ```
