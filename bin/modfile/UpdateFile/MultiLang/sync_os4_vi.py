@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from pathlib import Path
 import shutil
 import tempfile
@@ -47,7 +48,7 @@ def sync(source: Path, revision: str) -> tuple[int, int]:
                 len(rel.parts) < 4
                 or not rel.parts[0].endswith(".apk")
                 or rel.parts[1] != "res"
-                or not rel.parts[2].startswith("values-vi")
+                or not re.search(r"(?:^|-)vi(?:-|$)", rel.parts[2])
                 or path.suffix.lower() != ".xml"
             ):
                 raise ValueError(f"Unexpected upstream file layout: {rel}")
