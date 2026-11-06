@@ -84,7 +84,10 @@ ensure_micts() {
   MICTS_SELECTED="$MICTS_CACHE"
 }
 
-if [[ "$androidVER" == "16" ]]; then
+# Stage the verified MiCTS APK for both Android 16 (OS3) and Android 17 (OS4).
+# This is an APK preload only; Xiaomi HyperOS 4 trigger integration is
+# upstream-dependent and is not asserted to work by the build.
+if [[ "$androidVER" == "16" || "$androidVER" == "17" ]]; then
   ensure_micts || {
     error "FAST-FAIL: MiCTS preload preparation failed"
     exit 1
