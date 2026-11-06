@@ -1,7 +1,18 @@
 # HyperMOS Vietnamese translations (HyperOS 3 / Android 16)
 
-The bundled translations live in `updatesource/` (67 prebuilt `Nothings.*.apk`
-RRO packages). **Do not delete or overwrite these files automatically.**
+The bundled OS3 translations live in `OS3/updatesource/` (67 prebuilt
+`Nothings.*.apk` RRO packages). **Do not delete or overwrite these files
+automatically.** The former `updatesource/`, `supplemental/`, and
+`owned-additions-batch/` locations are backward-compatible symbolic links
+to `OS3/`; existing APK contents have not been changed.
+
+OS4 is separate: `OS4/Vietnamese/main/` is populated by the
+[Sync HyperOS 4 Vietnamese XML](../../../../.github/workflows/sync-hyperos4-vi-xml.yml)
+workflow from Qualcomm SDK 37 Vietnamese sources. This **only stages resources**
+and does not apply OS4 translations to ROM APKs. The OS3 overlay installer
+must never be used for OS4. Since the upstream repository declares no
+redistribution license, committing its full XML copy requires an explicit
+permission confirmation in the workflow.
 
 ## New HyperOS 3 translations merged into existing APKs
 
