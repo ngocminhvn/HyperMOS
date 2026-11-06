@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="ble_package_names">
+        <item></item>
+        <item>Mi Fit</item>
+        <item>Mi VR</item>
+        <item>Xiaomi Wear</item>
+    </string-array>
+    <string-array name="passport_account_user_gender_name">
+        <item>Nam</item>
+        <item>Nữ</item>
+    </string-array>
+</resources>

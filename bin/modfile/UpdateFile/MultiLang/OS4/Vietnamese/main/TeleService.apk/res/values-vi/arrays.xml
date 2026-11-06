@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="cdma_system_select_choices">
+        <item>Chỉ nhà riêng</item>
+        <item>Tự động</item>
+    </string-array>
+    <string-array name="clir_display_values">
+        <item>Mặc định theo mạng</item>
+        <item>Ẩn số</item>
+        <item>Hiển thị số</item>
+    </string-array>
+    <string-array name="dtmf_tone_entries">
+        <item>Thường</item>
+        <item>Dài</item>
+    </string-array>
+    <string-array name="tty_mode_entries">
+        <item>Tắt TTY</item>
+        <item>TTY Đầy đủ</item>
+        <item>TTY HCO</item>
+        <item>TTY VCO</item>
+    </string-array>
+</resources>
