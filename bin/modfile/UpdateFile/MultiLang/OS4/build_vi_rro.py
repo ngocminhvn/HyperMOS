@@ -259,6 +259,8 @@ def main() -> int:
                     "apk": src_app.name, "reason": "no eligible OS4 overlay resources"})
         if not generated:
             raise RuntimeError("No Vietnamese RRO built: refusing to publish unchanged OS4 ROM")
+        if not any(item["apk"] in MUST_HAVE for item in report["built"]):
+            raise RuntimeError("No framework/Settings/SystemUI Vietnamese RRO could be built")
         update_config(out / "config" / "config.xml", generated)
         report_file = images.parent / "os4-vietnamese-report.json"
         report_file.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
