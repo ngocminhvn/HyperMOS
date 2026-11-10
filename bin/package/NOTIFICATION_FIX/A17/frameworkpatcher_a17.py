@@ -39,6 +39,7 @@ PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
 PROCESS_POLICY = "com/android/server/am/ProcessPolicy.smali"
 DOZE_CONTROLLER = "com/android/server/DeviceIdleControllerStubImpl.smali"
 GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
+AUROGON_FILTER = "com/miui/server/greeze/AurogonFilterManager.smali"
 
 CONTENT_CATCHER_METHOD = re.compile(
     r"(?ms)^\.method[^\n]*\bupdateContentCatcherWhitelist\(\)V[^\n]*\n"
@@ -175,7 +176,7 @@ def patch_doze_flag(source: str):
     return output, {"region_reads": count, "field_write_forced_false": True}
 
 
-def replace_boolean_method(source: str, signature: str, value: int):
+def replace_boolean_method(source: str, signature: str, value: int, registers: int = 1):
     method_re = re.compile(
         rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
     )
@@ -185,7 +186,7 @@ def replace_boolean_method(source: str, signature: str, value: int):
     header = methods[0].group().splitlines()[0]
     replacement = (
         f"{header}\n"
-        "    .registers 1\n\n"
+        f"    .registers {registers}\n\n"
         f"    const/4 v0, 0x{value:x}\n\n"
         "    return v0\n"
         ".end method"
@@ -193,7 +194,24 @@ def replace_boolean_method(source: str, signature: str, value: int):
     return source[:methods[0].start()] + replacement + source[methods[0].end():]
 
 
-def force_boolean_parameter(source: str, signature: str, parameter: str, value: int):
+def replace_void_method(source: str, signature: str, registers: int = 1):
+    method_re = re.compile(
+        rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    methods = list(method_re.finditer(source))
+    if len(methods) != 1:
+        raise ValueError(f"expected one {signature}, got {len(methods)}")
+    header = methods[0].group().splitlines()[0]
+    replacement = (
+        f"{header}\n"
+        f"    .registers {registers}\n\n"
+        "    return-void\n"
+        ".end method"
+    )
+    return source[:methods[0].start()] + replacement + source[methods[0].end():]
+
+
+def inject_method_preamble(source: str, signature: str, preamble: str, label: str):
     method_re = re.compile(
         rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
     )
@@ -201,16 +219,13 @@ def force_boolean_parameter(source: str, signature: str, parameter: str, value: 
     if len(methods) != 1:
         raise ValueError(f"expected one {signature}, got {len(methods)}")
     block = methods[0].group()
-    register_line = re.search(r"(?m)^([ \t]*)\.(?:registers|locals)[ \t]+\d+[ \t]*$", block)
-    if not register_line:
+    if label in block:
+        return source
+    registers = re.search(r"(?m)^[ \t]*\.(?:registers|locals)[ \t]+\d+[ \t]*$", block)
+    if not registers:
         raise ValueError(f"{signature}: missing registers declaration")
-    forced = f"{register_line.group(1)}const/4 {parameter}, 0x{value:x}"
-    following = block[register_line.end():]
-    already_forced = re.match(
-        rf"\s*const/4[ \t]+{re.escape(parameter)},[ \t]+0x{value:x}\b", following)
-    if not already_forced:
-        at = register_line.end()
-        block = block[:at] + "\n\n" + forced + block[at:]
+    at = registers.end()
+    block = block[:at] + "\n\n" + preamble.rstrip() + block[at:]
     return source[:methods[0].start()] + block + source[methods[0].end():]
 
 
@@ -270,23 +285,56 @@ def patch(root: Path):
         details[DOZE_CONTROLLER] = {"low_power_doze_disabled": True, **doze_info}
         total += 1
 
-    # OS4 replaced the old region-gated FCM path with a reachability-driven
-    # GMS limiter. PowerKeeper sends true when Google is unreachable and this
-    # service immediately runs triggerGMSLimitAction(). Preserve the old RYU
-    # outcome narrowly: this one notification limiter can never become active.
+    # Port the verified fcm_notification_fix vectors to OS4/A17 without its
+    # runtime module. Only C2DM broadcasts bypass screen-off Greeze policy.
     greeze_service = locate(root, GREEZE_SERVICE)
     if greeze_service is None:
         raise ValueError("GreezeManagerService missing")
     service_text = greeze_service.read_text(encoding="utf-8")
-    service_text = force_boolean_parameter(
-        service_text, "updateGmsNetStatus(Z)Z", "p1", 0)
-    service_text = replace_boolean_method(service_text, "getGmsNetStatus()Z", 0)
+    service_text = inject_method_preamble(
+        service_text,
+        "isAllowBroadcast(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
+        '    const-string v0, "com.google.android.c2dm.intent.RECEIVE"\n\n'
+        '    invoke-virtual {v0, p5}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+        '    move-result v0\n\n'
+        '    if-eqz v0, :fcm_a17_greeze_stock\n\n'
+        '    const/4 v0, 0x1\n\n'
+        '    return v0\n\n'
+        '    :fcm_a17_greeze_stock',
+        ":fcm_a17_greeze_stock")
+    service_text = replace_void_method(
+        service_text, "triggerGMSLimitAction()V")
+    service_text = replace_boolean_method(
+        service_text, "isGmsApp(I)Z", 0, registers=2)
     greeze_service.write_text(service_text, encoding="utf-8")
     details[GREEZE_SERVICE] = {
-        "gms_network_limit_forced_false": True,
-        "gms_network_status_forced_false": True,
+        "c2dm_screen_off_thaw": True,
+        "gms_limit_action_disabled": True,
+        "gms_special_freeze_path_disabled": True,
     }
-    total += 2
+    total += 3
+
+    # A17 also quick-freezes GMS through AurogonFilterManager, independently
+    # of triggerGMSLimitAction. Match the reference freeze shield for GMS only.
+    aurogon = locate(root, AUROGON_FILTER)
+    if aurogon is None:
+        raise ValueError("AurogonFilterManager missing")
+    aurogon_text = inject_method_preamble(
+        aurogon.read_text(encoding="utf-8"),
+        "filter(ILjava/lang/String;I)Z",
+        '    const-string v0, "com.google.android.gms"\n\n'
+        '    invoke-virtual {v0, p2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+        '    move-result v0\n\n'
+        '    if-eqz v0, :fcm_a17_aurogon_stock\n\n'
+        '    const/16 v0, 0x40\n\n'
+        '    iput v0, p0, Lcom/miui/server/greeze/AurogonFilterManager;->mContinueReason:I\n\n'
+        '    const/4 v0, 0x0\n\n'
+        '    return v0\n\n'
+        '    :fcm_a17_aurogon_stock',
+        ":fcm_a17_aurogon_stock")
+    aurogon.write_text(aurogon_text, encoding="utf-8")
+    details[AUROGON_FILTER] = {"gms_quick_freeze_shield": True}
+    total += 1
 
     if total == 0:
         raise ValueError("no Android 17 notification gates were patched")
