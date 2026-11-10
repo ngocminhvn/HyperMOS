@@ -19,6 +19,7 @@ modscenter_fixed_prefix() {
         "Mods-Center/ColorOS_Control_Center") printf '%s\n' "ColorOS_plugin_mod_" ;;
         "Mods-Center/HyperOS-Screenshot-mod") printf '%s\n' "HyperOS_Screenshot" ;;
         "Mods-Center/HyperOS-Launcher") printf '%s\n' "HyperOS_Launcher" ;;
+        "Mods-Center/HyperOS-Rust-Launcher-Mod") printf '%s\n' "HyperOS4_RustLauncherMod_" ;;
         "Mods-Center/HyperOS-Security-Center") printf '%s\n' "HyperOS_Security" ;;
         "Mods-Center/HyperOS-Theme-Manager") printf '%s\n' "HyperOS_ThemeManager" ;;
         *) return 1 ;;
