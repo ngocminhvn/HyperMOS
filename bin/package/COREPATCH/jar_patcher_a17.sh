@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# patcher_a16.sh - Android 16 framework/services patcher
+# jar_patcher_a17.sh - Android 17 framework/services patcher
 work_dir=$(pwd)
 WORK_DIR="$work_dir"
 BACKUP_DIR="$WORK_DIR/backup"
@@ -781,7 +781,7 @@ patch_framework() {
     return 1
   fi
 
-  log "Starting Android 16 framework.jar patch"
+  log "Starting Android 17 framework.jar patch"
   local decompile_dir
   decompile_dir=$(decompile_jar "$framework_path") || return 1
 
@@ -1013,7 +1013,16 @@ apply_miui_services_gboard() {
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/android/server/inputmethod/InputMethodManagerServiceImpl.smali"
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/android/server/wm/ActivityTaskSupervisorImpl.smali"
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/android/server/wm/MiuiSplitInputMethodImpl.smali"
-  sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/miui/server/security/AppBehaviorService.smali"
+  # Optional on A17; may live in a secondary DEX or be absent in some ROMs.
+  local app_behavior_file app_behavior_found=0
+  for app_behavior_file in "$decompile_dir"/smali*/com/miui/server/security/AppBehaviorService.smali; do
+    [ -f "$app_behavior_file" ] || continue
+    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$app_behavior_file" || return 1
+    app_behavior_found=1
+  done
+  if [ "$app_behavior_found" -eq 0 ]; then
+    log "COREPATCH A17: optional AppBehaviorService.smali not present; skipping Gboard replacement"
+  fi
 
   echo "Gboard patches applied to miui-services.jar"
 }
