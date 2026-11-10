@@ -7,7 +7,7 @@ Integrates [Kaorios Toolbox v2.0.6.2](https://github.com/hzzmonetvn/Kaorios-Tool
 | Path | Content |
 |---|---|
 | `script/` | Byte-for-byte upstream files, only the ones the pipeline needs (no tests, docs, packaging helpers, or `bionic_fakelock_patcher.py` — HyperMOS already has its own fakelock). Replace the whole folder on update. |
-| `app/` | Release assets: `classes.dex` (framework payload), `KaoriosToolbox.apk`, `lib/*/libkaoripif.so` (JNI installer), plus `com.kousei.kaorios.xml` (HyperMOS priv-app permissions). `patch.sh` pins their SHA-256 from the release `SHA256SUMS`. |
+| `app/` | Release assets: `classes.dex` (framework payload), `KaoriosToolbox.apk`, `lib/*/libkaoripif.so` and `lib/*/libkaoripif_diagnostic.so` (JNI installer + diagnostic engine), plus `com.kousei.kaorios.xml` (HyperMOS priv-app permissions). `patch.sh` pins their SHA-256 from the release `SHA256SUMS`. |
 | `mod/kaorios_mod.py` | HyperMOS-only commands: `config`, `secure-flag`, `selinux`. |
 | `patch.sh` | The only glue: calls upstream artifact pipelines and the extras below. |
 | `config.json` | `enabled`, `build_spoof`, `secure_flag`, `native_pif`. |
@@ -18,7 +18,7 @@ Integrates [Kaorios Toolbox v2.0.6.2](https://github.com/hzzmonetvn/Kaorios-Tool
 2. Android 17 + `build_spoof` — upstream `kaorios_patcher.py --mode 2` on `Build` / `Build$VERSION`.
 3. `services.jar` — `script/patch-services-a17-artifact.sh`: `ComputerEngine` and `SystemServer`.
 4. `secure_flag` — static FLAG_SECURE bypass in `services.jar` and, if present, `miui-services.jar` (`mod secure-flag`).
-5. `native_pif` — `libkaoripif.so` to `/system_ext/lib64` and `/system_ext/lib` (path hard-coded by upstream `KaoriosPifInstaller`).
+5. `native_pif` — `libkaoripif.so` and `libkaoripif_diagnostic.so` to `/system_ext/lib64` and `/system_ext/lib` (paths used by upstream `KaoriosPifInstaller` and `PifNative`).
 6. Toolbox APK as `system_ext` priv-app.
 7. `patchpackage.sh` afterwards installs and re-checks the `kaorios_advanced_policy` SELinux contract (`mod selinux`).
 

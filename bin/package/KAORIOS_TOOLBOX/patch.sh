@@ -24,7 +24,9 @@ declare -A PIN=(
   [app/classes.dex]=b9f5ed61f71adfe90825ace660e44604753f7a99e2da4a98532d6f7b7955c530
   [app/KaoriosToolbox.apk]=b5ba9152cc5d3c1403166222309f56797f6bbd54379eb0f976bef5700db0e0f5
   [app/lib/arm64-v8a/libkaoripif.so]=01545baca35c0b2f95a78d7a27d4a1f632b97a66114e6ba1cc87474c687c0d84
+  [app/lib/arm64-v8a/libkaoripif_diagnostic.so]=33437268198b6f8dda461fb975eeb266d4b23a505ad1585d9819b4d02305416b
   [app/lib/armeabi-v7a/libkaoripif.so]=153ebe54d3b0ec3e4835521c5c172ec0c4f7ea10c6cb36eecdda6065ea9b7edc
+  [app/lib/armeabi-v7a/libkaoripif_diagnostic.so]=dd491cbabfec08853ed76213b260ba286b1aa7217b361cdb8381b18aade32088
 )
 
 die() { error "KAORIOS: $*"; exit 1; }
@@ -168,10 +170,10 @@ if is_on "$KAORIOS_ENABLE_SECURE_FLAG"; then
   info "KAORIOS: static Secure Flag bypasses applied and verified"
 fi
 
-# Upstream KaoriosPifInstaller calls System.load("/system_ext/lib[64]/libkaoripif.so").
+# Upstream KaoriosPifInstaller loads /system_ext/lib[64]/libkaoripif.so and
+# PifNative loads libkaoripif_diagnostic.so from the system library search path.
 if is_on "$KAORIOS_ENABLE_NATIVE_PIF"; then
   for abi in arm64-v8a:lib64 armeabi-v7a:lib; do
-    src="$K/app/lib/${abi%%:*}/libkaoripif.so"
     dst_dir="$IMAGES/system_ext/${abi##*:}"
     if [[ "${abi##*:}" == "lib64" ]]; then
       mkdir -p "$dst_dir"
@@ -179,9 +181,12 @@ if is_on "$KAORIOS_ENABLE_NATIVE_PIF"; then
       warn "KAORIOS: $dst_dir missing; 32-bit Native PIF skipped"
       continue
     fi
-    cp -f "$src" "$dst_dir/libkaoripif.so"
-    chmod 0644 "$dst_dir/libkaoripif.so"
-    patch_file_context system_ext "/system_ext/${abi##*:}/libkaoripif.so" "u:object_r:system_lib_file:s0"
+    for lib in libkaoripif.so libkaoripif_diagnostic.so; do
+      src="$K/app/lib/${abi%%:*}/$lib"
+      cp -f "$src" "$dst_dir/$lib"
+      chmod 0644 "$dst_dir/$lib"
+      patch_file_context system_ext "/system_ext/${abi##*:}/$lib" "u:object_r:system_lib_file:s0"
+    done
   done
   info "KAORIOS: Native PIF libraries installed to system_ext"
 fi
