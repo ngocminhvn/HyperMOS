@@ -9,6 +9,7 @@ import re
 import shlex
 import stat
 import subprocess
+import sys
 import tempfile
 
 import shutil
@@ -17,7 +18,7 @@ import shutil
 PARTS = ('system', 'system_ext', 'vendor', 'product', 'odm')
 
 
-def verify_policy(root, evidence, system_ext_policy=None):
+def verify_policy(root, evidence, system_ext_policy=None, log_name='secilc.log'):
     platform = root / 'system/system/etc/selinux'
     if not platform.is_dir():
         platform = root / 'system/etc/selinux'
@@ -38,8 +39,32 @@ def verify_policy(root, evidence, system_ext_policy=None):
     odm = root / 'odm/etc/selinux/odm_sepolicy.cil'
     if odm.is_file():
         inputs.append(odm)
+
+    # Match Android 17 init: select only the vendor-requested genfs CIL.
+    # The file is optional for older vendor API levels, but mandatory >=202504.
+    genfs_version_path = vendor / 'genfs_labels_version.txt'
+    genfs_version = None
+    if genfs_version_path.is_file():
+        genfs_version = genfs_version_path.read_text(encoding='utf-8').strip()
+        if not re.fullmatch(r'\d{6}', genfs_version):
+            raise ValueError(f'Invalid vendor genfs labels version: {genfs_version!r}')
+        genfs_cil = platform / f'plat_sepolicy_genfs_{genfs_version}.cil'
+        if genfs_cil.is_file():
+            inputs.append(genfs_cil)
+        elif int(genfs_version) >= 202504:
+            raise ValueError(f'Missing required vendor-selected genfs policy: {genfs_cil}')
+
+    missing = [p for p in inputs if not p.is_file()]
+    if missing:
+        raise ValueError('Missing required split SELinux inputs: ' + ', '.join(map(str, missing)))
+    if log_name == 'secilc.log':
+        print(f'[TNM SELINUX] vendor mapping={version}; genfs={genfs_version or "legacy/default"}; '
+              f'input CIL files={len(inputs)}; compiler policy version=30', flush=True)
+        print('[TNM SELINUX] CIL inputs:\n' + '\n'.join(
+            f'  {p.relative_to(root)}' if p.is_relative_to(root) else f'  {p}'
+            for p in inputs), flush=True)
     with tempfile.TemporaryDirectory(prefix='lock-secilc-') as tmp:
-        with (evidence / 'secilc.log').open('w') as output:
+        with (evidence / log_name).open('w') as output:
             result = subprocess.run(['secilc', '-m', '-M', 'true', '-G', '-N', '-c', '30',
                                      *map(str, inputs), '-o', tmp + '/policy',
                                      '-f', tmp + '/contexts'], stdout=output, stderr=subprocess.STDOUT)
@@ -256,7 +281,33 @@ def integrate(images, binary, report, check=False):
         candidate.write_bytes(proposed[policy])
         compilation = verify_policy(images, report, candidate)
     if compilation['returncode']:
-        raise ValueError(f'Candidate split SELinux compilation failed: {report / "secilc.log"}')
+        # Print the real compiler diagnostics: previously these were written to
+        # a runner-local file and lost when the workflow failed.
+        candidate_log = report / 'secilc.log'
+        print(f'[TNM SELINUX] Candidate split policy failed '
+              f'(secilc exit {compilation["returncode"]}); '
+              f'compiler diagnostics:', file=sys.stderr)
+        print(candidate_log.read_text(encoding='utf-8', errors='replace')[-12000:],
+              file=sys.stderr, flush=True)
+
+        # A failed candidate does not establish whether the new managed CIL is
+        # responsible. Compile the *unmodified* system_ext policy separately to
+        # distinguish a malformed TNM rule from missing baseline policy inputs.
+        try:
+            baseline = verify_policy(images, report, policy,
+                                     log_name='secilc-baseline.log')
+            print(f'[TNM SELINUX] Unmodified base policy: '
+                  f'{"PASS" if baseline["returncode"] == 0 else "FAIL"} '
+                  f'(exit {baseline["returncode"]})', file=sys.stderr)
+            if baseline['returncode']:
+                baseline_log = report / 'secilc-baseline.log'
+                print(baseline_log.read_text(encoding='utf-8',
+                                             errors='replace')[-12000:],
+                      file=sys.stderr, flush=True)
+        except (OSError, ValueError) as err:
+            print(f'[TNM SELINUX] Baseline comparison unavailable: {err}',
+                  file=sys.stderr)
+        raise ValueError(f'Candidate split SELinux compilation failed: {candidate_log}')
     if not check:
         backup = {p: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode)) if p.exists() else None
                   for p in [*proposed, *caches]}
