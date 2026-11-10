@@ -15,98 +15,13 @@ regionTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
 MAIN_FOLDER="$work_dir/build/baserom/images"
 GMS_SOURCE="$work_dir/bin/modfile/Universal/LiteGapps/LiteGapps16"
 GMS_COMMON="$work_dir/bin/modfile/Universal/LiteGapps/Gapps"
-APKEDITOR="java -jar $work_dir/bin/apktool/apke.jar"
 
-patch_enhanced_keyboard() {
-  mods "Patching Enhanced Keyboard"
-
-  local phrase_dir phrase_apk smali name
-  phrase_dir=$(find "$MAIN_FOLDER" -type d -name "MIUIFrequentPhrase" -print -quit)
-  phrase_apk=$(find "$MAIN_FOLDER" -type f -name "MIUIFrequentPhrase.apk" -print -quit)
-
-  if [[ -z "$phrase_dir" || -z "$phrase_apk" || ! -f "$phrase_apk" ]]; then
-    error "GMS: MIUIFrequentPhrase.apk target not found"
-    return 1
-  fi
-
-  rm -rf "$work_dir/apk_temp/gms-keyboard"
-  mkdir -p "$work_dir/apk_temp/gms-keyboard/final"
-
-  if ! $APKEDITOR d -t raw -f -no-dex-debug \
-      -i "$phrase_apk" \
-      -o "$work_dir/apk_temp/gms-keyboard/out" >/dev/null 2>&1; then
-    error "GMS: MIUIFrequentPhrase decode failed"
-    return 1
-  fi
-
-  smali=$(find "$work_dir/apk_temp/gms-keyboard/out" \
-      -type f -name "InputMethodBottomManager.smali" -print -quit)
-
-  if [[ -z "$smali" || ! -f "$smali" ]]; then
-    error "GMS: InputMethodBottomManager.smali not found"
-    return 1
-  fi
-
-  if grep -q 'com.baidu.input_mi' "$smali"; then
-    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$smali"
-  elif ! grep -q 'com.google.android.inputmethod.latin' "$smali"; then
-    error "GMS: Enhanced Keyboard IME target changed"
-    return 1
-  fi
-
-  if grep -q 'com.baidu.input_mi' "$smali" || \
-     ! grep -q 'com.google.android.inputmethod.latin' "$smali"; then
-    error "GMS: Enhanced Keyboard patch verification failed"
-    return 1
-  fi
-
-  name=$(basename "$phrase_apk")
-  if ! $APKEDITOR b -f \
-      -i "$work_dir/apk_temp/gms-keyboard/out" \
-      -o "$work_dir/apk_temp/gms-keyboard/final/$name" >/dev/null 2>&1; then
-    error "GMS: MIUIFrequentPhrase rebuild failed"
-    return 1
-  fi
-
-  if [[ ! -s "$work_dir/apk_temp/gms-keyboard/final/$name" ]]; then
-    error "GMS: rebuilt MIUIFrequentPhrase.apk missing or empty"
-    return 1
-  fi
-
-  unzip -tq "$work_dir/apk_temp/gms-keyboard/final/$name" >/dev/null || {
-    error "GMS: rebuilt MIUIFrequentPhrase.apk is invalid"
-    return 1
-  }
-
-  rm -rf "$phrase_dir/oat"
-  cp -f "$work_dir/apk_temp/gms-keyboard/final/$name" "$phrase_dir/$name"
-
-  if [[ ! -s "$phrase_dir/$name" ]]; then
-    error "GMS: failed to install rebuilt MIUIFrequentPhrase.apk"
-    return 1
-  fi
-
-  rm -rf "$work_dir/apk_temp/gms-keyboard"
-  mods "Enhanced Keyboard Done"
-}
 
 if [[ $regionTYPE != "China" ]]; then
   mods "Detected Xiaomi Global ROM! Skipped Added LiteGapps16."
   exit 0
 fi
 
-# Reuse the original OS3 keyboard patch for China OS4/A17 only.
-# Keep LiteGapps16 payload staging exclusive to Android 16.
-if [[ "$androidVER" == "17" &&
-      "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_os.txt")" == "OS4" &&
-      "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "china" ]]; then
-  patch_enhanced_keyboard || {
-    error "A17 Enhanced Keyboard: existing OS3 patch failed"
-    exit 1
-  }
-  mods "Enhanced Keyboard OS4/A17 -> Done"
-  exit 0
-fi
 
 if [[ $androidVER != "16" ]]; then
   mods "Android ${androidVER}: skip LiteGapps16"
@@ -114,7 +29,7 @@ if [[ $androidVER != "16" ]]; then
 fi
 
 # Same fail-closed APK/LFS/XML payload verification as LiteGapps17.
-# Keep the Android 16-specific keyboard patch and Maps framework untouched.
+# Keep Android 16 GApps/Maps unchanged; Enhanced Keyboard now runs from UpdateFile/GoogleKeybroad.
 if ! python3 "$work_dir/bin/modfile/Universal/LiteGapps/validate.py" 16; then
   error "LiteGapps16: payload integrity check failed"
   exit 1
@@ -194,8 +109,4 @@ for required in "${required_installed[@]}"; do
   fi
 done
 
-patch_enhanced_keyboard || {
-  error "LiteGapps16: Enhanced Keyboard patch failed"
-  exit 1
-}
 mods "Added LiteGapps16 Done"

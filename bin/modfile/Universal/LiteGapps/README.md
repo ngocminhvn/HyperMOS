@@ -3,7 +3,7 @@
 ```text
 LiteGapps/
 ├── Gapps/                # APK/XML/DER dùng chung, GoogleVelvet_CTS, Velvet và Maps JAR
-├── LiteGapps16/         # Chỉ phần riêng Android 16 + vá Enhanced Keyboard
+├── LiteGapps16/         # Chỉ phần payload riêng Android 16 (Enhanced Keyboard chạy từ UpdateFile/GoogleKeybroad)
 ├── LiteGapps17/         # Chỉ phần riêng Android 17 + manifest/checksum
 ├── validate.py          # Kiểm tra bắt buộc A16/A17
 └── README.md

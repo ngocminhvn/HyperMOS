@@ -910,6 +910,10 @@ apply_miui_services_gboard() {
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/android/server/wm/MiuiSplitInputMethodImpl.smali"
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/miui/server/security/AppBehaviorService.smali"
 
+  # GoogleKeybroad finishes legacy IME routing in the same JAR smali pass.
+  python3 "$work_dir/bin/modfile/UpdateFile/GoogleKeybroad/patch_jar_smali.py" \
+    --component miui-services --smali-root "$decompile_dir" || return 1
+
   echo "Gboard patches applied to miui-services.jar"
 }
 
@@ -1088,6 +1092,10 @@ apply_miui_framework_gboard() {
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/android/view/inputmethod/InputMethodManagerStubImpl.smali"
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/com/android/internal/os/AnrEnhanceImpl.smali"
   sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$decompile_dir/smali/miui/util/HapticFeedbackUtil.smali"
+
+  # GoogleKeybroad finishes legacy IME routing in the same JAR smali pass.
+  python3 "$work_dir/bin/modfile/UpdateFile/GoogleKeybroad/patch_jar_smali.py" \
+    --component miui-framework --smali-root "$decompile_dir" || return 1
 
   echo "Gboard patches applied to miui-framework.jar"
 }

@@ -18,6 +18,24 @@ else
     rm -rf "$WORK_DIR/build/baserom/images/product/etc/permissions/cn.google.services.xml"
 fi
 
+# All OS versions/regions: delete only the stock Super XiaoAi IME container.
+# Exact path avoids matching unrelated Xiaomi apps; Gboard is supplied by GApps
+# and is checked by UpdateFile/GoogleKeybroad for China builds.
+mi_type="$WORK_DIR/build/baserom/images/product/app/MiType"
+if [[ -L "$mi_type" ]]; then
+    error "DEBLOAT: refusing symlinked MiType directory"
+    exit 1
+fi
+if [[ -d "$mi_type" ]]; then
+    [[ -s "$mi_type/MiType.apk" ]] || {
+        error "DEBLOAT: unexpected MiType directory without stock MiType.apk"
+        exit 1
+    }
+    info "Removing stock Super XiaoAi: $mi_type"
+    rm -rf -- "$mi_type" || exit 1
+    [[ ! -e "$mi_type" ]] || { error "DEBLOAT: MiType was not removed"; exit 1; }
+fi
+
 for debloat_app in "${debloat_apps[@]}"; do
     if [[ "$EU_DEBLOAT" == "1" ]]; then
         # Only Xiaomi.eu: keep its original GMS apps and updater, otherwise

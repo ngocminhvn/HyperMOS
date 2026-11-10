@@ -8,7 +8,7 @@ những APK/XML/JAR khác phiên bản, các tệp riêng Android 16 và script 
 - **Bắt buộc trên A16 và A17**: `GoogleVelvet_CTS.apk`, `Velvet.apk`
   (đều ở `../Gapps/product/priv-app/`) và `../Gapps/maps/com.google.android.maps.jar`.
 - **Riêng A16**: GmsCore, Phonesky, GoogleServicesFramework, XML quyền/ZK,
-  XML preinstall, và vá Enhanced Keyboard của `MIUIFrequentPhrase.apk`.
+  XML preinstall. Enhanced Keyboard `MIUIFrequentPhrase.apk` đã chuyển sang `UpdateFile/GoogleKeybroad` (China A15/A16/A17).
 - Trình kiểm tra chung chặn thiếu CTS/Velvet/Maps JAR, Gmail xuất hiện trở lại,
   con trỏ Git LFS chưa hydrate hoặc APK/XML sai định dạng.
 
