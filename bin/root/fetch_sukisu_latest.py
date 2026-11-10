@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -55,11 +56,28 @@ def download(url: str, destination: Path, expected_sha256: str | None = None) ->
 
 
 def load_release() -> dict:
-    req = urllib.request.Request(API, headers={
-        "Accept": "application/vnd.github+json", "User-Agent": USER_AGENT,
-    })
-    with urllib.request.urlopen(req, timeout=45) as response:
-        release = json.load(response)
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": USER_AGENT,
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    # build.yml already provides GH_TOKEN from github.token. Unauthenticated
+    # release requests share a low IP-level limit across hosted runners.
+    # Only send the token to the fixed GitHub API URL, never to asset mirrors.
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token.strip()}"
+    req = urllib.request.Request(API, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=45) as response:
+            release = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (403, 429):
+            raise RuntimeError(
+                f"GitHub release API HTTP {exc.code} (rate limit or permissions); "
+                "use a valid GH_TOKEN/GITHUB_TOKEN for authenticated API access"
+            ) from exc
+        raise RuntimeError(f"GitHub release API HTTP {exc.code}") from exc
     tag = release.get("tag_name", "")
     if not re.fullmatch(r"v[0-9][0-9A-Za-z._-]*", tag):
         raise RuntimeError(f"unrecognized stable release tag: {tag!r}")

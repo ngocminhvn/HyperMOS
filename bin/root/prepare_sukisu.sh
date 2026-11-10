@@ -27,7 +27,7 @@ esac
 
 mkdir -p "$out"
 python3 "$workdir/bin/root/fetch_sukisu_latest.py" --out "$out" --kmi "$kmi" ||
-  die "Latest official SukiSU release does not support $kmi or failed digest verification"
+  die "SukiSU release lookup/download failed for $kmi (see detailed resolver error above)"
 
 tag="$(cat "$out/tag.txt")"
 [[ "$tag" =~ ^v[0-9][0-9A-Za-z._-]*$ ]] || die "Invalid upstream release tag"
