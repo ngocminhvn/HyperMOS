@@ -171,12 +171,14 @@ def plan_patch(unpacked_dir: Path, kaorios_dex: Path | None = None,
     activity_owners = []
     kaorios_owners = []
     dex_classes = {}
+    dex_method_counts = {}
 
     for p in dex_paths:
         data = p.read_bytes()
         before_hashes[p.name] = compute_sha256(data)
         classes = get_dex_classes(data, strict=True)
         dex_classes[p.name] = classes
+        dex_method_counts[p.name] = struct.unpack_from("<I", data, 0x58)[0]
         if ACTIVITY_THREAD_DESC in classes:
             activity_owners.append(p.name)
         if KAORIOS_HOOK_DESC in classes:
@@ -212,12 +214,22 @@ def plan_patch(unpacked_dir: Path, kaorios_dex: Path | None = None,
             raise ValueError('supplied payload must not replace ActivityThread or other required framework callers')
 
     payload_owners = [name for name, classes in dex_classes.items() if classes & incoming]
-    modified_dexes = sorted(set(caller_owners + payload_owners))
+    spilled_classes = {}
+    for caller_dex in caller_owners:
+        if caller_dex != kaorios_slot and dex_method_counts.get(caller_dex, 0) >= 65530:
+            spill_candidates = sorted(
+                desc for desc in dex_classes[caller_dex]
+                if desc.startswith("Landroid/security/keystore2/") and desc not in incoming
+            )
+            if spill_candidates:
+                for desc in spill_candidates:
+                    spilled_classes[desc] = caller_dex
+    modified_dexes = sorted(set(caller_owners + payload_owners + ([kaorios_slot] if spilled_classes else [])))
     if kaorios_slot == owner_dex or not payload_owners:
         modified_dexes = sorted(set(modified_dexes + [kaorios_slot]))
     if kaorios_slot not in dex_classes:
         kaorios_action = "append"
-    elif dex_classes[kaorios_slot] - incoming or kaorios_slot == owner_dex:
+    elif dex_classes[kaorios_slot] - incoming or kaorios_slot == owner_dex or spilled_classes:
         kaorios_action = "merge"
     else:
         kaorios_action = "replace"
@@ -228,11 +240,13 @@ def plan_patch(unpacked_dir: Path, kaorios_dex: Path | None = None,
     }
     expected_classes = {}
     for name in modified_dexes:
-        expected = dex_classes.get(name, set()) - incoming
+        expected = (dex_classes.get(name, set()) - incoming) - set(spilled_classes)
         expected.update(
             desc for desc in incoming
             if payload_owner_by_class.get(desc, kaorios_slot) == name
         )
+        if name == kaorios_slot:
+            expected.update(spilled_classes)
         expected_classes[name] = sorted(expected)
 
     return {
@@ -242,6 +256,7 @@ def plan_patch(unpacked_dir: Path, kaorios_dex: Path | None = None,
         "kaorios_action": kaorios_action,
         "modified_dexes": modified_dexes,
         "payload_classes": sorted(incoming),
+        "spilled_classes": spilled_classes,
         "expected_classes": expected_classes,
         "before_hashes": before_hashes,
     }
@@ -321,6 +336,19 @@ def import_payload(plan: dict, trees: Path, payload_tree: Path) -> None:
             if match[1] in owners:
                 raise ValueError(f"duplicate smali class definition: {match[1]}")
             owners[match[1]] = (name, path)
+    for desc, source_dex in plan.get("spilled_classes", {}).items():
+        relative = Path(desc[1:-1] + ".smali")
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("unsafe spilled descriptor path")
+        existing = owners.get(desc)
+        if existing is None or existing[0] != source_dex:
+            raise ValueError(f"missing spilled class {desc} in {source_dex}")
+        destination = trees / plan["kaorios_slot"] / relative
+        if destination.exists():
+            raise ValueError(f"spilled class would overwrite existing class: {destination}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(existing[1]), str(destination))
+        owners[desc] = (plan["kaorios_slot"], destination)
     for desc, source in sources.items():
         relative = Path(desc[1:-1] + ".smali")
         if relative.is_absolute() or ".." in relative.parts:
