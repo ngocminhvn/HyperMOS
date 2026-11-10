@@ -140,14 +140,14 @@ def _module_broadcast():
                     raise ValueError("Duplicate BroadcastQueue method: " + name)
                 found = [r for r in READ.finditer(block) if r.group(3) in (NATIVE,) + ALIAS]
                 legacy = list(LEGACY.finditer(block))
-                # Preserve stock EU309 isInternationalSpecialAction when its
-                # native flag read count differs from the ZK304 assumption.
-                # Never synthesize an unchecked branch into EU bytecode.
+                # A stock Xiaomi.eu broadcast method may contain zero, one
+                # or multiple native build-flag reads. Never manufacture a
+                # ZK304 gate when the original EU bytecode differs.
                 preserve_eu = (
-                    name == "isInternationalSpecialAction"
-                    and not legacy
+                    not legacy
                     and all(r.group(3) == NATIVE for r in found)
                     and "->IS_ZK_BUILD:Z" not in block
+                    and "Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z" not in block
                 )
                 if preserve_eu:
                     actions[name] = f"preserved_stock_eu_{len(found)}_native_reads"
@@ -171,6 +171,8 @@ def _module_broadcast():
                         raise ValueError(name + ": native flag read not recovered")
                 if "HYPERMOS_EU_ZK_BROADCAST_A16" in block:
                     raise ValueError(name + ": stale forced-gate marker")
+                if "Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z" in block:
+                    raise ValueError(name + ": COREPATCH xBuild rewrite conflicts with EU ZK policy")
             parts.append(block)
             last = match.end()
         parts.append(text[last:])
@@ -342,10 +344,13 @@ def _module_notification():
             m = find_method(path.read_text(encoding="utf-8"), signature)
             block = m.group()
             native = block.count(BUILD)
-            if "->IS_ZK_BUILD:Z" in block or "HYPERMOS_EU_ZK_BROADCAST_A16" in block:
-                raise ValueError(f"{rel}/{signature}: unrecognized ZK/private forced gate")
-            if signature == "isInternationalSpecialAction(":
-                # Original EU method is intentionally not assumed ZK-equivalent.
+            if ("->IS_ZK_BUILD:Z" in block
+                    or "HYPERMOS_EU_ZK_BROADCAST_A16" in block
+                    or "Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z" in block):
+                raise ValueError(f"{rel}/{signature}: unrecognized ZK/private or xBuild gate")
+            if rel == "com/android/server/am/BroadcastQueueModernStubImpl.smali":
+                # Keep all four EU broadcast methods; the original read count
+                # is not a guarantee of ZK304 bytecode equivalence.
                 result[rel + "/" + signature] = f"preserved_stock_eu_{native}_native_reads"
                 continue
             if native != 1:

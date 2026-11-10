@@ -31,8 +31,7 @@ kmi="$(python3 "$workdir/bin/root/detect_kernel_kmi.py" \
 for item in kernelsu.ko ksuinit ksud RootManager.apk release-metadata.json; do
   test -s "$scratch/$item" || die "Missing official SukiSU asset: $item"
 done
-python3 - "$scratch/release-metadata.json" "$tag" "$kmi" <<'PYVERIFY' ||
-  die "Prepared release metadata mismatch"
+python3 - "$scratch/release-metadata.json" "$tag" "$kmi" <<'PYVERIFY' || die "Prepared release metadata mismatch"
 import json, sys
 info = json.load(open(sys.argv[1], encoding="utf-8"))
 if info.get("tag") != sys.argv[2] or info.get("kmi") != sys.argv[3]:

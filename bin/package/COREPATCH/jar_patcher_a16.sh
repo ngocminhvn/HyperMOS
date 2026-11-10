@@ -717,11 +717,12 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
   for i in $class; do
     [ -f "$i" ] || continue
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
-    # The next China A16 Notification Fix stage patches these exact classes.
+    # The later A16 CN FrameworkPatcher or EU ZK304 notification stage
+    # checks native region gates in these classes; do not rewrite them here.
     # Preserve their native region reads here, otherwise FRAMEWORKPATCHER
     # cannot identify its audited branches (and xBuild can leak into them).
     # Keep the other BEACHEADVN CorePatch transformations intact.
-    if [[ "$romSOURCE" == "china" ]]; then
+    if [[ "$romSOURCE" == "china" || "$romSOURCE" == "xiaomi_eu" ]]; then
       case "$i" in
         */com/android/server/am/BroadcastQueueModernStubImpl.smali|\
         */com/android/server/am/ActivityManagerServiceImpl.smali|\
@@ -732,6 +733,16 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
         */com/android/server/am/PreStartFeedbackImpl.smali|\
         */com/android/server/am/ProcessPolicy.smali|\
         */com/android/server/am/ProcessManagerService.smali)
+          continue
+          ;;
+      esac
+    fi
+    # EU ZK304 also checks these two classes in its notification and
+    # Greeze/Doze policies; leave native build reads untouched on Xiaomi.eu.
+    if [[ "$romSOURCE" == "xiaomi_eu" ]]; then
+      case "$i" in
+        */com/android/server/DeviceIdleControllerStubImpl.smali|\
+        */com/miui/server/greeze/PolicyManager.smali)
           continue
           ;;
       esac
