@@ -7,6 +7,11 @@ SCRIPT_DIR="$work_dir/bin/package/COREPATCH"
 TOOLS_DIR="$work_dir/bin/apktool"
 source "${SCRIPT_DIR}/helper.sh"
 regionTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
+# The same China device is used by Xiaomi.eu; route by ROM source, not region.
+romSOURCE=""
+if [[ -s "$work_dir/bin/ddevice/rom_source.txt" ]]; then
+  romSOURCE=$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")
+fi
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
 
@@ -712,6 +717,25 @@ $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
   for i in $class; do
     [ -f "$i" ] || continue
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
+    # The next China A16 Notification Fix stage patches these exact classes.
+    # Preserve their native region reads here, otherwise FRAMEWORKPATCHER
+    # cannot identify its audited branches (and xBuild can leak into them).
+    # Keep the other BEACHEADVN CorePatch transformations intact.
+    if [[ "$romSOURCE" == "china" ]]; then
+      case "$i" in
+        */com/android/server/am/BroadcastQueueModernStubImpl.smali|\
+        */com/android/server/am/ActivityManagerServiceImpl.smali|\
+        */com/android/server/am/ProcessSceneCleaner.smali|\
+        */com/android/server/job/JobServiceContextImpl.smali|\
+        */com/android/server/notification/NotificationManagerServiceImpl.smali|\
+        */miui/app/ActivitySecurityHelper.smali|\
+        */com/android/server/am/PreStartFeedbackImpl.smali|\
+        */com/android/server/am/ProcessPolicy.smali|\
+        */com/android/server/am/ProcessManagerService.smali)
+          continue
+          ;;
+      esac
+    fi
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
   done
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
@@ -1063,7 +1087,13 @@ patch_miui_services() {
 
   # Apply feature-specific patches based on flags
   apply_miui_services_floating "$decompile_dir"
-  apply_miui_services_contentextension "$decompile_dir"
+  if [[ "$romSOURCE" == "china" ]]; then
+    # The China A16 notification stage has a scoped, audited ContentCatcher
+    # rewrite. Applying this CorePatch rewrite first hides the original read.
+    log "COREPATCH A16 China: defer ContentCatcher region gate to Notification Fix"
+  else
+    apply_miui_services_contentextension "$decompile_dir"
+  fi
   if [[ $regionTYPE == *"Global"* ]];then
     apply_miui_services_global_patch "$decompile_dir"
   else
