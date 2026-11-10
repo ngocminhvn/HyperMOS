@@ -17,28 +17,7 @@ API_LEVEL=36
 # Feature Flags (set by command-line arguments)
 # ============================================
 FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
-
-parse_feature_flags() {
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --disable-signature-verification)
-        FEATURE_DISABLE_SIGNATURE_VERIFICATION=1
-        ;;
-      *)
-        err "Unknown Android 16 COREPATCH option: $1"
-        return 1
-        ;;
-    esac
-    shift
-  done
-
-  log "Android 16 COREPATCH features:"
-  [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ] && log "  [PATCH] Disable Signature Verification"
-
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 0 ]; then
-    warn "No Android 16 COREPATCH feature selected"
-  fi
-}
+FEATURE_DISABLE_SECURE_FLAG=1
 
 # ----------------------------------------------
 # Internal helpers (python-powered transformations)
@@ -684,6 +663,63 @@ apply_framework_signature_patches() {
   log "Signature verification patches applied to framework.jar (Android 16)"
 }
 
+# Apply CN notification fix patches to miui-services.jar
+apply_miui_services_cn_notification_fix() {
+  local decompile_dir="$1"
+  local class="
+$decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali
+$decompile_dir/smali*/com/android/server/am/BroadcastQueueModernStubImpl.smali
+$decompile_dir/smali*/com/android/server/am/MiProcessTracker.smali
+$decompile_dir/smali*/com/android/server/am/MutableActivityManagerShellCommandStubImpl.smali
+$decompile_dir/smali*/com/android/server/am/PreStartFeedbackImpl.smali
+$decompile_dir/smali*/com/android/server/am/ProcessManagerService.smali
+$decompile_dir/smali*/com/android/server/am/ProcessPolicy.smali
+$decompile_dir/smali*/com/android/server/am/ProcessSceneCleaner.smali
+$decompile_dir/smali*/com/android/server/audio/AudioServiceStubImpl.smali
+$decompile_dir/smali*/com/android/server/clipboard/ClipboardChecker.smali
+$decompile_dir/smali*/com/android/server/clipboard/ClipboardServiceStubImpl.smali
+$decompile_dir/smali*/com/android/server/devicepolicy/DevicePolicyManagerServiceStubImpl.smali
+$decompile_dir/smali*/com/android/server/input/InputManagerServiceStubImpl.smali
+$decompile_dir/smali*/com/android/server/inputmethod/InputMethodManagerServiceImpl.smali
+$decompile_dir/smali*/com/android/server/inputmethod/SogouInputMethodSwitcher.smali
+$decompile_dir/smali*/com/android/server/job/JobServiceContextImpl.smali
+$decompile_dir/smali*/com/android/server/location/gnss/datacollect/GnssEventTrackingImpl.smali
+$decompile_dir/smali*/com/android/server/location/gnss/enhance/EnhanceUtils.smali
+$decompile_dir/smali*/com/android/server/location/gnss/gnssSelfRecovery/Utils.smali
+$decompile_dir/smali*/com/android/server/location/gnss/operators/GnssForKtCustomImpl.smali
+$decompile_dir/smali*/com/android/server/location/gnss/GnssLocationProviderImpl.smali
+$decompile_dir/smali*/com/android/server/location/util/GnssCustFeatureHelper.smali
+$decompile_dir/smali*/com/android/server/location/GnssCollectDataImpl.smali
+$decompile_dir/smali*/com/android/server/location/MiuiBlurLocationManagerImpl.smali
+$decompile_dir/smali*/com/android/server/notification/NotificationManagerServiceImpl.smali
+$decompile_dir/smali*/com/android/server/pm/PackageManagerServiceImpl.smali
+$decompile_dir/smali*/com/android/server/policy/MiuiShortcutTriggerHelper\$ShortcutSettingsObserver.smali
+$decompile_dir/smali*/com/android/server/wm/ActivityTaskSupervisorImpl.smali
+$decompile_dir/smali*/com/android/server/wm/MiuiSplitInputMethodImpl.smali
+$decompile_dir/smali*/com/android/server/wm/WindowManagerServiceImpl.smali
+$decompile_dir/smali*/com/android/server/DeviceIdleControllerStubImpl.smali
+$decompile_dir/smali*/com/android/server/ForceDarkAppListManager.smali
+$decompile_dir/smali*/com/miui/server/greeze/PolicyManager.smali
+$decompile_dir/smali*/com/miui/server/security/AppBehaviorService.smali
+$decompile_dir/smali*/com/miui/server/smartpower/policy/SmartArtRuntimePolicy.smali
+$decompile_dir/smali*/com/miui/server/smartpower/FlingOptimizeManager.smali
+$decompile_dir/smali*/com/miui/server/turbosched/TurboSchedManagerService.smali
+$decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/GameLatencyPredict.smali
+$decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/SLAAppLib.smali
+$decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/SLAAppLib\$2.smali
+$decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
+"
+  for i in $class; do
+    [ -f "$i" ] || continue
+    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
+    sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
+  done
+  for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
+    [ -f "$i" ] || continue
+    sed -i '/Lmiui\/drm\/DrmBroadcast;->getInstance/{N;N;N;N;d}' "$i"
+  done
+}
+
 apply_miui_services_global_patch() {
   local decompile_dir="$1"
   local class="
@@ -703,6 +739,39 @@ $decompile_dir/smali*/com/miui/server/security/AppBehaviorService.smali
   done
 }
 
+apply_miui_framework_cn_notification_fix() {
+  local decompile_dir="$1"
+  local class="
+$decompile_dir/smali*/android/app/AppOpsManagerInjector.smali
+$decompile_dir/smali*/android/inputmethodservice/InputMethodServiceInjector.smali
+$decompile_dir/smali*/android/view/inputmethod/InputMethodManagerStubImpl.smali
+$decompile_dir/smali*/com/android/internal/os/AnrEnhanceImpl.smali
+$decompile_dir/smali*/com/miui/mishare/app/NearbyUtils.smali
+$decompile_dir/smali*/miui/hardware/input/shortcut/ShortcutFunctionManager.smali
+$decompile_dir/smali*/miui/util/font/SymlinkUtils.smali
+$decompile_dir/smali*/miui/util/font/MultiLangHelper.smali
+"
+  for i in $class; do
+    [ -f "$i" ] || continue
+    sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
+    sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
+  done
+  cp -rf "$SCRIPT_DIR/miui" "$decompile_dir/smali"
+}
+
+# Apply disable secure flag patches to framework.jar (Android 16)
+apply_framework_disable_secure_flag() {
+  local decompile_dir="$1"
+
+  log "Applying disable secure flag patches to framework.jar (Android 16)..."
+
+  # Note: For Android 16, disable secure flag does not require framework.jar patches
+  # Only services.jar and miui-services.jar are affected
+  log "Disable secure flag: No framework.jar patches required for Android 16"
+
+  log "Disable secure flag patches applied to framework.jar (Android 16)"
+}
+
 # Main framework patching function (Android 16)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
@@ -716,9 +785,8 @@ patch_framework() {
   local decompile_dir
   decompile_dir=$(decompile_jar "$framework_path") || return 1
 
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_framework_signature_patches "$decompile_dir"
-  fi
+  # Apply feature-specific patches based on flags
+  apply_framework_signature_patches "$decompile_dir"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -839,6 +907,20 @@ apply_services_signature_patches() {
   log "Signature verification patches applied to services.jar (Android 16)"
 }
 
+# Apply disable secure flag patches to services.jar (Android 16)
+apply_services_disable_secure_flag() {
+  local decompile_dir="$1"
+
+  log "Applying disable secure flag patches to services.jar (Android 16)..."
+
+  # Android 16: Patch WindowState.isSecureLocked()
+  log "Patching WindowState.isSecureLocked()..."
+  local method_body="    .registers 6\n\n    const/4 v0, 0x0\n\n    return v0"
+  replace_entire_method "isSecureLocked()Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowState"
+
+  log "Disable secure flag patches applied to services.jar (Android 16)"
+}
+
 # Main services patching function (Android 16)
 patch_services() {
   local services_path="$work_dir/build/baserom/images/system/system/framework/services.jar"
@@ -869,9 +951,7 @@ patch_services() {
   fi
 
   # Apply feature-specific patches based on flags
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_services_signature_patches "$decompile_dir"
-  fi
+  #apply_services_disable_secure_flag "$decompile_dir"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -908,6 +988,20 @@ apply_miui_services_signature_patches() {
   log "Signature verification patches applied to miui-services.jar (Android 16)"
 }
 
+# Apply disable secure flag patches to miui-services.jar (Android 16)
+apply_miui_services_disable_secure_flag() {
+  local decompile_dir="$1"
+
+  log "Applying disable secure flag patches to miui-services.jar (Android 16)..."
+
+  # Android 16: Patch WindowManagerServiceImpl.notAllowCaptureDisplay()
+  log "Patching WindowManagerServiceImpl.notAllowCaptureDisplay()..."
+  local method_body="    .registers 9\n\n    const/4 v0, 0x0\n\n    return v0"
+  replace_entire_method "notAllowCaptureDisplay(Lcom/android/server/wm/RootWindowContainer;I)Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowManagerServiceImpl"
+
+  log "Disable secure flag patches applied to miui-services.jar (Android 16)"
+}
+
 # Apply Gboard patches
 apply_miui_services_gboard() {
   local decompile_dir="$1"
@@ -926,21 +1020,6 @@ apply_miui_services_gboard() {
 # Apply ContentExtension patches
 apply_miui_services_contentextension() {
   local decompile_dir="$1"
-  # Original EU policy matches Global303 in the audited target methods.
-  # Its ContentCatcher region gate must not be overridden by the old
-  # HyperMOS/ZK profile when testing the Global FULL A16 build.
-  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-    echo "[GLOBAL A16] preserve original EU ContentCatcher gate"
-    return 0
-  fi
-  # When the full CN A16 ROM pipeline runs, the later FrameworkPatcher step
-  # handles all 4 ProcessPolicy reads: ContentCatcher CN=false and 3 RYU=true.
-  # Do not consume one read here (which led to 3/4 and failed build #160).
-  # Xiaomi.eu, Global and standalone CorePatch are patched here directly.
-  if [[ "${HYPERMOS_DEFER_A16_CN_PROCESSPOLICY:-0}" == "1" && "$regionTYPE" != *"Global"* ]]; then
-    echo "[COREPATCH A16] Defer ProcessPolicy ContentExtension gate to FrameworkPatcher"
-    return 0
-  fi
   replace_line_contains_in_smali_method "IS_INTERNATIONAL_BUILD" "updateContentCatcherWhitelist()V" "    const/4 v0, 0x0" "$decompile_dir/smali/com/android/server/am/ProcessPolicy.smali"
   echo "ContentExtension patches applied to miui-services.jar"
 }
@@ -982,24 +1061,14 @@ patch_miui_services() {
     decompile_dir=$(decompile_jar "$miui_services_path") || return 1
   fi
 
-  if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
-    apply_miui_services_floating "$decompile_dir"
-    apply_miui_services_contentextension "$decompile_dir"
-  fi
-
-  # Feature-specific patches
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-    apply_miui_services_signature_patches "$decompile_dir"
-  fi
-
-  if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
-    if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-      : # Xiaomi.eu: preserve existing miui-services Gboard and policy behavior.
-    elif [[ $regionTYPE == *"Global"* ]];then
-      apply_miui_services_global_patch "$decompile_dir"
-    else
-      apply_miui_services_gboard "$decompile_dir"
-    fi
+  # Apply feature-specific patches based on flags
+  apply_miui_services_floating "$decompile_dir"
+  apply_miui_services_contentextension "$decompile_dir"
+  if [[ $regionTYPE == *"Global"* ]];then
+    apply_miui_services_global_patch "$decompile_dir"
+  else
+    apply_miui_services_cn_notification_fix "$decompile_dir"
+    apply_miui_services_gboard "$decompile_dir"
   fi
 
   # Apply invoke-custom patches (common to all features)
@@ -1061,16 +1130,9 @@ patch_miui_framework() {
     decompile_dir=$(decompile_jar "$miui_framework_path") || return 1
   fi
 
-  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-    # EU already contains its own notification filter and Google IME rules.
-    # Keep both intact, while still applying shared CorePatch options.
-    :
-  else
-    # China source: keep existing Gboard and audited EU filter port.
-    apply_miui_framework_gboard "$decompile_dir"
-    python3 "$SCRIPT_DIR/port_eu_notification_filter_a16.py" "$decompile_dir" \
-      --report "$WORK_DIR/build/reports/eu-framework-a16/notification-filter.json" || return 1
-  fi
+  # Apply Gboard
+  apply_miui_framework_gboard "$decompile_dir"
+  apply_miui_framework_cn_notification_fix "$decompile_dir"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -1086,39 +1148,20 @@ patch_miui_framework() {
 }
 
 # Main function
-# Parse requested features, then initialize environment and tools.
-parse_feature_flags "$@" || exit 1
+# Initialize environment and check tools
+FEATURE_DISABLE_SIGNATURE_VERIFICATION=0
+FEATURE_DISABLE_SECURE_FLAG=1
 init_env
 ensure_tools || exit 1
 
-# Patch only the JARs owned by the selected pass.
-expected_jars=()
-if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-  patch_framework || exit 1
-  patch_services || exit 1
-  expected_jars+=(framework_patched.jar services_patched.jar)
-fi
-patch_miui_services || exit 1
-expected_jars+=(miui-services_patched.jar)
-if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
-  patch_miui_framework || exit 1
-  expected_jars+=(miui-framework_patched.jar)
-fi
-
-# Never package a ROM if a required patched JAR was not generated.
-for jar in "${expected_jars[@]}"; do
-  if [ ! -s "$jar" ]; then
-    err "COREPATCH A16: missing patched artifact $jar"
-    exit 1
-  fi
-done
+# Patch requested JARs
+patch_framework
+patch_services
+patch_miui_services
+patch_miui_framework
 
 # Add patched JARs
-if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" -eq 1 ]; then
-  mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
-  mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
-fi
+mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
+mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
 mv -f "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
-if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
-  mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
-fi
+mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"

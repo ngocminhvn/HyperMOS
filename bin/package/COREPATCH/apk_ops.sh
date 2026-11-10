@@ -65,16 +65,14 @@ backup_original_jar() {
 }
 
 # Decompile JAR using baksmali v2
-# Uses API_LEVEL if set (e.g. API_LEVEL=35 for Android 15)
+# Uses API_LEVEL if set (e.g. API_LEVEL=33 for Android 13)
 decompile_jar() {
   local jar_file="$1"
   local base_name
   base_name=$(basename "$jar_file" .jar)
   local output_dir="${WORK_DIR}/${base_name}_decompile"
   local api_flag=""
-  local dex_api="${API_LEVEL:-}"
-  case "$dex_api" in 36|37) dex_api=34 ;; esac
-  [ -n "$dex_api" ] && api_flag="--api $dex_api"
+  [ -n "${API_LEVEL:-}" ] && api_flag="--api $API_LEVEL"
 
   log "Decompiling $jar_file -> $output_dir (baksmali v2)"
 
@@ -135,7 +133,7 @@ decompile_jar() {
 }
 
 # Recompile JAR using smali v2
-# Uses API_LEVEL if set (e.g. API_LEVEL=35 for Android 15)
+# Uses API_LEVEL if set (e.g. API_LEVEL=33 for Android 13)
 recompile_jar() {
   local jar_file="$1" # original jar file path (used only for name)
   local base_name
@@ -143,9 +141,7 @@ recompile_jar() {
   local output_dir="${WORK_DIR}/${base_name}_decompile"
   local patched_jar="${base_name}_patched.jar"
   local api_flag=""
-  local dex_api="${API_LEVEL:-}"
-  case "$dex_api" in 36|37) dex_api=34 ;; esac
-  [ -n "$dex_api" ] && api_flag="--api $dex_api"
+  [ -n "${API_LEVEL:-}" ] && api_flag="--api $API_LEVEL"
 
   log "Recompiling $output_dir -> $patched_jar (smali v2)"
   if [ ! -d "$output_dir" ]; then

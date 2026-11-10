@@ -16,7 +16,8 @@ API_LEVEL=37
 # ============================================
 # Feature Flags (set by command-line arguments)
 # ============================================
-FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-0}"
+FEATURE_DISABLE_SIGNATURE_VERIFICATION=1
+FEATURE_DISABLE_SECURE_FLAG=1
 
 # ----------------------------------------------
 # Internal helpers (python-powered transformations)
@@ -758,6 +759,19 @@ $decompile_dir/smali*/miui/util/font/MultiLangHelper.smali
   cp -rf "$SCRIPT_DIR/miui" "$decompile_dir/smali"
 }
 
+# Apply disable secure flag patches to framework.jar (Android 17)
+apply_framework_disable_secure_flag() {
+  local decompile_dir="$1"
+
+  log "Applying disable secure flag patches to framework.jar (Android 17)..."
+
+  # Note: For Android 16, disable secure flag does not require framework.jar patches
+  # Only services.jar and miui-services.jar are affected
+  log "Disable secure flag: No framework.jar patches required for Android 16"
+
+  log "Disable secure flag patches applied to framework.jar (Android 17)"
+}
+
 # Main framework patching function (Android 17)
 patch_framework() {
   local framework_path="$work_dir/build/baserom/images/system/system/framework/framework.jar"
@@ -771,9 +785,8 @@ patch_framework() {
   local decompile_dir
   decompile_dir=$(decompile_jar "$framework_path") || return 1
 
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
-    apply_framework_signature_patches "$decompile_dir"
-  fi
+  # Apply feature-specific patches based on flags
+  apply_framework_signature_patches "$decompile_dir"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -894,6 +907,20 @@ apply_services_signature_patches() {
   log "Signature verification patches applied to services.jar (Android 17)"
 }
 
+# Apply disable secure flag patches to services.jar (Android 17)
+apply_services_disable_secure_flag() {
+  local decompile_dir="$1"
+
+  log "Applying disable secure flag patches to services.jar (Android 17)..."
+
+  # Android 16: Patch WindowState.isSecureLocked()
+  log "Patching WindowState.isSecureLocked()..."
+  local method_body="    .registers 6\n\n    const/4 v0, 0x0\n\n    return v0"
+  replace_entire_method "isSecureLocked()Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowState"
+
+  log "Disable secure flag patches applied to services.jar (Android 17)"
+}
+
 # Main services patching function (Android 17)
 patch_services() {
   local services_path="$work_dir/build/baserom/images/system/system/framework/services.jar"
@@ -923,9 +950,9 @@ patch_services() {
     decompile_dir=$(decompile_jar "$services_path") || return 1
   fi
 
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
-    apply_services_signature_patches "$decompile_dir"
-  fi
+  # Apply feature-specific patches based on flags
+  #apply_services_signature_patches "$decompile_dir"
+  #apply_services_disable_secure_flag "$decompile_dir"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -960,6 +987,20 @@ apply_miui_services_signature_patches() {
   grep -s -R -n --include='*.smali' '^[[:space:]]*\.method.*canBeUpdate' "$decompile_dir" | head -n 5 || true
 
   log "Signature verification patches applied to miui-services.jar (Android 17)"
+}
+
+# Apply disable secure flag patches to miui-services.jar (Android 17)
+apply_miui_services_disable_secure_flag() {
+  local decompile_dir="$1"
+
+  log "Applying disable secure flag patches to miui-services.jar (Android 17)..."
+
+  # Android 16: Patch WindowManagerServiceImpl.notAllowCaptureDisplay()
+  log "Patching WindowManagerServiceImpl.notAllowCaptureDisplay()..."
+  local method_body="    .registers 9\n\n    const/4 v0, 0x0\n\n    return v0"
+  replace_entire_method "notAllowCaptureDisplay(Lcom/android/server/wm/RootWindowContainer;I)Z" "$decompile_dir" "$method_body" "com/android/server/wm/WindowManagerServiceImpl"
+
+  log "Disable secure flag patches applied to miui-services.jar (Android 17)"
 }
 
 # Apply Gboard patches
@@ -1021,20 +1062,14 @@ patch_miui_services() {
     decompile_dir=$(decompile_jar "$miui_services_path") || return 1
   fi
 
-  if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
-    apply_miui_services_signature_patches "$decompile_dir"
-  fi
-  if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
-    apply_miui_services_floating "$decompile_dir"
-    apply_miui_services_contentextension "$decompile_dir"
-    if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-      : # Xiaomi.eu keeps its original Gboard and regional policy variables.
-    elif [[ $regionTYPE == *"Global"* ]];then
-      apply_miui_services_global_patch "$decompile_dir"
-    else
-      apply_miui_services_cn_notification_fix "$decompile_dir"
-      apply_miui_services_gboard "$decompile_dir"
-    fi
+  # Apply feature-specific patches based on flags
+  apply_miui_services_floating "$decompile_dir"
+  apply_miui_services_contentextension "$decompile_dir"
+  if [[ $regionTYPE == *"Global"* ]];then
+    apply_miui_services_global_patch "$decompile_dir"
+  else
+    apply_miui_services_cn_notification_fix "$decompile_dir"
+    apply_miui_services_gboard "$decompile_dir"
   fi
 
   # Apply invoke-custom patches (common to all features)
@@ -1096,12 +1131,9 @@ patch_miui_framework() {
     decompile_dir=$(decompile_jar "$miui_framework_path") || return 1
   fi
 
-  if [[ "${HYPERMOS_PRESERVE_EU_FRAMEWORK:-0}" == "1" ]]; then
-    : # Xiaomi.eu keeps the original miui-framework behavior.
-  else
-    apply_miui_framework_gboard "$decompile_dir"
-    apply_miui_framework_cn_notification_fix "$decompile_dir"
-  fi
+  # Apply Gboard
+  apply_miui_framework_gboard "$decompile_dir"
+  apply_miui_framework_cn_notification_fix "$decompile_dir"
 
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
@@ -1118,26 +1150,19 @@ patch_miui_framework() {
 
 # Main function
 # Initialize environment and check tools
-FEATURE_DISABLE_SIGNATURE_VERIFICATION="${COREPATCH_DISABLE_SIGNATURE_VERIFICATION:-0}"
+FEATURE_DISABLE_SIGNATURE_VERIFICATION=1
+FEATURE_DISABLE_SECURE_FLAG=1
 init_env
 ensure_tools || exit 1
 
-# Patch only the JARs owned by the selected pass.
-if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
-  patch_framework || exit 1
-  patch_services || exit 1
-fi
-patch_miui_services || exit 1
-if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
-  patch_miui_framework || exit 1
-fi
+# Patch requested JARs
+patch_framework
+patch_services
+patch_miui_services
+patch_miui_framework
 
 # Add patched JARs
-if [ "$FEATURE_DISABLE_SIGNATURE_VERIFICATION" = "1" ]; then
-  mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
-  mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
-fi
+mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
+mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
 mv -f "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
-if [ "${COREPATCH_RUN_HYPERMOS_EXTRAS:-1}" = "1" ]; then
-  mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
-fi
+mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
