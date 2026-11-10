@@ -791,7 +791,7 @@ patch_framework() {
   # Apply invoke-custom patches (common to all features)
   # modify_invoke_custom_methods "$decompile_dir"
 
-  recompile_jar "$framework_path" > /dev/null
+  recompile_jar "$framework_path" > /dev/null || return 1
 
   rm -rf "$decompile_dir" "$WORK_DIR/framework"
 
@@ -957,7 +957,7 @@ patch_services() {
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$services_path" > /dev/null
+    recompile_jar "$services_path" > /dev/null || return 1
 
     rm -rf "$decompile_dir" "$WORK_DIR/services"
     log "Completed services.jar patching"
@@ -1075,7 +1075,7 @@ patch_miui_services() {
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$miui_services_path" > /dev/null
+    recompile_jar "$miui_services_path" > /dev/null || return 1
 
     rm -rf "$decompile_dir" "$WORK_DIR/miui-services"
     log "Completed miui-services.jar patching"
@@ -1138,7 +1138,7 @@ patch_miui_framework() {
   # modify_invoke_custom_methods "$decompile_dir"
 
   if [ $external_dir_flag -eq 0 ]; then
-    recompile_jar "$miui_framework_path" > /dev/null
+    recompile_jar "$miui_framework_path" > /dev/null || return 1
 
     rm -rf "$decompile_dir" "$WORK_DIR/miui-framework"
     log "Completed miui-framework.jar patching"
@@ -1155,13 +1155,13 @@ init_env
 ensure_tools || exit 1
 
 # Patch requested JARs
-patch_framework
-patch_services
-patch_miui_services
-patch_miui_framework
+patch_framework || exit 1
+patch_services || exit 1
+patch_miui_services || exit 1
+patch_miui_framework || exit 1
 
 # Add patched JARs
-mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar"
-mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar"
-mv -f "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
-mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar"
+mv -f "framework_patched.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar" || exit 1
+mv -f "services_patched.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar" || exit 1
+mv -f "miui-services_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar" || exit 1
+mv -f "miui-framework_patched.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-framework.jar" || exit 1

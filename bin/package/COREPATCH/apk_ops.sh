@@ -72,7 +72,11 @@ decompile_jar() {
   base_name=$(basename "$jar_file" .jar)
   local output_dir="${WORK_DIR}/${base_name}_decompile"
   local api_flag=""
-  [ -n "${API_LEVEL:-}" ] && api_flag="--api $API_LEVEL"
+  # smali v2 bundled in the ROM build cannot assemble API 36/37 DEX.
+  # Use its supported compatibility API level (Android 14) for the DEX toolchain.
+  local dex_api="${API_LEVEL:-}"
+  case "$dex_api" in 36|37) dex_api=34 ;; esac
+  [ -n "$dex_api" ] && api_flag="--api $dex_api"
 
   log "Decompiling $jar_file -> $output_dir (baksmali v2)"
 
@@ -141,7 +145,11 @@ recompile_jar() {
   local output_dir="${WORK_DIR}/${base_name}_decompile"
   local patched_jar="${base_name}_patched.jar"
   local api_flag=""
-  [ -n "${API_LEVEL:-}" ] && api_flag="--api $API_LEVEL"
+  # smali v2 bundled in the ROM build cannot assemble API 36/37 DEX.
+  # Use its supported compatibility API level (Android 14) for the DEX toolchain.
+  local dex_api="${API_LEVEL:-}"
+  case "$dex_api" in 36|37) dex_api=34 ;; esac
+  [ -n "$dex_api" ] && api_flag="--api $dex_api"
 
   log "Recompiling $output_dir -> $patched_jar (smali v2)"
   if [ ! -d "$output_dir" ]; then
