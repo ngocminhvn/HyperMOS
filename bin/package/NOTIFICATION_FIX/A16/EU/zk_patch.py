@@ -107,8 +107,8 @@ def _module_broadcast():
                "isInternationalSpecialAction", "updateBlockBroadcast")
     METHOD = re.compile(r"(?ms)^\.method[^\n]*\n.*?^\.end method[ \t]*$")
     NATIVE = "Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z"
-    READ = re.compile(r"(?m)^([ \t]*)sget-boolean\s+(v\d+),\s+(\S+)([ \t]*(?:#.*)?)$")
-    LEGACY = re.compile(r"(?m)^([ \t]*)const/(?:4|16)\s+(v\d+),\s+0x1\s+# HYPERMOS_EU_ZK_BROADCAST_A16[ \t]*$")
+    READ = re.compile(r"(?m)^([ \t]*)sget-boolean\s+([vp]\d+),\s+(\S+)([ \t]*(?:#.*)?)$")
+    LEGACY = re.compile(r"(?m)^([ \t]*)const/(?:4|16)\s+([vp]\d+),\s+0x1\s+# HYPERMOS_EU_ZK_BROADCAST_A16[ \t]*$")
     ALIAS = ("Lmiui/zk/Build;->IS_ZK_BUILD:Z", "Lmiui/os/Build;->IS_ZK_BUILD:Z")
     WRITE = re.compile(r"(?m)^([ \t]*)sput-boolean\s+(v\d+),\s+Lcom/miui/server/greeze/PolicyManager;->CN_MODEL:Z[ \t]*$")
     FORCED_REGION = re.compile(r"(?m)^([ \t]*)const/(?:4|16)\s+(v\d+),\s+0x0\s+# HYPERMOS_EU_ZK_GREEZE_A16[^\n]*\n")
@@ -140,23 +140,35 @@ def _module_broadcast():
                     raise ValueError("Duplicate BroadcastQueue method: " + name)
                 found = [r for r in READ.finditer(block) if r.group(3) in (NATIVE,) + ALIAS]
                 legacy = list(LEGACY.finditer(block))
-                if len(found) + len(legacy) != 1:
-                    raise ValueError(f"{name}: expected exactly one ZK-compatible read or known legacy marker")
-                if legacy:
-                    old = legacy[0]
-                    replacement = f"{old.group(1)}sget-boolean {old.group(2)}, {NATIVE}"
-                    block = block[:old.start()] + replacement + block[old.end():]
-                    actions[name] = "reverted_forced_true"
+                # Preserve stock EU309 isInternationalSpecialAction when its
+                # native flag read count differs from the ZK304 assumption.
+                # Never synthesize an unchecked branch into EU bytecode.
+                preserve_eu = (
+                    name == "isInternationalSpecialAction"
+                    and not legacy
+                    and all(r.group(3) == NATIVE for r in found)
+                    and "->IS_ZK_BUILD:Z" not in block
+                )
+                if preserve_eu:
+                    actions[name] = f"preserved_stock_eu_{len(found)}_native_reads"
                 else:
-                    old = found[0]
-                    if old.group(3) in ALIAS:
-                        replacement = f"{old.group(1)}sget-boolean {old.group(2)}, {NATIVE}{old.group(4)}"
+                    if len(found) + len(legacy) != 1:
+                        raise ValueError(f"{name}: expected exactly one ZK-compatible read or known legacy marker")
+                    if legacy:
+                        old = legacy[0]
+                        replacement = f"{old.group(1)}sget-boolean {old.group(2)}, {NATIVE}"
                         block = block[:old.start()] + replacement + block[old.end():]
-                        actions[name] = "mapped_IS_ZK_BUILD_to_IS_INTERNATIONAL_BUILD"
+                        actions[name] = "reverted_forced_true"
                     else:
-                        actions[name] = "already_ZK_exact"
-                if len([r for r in READ.finditer(block) if r.group(3) == NATIVE]) != 1:
-                    raise ValueError(name + ": native flag read not recovered")
+                        old = found[0]
+                        if old.group(3) in ALIAS:
+                            replacement = f"{old.group(1)}sget-boolean {old.group(2)}, {NATIVE}{old.group(4)}"
+                            block = block[:old.start()] + replacement + block[old.end():]
+                            actions[name] = "mapped_IS_ZK_BUILD_to_IS_INTERNATIONAL_BUILD"
+                        else:
+                            actions[name] = "already_ZK_exact"
+                    if len([r for r in READ.finditer(block) if r.group(3) == NATIVE]) != 1:
+                        raise ValueError(name + ": native flag read not recovered")
                 if "HYPERMOS_EU_ZK_BROADCAST_A16" in block:
                     raise ValueError(name + ": stale forced-gate marker")
             parts.append(block)
@@ -330,7 +342,13 @@ def _module_notification():
             m = find_method(path.read_text(encoding="utf-8"), signature)
             block = m.group()
             native = block.count(BUILD)
-            if native != 1 or ZK_ALIAS in block:
+            if "->IS_ZK_BUILD:Z" in block or "HYPERMOS_EU_ZK_BROADCAST_A16" in block:
+                raise ValueError(f"{rel}/{signature}: unrecognized ZK/private forced gate")
+            if signature == "isInternationalSpecialAction(":
+                # Original EU method is intentionally not assumed ZK-equivalent.
+                result[rel + "/" + signature] = f"preserved_stock_eu_{native}_native_reads"
+                continue
+            if native != 1:
                 raise ValueError(f"{rel}/{signature}: expected one native international-build read, got {native}")
             result[rel + "/" + signature] = "native_IS_INTERNATIONAL_BUILD"
         return result
