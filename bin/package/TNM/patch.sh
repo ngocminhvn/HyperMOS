@@ -10,6 +10,15 @@ lock_action() {
     info "TNM LOCK: skipped (integrate_lock.py not present)"
     return 0
   fi
+  # Ubuntu 24.04 secilc/libsepol 3.5 cannot parse A17 netlink nlmsg xperms.
+  # Build an isolated, checksum-verified compiler for Android 17 only.
+  local android_ver compiler
+  android_ver="$(tr -d '[:space:]' < "$work_dir/bin/ddevice/androidver.txt")"
+  if [[ "$android_ver" == "17" ]]; then
+    compiler="$work_dir/build/tools/tnm-secilc-3.11/secilc"
+    bash "$base/build_secilc_a17.sh" "$compiler"
+    export TNM_SECILC="$compiler"
+  fi
   python3 "$base/integrate_lock.py" \
     --images "$work_dir/build/baserom/images" \
     --binary "$base/system_ext/xbin/tnm_helper" \

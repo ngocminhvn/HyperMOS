@@ -59,13 +59,15 @@ def verify_policy(root, evidence, system_ext_policy=None, log_name='secilc.log')
         raise ValueError('Missing required split SELinux inputs: ' + ', '.join(map(str, missing)))
     if log_name == 'secilc.log':
         print(f'[TNM SELINUX] vendor mapping={version}; genfs={genfs_version or "legacy/default"}; '
-              f'input CIL files={len(inputs)}; compiler policy version=30', flush=True)
+              f'input CIL files={len(inputs)}; compiler policy version=30; '
+              f'compiler={os.environ.get("TNM_SECILC", "secilc")}', flush=True)
         print('[TNM SELINUX] CIL inputs:\n' + '\n'.join(
             f'  {p.relative_to(root)}' if p.is_relative_to(root) else f'  {p}'
             for p in inputs), flush=True)
     with tempfile.TemporaryDirectory(prefix='lock-secilc-') as tmp:
         with (evidence / log_name).open('w') as output:
-            result = subprocess.run(['secilc', '-m', '-M', 'true', '-G', '-N', '-c', '30',
+            compiler = os.environ.get('TNM_SECILC', 'secilc')
+            result = subprocess.run([compiler, '-m', '-M', 'true', '-G', '-N', '-c', '30',
                                      *map(str, inputs), '-o', tmp + '/policy',
                                      '-f', tmp + '/contexts'], stdout=output, stderr=subprocess.STDOUT)
     return {'mapping_version': version, 'returncode': result.returncode,
