@@ -53,7 +53,8 @@ EU_FORCE_STOP_REASON = re.compile(r"(?m)^[ \t]*const/16[ \t]+([vp]\d+),[ \t]+0xd
 
 REGION_READ = re.compile(
     r"(?m)^([ \t]*)sget-boolean[ \t]+([vp]\d+),[ \t]+"
-    r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z([ \t]*.*)$"
+    # CorePatch A17 redirects stock Build reads to xBuild before this pass.
+    r"Lmiui/os/(?:x)?Build;->IS_INTERNATIONAL_BUILD:Z([ \t]*.*)$"
 )
 
 DOZE_INIT = re.compile(r"(?ms)^\.method[^\n]*\s<clinit>\(\)V[^\n]*\n.*?^\.end method[ \t]*$")
@@ -94,34 +95,44 @@ def force_international_true(source: str):
 
 
 def patch_process_policy(source: str):
+    """Preserve CorePatch A17's ContentCatcher=false fix; own other gates only."""
     methods = list(CONTENT_CATCHER_METHOD.finditer(source))
     if len(methods) != 1:
         raise ValueError(
             f"ProcessPolicy: expected one updateContentCatcherWhitelist()V, got {len(methods)}")
     method = methods[0].group()
-    gates = list(REGION_READ.finditer(method))
-    if len(gates) != 1:
+
+    # The preceding HyperMOS CorePatch pass is the sole owner of this gate.
+    # Never replace it again. Fail closed if CorePatch did not apply its edit.
+    if "IS_INTERNATIONAL_BUILD" in method:
         raise ValueError(
-            f"ProcessPolicy: expected one original ContentCatcher region read, got {len(gates)}")
-    indent, reg, suffix = gates[0].groups()
-    opcode = "const/4" if int(reg[1:]) <= 15 else "const/16"
-    catcher_patched = method[:gates[0].start()] + f"{indent}{opcode} {reg}, 0x0{suffix}" + method[gates[0].end():]
-    output = source[:methods[0].start()] + catcher_patched + source[methods[0].end():]
+            "ProcessPolicy: ContentCatcher region gate still present; "
+            "expected CorePatch A17 to patch it first")
+    corepatch_constants = re.findall(
+        r"(?m)^[ \t]*const/4[ \t]+v0,[ \t]*0x0[ \t]*(?:#.*)?$", method
+    )
+    if len(corepatch_constants) != 1:
+        raise ValueError(
+            "ProcessPolicy: cannot verify exactly one CorePatch "
+            "ContentCatcher=false constant")
 
     other_reads = 0
 
     def replace_other(match):
         nonlocal other_reads
         other_reads += 1
-        i, r, s = match.groups()
-        op = "const/4" if int(r[1:]) <= 15 else "const/16"
-        return f"{i}{op} {r}, 0x1{s}"
+        indent, register, suffix = match.groups()
+        opcode = "const/4" if int(register[1:]) <= 15 else "const/16"
+        return f"{indent}{opcode} {register}, 0x1{suffix}"
 
-    before_catcher = REGION_READ.sub(replace_other, output[:methods[0].start()])
-    after_catcher = REGION_READ.sub(replace_other, output[methods[0].start() + len(catcher_patched):])
+    # Preserve the ContentCatcher method byte-for-byte; modify only unrelated
+    # international-region reads in the remainder of ProcessPolicy.
+    before = REGION_READ.sub(replace_other, source[:methods[0].start()])
+    after = REGION_READ.sub(replace_other, source[methods[0].end():])
     return (
-        before_catcher + catcher_patched + after_catcher,
-        {"content_catcher_false": 1, "other_true": other_reads, "audited_total": 1 + other_reads}
+        before + method + after,
+        {"content_catcher_false": 1, "content_catcher_owner": "CorePatch",
+         "other_true": other_reads, "audited_total": 1 + other_reads}
     )
 
 
@@ -195,7 +206,8 @@ def patch(root: Path):
         original = file.read_text(encoding="utf-8")
         if cls == PROCESS_POLICY:
             changed, split = patch_process_policy(original)
-            count = split["audited_total"]
+            # The ContentCatcher gate is already patched by CorePatch.
+            count = split["other_true"]
             details[cls] = {"present": True, "replaced": count, **split}
         else:
             changed, count = force_international_true(original)
