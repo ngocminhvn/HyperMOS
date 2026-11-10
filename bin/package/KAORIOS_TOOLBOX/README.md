@@ -1,115 +1,31 @@
-# KAORIOS_TOOLBOX — HyperMOS integration
+# KAORIOS_TOOLBOX — HyperMOS integration (upstream v2.0.6.2)
 
-This directory integrates Kaorios Toolbox using the maintained upstream patcher in `script/kaorios_patcher.py`.
+Integrates [Kaorios Toolbox v2.0.6.2](https://github.com/hzzmonetvn/Kaorios-Toolbox/releases/tag/v2.0.6.2).
 
-### Upstream ownership rule
+## Layout
 
-`script/` is reserved for byte-for-byte upstream Kaorios files. HyperMOS commands are consolidated in `mod/kaorios_mod.py`; `mod/native_pif/` contains only its C source and two ABI binaries. `app/classes.dex` includes the native PIF bridge directly. Current upstream script snapshot: `9a50d37fbe160279925218703653122c0671f383`.
-
-## Scope
-
-HyperMOS deliberately uses only the Kaorios hooks that are still needed:
-
-- process/context initialization;
-- Play Integrity / keybox keystore hooks;
-- `ApplicationPackageManager.hasSystemFeature(...)` spoof hook;
-- `SystemServer` initialization;
-- `ComputerEngine` package visibility / installer-source hooks;
-- optional `Settings$NameValueCache` dev-status hook for Developer options / ADB;
-- Android 17 `Build` / `Build$VERSION` spoof;
-- a source-built native PIF backend from `mod/native_pif/`, installed into `/system/lib64` and `/system/lib`, with its JNI bridge embedded in `app/classes.dex`;
-- Toolbox APK as a `system_ext` priv-app.
-
-Kaorios permanently bypasses Secure Flag in `services.jar` and, when present, Xiaomi's `miui-services.jar`. Its CorePatch pass owns the static signature/downgrade bypass. HyperMOS CorePatch runs first with those overlapping methods disabled and retains only its Xiaomi-specific patches. The Toolbox APK remains byte-for-byte upstream, so its visible **Disable Secure Flag** switch does not change this build-time state.
-
-`COREPATCH/update.sh` without an option remains the full standalone HyperMOS CorePatch. When `KAORIOS_ENABLE_COREPATCH=true`, the main package pipeline passes `--kaorios`, which disables only HyperMOS operations owned by Kaorios; it does not disable the remaining HyperMOS patch set. When the Kaorios CorePatch switch is false, the flag is omitted and HyperMOS runs its full profile instead.
-
-## Per-feature config
-
-Edit `config.sh` to enable/disable each feature independently. Feature defaults are `true`. 
-Custom boot animation is disabled for all builds: the module entrypoint has been renamed to `bin/modfile/UpdateFile/Boot/update.sh.0`, which the `insupdate.sh` scanner skips. Rename it back to `update.sh` to re-enable the module.
-
-| Switch | Effect |
+| Path | Content |
 |---|---|
-| `KAORIOS_MASTER` | Master switch for the entire Kaorios integration |
-| `KAORIOS_ENABLE_ACTIVITY_THREAD` | `ActivityThread` process-init hook |
-| `KAORIOS_ENABLE_INSTRUMENTATION` | `Instrumentation` context-init hook |
-| `KAORIOS_ENABLE_KEYBOX` | Both Play Integrity/keybox keystore hooks |
-| `KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF` | `ApplicationPackageManager.hasSystemFeature(...)` spoof |
-| `KAORIOS_ENABLE_SYSTEM_SERVER` | `SystemServer` initialization hook |
-| `KAORIOS_ENABLE_HIDDEN_APP` | Package visibility / hidden-app filtering in `ComputerEngine` |
-| `KAORIOS_ENABLE_INSTALLER_SOURCE` | Installer-source filtering in `ComputerEngine` when supported by the ROM layout |
-| `KAORIOS_ENABLE_DEVSTATUS` | `Settings$NameValueCache` hook for hiding Developer options / ADB |
-| `KAORIOS_ENABLE_BUILD_SPOOF` | `Build` / `Build$VERSION` spoof on Android 17 only |
-| `KAORIOS_ENABLE_SECURE_FLAG` | Permanently bypass Secure Flag in `services.jar` and Xiaomi `miui-services.jar`; the unmodified Toolbox switch is informational only |
-| `KAORIOS_ENABLE_COREPATCH` | Run the Kaorios CorePatch signature/downgrade pass after the non-overlapping HyperMOS CorePatch pass |
-| `KAORIOS_ENABLE_NATIVE_PIF` | Install the process-local property backend and call it in GMS unstable using Toolbox's PIF JSON; requires `KAORIOS_ENABLE_INSTRUMENTATION` |
-| `KAORIOS_INSTALL_TOOLBOX` | Install `KaoriosToolbox.apk` and its privapp permission XML |
-| `KAORIOS_VALIDATE_KEYBOX` | Validate a supplied keybox XML without embedding it |
-| `KAORIOS_DEVSTATUS_STRICT` | Fail instead of warning when the dev-status layout is unsupported |
+| `script/` | Byte-for-byte upstream files, only the ones the pipeline needs (no tests, docs, packaging helpers, or `bionic_fakelock_patcher.py` — HyperMOS already has its own fakelock). Replace the whole folder on update. |
+| `app/` | Release assets: `classes.dex` (framework payload), `KaoriosToolbox.apk`, `lib/*/libkaoripif.so` (JNI installer), plus `com.kousei.kaorios.xml` (HyperMOS priv-app permissions). `patch.sh` pins their SHA-256 from the release `SHA256SUMS`. |
+| `mod/kaorios_mod.py` | HyperMOS-only commands: `config`, `secure-flag`, `selinux`. |
+| `patch.sh` | The only glue: calls upstream artifact pipelines and the extras below. |
+| `config.json` | `enabled`, `build_spoof`, `secure_flag`, `corepatch`, `native_pif`. |
 
-Accepted boolean values are `true/false`, `1/0`, `yes/no`, and `on/off`. Environment variables override the defaults, so CI can change a switch without editing the file.
+## What runs
 
-The framework driver DEX is added whenever an enabled feature needs `KaoriosHook`, including callers in `services.jar`. Build spoof does not force the driver by itself.
+1. `framework.jar` — `script/patch-framework-a17-artifact.sh`: imports the payload class-by-class and patches `ActivityThread`, `Instrumentation`, `Settings$NameValueCache`; re-extracts and verifies the candidate.
+2. Android 17 + `build_spoof` — upstream `kaorios_patcher.py --mode 2` on `Build` / `Build$VERSION`.
+3. `services.jar` — `script/patch-services-a17-artifact.sh`: `ComputerEngine` and `SystemServer`.
+4. `secure_flag` — static FLAG_SECURE bypass in `services.jar` and, if present, `miui-services.jar` (`mod secure-flag`).
+5. `native_pif` — `libkaoripif.so` to `/system_ext/lib64` and `/system_ext/lib` (path hard-coded by upstream `KaoriosPifInstaller`).
+6. Toolbox APK as `system_ext` priv-app.
+7. `patchpackage.sh` afterwards installs and re-checks the `kaorios_advanced_policy` SELinux contract (`mod selinux`).
 
-`KAORIOS_ENABLE_HIDDEN_APP` and `KAORIOS_ENABLE_INSTALLER_SOURCE` are independent; disabling one no longer implicitly disables/enables the other.
+The v2.0.6.2 hook set is fixed upstream, so the old per-hook switches (`pif_spoof`, `keybox`, `hidden_app`, `installer_source`, `devstatus`) are gone. Keystore hooks, the `ApplicationPackageManager` hook and the `SettingsProvider.apk` patch no longer exist upstream and are not applied. Start from a stock `SettingsProvider.apk`.
 
-## Build order
+CorePatch is a separate preceding pass (`COREPATCH/`, `patchpackage.sh`).
 
-`bin/package/patchpackage.sh` runs:
+## Updating
 
-1. HyperMOS CorePatch with overlapping signature/downgrade and Secure Flag patches disabled
-2. DISABLE_AVB
-3. notification fix
-4. Kaorios CorePatch signature/downgrade pass (controlled by `KAORIOS_ENABLE_COREPATCH`)
-5. Kaorios upstream 2.0.6.1 hooks plus MOD-local static Secure Flag
-6. TNM: post-fs property reporting + App Privacy (compatibility-gated)
-
-Kaorios CorePatch and Toolbox patch after the HyperMOS-only pass and notification fix, so they see the resulting artifacts without reapplying overlapping methods. TNM then installs the post-fs integration and runs App Privacy with its own compatibility checks; unsupported App Privacy layouts are skipped before changing `framework.jar`.
-
-## Safety / verification
-
-`patch.sh`:
-
-- pins the upstream Toolbox APK (SHA-256 `b6d7a83fef7dd5ec2f43319597def24371cd05d64d91fb9e5e3c161f2f407fcf`) and the compact HyperMOS driver payload (`classes.dex` SHA-256 `eaf6640a65b9d362cb418f703a69be6a1a530196156a6d81a5481e2dadedccae`);
-- decompiles every `classes*.dex` separately;
-- requires the expected target classes before modifying anything;
-- uses upstream `kaorios_patcher.py --mode 1` for hook targets and `--mode 2` for the Android 17 Build spoof targets;
-- rebuilds only DEX files whose smali tree actually changed;
-- appends the Kaorios framework DEX to a new free `classesN.dex` slot;
-- re-disassembles the candidate artifacts and verifies the required hooks before replacing ROM files;
-- preserves `SettingsProvider.apk` byte-for-byte at this stage;
-
-Required final feature checks include:
-
-- `initGenerateSoftwareKeyPair` + `CertificateChainIfNeeded` for Play Integrity/keybox;
-- `hasSystemFeature` for system-feature spoofing;
-- static `DevicePolicyCacheImpl` and `WindowState`/`WindowStateAnimator` Secure Flag bypasses;
-- the static Xiaomi `WindowManagerServiceImpl.notAllowCaptureDisplay(...)` bypass when `miui-services.jar` is present;
-
-The Secure Flag patcher replaces only the selected method bodies, allocates the minimum safe return register, then re-disassembles the saved candidate JAR and verifies every bypass before installation.
-
-## Keybox handling
-
-No private attestation keybox is stored in this public repository.
-
-The ROM contains the Kaorios keystore hooks and Toolbox support. Import the keybox through Toolbox at runtime. If a builder supplies `KAORIOS_KEYBOX_XML=/path/to/keybox.xml` (or a local untracked `keybox.xml` beside `patch.sh`), the build only runs `script/validate_keybox.py` to validate XML structure; it intentionally does **not** bake the private key into the ROM.
-
-Do not copy upstream `Toolbox-data/Pif-props.json` blindly into an Android 16 build. The upstream profile can track a different Android/Pixel generation; manage the spoof profile through Toolbox instead.
-
-After boot, run a Play Integrity check and inspect `logcat -d -s KaoriosNativePIF` plus `/proc/<GMS unstable PID>/maps`. A successful native install logs `Process-local property view verified` and maps `libkaoripif.so`. The backend is built from `mod/native_pif/property_overlay.c`, changes only the GMS unstable process view, and does not use ShadowHook. Final integrity labels still depend on Google's verdict and the active keybox.
-
-Rebuild both native binaries with `python3 mod/kaorios_mod.py build-native /path/to/android-ndk`.
-
-## Upstream
-
-- Kaorios Toolbox: `hzzmonetvn/Kaorios-Toolbox`
-- Maintained guide: `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.1_VI.md`
-
-## AdvancedPolicy / SELinux
-
-Upstream includes `script/check-advanced-policy-sepolicy.py` as a read-only deployment checker. This integration does not invent Xiaomi-specific SELinux rules during the build, because the correct SettingsProvider domain and split-policy layout must come from the actual ROM; broad guessed rules can cause policy compilation failure or a boot loop.
-
-After the first boot, use the upstream checker/logcat to confirm the AdvancedPolicy Binder path. If there is a real SELinux denial, add the smallest device-specific rule for the observed domain.
-
-Upstream 2.0.6.1 policy: stock SettingsProvider is preserved. HyperMOS no longer adds caller-side Settings spoof or direct ContentResolver Settings hooks; only the documented Developer/ADB dev-status hook remains.
+Download the new `classes.dex`, `KaoriosToolbox-release.apk`, `libkaoripif-*.so` and `SHA256SUMS.txt`, copy `script/` from upstream, then update the `PIN` hashes in `patch.sh`.

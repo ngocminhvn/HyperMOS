@@ -1,968 +1,198 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Upstream code stays in script/; all HyperMOS helpers use mod/kaorios_mod.py.
-# CorePatch runs first, then this stage applies and verifies selected hooks.
+# Kaorios Toolbox v2.0.6.2 for HyperMOS.
+# script/ is byte-for-byte upstream and does the hook work and verification:
+#   framework.jar : patch-framework-a17-artifact.sh (payload import + callers)
+#   services.jar  : patch-services-a17-artifact.sh  (ComputerEngine + SystemServer)
+# This file only wires them into the ROM and adds the HyperMOS-only extras
+# (A17 Build spoof, static Secure Flag, native PIF libs, Toolbox APK).
+# CorePatch runs as a separate preceding pass (patchpackage.sh).
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
 
-KAORIOS_DIR="$work_dir/bin/package/KAORIOS_TOOLBOX"
-SCRIPT_DIR="$KAORIOS_DIR/script"
-MOD_DIR="$KAORIOS_DIR/mod"
-MOD_TOOL="$MOD_DIR/kaorios_mod.py"
-PATCHER="$SCRIPT_DIR/kaorios_patcher.py"
+K="$work_dir/bin/package/KAORIOS_TOOLBOX"
+S="$K/script"
+MOD_TOOL="$K/mod/kaorios_mod.py"
 BAKSMALI="$work_dir/bin/apktool/baksmaliv2.jar"
 SMALI="$work_dir/bin/apktool/smaliv2.jar"
-DRIVER_DEX="$KAORIOS_DIR/app/classes.dex"
-TOOLBOX_APK="$KAORIOS_DIR/app/KaoriosToolbox.apk"
-PERMISSION_XML="$KAORIOS_DIR/app/com.kousei.kaorios.xml"
-VALIDATE_KEYBOX="$SCRIPT_DIR/validate_keybox.py"
-CONFIG="$KAORIOS_DIR/config.json"
+IMAGES="$work_dir/build/baserom/images"
 
-if [[ ! -f "$CONFIG" || ! -f "$MOD_TOOL" ]]; then
-  error "KAORIOS: missing config.json or its loader"
-  exit 1
-fi
-if ! config_values=$(python3 "$MOD_TOOL" config "$CONFIG"); then
-  exit 1
-fi
-while IFS='=' read -r config_name config_value; do
-  [[ -n "$config_name" ]] || continue
-  if [[ ! -v "$config_name" ]]; then
-    printf -v "$config_name" '%s' "$config_value"
-  fi
-done <<< "$config_values"
-unset config_values config_name config_value
+# Pinned v2.0.6.2 release assets (SHA256SUMS of the release).
+declare -A PIN=(
+  [app/classes.dex]=b9f5ed61f71adfe90825ace660e44604753f7a99e2da4a98532d6f7b7955c530
+  [app/KaoriosToolbox.apk]=b5ba9152cc5d3c1403166222309f56797f6bbd54379eb0f976bef5700db0e0f5
+  [app/lib/arm64-v8a/libkaoripif.so]=01545baca35c0b2f95a78d7a27d4a1f632b97a66114e6ba1cc87474c687c0d84
+  [app/lib/armeabi-v7a/libkaoripif.so]=153ebe54d3b0ec3e4835521c5c172ec0c4f7ea10c6cb36eecdda6065ea9b7edc
+)
 
-# Map HEAD config.json keys onto #190 variable names. Keys absent from
-# config.json default to true, matching #190 (all features true).
-KAORIOS_MASTER="${KAORIOS_MASTER:-true}"
-KAORIOS_ENABLE_ACTIVITY_THREAD="${KAORIOS_ENABLE_ACTIVITY_THREAD:-true}"
-KAORIOS_ENABLE_INSTRUMENTATION="${KAORIOS_ENABLE_INSTRUMENTATION:-true}"
-KAORIOS_ENABLE_SYSTEM_SERVER="${KAORIOS_ENABLE_SYSTEM_SERVER:-true}"
-KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF="${KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF:-true}"
-KAORIOS_VALIDATE_KEYBOX="${KAORIOS_VALIDATE_KEYBOX:-true}"
-KAORIOS_INSTALL_TOOLBOX="${KAORIOS_INSTALL_TOOLBOX:-true}"
-KAORIOS_DEVSTATUS_STRICT="${KAORIOS_DEVSTATUS_STRICT:-false}"
-KAORIOS_ENABLE_NATIVE_PIF="${KAORIOS_ENABLE_NATIVE_PIF:-true}"
+die() { error "KAORIOS: $*"; exit 1; }
 
-# Translate config.json names to #190 names when the loader set them.
-[[ -n "${enabled:-}" ]] && KAORIOS_MASTER="$enabled"
-[[ -n "${keybox:-}" ]] && KAORIOS_ENABLE_KEYBOX="$keybox"
-[[ -n "${hidden_app:-}" ]] && KAORIOS_ENABLE_HIDDEN_APP="$hidden_app"
-[[ -n "${installer_source:-}" ]] && KAORIOS_ENABLE_INSTALLER_SOURCE="$installer_source"
-[[ -n "${devstatus:-}" ]] && KAORIOS_ENABLE_DEVSTATUS="$devstatus"
-[[ -n "${build_spoof:-}" ]] && KAORIOS_ENABLE_BUILD_SPOOF="$build_spoof"
-[[ -n "${secure_flag:-}" ]] && KAORIOS_ENABLE_SECURE_FLAG="$secure_flag"
-[[ -n "${corepatch:-}" ]] && KAORIOS_ENABLE_COREPATCH="$corepatch"
-[[ -n "${native_pif:-}" ]] && KAORIOS_ENABLE_NATIVE_PIF="$native_pif"
-
-is_enabled() {
+is_on() {
   case "${1,,}" in
     1|true|yes|on) return 0 ;;
     0|false|no|off) return 1 ;;
-    *) return 2 ;;
+    *) die "invalid boolean: $1" ;;
   esac
 }
 
-validate_bool() {
-  local name="$1" value="${!1}"
-  case "${value,,}" in
-    1|true|yes|on|0|false|no|off) ;;
-    *)
-      error "KAORIOS: invalid boolean $name=$value"
-      exit 1
-      ;;
-  esac
-}
+# config.json -> KAORIOS_* switches; an already exported variable wins.
+config_values=$(python3 "$MOD_TOOL" config "$K/config.json") || exit 1
+while IFS='=' read -r name value; do
+  [[ -n "$name" && ! -v "$name" ]] && printf -v "$name" '%s' "$value"
+done <<< "$config_values"
 
-for flag in \
-  KAORIOS_MASTER \
-  KAORIOS_ENABLE_ACTIVITY_THREAD \
-  KAORIOS_ENABLE_INSTRUMENTATION \
-  KAORIOS_ENABLE_KEYBOX \
-  KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF \
-  KAORIOS_ENABLE_SYSTEM_SERVER \
-  KAORIOS_ENABLE_HIDDEN_APP \
-  KAORIOS_ENABLE_INSTALLER_SOURCE \
-  KAORIOS_ENABLE_DEVSTATUS \
-  KAORIOS_ENABLE_BUILD_SPOOF \
-  KAORIOS_ENABLE_SECURE_FLAG \
-  KAORIOS_ENABLE_COREPATCH \
-  KAORIOS_INSTALL_TOOLBOX \
-  KAORIOS_VALIDATE_KEYBOX \
-  KAORIOS_DEVSTATUS_STRICT \
-  KAORIOS_ENABLE_NATIVE_PIF \
-  KAORIOS_VERBOSE_LOG; do
-  validate_bool "$flag"
-done
-
-if ! is_enabled "$KAORIOS_MASTER"; then
-  mods "Kaorios Toolbox disabled by config"
-  exit 0
-fi
-if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF" && ! is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
-  error "KAORIOS: Native PIF requires the Instrumentation context hook"
-  exit 1
-fi
-
-framework_callsite_features_enabled() {
-  is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD" ||
-  is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION" ||
-  is_enabled "$KAORIOS_ENABLE_KEYBOX" ||
-  is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"
-}
-
-services_features_enabled() {
-  is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER" ||
-  is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" ||
-  is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE" ||
-  is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"
-}
-
-system_server_hook_needed() {
-  is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER"
-}
-
-services_driver_needed() {
-  is_enabled "$KAORIOS_ENABLE_SYSTEM_SERVER" ||
-  is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" ||
-  is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"
-}
-
-framework_driver_needed() {
-  framework_callsite_features_enabled ||
-  services_driver_needed ||
-  is_enabled "$KAORIOS_ENABLE_DEVSTATUS" ||
-  is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"
-}
-
-build_spoof_enabled_for_target() {
-  [[ "$ANDROID_VER" == "17" ]] && is_enabled "$KAORIOS_ENABLE_BUILD_SPOOF"
-}
-
-framework_archive_needed() {
-  framework_driver_needed || build_spoof_enabled_for_target
-}
-
-archive_patch_needed() {
-  framework_archive_needed ||
-  services_features_enabled
-}
-
-# Pin both reviewed v2.0.6.1 release payloads. Updating either asset requires an
-# explicit integration update instead of silently changing a ROM build.
-DRIVER_GIT_BLOB="acb9cc9be8a2d73ed9380f30e029b0ae1657c4b3"
-TOOLBOX_GIT_BLOB="182c355137aa6cb8f0bb2942ad3e95ec88514960"
-
-# Set to 1 once the dev-status hook is confirmed present in the framework smali,
-# so final artifact verification knows whether that target must be checked.
-NVC_APPLIED=0
+is_on "$KAORIOS_MASTER" || { mods "Kaorios Toolbox disabled by config"; exit 0; }
 
 ANDROID_VER=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")
 SDK_LEVEL=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")
-SMALI_SDK_LEVEL="$SDK_LEVEL"
-case "$SMALI_SDK_LEVEL" in 36|37) SMALI_SDK_LEVEL=34 ;; esac
+SMALI_API="$SDK_LEVEL"
+case "$SMALI_API" in 36|37) SMALI_API=34 ;; esac
+case "$ANDROID_VER" in 15|16|17) ;; *) die "unsupported Android version: $ANDROID_VER" ;; esac
+[[ "$SDK_LEVEL" =~ ^[0-9]+$ ]] || die "invalid SDK level: $SDK_LEVEL"
 
-case "$ANDROID_VER" in
-  15|16|17) ;;
-  *)
-    error "KAORIOS: unsupported Android version: $ANDROID_VER"
-    exit 1
-    ;;
-esac
+for cmd in java python3 unzip zip sha256sum find sort xargs; do
+  command -v "$cmd" >/dev/null 2>&1 || die "missing host tool: $cmd"
+done
+for f in "$BAKSMALI" "$SMALI" "$S/patch-framework-a17-artifact.sh" "$S/patch-services-a17-artifact.sh" \
+         "$S/kaorios_patcher.py" "$K/app/com.kousei.kaorios.xml"; do
+  [[ -f "$f" ]] || die "missing file: $f"
+done
+for rel in "${!PIN[@]}"; do
+  [[ "$(sha256sum "$K/$rel" | cut -d' ' -f1)" == "${PIN[$rel]}" ]] || die "pinned payload changed: $rel"
+done
+info "KAORIOS: verified pinned v2.0.6.2 payloads (Android $ANDROID_VER, smali API $SMALI_API)"
 
-if [[ ! "$SDK_LEVEL" =~ ^[0-9]+$ ]]; then
-  error "KAORIOS: invalid SDK level: $SDK_LEVEL"
-  exit 1
-fi
+TEMP_ROOT="$work_dir/jar_temp/kaorios-v2062"
+rm -rf "$TEMP_ROOT"; mkdir -p "$TEMP_ROOT"
+trap 'rm -rf "$TEMP_ROOT"' EXIT
 
-require_file() {
-  local path="$1" label="$2"
-  if [[ ! -f "$path" ]]; then
-    error "KAORIOS: missing $label: $path"
-    exit 1
+find_jar() {  # name [optional]
+  local m=()
+  while IFS= read -r -d '' p; do m+=("$p"); done < <(find "$IMAGES" -type f -name "$1" -print0)
+  if (( ${#m[@]} > 1 )) || { (( ${#m[@]} == 0 )) && [[ -z "${2:-}" ]]; }; then
+    die "expected ${2:+at most }one $1, found ${#m[@]}"
   fi
+  (( ${#m[@]} )) && printf '%s\n' "${m[0]}" || true
 }
 
-if archive_patch_needed; then
-  require_file "$PATCHER" "patcher"
-  require_file "$BAKSMALI" "baksmali"
-  require_file "$SMALI" "smali"
-fi
-if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-  require_file "$MOD_TOOL" "Kaorios MOD helper"
-fi
-if framework_driver_needed; then
-  require_file "$DRIVER_DEX" "framework driver DEX"
-fi
-if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
-  require_file "$TOOLBOX_APK" "Toolbox APK"
-  require_file "$PERMISSION_XML" "Toolbox privapp permission XML"
-fi
-if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
-  require_file "$VALIDATE_KEYBOX" "keybox validator"
-fi
-if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
-  require_file "$MOD_TOOL" "Kaorios MOD helper"
-fi
-if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-  require_file "$MOD_TOOL" "Kaorios MOD helper"
-fi
-if build_spoof_enabled_for_target; then
-  require_file "$MOD_TOOL" "Kaorios MOD helper"
-fi
-
-if archive_patch_needed; then
-  for cmd in java python3 unzip zip git sha256sum find sort xargs; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-      error "KAORIOS: missing host tool: $cmd"
-      exit 1
-    fi
+dex_disassemble() {  # jar out_root
+  local jar="$1" out="$2" dex
+  rm -rf "$out"; mkdir -p "$out/dex"
+  unzip -j -o -q "$jar" 'classes*.dex' -d "$out/dex"
+  for dex in "$out"/dex/classes*.dex; do
+    java -jar "$BAKSMALI" d --api "$SMALI_API" "$dex" -o "$out/smali/$(basename "$dex").out"
   done
-elif is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
-  command -v python3 >/dev/null 2>&1 || {
-    error "KAORIOS: missing host tool: python3"
-    exit 1
-  }
-fi
-
-verify_git_blob() {
-  local file="$1" expected="$2" label="$3" actual
-  actual=$(git hash-object "$file")
-  if [[ "$actual" != "$expected" ]]; then
-    error "KAORIOS: $label payload hash changed: $actual (expected $expected)"
-    exit 1
-  fi
-  info "KAORIOS: verified pinned $label payload"
 }
 
-if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
-  verify_git_blob "$TOOLBOX_APK" "$TOOLBOX_GIT_BLOB" "Toolbox APK"
-fi
-if framework_driver_needed; then
-  verify_git_blob "$DRIVER_DEX" "$DRIVER_GIT_BLOB" "framework driver DEX"
-fi
+tree_hash() { (cd "$1" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | cut -d' ' -f1; }
 
-TEMP_ROOT="$work_dir/jar_temp/kaorios-v2060"
-rm -rf "$TEMP_ROOT"
-mkdir -p "$TEMP_ROOT"
-cleanup() {
-  rm -rf "$TEMP_ROOT"
-}
-trap cleanup EXIT
-
-run_baksmali() {
-  local dex="$1" out="$2"
-  rm -rf "$out"
-  mkdir -p "$out"
-  java -jar "$BAKSMALI" d --api "$SMALI_SDK_LEVEL" "$dex" -o "$out"
-}
-
-run_smali() {
-  local src="$1" out="$2"
-  rm -f "$out"
-  java -jar "$SMALI" a --api "$SMALI_SDK_LEVEL" "$src" -o "$out"
-  [[ -s "$out" ]]
-}
-
-tree_hash() {
-  local root="$1"
-  (
-    cd "$root"
-    find . -type f -print0 | sort -z | xargs -0 sha256sum
-  ) | sha256sum | awk '{print $1}'
-}
-
-extract_all_dex() {
-  local archive="$1" raw="$2"
-  rm -rf "$raw"
-  mkdir -p "$raw"
-  unzip -j -o "$archive" 'classes*.dex' -d "$raw" >/dev/null
-  compgen -G "$raw/classes*.dex" >/dev/null || {
-    error "KAORIOS: no classes*.dex in $archive"
-    return 1
-  }
-}
-
-disassemble_all() {
-  local raw="$1" smali_root="$2" dex
-  rm -rf "$smali_root"
-  mkdir -p "$smali_root"
-  shopt -s nullglob
-  for dex in "$raw"/classes*.dex; do
-    run_baksmali "$dex" "$smali_root/$(basename "$dex").out"
-  done
-  shopt -u nullglob
-}
-
-snapshot_hashes() {
-  local root="$1" file="$2" dir
-  : > "$file"
-  shopt -s nullglob
-  for dir in "$root"/classes*.dex.out; do
-    printf '%s|%s\n' "$(basename "$dir")" "$(tree_hash "$dir")" >> "$file"
-  done
-  shopt -u nullglob
-}
-
-old_hash() {
-  local snapshot="$1" name="$2"
-  awk -F'|' -v n="$name" '$1==n {print $2; exit}' "$snapshot"
-}
-
-require_one_target() {
-  local root="$1" rel="$2" label="$3"
-  local matches=()
-  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$root" -type f -path "*/$rel" -print0)
-  if (( ${#matches[@]} != 1 )); then
-    error "KAORIOS: expected exactly one $label ($rel), found ${#matches[@]}"
-    return 1
-  fi
-}
-
-require_framework_targets() {
-  local root="$1"
-  if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
-    require_one_target "$root" "android/app/ActivityThread.smali" "ActivityThread"
-  fi
-  if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
-    require_one_target "$root" "android/app/Instrumentation.smali" "Instrumentation"
-  fi
-  if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
-    require_one_target "$root" "android/app/ApplicationPackageManager.smali" "ApplicationPackageManager"
-  fi
-  if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
-    require_one_target "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" "AndroidKeyStoreKeyPairGeneratorSpi"
-    require_one_target "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" "AndroidKeyStoreSpi"
-  fi
-  if build_spoof_enabled_for_target; then
-    require_one_target "$root" "android/os/Build.smali" "Build"
-    require_one_target "$root" 'android/os/Build$VERSION.smali' 'Build$VERSION'
-  fi
-}
-
-require_services_targets() {
-  local root="$1"
-  if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-    require_one_target "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine"
-  fi
-  if system_server_hook_needed; then
-    require_one_target "$root" "com/android/server/SystemServer.smali" "SystemServer"
-  fi
-  if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-    require_one_target "$root" "com/android/server/devicepolicy/DevicePolicyCacheImpl.smali" "DevicePolicyCacheImpl"
-  fi
-}
-
-require_miui_services_targets() {
-  local root="$1"
-  require_one_target "$root" "com/android/server/wm/WindowManagerServiceImpl.smali" "WindowManagerServiceImpl"
-}
-
-find_target_file() {
-  local root="$1" rel="$2" label="$3" file
-  require_one_target "$root" "$rel" "$label" || return 1
-  file=$(find "$root" -type f -path "*/$rel" -print -quit)
-  printf '%s\n' "$file"
-}
-
-patch_target_file() {
-  local root="$1" rel="$2" label="$3" mode="${4:-1}" file patch_log
-  file=$(find_target_file "$root" "$rel" "$label") || return 1
-  patch_log="$TEMP_ROOT/kaorios-patcher.log"
-  if ! python3 "$PATCHER" "$file" --android-version "$ANDROID_VER" --mode "$mode" --no-delay >"$patch_log" 2>&1; then
-    error "KAORIOS: patcher failed for $label"
-    tail -n 100 "$patch_log" >&2 || true
-    return 1
-  fi
-  if is_enabled "$KAORIOS_VERBOSE_LOG"; then
-    cat "$patch_log"
-  else
-    info "KAORIOS: patched $label"
-  fi
-}
-
-patch_computer_engine() {
-  local root="$1" file
-  file=$(find_target_file "$root" "com/android/server/pm/ComputerEngine.smali" "ComputerEngine") || return 1
-  if ! python3 "$MOD_TOOL" adapter "$file" \
-    --hidden-app "$KAORIOS_ENABLE_HIDDEN_APP" \
-    --installer-source "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-    error "KAORIOS: MOD adapter failed for ComputerEngine"
-    return 1
-  fi
-}
-
-patch_selected_targets() {
-  local kind="$1" root="$2"
-  case "$kind" in
-    framework)
-      if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
-        patch_target_file "$root" "android/app/ActivityThread.smali" "ActivityThread" 1
-      fi
-      if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
-        patch_target_file "$root" "android/app/Instrumentation.smali" "Instrumentation" 1
-      fi
-      if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
-        patch_target_file "$root" "android/app/ApplicationPackageManager.smali" "ApplicationPackageManager" 1
-      fi
-      if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
-        patch_target_file "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" "AndroidKeyStoreKeyPairGeneratorSpi" 1
-        patch_target_file "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" "AndroidKeyStoreSpi" 1
-      fi
-      if build_spoof_enabled_for_target; then
-        info "KAORIOS: Android 17 Build spoof enabled"
-        patch_target_file "$root" "android/os/Build.smali" "Build" 2
-        patch_target_file "$root" 'android/os/Build$VERSION.smali' 'Build$VERSION' 2
-      fi
-      if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
-        apply_devstatus_patch "$root" || return 1
-      fi
-      ;;
-    services)
-      if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-        patch_computer_engine "$root"
-      fi
-      if system_server_hook_needed; then
-        patch_target_file "$root" "com/android/server/SystemServer.smali" "SystemServer" 1
-      fi
-      if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-        python3 "$MOD_TOOL" secure-flag "$root" --archive services
-      fi
-      ;;
-    miui-services)
-      python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services
-      ;;
-    *)
-      error "KAORIOS: unknown patch kind: $kind"
-      return 1
-      ;;
-  esac
-}
-
-rebuild_changed_dexes() {
-  local smali_root="$1" snapshot="$2" built="$3"
-  local dir name before after changed=0
-  rm -rf "$built"
-  mkdir -p "$built"
-  shopt -s nullglob
-  for dir in "$smali_root"/classes*.dex.out; do
+# Extra pass: disassemble all DEX, run $2 on the smali root, rebuild only the
+# changed DEX, repack, re-disassemble the candidate and run $3 on it.
+smali_pass() {  # jar patch_fn verify_fn
+  local jar="$1" patch_fn="$2" verify_fn="$3" root="$TEMP_ROOT/pass" dir name
+  local -A before=()
+  dex_disassemble "$jar" "$root"
+  for dir in "$root"/smali/*.out; do before[$(basename "$dir")]=$(tree_hash "$dir"); done
+  "$patch_fn" "$root/smali"
+  mkdir -p "$root/built"
+  for dir in "$root"/smali/*.out; do
     name=$(basename "$dir")
-    before=$(old_hash "$snapshot" "$name")
-    after=$(tree_hash "$dir")
-    if [[ -z "$before" ]]; then
-      error "KAORIOS: missing pre-patch hash for $name"
-      return 1
-    fi
-    if [[ "$before" != "$after" ]]; then
-      run_smali "$dir" "$built/${name%.out}"
-      info "KAORIOS: rebuilt changed DEX ${name%.out}"
-      changed=$((changed + 1))
-    fi
+    [[ "$(tree_hash "$dir")" == "${before[$name]}" ]] && continue
+    java -jar "$SMALI" a --api "$SMALI_API" "$dir" -o "$root/built/${name%.out}"
+    [[ -s "$root/built/${name%.out}" ]] || die "smali produced no ${name%.out}"
   done
-  shopt -u nullglob
-  if (( changed == 0 )); then
-    info "KAORIOS: no owner DEX changed; final candidate verification will decide validity"
+  cp -f "$jar" "$root/candidate.zip"
+  if compgen -G "$root/built/classes*.dex" >/dev/null; then
+    (cd "$root/built" && zip -q -0 "$root/candidate.zip" classes*.dex)
   fi
+  unzip -tq "$root/candidate.zip" >/dev/null
+  dex_disassemble "$root/candidate.zip" "$root/verify"
+  "$verify_fn" "$root/verify/smali" || die "final verification failed: $verify_fn"
+  cp -f "$root/candidate.zip" "$jar"
 }
 
-next_dex_name() {
-  local raw="$1" dex base n max=0
-  shopt -s nullglob
-  for dex in "$raw"/classes*.dex; do
-    base=$(basename "$dex")
-    if [[ "$base" == "classes.dex" ]]; then
-      n=1
-    elif [[ "$base" =~ ^classes([0-9]+)\.dex$ ]]; then
-      n="${BASH_REMATCH[1]}"
-    else
+one_file() {  # root relative_path
+  local m=()
+  while IFS= read -r -d '' p; do m+=("$p"); done < <(find "$1" -type f -path "*/$2" -print0)
+  (( ${#m[@]} == 1 )) || die "expected exactly one $2, found ${#m[@]}"
+  printf '%s\n' "${m[0]}"
+}
+
+# Android 17 Build/Build$VERSION spoof (upstream mode 2). Re-running on the
+# patched tree is the verifier: upstream reports "already patched" or fails.
+build_spoof() {
+  local rel
+  for rel in android/os/Build.smali 'android/os/Build$VERSION.smali'; do
+    python3 -I "$S/kaorios_patcher.py" "$(one_file "$1" "$rel")" --android-version 17 --mode 2 --no-delay \
+      >"$TEMP_ROOT/build-spoof.log" 2>&1 || { tail -n 60 "$TEMP_ROOT/build-spoof.log" >&2; return 1; }
+  done
+}
+
+secure_flag_patch()  { python3 "$MOD_TOOL" secure-flag "$1" --archive "$SECURE_ARCHIVE"; }
+secure_flag_verify() { python3 "$MOD_TOOL" secure-flag "$1" --archive "$SECURE_ARCHIVE" --check-only >/dev/null; }
+
+hooks_pass() {  # kind jar extra_args...
+  local kind="$1" jar="$2"; shift 2
+  local out="$TEMP_ROOT/$kind.jar"
+  bash "$S/patch-$kind-a17-artifact.sh" --input "$jar" --output "$out" \
+    --baksmali "$BAKSMALI" --smali "$SMALI" --api "$SDK_LEVEL" --smali-api "$SMALI_API" "$@" \
+    >"$TEMP_ROOT/$kind.log" 2>&1 || { tail -n 80 "$TEMP_ROOT/$kind.log" >&2; die "$kind hook pipeline failed"; }
+  cp -f "$out" "$jar"
+  info "KAORIOS: $kind.jar hooks applied and artifact-verified"
+}
+
+mods "Kaorios Toolbox upstream 2.0.6.2 integration (CorePatch is a separate preceding pass)"
+
+FRAMEWORK_JAR=$(find_jar framework.jar)
+SERVICES_JAR=$(find_jar services.jar)
+
+hooks_pass framework "$FRAMEWORK_JAR" --kaorios-dex "$K/app/classes.dex"
+if [[ "$ANDROID_VER" == "17" ]] && is_on "$KAORIOS_ENABLE_BUILD_SPOOF"; then
+  smali_pass "$FRAMEWORK_JAR" build_spoof build_spoof
+  info "KAORIOS: Android 17 Build/Build\$VERSION spoof applied and verified"
+fi
+
+hooks_pass services "$SERVICES_JAR"
+if is_on "$KAORIOS_ENABLE_SECURE_FLAG"; then
+  SECURE_ARCHIVE=services
+  smali_pass "$SERVICES_JAR" secure_flag_patch secure_flag_verify
+  MIUI_SERVICES_JAR=$(find_jar miui-services.jar optional)
+  if [[ -n "$MIUI_SERVICES_JAR" ]]; then
+    SECURE_ARCHIVE=miui-services
+    smali_pass "$MIUI_SERVICES_JAR" secure_flag_patch secure_flag_verify
+  else
+    info "KAORIOS: miui-services.jar not present; Xiaomi Secure Flag bypass skipped"
+  fi
+  info "KAORIOS: static Secure Flag bypasses applied and verified"
+fi
+
+# Upstream KaoriosPifInstaller calls System.load("/system_ext/lib[64]/libkaoripif.so").
+if is_on "$KAORIOS_ENABLE_NATIVE_PIF"; then
+  for abi in arm64-v8a:lib64 armeabi-v7a:lib; do
+    src="$K/app/lib/${abi%%:*}/libkaoripif.so"
+    dst_dir="$IMAGES/system_ext/${abi##*:}"
+    if [[ "${abi##*:}" == "lib64" ]]; then
+      mkdir -p "$dst_dir"
+    elif [[ ! -d "$dst_dir" ]]; then
+      warn "KAORIOS: $dst_dir missing; 32-bit Native PIF skipped"
       continue
     fi
-    (( n > max )) && max=$n
+    cp -f "$src" "$dst_dir/libkaoripif.so"
+    chmod 0644 "$dst_dir/libkaoripif.so"
+    patch_file_context system_ext "/system_ext/${abi##*:}/libkaoripif.so" "u:object_r:system_lib_file:s0"
   done
-  shopt -u nullglob
-  n=$((max + 1))
-  if (( n == 1 )); then
-    printf 'classes.dex\n'
-  else
-    printf 'classes%d.dex\n' "$n"
-  fi
-}
-
-ensure_no_existing_driver() {
-  local smali_root="$1"
-  local matches=()
-  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$smali_root" -type f -path '*/android/security/kaorios/KaoriosHook.smali' -print0)
-  if (( ${#matches[@]} != 0 )); then
-    error "KAORIOS: framework already contains KaoriosHook; refusing duplicate framework driver"
-    return 1
-  fi
-}
-
-# Per-app "hide Developer options / ADB". Upstream documents this target as an
-# optional, per-ROM patch, so unsupported layouts can warn or fail via config.
-# Legacy KAORIOS_SKIP_DEVSTATUS / KAORIOS_STRICT_DEVSTATUS remain accepted.
-apply_devstatus_patch() {
-  local root="$1" rc=0
-  if ! is_enabled "$KAORIOS_ENABLE_DEVSTATUS" || [[ "${KAORIOS_SKIP_DEVSTATUS:-0}" == "1" ]]; then
-    info "KAORIOS: dev-status (Developer options/ADB) patch disabled"
-    return 0
-  fi
-  if is_enabled "$KAORIOS_DEVSTATUS_STRICT" || [[ "${KAORIOS_STRICT_DEVSTATUS:-0}" == "1" ]]; then
-    python3 "$MOD_TOOL" devstatus "$root" --strict || rc=$?
-  else
-    python3 "$MOD_TOOL" devstatus "$root" || rc=$?
-  fi
-  case "$rc" in
-    0)
-      NVC_APPLIED=1
-      info "KAORIOS: Settings\$NameValueCache dev-status hook applied"
-      ;;
-    3)
-      warn "KAORIOS: Settings\$NameValueCache layout unsupported; dev-status hook not applied"
-      ;;
-    *)
-      error "KAORIOS: dev-status patcher failed (rc=$rc)"
-      return 1
-      ;;
-  esac
-  return 0
-}
-
-update_archive_dexes() {
-  local original="$1" built="$2" candidate="$3"
-  local dex
-  cp -f "$original" "$candidate"
-  shopt -s nullglob
-  for dex in "$built"/classes*.dex; do
-    (
-      cd "$built"
-      zip -q -0 "$candidate" "$(basename "$dex")"
-    )
-  done
-  shopt -u nullglob
-  unzip -tq "$candidate" >/dev/null
-}
-
-verify_hook() {
-  local root="$1" rel="$2" needle="$3" label="$4"
-  local file
-  file=$(find "$root" -type f -path "*/$rel" -print -quit)
-  if [[ -z "$file" ]] || ! grep -Fq -- "$needle" "$file"; then
-    error "KAORIOS: final verification failed: $label"
-    return 1
-  fi
-}
-
-verify_advanced_policy_payload() {
-  local root="$1"
-  local rel
-  for rel in \
-    'android/security/kaorios/settings/IAdvancedPolicyService.smali' \
-    'android/security/kaorios/settings/IAdvancedPolicyService$Stub.smali' \
-    'android/security/kaorios/settings/IAdvancedPolicyService$Stub$Proxy.smali' \
-    'android/security/kaorios/settings/AdvancedPolicyClient.smali' \
-    'android/security/kaorios/settings/AdvancedPolicyService.smali' \
-    'android/security/kaorios/settings/AdvancedPolicySnapshot.smali' \
-    'android/security/kaorios/settings/ServiceManagerBridge.smali' \
-    'android/security/kaorios/settings/SettingDecisionParcel.smali'; do
-    require_one_target "$root" "$rel" "AdvancedPolicy payload"
-  done
-}
-
-verify_framework_final() {
-  local root="$1"
-  require_framework_targets "$root"
-
-  if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
-    verify_hook "$root" "android/app/ActivityThread.smali" \
-      'KaoriosHook;->initActivityThread(Ljava/lang/Object;)V' "ActivityThread init"
-  fi
-  if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
-    verify_hook "$root" "android/app/Instrumentation.smali" \
-      'KaoriosHook;->initContext(Landroid/content/Context;)V' "Instrumentation initContext"
-  fi
-  if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
-    verify_hook "$root" "android/app/ApplicationPackageManager.smali" \
-      'KaoriosHook;->hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "system feature spoof"
-  fi
-  if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
-    verify_hook "$root" "android/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi.smali" \
-      'KaoriosHook;->initGenerateSoftwareKeyPair' "Play Integrity/keybox keypair hook"
-    verify_hook "$root" "android/security/keystore2/AndroidKeyStoreSpi.smali" \
-      'KaoriosHook;->CertificateChainIfNeeded' "Play Integrity/keybox certificate hook"
-  fi
-
-  if framework_driver_needed; then
-    require_one_target "$root" "android/security/kaorios/KaoriosHook.smali" "KaoriosHook framework driver"
-
-    if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'PifNative;->install(Landroid/content/Context;)V' "native PIF driver call"
-      verify_hook "$root" "android/security/ntmanager/PifNative.smali" \
-        'nativeInstall([Ljava/lang/String;[Ljava/lang/String;)Z' "native PIF JNI bridge"
-    fi
-
-    if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'initActivityThread(Ljava/lang/Object;)V' "driver ActivityThread implementation"
-    fi
-    if is_enabled "$KAORIOS_ENABLE_INSTRUMENTATION"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'initContext(Landroid/content/Context;)V' "driver context implementation"
-    fi
-    if is_enabled "$KAORIOS_ENABLE_KEYBOX"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;' "driver keypair implementation"
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;' "driver certificate implementation"
-    fi
-    if is_enabled "$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'hasSystemFeature(Ljava/lang/String;I)Ljava/lang/Boolean;' "driver system-feature implementation"
-    fi
-    if system_server_hook_needed; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'initSystemServer()V' "driver SystemServer implementation"
-    fi
-    if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'shouldHideAppListForCaller(ILjava/lang/String;I)Z' "driver app-visibility implementation"
-    fi
-    if is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'filterInstallerPackageName(Landroid/content/ContentResolver;IILjava/lang/String;Ljava/lang/String;)Ljava/lang/String;' "driver installer-source implementation"
-    fi
-    if is_enabled "$KAORIOS_ENABLE_DEVSTATUS"; then
-      verify_hook "$root" "android/security/kaorios/KaoriosHook.smali" \
-        'shouldHideDevStatusFromNameValueCache(Landroid/content/ContentResolver;Ljava/lang/String;I)Z' "driver dev-status implementation"
-    fi
-    if [[ "$ANDROID_VER" == "17" ]]; then
-      verify_advanced_policy_payload "$root"
-    fi
-  fi
-
-  # The upstream verifier also validates the ActivityThread caller. Only run it
-  # when that caller is enabled; partial configs use the targeted checks above.
-  if is_enabled "$KAORIOS_ENABLE_ACTIVITY_THREAD"; then
-    if [[ "$ANDROID_VER" == "17" ]]; then
-      python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" >/dev/null || {
-        error "KAORIOS: final verification failed: framework hook verifier"
-        return 1
-      }
-    else
-      python3 "$SCRIPT_DIR/verify-framework-a17-hooks.py" "$root" --skip-advanced-policy >/dev/null || {
-        error "KAORIOS: final verification failed: framework hook verifier"
-        return 1
-      }
-    fi
-  fi
-
-  if build_spoof_enabled_for_target; then
-    python3 "$MOD_TOOL" verify-build "$root" >/dev/null || {
-      error "KAORIOS: final verification failed: Android 17 Build spoof"
-      return 1
-    }
-    info "KAORIOS: Android 17 Build/Build\$VERSION spoof verified"
-  fi
-
-  if (( NVC_APPLIED == 1 )); then
-    python3 "$MOD_TOOL" devstatus "$root" --verify-only --verify-roundtrip >/dev/null || {
-      error "KAORIOS: final verification failed: dev-status (Developer options/ADB) hook"
-      return 1
-    }
-    info "KAORIOS: dev-status (Developer options/ADB) hook verified"
-  fi
-
-  info "KAORIOS: enabled framework features verified"
-}
-
-verify_services_final() {
-  local root="$1" file
-  require_services_targets "$root"
-
-  if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP" || is_enabled "$KAORIOS_ENABLE_INSTALLER_SOURCE"; then
-    file=$(find "$root" -type f -path '*/com/android/server/pm/ComputerEngine.smali' -print -quit)
-    python3 "$MOD_TOOL" adapter "$file" \
-      --hidden-app "$KAORIOS_ENABLE_HIDDEN_APP" \
-      --installer-source "$KAORIOS_ENABLE_INSTALLER_SOURCE" \
-      --check-only >/dev/null || {
-      error "KAORIOS: final verification failed: ComputerEngine hooks"
-      return 1
-    }
-    if is_enabled "$KAORIOS_ENABLE_HIDDEN_APP"; then
-      verify_hook "$root" "com/android/server/pm/ComputerEngine.smali" \
-        'KaoriosHook;->shouldHideAppListForCaller' "ComputerEngine app visibility"
-      python3 "$SCRIPT_DIR/verify-services-a17-hooks.py" "$root" >/dev/null || {
-        error "KAORIOS: final verification failed: services hook verifier"
-        return 1
-      }
-    fi
-  fi
-
-  if system_server_hook_needed; then
-    verify_hook "$root" "com/android/server/SystemServer.smali" \
-      'KaoriosHook;->initSystemServer()V' "SystemServer init"
-    python3 "$SCRIPT_DIR/verify-systemserver-a17-hooks.py" "$root" >/dev/null || {
-      error "KAORIOS: final verification failed: SystemServer hook verifier"
-      return 1
-    }
-  fi
-
-  if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-    python3 "$MOD_TOOL" secure-flag "$root" --archive services --check-only >/dev/null || {
-      error "KAORIOS: final verification failed: static Secure Flag bypasses"
-      return 1
-    }
-    info "KAORIOS: static Secure Flag bypasses verified"
-  fi
-
-  info "KAORIOS: enabled services features verified"
-}
-
-verify_miui_services_final() {
-  local root="$1"
-  require_miui_services_targets "$root"
-  python3 "$MOD_TOOL" secure-flag "$root" --archive miui-services --check-only >/dev/null || {
-    error "KAORIOS: final verification failed: Xiaomi static Secure Flag bypass"
-    return 1
-  }
-  info "KAORIOS: Xiaomi static Secure Flag bypass verified"
-}
-
-verify_candidate() {
-  local candidate="$1" kind="$2" root="$3"
-  local raw="$root/verify-raw" smali="$root/verify-smali"
-  extract_all_dex "$candidate" "$raw"
-  disassemble_all "$raw" "$smali"
-  case "$kind" in
-    framework) verify_framework_final "$smali" ;;
-    services) verify_services_final "$smali" ;;
-    miui-services) verify_miui_services_final "$smali" ;;
-    *) error "KAORIOS: unsupported archive kind: $kind"; return 1 ;;
-  esac
-}
-
-find_unique_artifact() {
-  local name="$1" preferred="$2"
-  if [[ -n "$preferred" && -f "$preferred" ]]; then
-    printf '%s\n' "$preferred"
-    return 0
-  fi
-  local matches=()
-  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$work_dir/build/baserom/images" -type f -name "$name" -print0)
-  if (( ${#matches[@]} != 1 )); then
-    error "KAORIOS: expected one $name, found ${#matches[@]}"
-    return 1
-  fi
-  printf '%s\n' "${matches[0]}"
-}
-
-find_optional_unique_artifact() {
-  local name="$1" preferred="$2"
-  if [[ -n "$preferred" && -f "$preferred" ]]; then
-    printf '%s\n' "$preferred"
-    return 0
-  fi
-  local matches=()
-  while IFS= read -r -d '' p; do matches+=("$p"); done < <(find "$work_dir/build/baserom/images" -type f -name "$name" -print0)
-  if (( ${#matches[@]} > 1 )); then
-    error "KAORIOS: expected at most one $name, found ${#matches[@]}"
-    return 1
-  fi
-  if (( ${#matches[@]} == 1 )); then
-    printf '%s\n' "${matches[0]}"
-  fi
-}
-
-patch_archive() {
-  local artifact="$1" kind="$2"
-  local root="$TEMP_ROOT/$kind"
-  local raw="$root/raw" smali="$root/smali" snapshot="$root/before.hashes"
-  local built="$root/built" candidate="$root/candidate.zip"
-
-  rm -rf "$root"
-  mkdir -p "$root"
-
-  extract_all_dex "$artifact" "$raw"
-  disassemble_all "$raw" "$smali"
-
-  case "$kind" in
-    framework)
-      require_framework_targets "$smali"
-      if framework_driver_needed; then
-        ensure_no_existing_driver "$smali"
-      fi
-      ;;
-    services) require_services_targets "$smali" ;;
-    miui-services) require_miui_services_targets "$smali" ;;
-    *) error "KAORIOS: unsupported archive kind: $kind"; return 1 ;;
-  esac
-
-  snapshot_hashes "$smali" "$snapshot"
-
-  patch_selected_targets "$kind" "$smali"
-  rebuild_changed_dexes "$smali" "$snapshot" "$built"
-
-  if [[ "$kind" == "framework" ]] && framework_driver_needed; then
-    local driver_name
-    driver_name=$(next_dex_name "$raw")
-    cp -f "$DRIVER_DEX" "$built/$driver_name"
-    info "KAORIOS: framework driver staged as $driver_name"
-  fi
-
-  update_archive_dexes "$artifact" "$built" "$candidate"
-  verify_candidate "$candidate" "$kind" "$root"
-
-  cp -f "$candidate" "$artifact"
-  info "KAORIOS: installed verified $kind artifact"
-}
-
-get_system_target_dir() {
-  local images="$work_dir/build/baserom/images"
-  if [[ -d "$images/system/system" ]]; then
-    printf '%s\n' "$images/system/system"
-  elif [[ -d "$images/system" ]]; then
-    printf '%s\n' "$images/system"
-  else
-    return 1
-  fi
-}
-
-install_native_pif() {
-  local sys_target
-  if ! sys_target=$(get_system_target_dir); then
-    warn "KAORIOS: system partition directory missing; skipping Native PIF installation"
-    return 0
-  fi
-
-  local lib_src="$MOD_DIR/native_pif"
-  if [[ ! -d "$lib_src" ]]; then
-    error "KAORIOS: Native PIF source directory missing: $lib_src"
-    return 1
-  fi
-
-  # 64-bit libraries
-  local arm64_dir="$lib_src/arm64-v8a"
-  local target_lib64="$sys_target/lib64"
-  if [[ -d "$arm64_dir" ]]; then
-    mkdir -p "$target_lib64"
-    for lib in libkaoripif.so; do
-      if [[ -f "$arm64_dir/$lib" ]]; then
-        cp -f "$arm64_dir/$lib" "$target_lib64/$lib"
-        chmod 0644 "$target_lib64/$lib"
-        chown 0:0 "$target_lib64/$lib" 2>/dev/null || true
-        command -v chcon >/dev/null 2>&1 && chcon u:object_r:system_lib_file:s0 "$target_lib64/$lib" 2>/dev/null || true
-        patch_file_context "system" "/system/lib64/$lib" "u:object_r:system_lib_file:s0"
-        patch_file_context "system" "/system/system/lib64/$lib" "u:object_r:system_lib_file:s0"
-      fi
-    done
-    info "KAORIOS: installed 64-bit Native PIF libraries to $target_lib64"
-  fi
-
-  # 32-bit libraries
-  local arm_dir="$lib_src/armeabi-v7a"
-  local target_lib="$sys_target/lib"
-  if [[ -d "$arm_dir" ]]; then
-    mkdir -p "$target_lib"
-    for lib in libkaoripif.so; do
-      if [[ -f "$arm_dir/$lib" ]]; then
-        cp -f "$arm_dir/$lib" "$target_lib/$lib"
-        chmod 0644 "$target_lib/$lib"
-        chown 0:0 "$target_lib/$lib" 2>/dev/null || true
-        command -v chcon >/dev/null 2>&1 && chcon u:object_r:system_lib_file:s0 "$target_lib/$lib" 2>/dev/null || true
-        patch_file_context "system" "/system/lib/$lib" "u:object_r:system_lib_file:s0"
-        patch_file_context "system" "/system/system/lib/$lib" "u:object_r:system_lib_file:s0"
-      fi
-    done
-    info "KAORIOS: installed 32-bit Native PIF libraries to $target_lib"
-  fi
-}
-
-install_toolbox() {
-  local sys_ext="$work_dir/build/baserom/images/system_ext"
-  if [[ ! -d "$sys_ext" ]]; then
-    error "KAORIOS: system_ext partition directory missing"
-    return 1
-  fi
-
-  local app_dir="$sys_ext/priv-app/KaoriosToolbox"
-  local perm_dir="$sys_ext/etc/permissions"
-  mkdir -p "$app_dir" "$perm_dir"
-  cp -f "$TOOLBOX_APK" "$app_dir/KaoriosToolbox.apk"
-  cp -f "$PERMISSION_XML" "$perm_dir/com.kousei.kaorios.xml"
-  chmod 0644 "$app_dir/KaoriosToolbox.apk" "$perm_dir/com.kousei.kaorios.xml"
-  info "KAORIOS: Toolbox installed as system_ext priv-app"
-}
-
-validate_optional_keybox_input() {
-  # Never bake an attestation private key into a public ROM repository.
-  # If a builder supplies one for validation, only validate its structure.
-  local keybox="${KAORIOS_KEYBOX_XML:-}"
-  if [[ -z "$keybox" && -f "$KAORIOS_DIR/keybox.xml" ]]; then
-    keybox="$KAORIOS_DIR/keybox.xml"
-  fi
-  if [[ -n "$keybox" ]]; then
-    if [[ ! -f "$keybox" ]]; then
-      error "KAORIOS: KAORIOS_KEYBOX_XML does not exist: $keybox"
-      return 1
-    fi
-    python3 "$VALIDATE_KEYBOX" "$keybox" >/dev/null || {
-      error "KAORIOS: supplied keybox XML failed structural validation"
-      return 1
-    }
-    warn "KAORIOS: keybox validated but intentionally NOT embedded; import it in Toolbox at runtime"
-  fi
-}
-
-mods "Kaorios Toolbox upstream 2.0.6.1 integration (CorePatch is a separate preceding pass)"
-
-info "KAORIOS config: ActivityThread=$KAORIOS_ENABLE_ACTIVITY_THREAD, Instrumentation=$KAORIOS_ENABLE_INSTRUMENTATION, Keybox=$KAORIOS_ENABLE_KEYBOX"
-info "KAORIOS config: SystemFeature=$KAORIOS_ENABLE_SYSTEM_FEATURE_SPOOF, SystemServer=$KAORIOS_ENABLE_SYSTEM_SERVER, HiddenApp=$KAORIOS_ENABLE_HIDDEN_APP"
-info "KAORIOS config: InstallerSource=$KAORIOS_ENABLE_INSTALLER_SOURCE, DevStatus=$KAORIOS_ENABLE_DEVSTATUS"
-info "KAORIOS config: BuildSpoof=$KAORIOS_ENABLE_BUILD_SPOOF (A17 only), Toolbox=$KAORIOS_INSTALL_TOOLBOX, ValidateKeybox=$KAORIOS_VALIDATE_KEYBOX"
-info "KAORIOS config: SecureFlag=$KAORIOS_ENABLE_SECURE_FLAG, CorePatch=$KAORIOS_ENABLE_COREPATCH (separate preceding pass)"
-info "KAORIOS config: NativePIF=$KAORIOS_ENABLE_NATIVE_PIF"
-
-if is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
-  validate_optional_keybox_input
+  info "KAORIOS: Native PIF libraries installed to system_ext"
 fi
 
+app_dir="$IMAGES/system_ext/priv-app/KaoriosToolbox"
+perm_dir="$IMAGES/system_ext/etc/permissions"
+[[ -d "$IMAGES/system_ext" ]] || die "system_ext partition directory missing"
+mkdir -p "$app_dir" "$perm_dir"
+cp -f "$K/app/KaoriosToolbox.apk" "$app_dir/KaoriosToolbox.apk"
+cp -f "$K/app/com.kousei.kaorios.xml" "$perm_dir/com.kousei.kaorios.xml"
+chmod 0644 "$app_dir/KaoriosToolbox.apk" "$perm_dir/com.kousei.kaorios.xml"
+info "KAORIOS: Toolbox installed as system_ext priv-app"
 
-if framework_archive_needed; then
-  FRAMEWORK_JAR=$(find_unique_artifact "framework.jar" "$work_dir/build/baserom/images/system/system/framework/framework.jar")
-  patch_archive "$FRAMEWORK_JAR" framework
-fi
-
-if services_features_enabled; then
-  SERVICES_JAR=$(find_unique_artifact "services.jar" "$work_dir/build/baserom/images/system/system/framework/services.jar")
-  patch_archive "$SERVICES_JAR" services
-fi
-
-if is_enabled "$KAORIOS_ENABLE_SECURE_FLAG"; then
-  MIUI_SERVICES_JAR=$(find_optional_unique_artifact "miui-services.jar" "$work_dir/build/baserom/images/system_ext/framework/miui-services.jar") || exit 1
-  if [[ -n "$MIUI_SERVICES_JAR" ]]; then
-    patch_archive "$MIUI_SERVICES_JAR" miui-services
-  else
-    info "KAORIOS: miui-services.jar not present; Xiaomi-specific Secure Flag bypass skipped"
-  fi
-fi
-
-if is_enabled "$KAORIOS_ENABLE_NATIVE_PIF"; then
-  install_native_pif
-fi
-
-if is_enabled "$KAORIOS_INSTALL_TOOLBOX"; then
-  install_toolbox
-fi
-
-if ! archive_patch_needed &&
-   ! is_enabled "$KAORIOS_INSTALL_TOOLBOX" &&
-   ! is_enabled "$KAORIOS_ENABLE_NATIVE_PIF" &&
-   ! is_enabled "$KAORIOS_VALIDATE_KEYBOX"; then
-  info "KAORIOS: all feature switches are OFF; nothing to do"
-fi
-
-mods "Kaorios Toolbox done with selected config"
+mods "Kaorios Toolbox done"

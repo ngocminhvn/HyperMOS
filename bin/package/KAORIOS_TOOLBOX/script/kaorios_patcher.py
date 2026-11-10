@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kaorios Android 13-17 Auto-Patcher (v2.0.6.1, fail-closed).
+"""Kaorios Android 13-17 Auto-Patcher (v2.0.6.2, fail-closed).
 
 Canonical cross-version entry point for Android 13, 14, 15, 16 and 17 smali.
 Hook patching is selected by verified class/method layout rather than by blindly
@@ -9,9 +9,8 @@ Supported targets:
 - ActivityThread.smali (process initialization hook)
 - ComputerEngine.smali (Hidden App / package visibility filter hook)
 - SystemServer.smali (initSystemServer lifecycle hook)
-- AndroidKeyStoreKeyPairGeneratorSpi.smali (keypair generation hook)
-- AndroidKeyStoreSpi.smali (certificate chain hook and single-leaf delegation)
-- Instrumentation.smali & ApplicationPackageManager.smali (legacy hooks)
+- Instrumentation.smali (context initialization hook)
+- Settings$NameValueCache.smali (developer/ADB-status entry guard)
 - Build.smali & Build$VERSION.smali (optional Android 17-only Build spoof)
 """
 from __future__ import annotations
@@ -20,9 +19,9 @@ import argparse
 import difflib
 import hashlib
 import importlib.util
-import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -68,6 +67,7 @@ mod_v_ss = _load_sibling("verify-systemserver-a17-hooks.py", "v_ss")
 class PatchStatus:
     PATCHED = "PATCHED"
     ALREADY_PATCHED = "ALREADY_PATCHED"
+    UPDATED = "UPDATED"
     UNSUPPORTED_LAYOUT = "UNSUPPORTED_LAYOUT"
     FAILED = "FAILED"
     NOT_TARGET = "NOT_TARGET"
@@ -77,22 +77,31 @@ class PatchStatus:
 # CÁC HÀM PATCH KAORIOS HOOK (ANDROID 17)
 # ==========================================
 
-def patch_activity_thread(content: str) -> tuple[str, bool]:
+def patch_activity_thread(content: str, update: bool = False) -> tuple[str, bool]:
     if mod_at is None:
         raise ValueError("patch-activitythread-a17.py required for ActivityThread patch but unavailable")
-    return mod_at.patch(content)
+    try:
+        return mod_at.patch(content, update=update)
+    except TypeError:
+        return mod_at.patch(content)
 
 
-def patch_computer_engine(content: str) -> tuple[str, bool]:
+def patch_computer_engine(content: str, update: bool = False) -> tuple[str, bool]:
     if mod_ce is not None:
-        return mod_ce.patch(content)
+        try:
+            return mod_ce.patch(content, update=update)
+        except TypeError:
+            return mod_ce.patch(content)
     raise ValueError("patch-services-a17.py required for ComputerEngine patch but unavailable")
 
 
-def patch_system_server(content: str) -> tuple[str, bool]:
+def patch_system_server(content: str, update: bool = False) -> tuple[str, bool]:
     if mod_ss is None:
         raise ValueError("patch-systemserver-a17.py required for SystemServer patch but unavailable")
-    patched = mod_ss.patch(content)
+    try:
+        patched = mod_ss.patch(content, update=update)
+    except TypeError:
+        patched = mod_ss.patch(content)
     return patched, (patched != content)
 
 
@@ -168,152 +177,32 @@ def _generator_entry_offset(method_body: str, directive_end: int) -> int:
     raise ValueError('generateKeyPair stock instructions not found')
 
 
-def patch_keystore_generator(content: str) -> tuple[str, bool]:
-    start = content.find("generateKeyPair()Ljava/security/KeyPair;")
-    if start == -1:
-        raise ValueError("generateKeyPair() anchor method not found in KeyPairGeneratorSpi")
-    end = content.find('.end method', start)
-    if end == -1:
-        raise ValueError("unterminated generateKeyPair method in KeyPairGeneratorSpi")
-
-    method_body = content[start:end]
-    if "KaoriosHook;->initGenerateSoftwareKeyPair" in method_body:
-        verify_target_content('AndroidKeyStoreKeyPairGeneratorSpi.smali', content)
-        return content, False
-
-    match = re.search(r'\.(registers|locals)\s+(\d+)', method_body)
-    if not match:
-        raise ValueError(".registers or .locals directive not found in generateKeyPair")
-
-    directive = match.group(1)
-    old_reg = int(match.group(2))
-    new_reg = old_reg + 1
-
-    if directive == "registers":
-        # generateKeyPair() is a virtual (non-static) method with 1 implicit param (p0=this)
-        method_body = _canonicalize_param_aliases(method_body, old_reg, 1)
-        v_target = f"v{new_reg - 2}"
-        p0_num = new_reg - 1
-    else:
-        method_body = _canonicalize_param_aliases(method_body, old_reg + 1, 1)
-        v_target = f"v{old_reg}"
-        p0_num = old_reg + 1
-
-    lbl = _unique_label(":cond_kaorios_gen_stock", method_body)
-    if p0_num > 15:
-        invoke_str = "invoke-static/range {p0 .. p0}, Landroid/security/kaorios/KaoriosHook;->initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;"
-    else:
-        invoke_str = "invoke-static {p0}, Landroid/security/kaorios/KaoriosHook;->initGenerateSoftwareKeyPair(Ljava/lang/Object;)Ljava/security/KeyPair;"
-
-    inject = f"""
-    {invoke_str}
-    move-result-object {v_target}
-
-    if-eqz {v_target}, {lbl}
-    return-object {v_target}
-
-    {lbl}
-"""
-    entry = _generator_entry_offset(method_body, match.end())
-    new_body = (method_body[:match.start()] + f".{directive} {new_reg}"
-                + method_body[match.end():entry] + inject + method_body[entry:])
-    return content[:start] + new_body + content[end:], True
-
-
-def _patch_certificate_chain(content: str) -> tuple[str, bool]:
-    anchor = re.search(r'(?m)^\.method[^\n]* engineGetCertificateChain\(Ljava/lang/String;\)\[Ljava/security/cert/Certificate;[ \t]*$', content)
-    start = anchor.start() if anchor else -1
-    if start == -1:
-        raise ValueError("engineGetCertificateChain anchor method not found in KeyStoreSpi")
-    end = content.find('.end method', start)
-    if end == -1:
-        raise ValueError("unterminated engineGetCertificateChain method in KeyStoreSpi")
-
-    method_body = content[start:end]
-    if "KaoriosHook;->CertificateChainIfNeeded" in method_body:
-        # Repair the historical hook that discarded its result at return.
-        debug_gap = r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
-        old_hook = re.compile(
-            r'(?P<prefix>aput-object\s+[vp]\d+,\s*(?P<array>[vp]\d+),\s*[vp]\d+'
-            + debug_gap + r'invoke-static(?:/range)?\s*\{(?P=array)(?:\s*\.\.\s*(?P=array))?\},\s*'
-            r'Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded\(\[Ljava/security/cert/Certificate;\)\[Ljava/security/cert/Certificate;'
-            + debug_gap + r'move-result-object\s+)(?P<result>[vp]\d+)'
-            r'(?P<tail>' + debug_gap + r'return-object\s+(?P=array))')
-        repaired = old_hook.sub(lambda match: match['prefix'] + match['array'] + match['tail'], method_body)
-        return content[:start] + repaired + content[end:], repaired != method_body
-
-    # The actual A13-A17 methods have two null returns and one populated
-    # certificate array return. Match the leaf insertion immediately before
-    # that return; a loop's earlier aput-object is not a safe hook point.
-    pattern = re.compile(
-        r'(?P<aput>aput-object\s+[vp]\d+,\s*(?P<array>[vp]\d+),\s*[vp]\d+)'
-        r'(?P<gap>(?:[ \t]*\.(?:line|local|end local|restart local)[^\n]*\n|[ \t]*\n)*)'
-        r'[ \t]*(?P<ret>return-object\s+(?P=array))'
-    )
-    matches = list(pattern.finditer(method_body))
-    if not matches:
-        raise ValueError("engineGetCertificateChain: leaf-array return not found")
-    returns = re.findall(r'\breturn-object\s+([vp]\d+)', method_body)
-    if len(returns) == 3 and len(matches) == 1:
-        null_reg = returns[0]
-        if returns != [null_reg, matches[0].group('array'), null_reg] or not re.search(
-            rf'const/4\s+{null_reg},\s*0x0\b', method_body[:matches[0].start()]
-        ):
-            raise ValueError("engineGetCertificateChain: unsupported null-return layout")
-    elif len(returns) != len(matches):
-        raise ValueError("engineGetCertificateChain: unsupported return layout")
-
-    reg_match = re.search(r'\.(registers|locals)\s+(\d+)', method_body)
-    if not reg_match:
-        raise ValueError("engineGetCertificateChain register directive not found")
-    reg_count = int(reg_match.group(2))
-    param_base = reg_count - 2 if reg_match.group(1) == "registers" else reg_count
-    new_body = method_body
-    for match in reversed(matches):
-        array = match.group('array')
-        physical = param_base + int(array[1:]) if array.startswith('p') else int(array[1:])
-        source = f"{{{array} .. {array}}}" if physical > 15 else f"{{{array}}}"
-        opcode = "invoke-static/range" if physical > 15 else "invoke-static"
-        invoke = f"{opcode} {source}, Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;"
-        inject = f"{invoke}\n    move-result-object {array}\n    "
-        new_body = new_body[:match.start('ret')] + inject + new_body[match.start('ret'):]
-    return content[:start] + new_body + content[end:], True
-
-
-def patch_keystore_spi(content: str) -> tuple[str, bool]:
-    content, changed = _patch_certificate_chain(content)
-    signature = "engineGetCertificate(Ljava/lang/String;)Ljava/security/cert/Certificate;"
-    anchor = re.search(r'(?m)^\.method[^\n]* ' + re.escape(signature) + r'[ \t]*$', content)
-    start = anchor.start() if anchor else -1
-    if start == -1:
-        raise ValueError("engineGetCertificate anchor method not found in KeyStoreSpi")
-    end = content.find('.end method', start)
-    if end == -1:
-        raise ValueError("unterminated engineGetCertificate method in KeyStoreSpi")
-    body = content[start:end]
-    if '->engineGetCertificateChain(Ljava/lang/String;)[Ljava/security/cert/Certificate;' in body:
-        verify_target_content('AndroidKeyStoreSpi.smali', content)
-        return content, changed
+def _remove_legacy_register_hook(body: str, pattern: re.Pattern, param_count: int) -> str:
+    """Remove only a complete block that owns the last allocated local."""
     directive = re.search(r'\.(registers|locals)\s+(\d+)', body)
-    if not directive:
-        raise ValueError("engineGetCertificate register directive not found")
-    locals_count = int(directive.group(2)) - (2 if directive.group(1) == 'registers' else 0)
-    if locals_count < 2:
-        raise ValueError("engineGetCertificate requires two existing local registers")
-    label = _unique_label(':kaorios_certificate_stock', body)
-    inject = f"""
-    invoke-virtual/range {{p0 .. p1}}, Landroid/security/keystore2/AndroidKeyStoreSpi;->engineGetCertificateChain(Ljava/lang/String;)[Ljava/security/cert/Certificate;
-    move-result-object v0
-    if-eqz v0, {label}
-    array-length v1, v0
-    if-eqz v1, {label}
-    const/4 v1, 0x0
-    aget-object v0, v0, v1
-    return-object v0
-    {label}
-"""
-    body = body[:directive.end()] + inject + body[directive.end():]
-    return content[:start] + body + content[end:], True
+    blocks = list(pattern.finditer(body))
+    if directive is None or len(blocks) != 1 or int(directive[2]) < 1:
+        raise ValueError('unsupported update: no single recognized legacy hook block')
+    block = blocks[0]
+    if block.start() < directive.end():
+        raise ValueError('unsupported update: legacy hook precedes register directive')
+    registers = re.findall(r'(?m)^\s*(?:move-result-object|move-result|return-object|return|if-eqz)\s+([vp]\d+)', block.group())
+    scratch = int(directive[2]) - (param_count if directive[1] == 'registers' else 0) - 1
+    if not registers or set(registers) != {f'v{scratch}'}:
+        raise ValueError('unsupported update: legacy hook does not own the last local')
+    labels = re.findall(r'(?m)^\s*(:[\w$]+)\s*$', block.group())
+    branch = re.search(r'if-eqz\s+[vp]\d+,\s*(:[\w$]+)', block.group())
+    if len(labels) != 1 or branch is None or branch[1] != labels[0]:
+        raise ValueError('unsupported update: unrecognized legacy stock fallback')
+    remainder = body[:block.start()] + body[block.end():]
+    instructions = re.sub(r'"(?:\\.|[^"\\])*"|#[^\n]*', '', remainder)
+    if re.search(re.escape(labels[0]) + r'(?![\w$])', instructions):
+        raise ValueError('unsupported update: legacy fallback label is referenced by stock code')
+    if re.search(rf'(?<![\w/$;>:])v{scratch}(?![\w/$;])', instructions):
+        raise ValueError('unsupported update: legacy scratch is referenced by stock code')
+    return (remainder[:directive.start()] + f'.{directive[1]} {int(directive[2]) - 1}'
+            + remainder[directive.end():])
+
 
 
 INSTRUMENTATION_HOOK_RE = re.compile(
@@ -323,7 +212,7 @@ INSTRUMENTATION_HOOK_RE = re.compile(
 INSTRUMENTATION_RETURN_RE = re.compile(r'(?m)^[ \t]*return-object\s+[vp]\d+')
 
 
-def patch_instrumentation(content: str) -> tuple[str, bool]:
+def patch_instrumentation(content: str, update: bool = False) -> tuple[str, bool]:
     def patch_method(text: str, method_name: str, param: str) -> tuple[str, bool]:
         start = text.find(method_name)
         if start == -1:
@@ -337,7 +226,23 @@ def patch_instrumentation(content: str) -> tuple[str, bool]:
         if "Class;" in method_name and re.search(r'\bstatic\b', header):
             param = "p1"
         if INSTRUMENTATION_HOOK_RE.search(method_body):
-            return text, False
+            try:
+                returns = list(INSTRUMENTATION_RETURN_RE.finditer(method_body))
+                hooks = list(INSTRUMENTATION_HOOK_RE.finditer(method_body))
+                if not returns or len(returns) != len(hooks):
+                    raise ValueError('Instrumentation: incomplete method hook coverage')
+                for ret, hook in zip(returns, hooks):
+                    args = re.search(r'\{([^}]*)\}', hook.group())[1].replace(' ', '')
+                    if args not in (param, f'{param}..{param}') or hook.end() > ret.start() or method_body[hook.end():ret.start()].strip():
+                        raise ValueError('Instrumentation: initContext must directly dominate each return')
+                return text, False
+            except ValueError:
+                if not update:
+                    raise
+            stripped_body = INSTRUMENTATION_HOOK_RE.sub('', method_body)
+            clean_text = text[:start] + stripped_body + text[end:]
+            patched, _ = patch_method(clean_text, method_name, param)
+            return patched, True
 
         matches = list(re.finditer(r'(return-object\s+[vp]\d+\s*)', method_body))
         if not matches:
@@ -373,7 +278,7 @@ def patch_instrumentation(content: str) -> tuple[str, bool]:
     return content, (c1 or c2)
 
 
-def patch_app_pkg_manager(content: str) -> tuple[str, bool]:
+def patch_app_pkg_manager(content: str, update: bool = False) -> tuple[str, bool]:
     pattern = r'(\.method[^\n]*?hasSystemFeature\(Ljava/lang/String;I\)Z.*?\.end method)'
     match = re.search(pattern, content, flags=re.DOTALL)
     if not match:
@@ -381,7 +286,26 @@ def patch_app_pkg_manager(content: str) -> tuple[str, bool]:
 
     method_body = match.group(1)
     if "KaoriosHook;->hasSystemFeature" in method_body:
-        return content, False
+        try:
+            verify_target_content('ApplicationPackageManager.smali', content)
+            return content, False
+        except ValueError:
+            if not update:
+                raise
+        hook_re = re.compile(
+            r'(?m)^[ \t]*invoke-static(?:/range)?[^\n]*KaoriosHook;->hasSystemFeature[^\n]*\n'
+            r'[ \t]*move-result-object\s+[vp]\d+\n'
+            r'(?:\s*\n)*'
+            r'[ \t]*if-eqz[^\n]*\n'
+            r'[ \t]*invoke-virtual(?:/range)?[^\n]*Boolean;->booleanValue\(\)Z\n'
+            r'[ \t]*move-result\s+[vp]\d+\n'
+            r'[ \t]*return\s+[vp]\d+\n'
+            r'(?:\s*\n)*'
+            r'[ \t]*:cond_kaorios_feature_stock[^\n]*\n?'
+        )
+        stripped_body = _remove_legacy_register_hook(method_body, hook_re, 3)
+        stripped_content = content[:match.start()] + stripped_body + content[match.end():]
+        return patch_app_pkg_manager(stripped_content, update=False)
 
     reg_match = re.search(r'\.(registers|locals)\s+(\d+)([^\n]*)', method_body)
     if not reg_match:
@@ -440,11 +364,44 @@ def patch_app_pkg_manager(content: str) -> tuple[str, bool]:
     return content[:match.start()] + new_method + content[match.end():], True
 
 
-# ==========================================
-# CÁC HÀM PATCH ANDROID 17 SPOOF
-# ==========================================
+NAME_VALUE_METHOD = 'getStringForUser(Landroid/content/ContentResolver;Ljava/lang/String;I)Ljava/lang/String;'
+NAME_VALUE_HOOK = ('Landroid/security/kaorios/KaoriosHook;->shouldHideDevStatusFromNameValueCache'
+                   '(Landroid/content/ContentResolver;Ljava/lang/String;I)Ljava/lang/String;')
 
-def patch_build(content: str) -> tuple[str, bool]:
+
+def _name_value_entry(content: str) -> tuple[str, re.Match, int, int]:
+    body = _extract_method_body(content, NAME_VALUE_METHOD, 'Settings$NameValueCache')
+    header = body.splitlines()[0]
+    if re.search(r'\b(static|abstract|native)\b', header):
+        raise ValueError('unsupported NameValueCache method flags')
+    directive = re.search(r'\.(registers|locals)\s+(\d+)', body)
+    if directive is None:
+        raise ValueError('NameValueCache register directive not found')
+    registers = int(directive[2]) + (4 if directive[1] == 'locals' else 0)
+    if not 5 <= registers <= 65535:
+        raise ValueError('unsupported NameValueCache register allocation: entry needs a local')
+    _verify_register_encoding(body, registers, 4)
+    entry = _generator_entry_offset(body, directive.end())
+    return body, directive, registers, entry
+
+
+def patch_name_value_cache(content: str, update: bool = False) -> tuple[str, bool]:
+    body, _, _, entry = _name_value_entry(content)
+    if 'KaoriosHook;' in body:
+        # Partial or foreign hooks are never removed speculatively, even on update.
+        verify_target_content('Settings$NameValueCache.smali', content)
+        return content, False
+    label = _unique_label(':cond_kaorios_settings_stock', body)
+    inject = (f'\n    invoke-static/range {{p1 .. p3}}, {NAME_VALUE_HOOK}\n'
+              f'    move-result-object v0\n'
+              f'    if-eqz v0, {label}\n'
+              f'    return-object v0\n\n'
+              f'    {label}\n')
+    patched = body[:entry] + inject + body[entry:]
+    return content.replace(body, patched, 1), True
+
+
+def patch_build(content: str, update: bool = False) -> tuple[str, bool]:
     fields_null = [
         "BRAND", "BRAND_FOR_ATTESTATION", "DEVICE", "DEVICE_FOR_ATTESTATION",
         "FINGERPRINT", "HARDWARE", "ID", "MANUFACTURER", "MANUFACTURER_FOR_ATTESTATION",
@@ -466,7 +423,7 @@ def patch_build(content: str) -> tuple[str, bool]:
     return patched, (patched != content)
 
 
-def patch_build_version(content: str) -> tuple[str, bool]:
+def patch_build_version(content: str, update: bool = False) -> tuple[str, bool]:
     fields_version = [
         "RELEASE", "RELEASE_OR_CODENAME", "RELEASE_OR_PREVIEW_DISPLAY",
         "SECURITY_PATCH", "DEVICE_INITIAL_SDK_INT"
@@ -526,87 +483,6 @@ def verify_target_content(filename: str, content: str) -> None:
     elif filename == "SystemServer.smali":
         if mod_ss is not None:
             mod_ss.verify(content)
-    elif filename == "AndroidKeyStoreKeyPairGeneratorSpi.smali":
-        body = _extract_method_body(
-            content,
-            "generateKeyPair()Ljava/security/KeyPair;",
-            "AndroidKeyStoreKeyPairGeneratorSpi"
-        )
-        count = len(re.findall(r'KaoriosHook;->initGenerateSoftwareKeyPair', body))
-        if count != 1:
-            raise ValueError(
-                f"AndroidKeyStoreKeyPairGeneratorSpi: expected exactly 1 initGenerateSoftwareKeyPair hook in generateKeyPair, found {count}"
-            )
-        directive = re.search(r'\.(registers|locals)\s+(\d+)', body)
-        if directive is None:
-            raise ValueError("generateKeyPair register directive not found")
-        registers = int(directive[2]) + (1 if directive[1] == 'locals' else 0)
-        _verify_register_encoding(body, registers, 1)
-        entry = _generator_entry_offset(body, directive.end())
-        sequence = re.match(
-            r'\s*invoke-static(?P<range>/range)?\s*\{p0(?:(?(range)\s*\.\.\s*p0))?\},\s*'
-            r'Landroid/security/kaorios/KaoriosHook;->initGenerateSoftwareKeyPair\(Ljava/lang/Object;\)Ljava/security/KeyPair;\s+'
-            r'move-result-object\s+(?P<scratch>v\d+)\s+'
-            r'if-eqz\s+(?P=scratch),\s*(?P<label>:[\w$]+)\s+'
-            r'return-object\s+(?P=scratch)\s*'
-            r'(?:\.(?:line|local|end local|restart local)[^\n]*\n|\s)*'
-            r'(?P=label)\s*', body[entry:]
-        )
-        if sequence is None or int(sequence['scratch'][1:]) != registers - 2:
-            raise ValueError('generateKeyPair hook must be at entry with a dedicated local and stock fallback')
-        label = sequence['label']
-        if len(re.findall(rf'(?m)^\s*{re.escape(label)}\s*$', body)) != 1:
-            raise ValueError('generateKeyPair stock fallback label is not unique')
-        stock_lines = body[entry + sequence.end():].splitlines()
-        if not any(re.match(r'^\s*(?:return-object|throw)\b', line) for line in stock_lines):
-            raise ValueError('unsupported generateKeyPair stock fallback: no exit')
-    elif filename == "AndroidKeyStoreSpi.smali":
-        body = _extract_method_body(
-            content,
-            "engineGetCertificateChain(Ljava/lang/String;)[Ljava/security/cert/Certificate;",
-            "AndroidKeyStoreSpi"
-        )
-        returns = re.findall(r'return-object\s+([vp]\d+)', body)
-        return_count = len(returns)
-        hook_count = len(re.findall(r'KaoriosHook;->CertificateChainIfNeeded', body))
-        if return_count == 0:
-            raise ValueError("AndroidKeyStoreSpi: no return-object found in engineGetCertificateChain")
-        expected_hooks = 1 if return_count == 3 else return_count
-        if hook_count != expected_hooks:
-            raise ValueError(
-                f"AndroidKeyStoreSpi: expected {expected_hooks} CertificateChainIfNeeded hooks, found {hook_count}"
-            )
-        pairs = list(re.finditer(
-            r'aput-object\s+[vp]\d+,\s*(?P<array>[vp]\d+),\s*[vp]\d+'
-            r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
-            r'invoke-static(?:/range)?\s*\{(?P=array)(?:\s*\.\.\s*(?P=array))?\},\s*'
-            r'Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded\(\[Ljava/security/cert/Certificate;\)\[Ljava/security/cert/Certificate;'
-            r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
-            r'move-result-object\s+(?P=array)'
-            r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
-            r'return-object\s+(?P=array)', body
-        ))
-        if len(pairs) != hook_count:
-            raise ValueError("AndroidKeyStoreSpi: dataflow mismatch; hook must directly dominate its return")
-        if return_count == 3:
-            null_reg = returns[0]
-            if returns != [null_reg, pairs[0].group('array'), null_reg] or not re.search(
-                rf'const/4\s+{null_reg},\s*0x0\b', body[:pairs[0].start()]
-            ):
-                raise ValueError("AndroidKeyStoreSpi: unsupported null-return layout")
-        elif return_count != hook_count:
-            raise ValueError("AndroidKeyStoreSpi: unsupported return layout")
-        leaf_body = _extract_method_body(
-            content, "engineGetCertificate(Ljava/lang/String;)Ljava/security/cert/Certificate;",
-            "AndroidKeyStoreSpi")
-        leaf_body = re.sub(r'(?m)^[ \t]*\.(?:line|local|end local|restart local|param)[^\n]*\n', '', leaf_body)
-        if not re.search(
-            r'invoke-virtual/range \{p0 \.\. p1\}, Landroid/security/keystore2/AndroidKeyStoreSpi;->engineGetCertificateChain'
-            r'\(Ljava/lang/String;\)\[Ljava/security/cert/Certificate;\s+'
-            r'move-result-object v0\s+if-eqz v0, (?P<label>:[\w]+)\s+'
-            r'array-length v1, v0\s+if-eqz v1, (?P=label)\s+'
-            r'const/4 v1, 0x0\s+aget-object v0, v0, v1\s+return-object v0\s+(?P=label)', leaf_body):
-            raise ValueError("AndroidKeyStoreSpi: single certificate must delegate to the chain with stock fallback")
     elif filename == "Instrumentation.smali":
         body1 = _extract_method_body(
             content,
@@ -674,6 +550,20 @@ def verify_target_content(filename: str, content: str) -> None:
         prefix = re.sub(r'(?m)^\s*\.(?:method|registers|locals|param|line)\b[^\n]*$', '', prefix)
         if prefix.strip():
             raise ValueError("ApplicationPackageManager: hook is after stock logic")
+    elif filename == 'Settings$NameValueCache.smali':
+        body, _, _, entry = _name_value_entry(content)
+        sequence = re.match(
+            r'\s*invoke-static/range \{p1 \.\. p3\}, ' + re.escape(NAME_VALUE_HOOK) +
+            r'\s+move-result-object v0\s+if-eqz v0, (?P<label>:[\w$]+)'
+            r'\s+return-object v0\s+(?P=label)\s*', body[entry:])
+        if sequence is None or body.count('KaoriosHook;') != 1:
+            raise ValueError('NameValueCache: invalid entry hook or incomplete hook coverage')
+        label = sequence['label']
+        if len(re.findall(rf'(?m)^\s*{re.escape(label)}\s*$', body)) != 1:
+            raise ValueError('NameValueCache: stock fallback label is not unique')
+        stock = body[entry + sequence.end():]
+        if not re.search(r'(?m)^\s*(?:return-object|throw)\b', stock):
+            raise ValueError('unsupported NameValueCache stock fallback: no exit')
     elif filename == "Build.smali":
         fields_null = [
             "BRAND", "BRAND_FOR_ATTESTATION", "DEVICE", "DEVICE_FOR_ATTESTATION",
@@ -710,7 +600,7 @@ def verify_target_content(filename: str, content: str) -> None:
                 raise ValueError(f"Build$VERSION.smali post-patch: field {f} still has 'final' modifier — patch did not apply")
 
 
-def apply_target_patch(filename: str, content: str, targets: dict) -> tuple[str, str, str | None]:
+def apply_target_patch(filename: str, content: str, targets: dict, update: bool = False) -> tuple[str, str, str | None]:
     """Execute patch and verification for a target. Returns (status, patched_content, error_message)."""
     patch_fn = targets.get(filename)
     if patch_fn is None:
@@ -720,20 +610,27 @@ def apply_target_patch(filename: str, content: str, targets: dict) -> tuple[str,
         'ActivityThread.smali': 'Landroid/app/ActivityThread;',
         'ComputerEngine.smali': 'Lcom/android/server/pm/ComputerEngine;',
         'SystemServer.smali': 'Lcom/android/server/SystemServer;',
-        'AndroidKeyStoreKeyPairGeneratorSpi.smali': 'Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;',
-        'AndroidKeyStoreSpi.smali': 'Landroid/security/keystore2/AndroidKeyStoreSpi;',
         'Instrumentation.smali': 'Landroid/app/Instrumentation;',
         'ApplicationPackageManager.smali': 'Landroid/app/ApplicationPackageManager;',
+        'Settings$NameValueCache.smali': 'Landroid/provider/Settings$NameValueCache;',
         'Build.smali': 'Landroid/os/Build;',
         'Build$VERSION.smali': 'Landroid/os/Build$VERSION;',
     }
     owner = owners.get(filename)
-    declarations = re.findall(r'(?m)^\.class\s+[^\n]*?\s+(L[^\s;]+;)[ \t]*$', content)
+    declarations = re.findall(r'(?m)^\.class[ \t]+(?:[^\r\n]*?[ \t]+)?(L[^\s;]+;)[ \t]*$', content)
     if owner is None or declarations != [owner]:
         return PatchStatus.UNSUPPORTED_LAYOUT, content, f'{filename}: expected class descriptor {owner}'
 
     try:
-        patched_content, changed = patch_fn(content)
+        headers = re.findall(r'(?m)^\.method[^\n]*?\s+([^\s(]+\([^\n]*)$', content)
+        if len(headers) != len(set(headers)):
+            raise ValueError(f'{filename}: ambiguous duplicate method declaration')
+        import inspect
+        sig = inspect.signature(patch_fn)
+        if 'update' in sig.parameters:
+            patched_content, changed = patch_fn(content, update=update)
+        else:
+            patched_content, changed = patch_fn(content)
         # Verify the content satisfies all hook constraints
         verify_target_content(filename, patched_content)
         if changed:
@@ -754,7 +651,7 @@ def run_directory_verifiers(root_path: Path, processed_filenames: set[str]) -> l
     errors = []
     if "ActivityThread.smali" in processed_filenames and mod_v_fw is not None:
         try:
-            mod_v_fw.verify_caller(root_path)
+            mod_at.verify(mod_v_fw.find_activity_thread(root_path).read_bytes().decode('utf-8'))
         except Exception as e:
             errors.append(f"Framework verifier (ActivityThread): {e}")
 
@@ -773,17 +670,34 @@ def run_directory_verifiers(root_path: Path, processed_filenames: set[str]) -> l
     return errors
 
 
-def process_files(root_path: str | Path, mode: str, slow: bool = True) -> bool:
+def _verify_payload_calls(contents: dict[Path, str], payload_smali: str | Path) -> None:
+    verifier = _load_sibling('verify-payload-abi.py', 'payload_abi')
+    if verifier is None:
+        raise ValueError('payload ABI verifier unavailable')
+    with tempfile.TemporaryDirectory(prefix='kaorios-abi-') as directory:
+        staged_root = Path(directory)
+        for relative, content in contents.items():
+            staged = staged_root / relative
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            staged.write_bytes(content.encode('utf-8'))
+        payload_root = Path(payload_smali)
+        if payload_root.is_file():
+            payload_root = payload_root.parent
+        verifier.verify_calls(staged_root, payload_root)
+
+
+def process_files(root_path: str | Path, mode: str, slow: bool = True, update: bool = False,
+                  payload_smali: str | Path | None = None) -> bool:
+    if payload_smali is None:
+        print('[!] Caller-only; payload ABI not verified. Supply --payload-smali to verify compatibility.')
     targets = {}
     if mode in ['1', '3']:
         targets.update({
             "ActivityThread.smali": patch_activity_thread,
             "ComputerEngine.smali": patch_computer_engine,
             "SystemServer.smali": patch_system_server,
-            "AndroidKeyStoreKeyPairGeneratorSpi.smali": patch_keystore_generator,
-            "AndroidKeyStoreSpi.smali": patch_keystore_spi,
             "Instrumentation.smali": patch_instrumentation,
-            "ApplicationPackageManager.smali": patch_app_pkg_manager,
+            "Settings$NameValueCache.smali": patch_name_value_cache,
         })
     if mode in ['2', '3']:
         targets.update({
@@ -793,6 +707,10 @@ def process_files(root_path: str | Path, mode: str, slow: bool = True) -> bool:
 
     p = Path(root_path)
 
+    if p.is_symlink():
+        print('[!] Unsupported layout: symbolic-link target.')
+        return False
+
     # Single file target
     if p.is_file():
         file = p.name
@@ -800,8 +718,14 @@ def process_files(root_path: str | Path, mode: str, slow: bool = True) -> bool:
             print(f"[-] {file} không nằm trong danh sách mục tiêu patch của mode {mode}.")
             return False
 
-        content = p.read_text(encoding="utf-8")
-        status, patched_content, err_msg = apply_target_patch(file, content, targets)
+        content = p.read_bytes().decode("utf-8")
+        status, patched_content, err_msg = apply_target_patch(file, content, targets, update=update)
+        if payload_smali is not None and status in (PatchStatus.PATCHED, PatchStatus.ALREADY_PATCHED):
+            try:
+                _verify_payload_calls({Path(file): patched_content}, payload_smali)
+            except ValueError as error:
+                print(f'[!] Payload ABI verification failed: {error}')
+                return False
 
         if status == PatchStatus.PATCHED:
             diff_output = get_diff_text(content, patched_content, file)
@@ -813,7 +737,11 @@ def process_files(root_path: str | Path, mode: str, slow: bool = True) -> bool:
             print(f"    [+] ĐÃ TỰ ĐỘNG LƯU: {file} (Status: {status})\n")
             return True
         elif status == PatchStatus.ALREADY_PATCHED:
-            print(f"    [=] {file}: ĐÃ ĐƯỢC PATCH TỪ TRƯỚC (Verifier PASS).\n")
+            if update:
+                p.write_bytes(patched_content.encode("utf-8"))
+                print(f"    [+] ĐÃ CẬP NHẬT (UPDATE): {file} (Verifier PASS).\n")
+            else:
+                print(f"    [=] {file}: ĐÃ ĐƯỢC PATCH TỪ TRƯỚC (Verifier PASS).\n")
             return True
         elif status == PatchStatus.UNSUPPORTED_LAYOUT:
             print(f"    [!] {file}: BỐ CỤC KHÔNG HỖ TRỢ (UNSUPPORTED LAYOUT): {err_msg}\n")
@@ -830,42 +758,80 @@ def process_files(root_path: str | Path, mode: str, slow: bool = True) -> bool:
     if slow:
         time.sleep(0.3)
 
+    candidates = sorted(path for path in p.rglob('*.smali') if path.name in targets)
+    names = [path.name for path in candidates]
+    if len(names) != len(set(names)):
+        print('[!] Unsupported layout: ambiguous duplicate target filenames.')
+        return False
+    if any(path.is_symlink() for path in candidates):
+        print('[!] Unsupported layout: symbolic-link target.')
+        return False
+
+    # Validate all content and tree-level target locations before touching originals.
+    planned = {}
+    with tempfile.TemporaryDirectory(prefix='kaorios-preflight-') as directory:
+        staged_root = Path(directory)
+        for path in candidates:
+            content = path.read_bytes().decode('utf-8')
+            result = apply_target_patch(path.name, content, targets, update=update)
+            status, patched_content, error = result
+            if status not in (PatchStatus.PATCHED, PatchStatus.ALREADY_PATCHED):
+                print(f'[!] {path.name}: {status}: {error}')
+                return False
+            planned[path] = (content, result)
+            staged = staged_root / path.relative_to(p)
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            staged.write_bytes(patched_content.encode('utf-8'))
+        if payload_smali is not None:
+            verifier = _load_sibling('verify-payload-abi.py', 'payload_abi')
+            try:
+                if verifier is None:
+                    raise ValueError('payload ABI verifier unavailable')
+                verifier.verify_calls(staged_root, Path(payload_smali))
+            except ValueError as error:
+                print(f'[!] Payload ABI verification failed: {error}')
+                return False
+        tree_errors = run_directory_verifiers(staged_root, set(names))
+        if tree_errors:
+            for error in tree_errors:
+                print(f'[!] {error}')
+            return False
+    # Also reject concurrent changes between preflight and publication.
+    if any(path.read_bytes() != content.encode('utf-8') for path, (content, _) in planned.items()):
+        print('[!] Target changed during preflight; no files written.')
+        return False
+
     processed_targets: set[str] = set()
     patched_count = 0
     already_patched_count = 0
+    updated_count = 0
     unsupported_count = 0
     failed_count = 0
 
-    for subdir, _, files in os.walk(str(p)):
-        for file in files:
-            if file in targets:
-                filepath = Path(subdir) / file
-                content = filepath.read_text(encoding="utf-8")
-                status, patched_content, err_msg = apply_target_patch(file, content, targets)
-                processed_targets.add(file)
+    for filepath, (content, (status, patched_content, err_msg)) in planned.items():
+        file = filepath.name
+        processed_targets.add(file)
+        if status == PatchStatus.PATCHED:
+            diff_output = get_diff_text(content, patched_content, file)
+            if slow:
+                slow_print(diff_output, delay=0.01)
+            else:
+                print(diff_output)
+            filepath.write_bytes(patched_content.encode("utf-8"))
+            print(f"    [+] ĐÃ TỰ ĐỘNG LƯU: {file} (Status: {status})\n")
+            patched_count += 1
+            if slow:
+                time.sleep(0.1)
+        elif status == PatchStatus.ALREADY_PATCHED:
+            if update:
+                filepath.write_bytes(patched_content.encode("utf-8"))
+                print(f"    [+] ĐÃ CẬP NHẬT (UPDATE): {file} (Verifier PASS).\n")
+                updated_count += 1
+            else:
+                print(f"    [=] {file}: ĐÃ ĐƯỢC PATCH TỪ TRƯỚC (Verifier PASS).\n")
+                already_patched_count += 1
 
-                if status == PatchStatus.PATCHED:
-                    diff_output = get_diff_text(content, patched_content, file)
-                    if slow:
-                        slow_print(diff_output, delay=0.01)
-                    else:
-                        print(diff_output)
-                    filepath.write_bytes(patched_content.encode("utf-8"))
-                    print(f"    [+] ĐÃ TỰ ĐỘNG LƯU: {file} (Status: {status})\n")
-                    patched_count += 1
-                    if slow:
-                        time.sleep(0.1)
-                elif status == PatchStatus.ALREADY_PATCHED:
-                    print(f"    [=] {file}: ĐÃ ĐƯỢC PATCH TỪ TRƯỚC (Verifier PASS).\n")
-                    already_patched_count += 1
-                elif status == PatchStatus.UNSUPPORTED_LAYOUT:
-                    print(f"    [!] {file}: BỐ CỤC KHÔNG HỖ TRỢ (UNSUPPORTED LAYOUT): {err_msg}\n")
-                    unsupported_count += 1
-                else:
-                    print(f"    [!] {file}: THẤT BẠI (FAILED): {err_msg}\n")
-                    failed_count += 1
-
-    total_processed = patched_count + already_patched_count + unsupported_count + failed_count
+    total_processed = patched_count + already_patched_count + updated_count + unsupported_count + failed_count
     if total_processed == 0:
         print("[-] Không tìm thấy file mục tiêu nào trong thư mục.")
         return False
@@ -875,15 +841,12 @@ def process_files(root_path: str | Path, mode: str, slow: bool = True) -> bool:
         print(f"\n[!] THẤT BẠI: Có {failed_count + unsupported_count} file gặp lỗi / unsupported layout.")
         return False
 
-    # Run directory-level verifications
-    tree_errors = run_directory_verifiers(p, processed_targets)
-    if tree_errors:
-        print("\n[!] VERIFIER CÂY THƯ MỤC THẤT BẠI:")
-        for err in tree_errors:
-            print(f"    - {err}")
-        return False
-
-    print(f"\n[+] HOÀN TẤT: Đã xử lý {total_processed} file mục tiêu ({patched_count} đã patch, {already_patched_count} đã patch từ trước). Tất cả verifier đều PASS.")
+    summary_details = f"{patched_count} đã patch"
+    if updated_count > 0:
+        summary_details += f", {updated_count} đã cập nhật"
+    if already_patched_count > 0:
+        summary_details += f", {already_patched_count} đã patch từ trước"
+    print(f"\n[+] HOÀN TẤT: Đã xử lý {total_processed} file mục tiêu ({summary_details}). Tất cả verifier đều PASS.")
     return True
 
 
@@ -893,7 +856,9 @@ def main() -> None:
     parser.add_argument("--mode", choices=["1", "2", "3"], default=None, help="1=Hooks (A13-A17), 2=Build Spoof (A17 only), 3=Hooks + Build Spoof (A17 only)")
     parser.add_argument("--android-version", choices=["13", "14", "15", "16", "17"], default=None,
                         help="Target Android generation. Required for documented usage; mode 2/3 only support 17.")
+    parser.add_argument("--update", "-u", action="store_true", help="Update and rewrite targets even if already patched (Verifier PASS)")
     parser.add_argument("--no-delay", action="store_true", help="Disable output animation delays")
+    parser.add_argument("--payload-smali", type=Path, help="Disassembled payload to verify facade ABI before writing")
     args = parser.parse_args()
 
     # Non-interactive CLI mode. Keep omitted --android-version compatible with
@@ -905,7 +870,8 @@ def main() -> None:
             print("[!] --android-version not supplied; using layout detection only (legacy compatibility).")
         else:
             print(f"[*] Target Android {args.android_version}; hooks remain verifier/layout driven.")
-        success = process_files(args.path, args.mode, slow=not args.no_delay)
+        success = process_files(args.path, args.mode, slow=not args.no_delay, update=args.update,
+                                payload_smali=args.payload_smali)
         sys.exit(0 if success else 1)
 
     # Interactive mode
@@ -934,13 +900,19 @@ def main() -> None:
             print("Mode 2/3 có Build spoof riêng Android 17. Android 13-16 dùng mode 1.")
             sys.exit(1)
 
+        update = args.update
+        if not update:
+            update_choice = input("-> Cho phép update/ghi đè nếu đã patch từ trước? (y/N): ").strip().lower()
+            update = update_choice in ("y", "yes")
+
         target_dir = args.path
         if target_dir is None:
             target_dir = input("-> Nhập đường dẫn thư mục smali (nhấn Enter để dùng thư mục hiện tại): ").strip()
             if not target_dir:
                 target_dir = str(SCRIPT_DIR)
 
-        success = process_files(target_dir, mode, slow=not args.no_delay)
+        success = process_files(target_dir, mode, slow=not args.no_delay, update=update,
+                                payload_smali=args.payload_smali)
         if not success:
             sys.exit(1)
     except Exception as e:

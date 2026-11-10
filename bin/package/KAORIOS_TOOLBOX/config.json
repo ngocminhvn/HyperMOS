@@ -2,11 +2,6 @@
   "KaoriosToolbox": [
     {
       "enabled": true,
-      "pif_spoof": true,
-      "keybox": true,
-      "hidden_app": true,
-      "installer_source": true,
-      "devstatus": true,
       "build_spoof": true,
       "secure_flag": true,
       "corepatch": true,
