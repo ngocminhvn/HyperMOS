@@ -10,7 +10,7 @@ Integrates [Kaorios Toolbox v2.0.6.2](https://github.com/hzzmonetvn/Kaorios-Tool
 | `app/` | Release assets: `classes.dex` (framework payload), `KaoriosToolbox.apk`, `lib/*/libkaoripif.so` (JNI installer), plus `com.kousei.kaorios.xml` (HyperMOS priv-app permissions). `patch.sh` pins their SHA-256 from the release `SHA256SUMS`. |
 | `mod/kaorios_mod.py` | HyperMOS-only commands: `config`, `secure-flag`, `selinux`. |
 | `patch.sh` | The only glue: calls upstream artifact pipelines and the extras below. |
-| `config.json` | `enabled`, `build_spoof`, `secure_flag`, `corepatch`, `native_pif`. |
+| `config.json` | `enabled`, `build_spoof`, `secure_flag`, `native_pif`. |
 
 ## What runs
 
@@ -24,7 +24,7 @@ Integrates [Kaorios Toolbox v2.0.6.2](https://github.com/hzzmonetvn/Kaorios-Tool
 
 The v2.0.6.2 hook set is fixed upstream, so the old per-hook switches (`pif_spoof`, `keybox`, `hidden_app`, `installer_source`, `devstatus`) are gone. Keystore hooks, the `ApplicationPackageManager` hook and the `SettingsProvider.apk` patch no longer exist upstream and are not applied. Start from a stock `SettingsProvider.apk`.
 
-CorePatch is a separate preceding pass (`COREPATCH/`, `patchpackage.sh`).
+Kaorios CorePatch is not run. HyperMOS `COREPATCH/` runs first and already patches `miui-services` `notAllowCaptureDisplay`; the static Secure Flag pass here is idempotent on top of it (Android 15/16/17).
 
 ## Updating
 

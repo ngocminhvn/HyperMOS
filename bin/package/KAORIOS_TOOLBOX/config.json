@@ -4,7 +4,6 @@
       "enabled": true,
       "build_spoof": true,
       "secure_flag": true,
-      "corepatch": true,
       "native_pif": true
     }
   ]

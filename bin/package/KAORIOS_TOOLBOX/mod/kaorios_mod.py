@@ -21,7 +21,6 @@ def _cmd_config() -> int:
         "enabled",
         "build_spoof",
         "secure_flag",
-        "corepatch",
     )
     OPTIONAL_FEATURES = (
         "native_pif",
@@ -68,7 +67,6 @@ def _cmd_config() -> int:
             "KAORIOS_ENABLE_SYSTEM_SERVER": config["enabled"],
             "KAORIOS_ENABLE_BUILD_SPOOF": config["build_spoof"],
             "KAORIOS_ENABLE_SECURE_FLAG": config["secure_flag"],
-            "KAORIOS_ENABLE_COREPATCH": config["corepatch"],
             "KAORIOS_ENABLE_NATIVE_PIF": config["native_pif"],
         }
 

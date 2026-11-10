@@ -7,7 +7,7 @@ set -euo pipefail
 #   services.jar  : patch-services-a17-artifact.sh  (ComputerEngine + SystemServer)
 # This file only wires them into the ROM and adds the HyperMOS-only extras
 # (A17 Build spoof, static Secure Flag, native PIF libs, Toolbox APK).
-# CorePatch runs as a separate preceding pass (patchpackage.sh).
+# Kaorios CorePatch is intentionally not run; HyperMOS CorePatch runs before this.
 
 work_dir=$(pwd)
 source "$work_dir/functions.sh"
@@ -143,7 +143,7 @@ hooks_pass() {  # kind jar extra_args...
   info "KAORIOS: $kind.jar hooks applied and artifact-verified"
 }
 
-mods "Kaorios Toolbox upstream 2.0.6.2 integration (CorePatch is a separate preceding pass)"
+mods "Kaorios Toolbox upstream 2.0.6.2 integration (Kaorios CorePatch not used)"
 
 FRAMEWORK_JAR=$(find_jar framework.jar)
 SERVICES_JAR=$(find_jar services.jar)
