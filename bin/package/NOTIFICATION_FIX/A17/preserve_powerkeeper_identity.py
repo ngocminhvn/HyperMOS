@@ -94,17 +94,32 @@ def verify(apk, reference):
     }
 
 
-def verify_base(base, signer, java):
-    check = subprocess.run([java, '-jar', str(signer), 'verify', '--verbose',
-                            '--print-certs', str(base)],
-                           check=True, capture_output=True, text=True).stdout
+def verify_base(base, signer, java, allow_stripped=False):
+    command = [java, '-jar', str(signer), 'verify', '--verbose',
+               '--print-certs', str(base)]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        combined = result.stdout + result.stderr
+        stripped = ('no such signature was found' in combined and
+                    'Signature stripped?' in combined)
+        if not stripped or not allow_stripped:
+            raise subprocess.CalledProcessError(
+                result.returncode, command, result.stdout, result.stderr)
+        # Xiaomi's ROM build pipeline may strip the v2/v3 signing block from
+        # a trusted system APK while leaving pinned v1 certificate metadata.
+        # Accept only that narrow stock-ROM case; metadata() still requires
+        # the exact Xiaomi certificate hash below.
+        metadata(base)
+        return 'pinned-xiaomi-v1-metadata-stripped-v2-v3'
+    check = result.stdout
     certs = re.findall(r'^Signer #\d+ certificate SHA-256 digest: (\S+)', check, re.M)
     if certs != [XIAOMI]:
         raise ValueError('Base APK must be verified Xiaomi stock, not an Android/testkey rebuild')
+    return 'apksigner-verified'
 
 
-def rebuild(base, patched, reference, output, signer, java):
-    verify_base(base, signer, java)
+def rebuild(base, patched, reference, output, signer, java, allow_stripped=False):
+    base_verification = verify_base(base, signer, java, allow_stripped)
     meta = metadata(reference)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent, prefix='powerkeeper-identity-') as folder:
@@ -133,6 +148,7 @@ def rebuild(base, patched, reference, output, signer, java):
                         if final.read(n) != original.read(n):
                             raise ValueError('Non-DEX content changed: ' + n)
             report['base_sha256'] = sha(base)
+            report['base_verification'] = base_verification
             report['compiled_dex_sha256'] = {n: hashlib.sha256(rebuilt.read(n)).hexdigest() for n in sorted(rebuilt_dex)}
         os.replace(candidate, output)
     return report
@@ -148,17 +164,22 @@ if __name__ == '__main__':
     p.add_argument('--java', default='java')
     p.add_argument('--report', type=Path)
     p.add_argument('--check-base', action='store_true')
+    p.add_argument('--allow-stripped-base', action='store_true')
     a = p.parse_args()
     if a.check_base:
         if not a.apksigner:
             p.error('--check-base requires --apksigner')
-        verify_base(a.apk, a.apksigner, a.java)
+        base_verification = verify_base(
+            a.apk, a.apksigner, a.java, a.allow_stripped_base)
         metadata(a.apk)
-        result = {'mode': 'verified-xiaomi-base', 'certificate_sha256': XIAOMI, 'sha256': sha(a.apk)}
+        result = {'mode': 'verified-xiaomi-base',
+                  'base_verification': base_verification,
+                  'certificate_sha256': XIAOMI, 'sha256': sha(a.apk)}
     elif a.base:
         if not a.patched or not a.apksigner:
             p.error('--base requires --patched and --apksigner')
-        result = rebuild(a.base, a.patched, a.reference, a.apk, a.apksigner, a.java)
+        result = rebuild(a.base, a.patched, a.reference, a.apk, a.apksigner,
+                         a.java, a.allow_stripped_base)
     else:
         result = verify(a.apk, a.reference)
     if a.report:

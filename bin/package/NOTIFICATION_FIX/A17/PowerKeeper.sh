@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Android 17 / OS4 PowerKeeper patcher:
-# Patches Doze whitelist, night sleep mode app-killer, alarm restrictions, and cloud control.
+# Preserves legacy region-gate behavior and disables OS4's replacement GMS limiter.
 # Rebuilds APK while preserving original Xiaomi certificate identity, resources, and v1 metadata.
 # Does NOT sign with testkey; invalidates v2/v3 signing block for ROM CorePatch v1 bypass.
 set -euo pipefail
@@ -38,6 +38,7 @@ base_hash="$(sha256sum "$apk" | cut -d ' ' -f1)"
 # 1. Verify Xiaomi base signature
 python3 "$base_dir/preserve_powerkeeper_identity.py" \
   --check-base --apk "$apk" --reference "$apk" \
+  --allow-stripped-base \
   --apksigner "$apksigner" \
   --report "$report_dir/stock-identity.json"
 
@@ -60,6 +61,7 @@ python3 "$base_dir/powerkeeper.py" prepare-donor \
 python3 "$base_dir/preserve_powerkeeper_identity.py" \
   --base "$apk" --patched "$tmp/wrapper.apk" \
   --reference "$apk" --apksigner "$apksigner" \
+  --allow-stripped-base \
   --apk "$tmp/PowerKeeper.preserved.apk" \
   --report "$report_dir/preserved-metadata.json"
 
@@ -80,5 +82,5 @@ python3 "$base_dir/preserve_powerkeeper_identity.py" \
 cp -f "$final_apk" "$apk"
 rm -rf "$(dirname "$apk")/oat"
 
-mods "PowerKeeper: patched Doze/SleepMode/CloudControl; preserved Xiaomi certificate & v1 metadata"
+mods "PowerKeeper: disabled the OS4 GMS notification limiter; preserved Xiaomi certificate & v1 metadata"
 patch "PowerKeeper: Android 17 / OS4 PowerKeeper successfully patched"

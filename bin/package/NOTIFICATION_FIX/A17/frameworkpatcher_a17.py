@@ -38,7 +38,7 @@ SCOPED_PRESERVED_READS = {
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
 PROCESS_POLICY = "com/android/server/am/ProcessPolicy.smali"
 DOZE_CONTROLLER = "com/android/server/DeviceIdleControllerStubImpl.smali"
-GREEZE = "com/miui/server/greeze/PolicyManager.smali"
+GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
 
 CONTENT_CATCHER_METHOD = re.compile(
     r"(?ms)^\.method[^\n]*\bupdateContentCatcherWhitelist\(\)V[^\n]*\n"
@@ -62,12 +62,6 @@ DOZE_FIELD_WRITE = re.compile(
     r"(?m)^([ \t]*)sput-boolean[ \t]+(v\d+),[ \t]+"
     r"Lcom/android/server/DeviceIdleControllerStubImpl;->mIsLowPowerDozeDevice:Z[ \t]*$"
 )
-
-CN_WRITE = re.compile(
-    r"(?m)^([ \t]*)sput-boolean[ \t]+([vp]\d+),[ \t]+"
-    r"Lcom/miui/server/greeze/PolicyManager;->CN_MODEL:Z[ \t]*$"
-)
-
 
 def locate(root: Path, relative: str):
     matches = [p for p in root.glob("smali*/" + relative) if p.is_file()]
@@ -163,26 +157,61 @@ def patch_doze_flag(source: str):
     patched_block, count = force_international_true(block)
     # Also explicitly ensure mIsLowPowerDozeDevice assignment is 0
     writes = list(DOZE_FIELD_WRITE.finditer(patched_block))
-    if writes:
-        assignment = writes[0]
-        indent, reg = assignment.groups()
-        opcode = "const/4" if int(reg[1:]) <= 15 else "const/16"
-        neutralize = f"{indent}{opcode} {reg}, 0x0\n"
-        insertion_at = assignment.start()
-        patched_block = patched_block[:insertion_at] + neutralize + patched_block[insertion_at:]
-    output = source[:inits[0].start()] + patched_block + source[inits[0].end():]
-    return output
-
-
-def force_cn_model_false(source: str):
-    writes = list(CN_WRITE.finditer(source))
-    if not writes:
-        return source, False
+    if len(writes) != 1:
+        raise ValueError(
+            f"Doze controller: expected one mIsLowPowerDozeDevice write, got {len(writes)}")
     assignment = writes[0]
     indent, reg = assignment.groups()
     opcode = "const/4" if int(reg[1:]) <= 15 else "const/16"
     neutralize = f"{indent}{opcode} {reg}, 0x0\n"
-    return source[:assignment.start()] + neutralize + source[assignment.start():], True
+    insertion_at = assignment.start()
+    before_write = patched_block[:insertion_at]
+    already_false = re.search(
+        rf"(?m)^[ \t]*const/(?:4|16)[ \t]+{re.escape(reg)},[ \t]+0x0[ \t]*$\s*$",
+        before_write)
+    if not already_false:
+        patched_block = before_write + neutralize + patched_block[insertion_at:]
+    output = source[:inits[0].start()] + patched_block + source[inits[0].end():]
+    return output, {"region_reads": count, "field_write_forced_false": True}
+
+
+def replace_boolean_method(source: str, signature: str, value: int):
+    method_re = re.compile(
+        rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    methods = list(method_re.finditer(source))
+    if len(methods) != 1:
+        raise ValueError(f"expected one {signature}, got {len(methods)}")
+    header = methods[0].group().splitlines()[0]
+    replacement = (
+        f"{header}\n"
+        "    .registers 1\n\n"
+        f"    const/4 v0, 0x{value:x}\n\n"
+        "    return v0\n"
+        ".end method"
+    )
+    return source[:methods[0].start()] + replacement + source[methods[0].end():]
+
+
+def force_boolean_parameter(source: str, signature: str, parameter: str, value: int):
+    method_re = re.compile(
+        rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    methods = list(method_re.finditer(source))
+    if len(methods) != 1:
+        raise ValueError(f"expected one {signature}, got {len(methods)}")
+    block = methods[0].group()
+    register_line = re.search(r"(?m)^([ \t]*)\.(?:registers|locals)[ \t]+\d+[ \t]*$", block)
+    if not register_line:
+        raise ValueError(f"{signature}: missing registers declaration")
+    forced = f"{register_line.group(1)}const/4 {parameter}, 0x{value:x}"
+    following = block[register_line.end():]
+    already_forced = re.match(
+        rf"\s*const/4[ \t]+{re.escape(parameter)},[ \t]+0x{value:x}\b", following)
+    if not already_forced:
+        at = register_line.end()
+        block = block[:at] + "\n\n" + forced + block[at:]
+    return source[:methods[0].start()] + block + source[methods[0].end():]
 
 
 def patch(root: Path):
@@ -236,17 +265,31 @@ def patch(root: Path):
     doze = locate(root, DOZE_CONTROLLER)
     if doze is not None:
         original_doze = doze.read_text(encoding="utf-8")
-        patched_doze = patch_doze_flag(original_doze)
+        patched_doze, doze_info = patch_doze_flag(original_doze)
         doze.write_text(patched_doze, encoding="utf-8")
-        details[DOZE_CONTROLLER] = {"low_power_doze_disabled": True}
+        details[DOZE_CONTROLLER] = {"low_power_doze_disabled": True, **doze_info}
+        total += 1
 
-    policy = locate(root, GREEZE)
-    if policy is not None:
-        original_policy = policy.read_text(encoding="utf-8")
-        changed_policy, did_write = force_cn_model_false(original_policy)
-        if did_write:
-            policy.write_text(changed_policy, encoding="utf-8")
-            details[GREEZE] = {"cn_model_neutralized": True}
+    # OS4 replaced the old region-gated FCM path with a reachability-driven
+    # GMS limiter. PowerKeeper sends true when Google is unreachable and this
+    # service immediately runs triggerGMSLimitAction(). Preserve the old RYU
+    # outcome narrowly: this one notification limiter can never become active.
+    greeze_service = locate(root, GREEZE_SERVICE)
+    if greeze_service is None:
+        raise ValueError("GreezeManagerService missing")
+    service_text = greeze_service.read_text(encoding="utf-8")
+    service_text = force_boolean_parameter(
+        service_text, "updateGmsNetStatus(Z)Z", "p1", 0)
+    service_text = replace_boolean_method(service_text, "getGmsNetStatus()Z", 0)
+    greeze_service.write_text(service_text, encoding="utf-8")
+    details[GREEZE_SERVICE] = {
+        "gms_network_limit_forced_false": True,
+        "gms_network_status_forced_false": True,
+    }
+    total += 2
+
+    if total == 0:
+        raise ValueError("no Android 17 notification gates were patched")
 
     return {
         "status": "success",
