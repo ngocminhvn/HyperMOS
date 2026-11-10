@@ -21,7 +21,7 @@ source "$base/jar_ops.sh"
 WORK_DIR="$work_dir"
 TOOLS_DIR="$work_dir/bin/apktool"
 API_LEVEL=36
-services_jar="$work_dir/build/baserom/images/system/framework/services.jar"
+services_jar="$work_dir/build/baserom/images/system/system/framework/services.jar"
 services_decoded="$work_dir/services_decompile"
 services_output="$work_dir/services_patched.jar"
 jar="$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
