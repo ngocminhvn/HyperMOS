@@ -1,12 +1,12 @@
 # TNM build-time integrations
 
-This package combines mandatory post-fs property reporting with the Android 16
-Hide App List patch, which is **required on both China and Xiaomi.eu**.
+This package combines mandatory post-fs property reporting with a signature-gated
+Hide App List patch for Android 16 and Android 17, required on China and Xiaomi.eu.
 The `TNM_ENABLE_APP_PRIVACY` override is honored for `other` ROM sources only.
 China/EU do not have an opt-out; incompatible inputs fail during patching.
 The on-device feature remains controlled by TNM App, not by the build input.
 
-## App Privacy (Android 16)
+## App Privacy (Android 16 / signature-verified Android 17)
 
 This independent client-side `ApplicationPackageManager` patch mirrors only the
 six Hide App List call sites proven in the supplied ProjectRYU framework. It does
@@ -18,8 +18,11 @@ conflicting package-visibility hook stops the build instead of silently omitting
 All six APM call sites and the helper are checked directly after patching.
 The redundant *pre-pack* Hide App List audit is removed, but the separate
 pre-pack LOCK staging check remains. This does not establish boot/runtime
-compatibility or direct Binder/query-API filtering. Only Android 16 is
-validated at present; an Android 17 port needs its own compatibility work.
+compatibility or direct Binder/query-API filtering. Android 16 remains the established reference. Android 17 attempts the same six
+precise APM hooks using the available SDK 37-aware smali tools, only if all exact
+method signatures match. It fails closed on incompatible layouts, missing tools,
+assembly failures, or post-build verification failures; a successful build is
+not proof of Android 17 runtime/boot compatibility.
 Successful Android 16 patching writes
 `/system/etc/tnm/app-privacy-v1`; TNM App exposes controls only when that marker
 and its on-demand backend capability are available.

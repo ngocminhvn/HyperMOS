@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch exactly six Android 16 ApplicationPackageManager API entry points.
+"""Patch exactly six signature-matched ApplicationPackageManager API entry points.
 
 The transformation is signature-gated and idempotence-rejecting. It never
 patches a partial/unknown layout.
@@ -128,7 +128,7 @@ def main() -> None:
     patched = METHOD.sub(replace, original)
     invalid = {signature: count for signature, count in counts.items() if count != 1}
     if invalid:
-        raise RuntimeError(f"unsupported Android 16 layout: {invalid}")
+        raise RuntimeError(f"unsupported ApplicationPackageManager layout (missing/duplicate signatures): {invalid}")
     if patched.count(HELPER) < 6:
         raise RuntimeError("hook insertion verification failed")
     path.write_text(patched, encoding="utf-8")

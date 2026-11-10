@@ -1,14 +1,30 @@
 #!/usr/bin/env bash
-# Android 16 TNM App Privacy: mandatory on both China and Xiaomi.eu, optional on other.
+# A16/A17 TNM App Privacy: signature-gated; mandatory on China/Xiaomi.eu.
 set -euo pipefail
 
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
 base="$work_dir/bin/package/TNM"
 images="$work_dir/build/baserom/images"
-baksmali="$work_dir/bin/apktool/baksmaliv2.jar"
-smali="$work_dir/bin/apktool/smaliv2.jar"
 android_version="$(tr -d '\r\n' < "$work_dir/bin/ddevice/androidver.txt")"
+case "$android_version" in
+  16)
+    baksmali="$work_dir/bin/apktool/baksmaliv2.jar"
+    smali="$work_dir/bin/apktool/smaliv2.jar"
+    api_level=36
+    ;;
+  17)
+    # Android 17 requires an SDK 37-aware dex toolchain.
+    baksmali="$work_dir/bin/apktool/baksmali-3.0.5.jar"
+    smali="$work_dir/bin/apktool/smali-3.0.5.jar"
+    api_level=37
+    ;;
+  *)
+    baksmali=""
+    smali=""
+    api_level=0
+    ;;
+esac
 marker_relative="system/system/etc/tnm/app-privacy-v1"
 marker="$images/$marker_relative"
 rom_source_file="$work_dir/bin/ddevice/rom_source.txt"
@@ -31,8 +47,11 @@ fail_or_skip() {
   exit 0
 }
 
-if [[ "$android_version" != "16" ]]; then
-  fail_or_skip "Android $android_version has no validated TNM APM layout (supported: Android 16)"
+if [[ "$api_level" == "0" ]]; then
+  fail_or_skip "Android $android_version is unsupported (supported: 16 and signature-verified 17)"
+fi
+if [[ "$android_version" == "17" ]]; then
+  info "TNM App Privacy A17: checking all six APM method signatures before applying any patch"
 fi
 for file in "$baksmali" "$smali" "$base/patch_app_privacy.py" "$base/TnmAppPrivacy.smali"; do
   [[ -s "$file" ]] || { error "TNM App Privacy: missing $file"; exit 1; }
@@ -85,8 +104,8 @@ audit_staged() {
     return 1
   fi
   mkdir -p "$audit/apm" "$audit/helper"
-  if ! java -jar "$baksmali" d -a 36 "$apm_dex" -o "$audit/apm" >/dev/null ||
-     ! java -jar "$baksmali" d -a 36 "$helper_dex" -o "$audit/helper" >/dev/null ||
+  if ! java -jar "$baksmali" d -a "$api_level" "$apm_dex" -o "$audit/apm" >/dev/null ||
+     ! java -jar "$baksmali" d -a "$api_level" "$helper_dex" -o "$audit/helper" >/dev/null ||
      ! python3 "$base/patch_app_privacy.py" --verify \
         "$audit/apm/android/app/ApplicationPackageManager.smali" \
         "$audit/helper/android/app/TnmAppPrivacy.smali"; then
@@ -116,7 +135,7 @@ found=0
 apm_dex=""
 for dex in "${dexes[@]}"; do
   out="$tmp/apm/$(basename "$dex")"
-  java -jar "$baksmali" d -a 36 "$dex" -o "$out" >/dev/null
+  java -jar "$baksmali" d -a "$api_level" "$dex" -o "$out" >/dev/null
   if [[ -f "$out/android/app/ApplicationPackageManager.smali" ]]; then
     found=$((found + 1))
     apm_dex="$dex"
@@ -147,7 +166,7 @@ if ! python3 "$base/patch_app_privacy.py" "$apm"; then
   fail_or_skip "unsupported ApplicationPackageManager method layout"
 fi
 name="$(basename "$apm_dex")"
-java -jar "$smali" a -a 36 "$apm_out" -o "$tmp/built/$name"
+java -jar "$smali" a -a "$api_level" "$apm_out" -o "$tmp/built/$name"
 cp "$base/TnmAppPrivacy.smali" "$tmp/helper/android/app/TnmAppPrivacy.smali"
 
 index=1
@@ -157,7 +176,7 @@ while true; do
   index=$((index + 1))
 done
 if [[ "$index" -eq 1 ]]; then helper_name="classes.dex"; else helper_name="classes${index}.dex"; fi
-java -jar "$smali" a -a 36 "$tmp/helper" -o "$tmp/built/$helper_name"
+java -jar "$smali" a -a "$api_level" "$tmp/helper" -o "$tmp/built/$helper_name"
 
 cp "$framework" "$tmp/framework.candidate.jar"
 (
@@ -183,5 +202,5 @@ chmod 0644 "$marker"
 if [[ "$strict" == "1" ]]; then
   audit_staged
 fi
-mods "TNM App Privacy -> A16 APM policy (schema 1, six verified APIs)"
+mods "TNM App Privacy -> A${android_version} APM policy (schema 1, six verified APIs)"
 
