@@ -75,7 +75,13 @@ PY
         info "EU source downloaded: $baserom"
     else
         # Leave the existing Xiaomi China/Global downloader unchanged.
-        aria2c --max-download-limit=1024M --file-allocation=none -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" "${baserom}"
+        aria2c --max-download-limit=1024M --file-allocation=none -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" "${baserom}" || {
+            error "Download error!"
+            return 1
+        }
+        # The downloaded ROM can be removed after a payload.bin ZIP has been
+        # successfully extracted. Never remove an existing local input ZIP.
+        downloaded_china_rom=1
         baserom=$(basename ${baserom} | sed 's/\?t.*//')
         if [ -f $work_dir/topaz-ota_full-OS3.0.2.0.WMGCNXM-user-16.0-b487e82659.zip ]; then
             baserom="topaz-ota_full-OS3.0.2.0.WMGCNXM-user-16.0-b487e82659.zip"

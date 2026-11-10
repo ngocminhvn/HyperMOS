@@ -10,11 +10,15 @@ images="$work_dir/build/baserom/images"
 rom_os="$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_os.txt")"
 android_ver="$(tr -d '\r\n' < "$work_dir/bin/ddevice/androidver.txt")"
 
-# Only Android 16 / HyperOS 3 is considered by this patch.
-if [[ "$rom_os" != "OS3" || "$android_ver" != "16" ]]; then
-    mods "HyperChanger: skip unsupported ROM generation ($rom_os / A$android_ver)"
-    exit 0
-fi
+# HyperOS 3 runs on Android 16; HyperOS 4 runs on Android 17.
+# Both must match the same exact SystemUI hook signatures in patch.py.
+case "$rom_os/$android_ver" in
+    OS3/16|OS4/17) ;;
+    *)
+        mods "HyperChanger: skip unsupported ROM generation ($rom_os / A$android_ver)"
+        exit 0
+        ;;
+esac
 [[ -d "$images/system_ext" ]] || {
     mods "HyperChanger: no system_ext; feature unavailable"
     exit 0

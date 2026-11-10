@@ -1,0 +1,85 @@
+name: Validate OS3 and OS4 Vietnamese direct-copy overlays
+
+on:
+  push:
+    paths:
+      - "bin/modfile/UpdateFile/MultiLang/**"
+      - ".github/workflows/test-multilang-os4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  overlay-copy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate minimal OS folders and all prebuilt APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODULE="bin/modfile/UpdateFile/MultiLang"
+          bash -n "$MODULE/update.sh" bin/modfile/UpdateFile/insupdate.sh
+          for os in OS3 OS4; do
+            test -d "$MODULE/$os/updatesource"
+            test "$(find "$MODULE/$os" -mindepth 1 -maxdepth 1 | wc -l)" -eq 1
+            test "$(find "$MODULE/$os" -mindepth 1 -maxdepth 1 -type d -name updatesource | wc -l)" -eq 1
+          done
+          test "$(find "$MODULE/OS3/updatesource" -mindepth 1 -maxdepth 1 -type f -name 'Nothings.*.apk' | wc -l)" -eq 67
+          test "$(find "$MODULE/OS4/updatesource" -mindepth 1 -maxdepth 1 -type f -name 'Vni.*.apk' | wc -l)" -eq 79
+          for os in OS3 OS4; do
+            src="$MODULE/$os/updatesource"
+            test "$(find "$src" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq "$( [[ "$os" == OS3 ]] && echo 67 || echo 79 )"
+            for apk in "$src"/*.apk; do
+              unzip -tq "$apk" >/dev/null
+            done
+          done
+          SDK_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          test -x "$SDK_TOOLS/apksigner"
+          for apk in "$MODULE"/OS4/updatesource/*.apk; do
+            "$SDK_TOOLS/apksigner" verify --min-sdk-version 30 "$apk"
+          done
+          echo "PASS: minimal OS3/OS4 layout and all 146 APKs"
+
+      - name: Smoke test unified BEACHEADVN-style copy and Xiaomi.eu skip
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$PWD"
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          MODULE="bin/modfile/UpdateFile/MultiLang"
+          mkdir -p "$WORK/bin/ddevice" "$WORK/$MODULE/OS3" "$WORK/$MODULE/OS4" \
+            "$WORK/build/baserom/images/product/overlay"
+          cp functions.sh "$WORK/functions.sh"
+          cp "$MODULE/update.sh" "$WORK/$MODULE/update.sh"
+          for os in OS3 OS4; do
+            ln -s "$REPO/$MODULE/$os/updatesource" "$WORK/$MODULE/$os/updatesource"
+          done
+          printf 'China\n' > "$WORK/bin/ddevice/device_type.txt"
+          printf 'china\n' > "$WORK/bin/ddevice/rom_source.txt"
+          TARGET="$WORK/build/baserom/images/product/overlay"
+
+          for os in OS3 OS4; do
+            find "$TARGET" -mindepth 1 -maxdepth 1 -type f -delete
+            printf '%s\n' "$os" > "$WORK/bin/ddevice/rom_os.txt"
+            printf 'stock untouched\n' > "$TARGET/stock.keep"
+            (cd "$WORK" && bash "$MODULE/update.sh")
+            expected=67
+            [[ "$os" == OS4 ]] && expected=79
+            test "$(find "$TARGET" -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq "$expected"
+            test "$(cat "$TARGET/stock.keep")" = "stock untouched"
+            for apk in "$REPO/$MODULE/$os/updatesource/"*.apk; do
+              cmp -s "$apk" "$TARGET/$(basename "$apk")"
+            done
+            echo "PASS $os: $expected overlays copied without modifying the APKs"
+          done
+
+          find "$TARGET" -mindepth 1 -maxdepth 1 -type f -delete
+          printf 'xiaomi_eu\n' > "$WORK/bin/ddevice/rom_source.txt"
+          (cd "$WORK" && bash "$MODULE/update.sh")
+          test "$(find "$TARGET" -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 0
+          echo "PASS Xiaomi.eu: China overlays skipped"

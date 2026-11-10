@@ -146,7 +146,7 @@ jobs:
             exit 1
           }
           sudo chmod -R a+rwX .
-          chmod +x bin/magiskboot bin/Linux/x86_64/* 2>/dev/null || true
+          chmod +x bin/Linux/x86_64/* 2>/dev/null || true
 
       - name: Build ROM tree with all HyperMOS main modifications
         shell: bash

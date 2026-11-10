@@ -2,7 +2,8 @@
 
 HyperMOS builds use the latest validated system-app release ZIPs committed to
 this repository by the Update Kashi Apps workflow. SecurityCenter installed in
-the ROM is taken from the downloaded Xiaomi base ROM and patched during build.
+the ROM is taken from the downloaded Xiaomi base ROM and patched separately by
+`bin/modfile/UpdateFile/SecurityCountdown/` during the China ROM build.
 Normal ROM builds do not fetch GitHub releases on their own.
 
 ## Local ZIP naming
@@ -27,11 +28,12 @@ removes the previous release ZIP when committing its replacement.
 
 bin/modfile/ModApp/Kashimod.sh installs App Vault, the latest staged ColorOS
 Control Center, Screenshot, Theme Manager, and Launcher. The Xiaomi SecurityCenter extracted
-from the downloaded base ROM is retained and patched in place: only the
-InterceptPermission confirmation count becomes 0. The ADB input/install
+from the downloaded base ROM remains untouched by Kashi. The separate
+`UpdateFile/SecurityCountdown/` module changes only the supported
+InterceptPermission confirmation countdown to 0 on China OS3/OS4. The ADB input/install
 handler delays stay unchanged from the base ROM, following the observed ZKOS
 behavior. The patch is deliberately limited to the InterceptPermissionFragment
-smali file.
+smali file, via the standalone UpdateFile module.
 
 The HyperOS_Security*.zip snapshot is updated from upstream like the other
 ZIPs but remains an inactive reference: it is not read by the ROM build.

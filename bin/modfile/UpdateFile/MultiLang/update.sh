@@ -1,45 +1,50 @@
-work_dir=$(pwd)
-MAIN_FOLDER="$work_dir/build/baserom/images"
+#!/usr/bin/env bash
+# BEACHEADVN-style MultiLang: copy prebuilt China overlays unchanged.
+# OS3 and OS4 use exactly the same installation path, only the APK source differs.
+set -euo pipefail
+
+work_dir="$(pwd)"
 source "$work_dir/functions.sh"
-# Xiaomi.eu ships this functionality natively. Check here so dispatchers stay generic.
-if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
-   [[ "$(tr -d '\r\n' < "$work_dir/bin/ddevice/rom_source.txt")" == "xiaomi_eu" ]]; then
-    exit 0
+
+module_dir="$work_dir/bin/modfile/UpdateFile/MultiLang"
+info_dir="$work_dir/bin/ddevice"
+
+for item in rom_os.txt rom_source.txt device_type.txt; do
+  [[ -s "$info_dir/$item" ]] || { error "MultiLang: missing $item"; exit 1; }
+done
+
+rom_os="$(tr -d '\r\n' < "$info_dir/rom_os.txt")"
+rom_source="$(tr -d '\r\n' < "$info_dir/rom_source.txt")"
+device_type="$(tr -d '\r\n' < "$info_dir/device_type.txt")"
+
+# Xiaomi.eu has its own translations; never add China overlays to EU ROMs.
+if [[ "$rom_source" != "china" || "$device_type" != "China" ]]; then
+  mods "MultiLang: not a China ROM; skip"
+  exit 0
 fi
 
-deviceTYPE=$(cat "$work_dir/bin/ddevice/device_type.txt")
+case "$rom_os" in
+  OS3|OS4) ;;
+  *) mods "MultiLang: unsupported OS $rom_os; skip"; exit 0 ;;
+esac
 
-if [[ "$deviceTYPE" == "China" ]]; then
-  mods "Adding existing MultiLanguage overlays to ROM..."
-  src="$work_dir/bin/modfile/UpdateFile/MultiLang/updatesource"
-  extra="$work_dir/bin/modfile/UpdateFile/MultiLang/supplemental"
-  target="$MAIN_FOLDER/product/overlay"
-  mkdir -p "$target"
+src="$module_dir/$rom_os/updatesource"
+product="$work_dir/build/baserom/images/product"
+target="$product/overlay"
 
-  # Preserve the 67 bundled overlays unchanged; never rebuild framework jars.
-  shopt -s nullglob
-  bundled=("$src"/*.apk)
-  [[ ${#bundled[@]} -gt 0 ]] || {
-    echo "[ERROR] - MultiLang: no bundled overlay APKs found" >&2
-    exit 1
-  }
-  cp -f "${bundled[@]}" "$target/"
+[[ -d "$src" ]] || { error "MultiLang $rom_os: updatesource directory missing"; exit 1; }
+[[ -d "$product" ]] || { error "MultiLang $rom_os: extracted product partition missing"; exit 1; }
 
-  # Optional, separately reviewed Vietnamese overlays. Do not overwrite existing
-  # overlay names or stock files; a valid ZIP alone does not imply a valid RRO.
-  supplemental=("$extra"/*.apk)
-  for apk in "${supplemental[@]}"; do
-    name=$(basename "$apk")
-    if [[ -e "$target/$name" ]]; then
-      echo "[ERROR] - MultiLang: supplemental filename collision: $name" >&2
-      exit 1
-    fi
-    if ! unzip -tq "$apk" >/dev/null 2>&1; then
-      echo "[ERROR] - MultiLang: invalid supplemental APK: $name" >&2
-      exit 1
-    fi
-    cp -f "$apk" "$target/$name" || exit 1
-  done
-  shopt -u nullglob
-  mods "MultiLanguage overlays ready: ${#bundled[@]} bundled, ${#supplemental[@]} supplemental."
-fi
+# Both ROM generations follow the upstream BEACHEADVN copy-only approach.
+# No XML merge, AAPT2, signing, ROM-version manifest, SHA-256 or JAR patch.
+shopt -s nullglob
+apks=("$src"/*.apk)
+(( ${#apks[@]} > 0 )) || {
+  error "MultiLang $rom_os: no prebuilt overlay APKs found"
+  exit 1
+}
+
+mkdir -p "$target"
+mods "Adding MultiLanguage to $rom_os China ROM..."
+cp -f -- "${apks[@]}" "$target/"
+mods "MultiLang $rom_os: copied ${#apks[@]} prebuilt overlay APKs unchanged into product/overlay"
