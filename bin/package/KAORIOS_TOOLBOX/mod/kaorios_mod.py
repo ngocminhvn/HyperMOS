@@ -1155,7 +1155,26 @@ def _cmd_selinux() -> int:
 
 
     def compile_policy(images: Path, candidate: Path, report_dir: Path) -> None:
-        compiler = shutil.which("secilc")
+        # Android 17 platform CIL contains nlmsg xperms unsupported by the
+        # Ubuntu 24.04 secilc/libsepol 3.5. TNM builds a checksum-verified
+        # isolated 3.11 compiler earlier in patchpackage.sh: reuse it here.
+        # Android 16 intentionally keeps its existing system compiler path.
+        repo_root = Path(__file__).resolve().parents[4]
+        android_version_file = repo_root / "bin/ddevice/androidver.txt"
+        android_version = (
+            android_version_file.read_text(encoding="utf-8").strip()
+            if android_version_file.is_file() else ""
+        )
+        if android_version == "17":
+            compiler_path = repo_root / "build/tools/tnm-secilc-3.11/secilc"
+            if not compiler_path.is_file() or not os.access(compiler_path, os.X_OK):
+                raise IntegrationError(
+                    "Android 17 requires SELinux 3.11 compiler prepared by TNM: "
+                    + str(compiler_path)
+                )
+            compiler = str(compiler_path)
+        else:
+            compiler = shutil.which("secilc")
         if not compiler:
             raise IntegrationError("secilc is required to validate the final split policy")
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -1166,10 +1185,13 @@ def _cmd_selinux() -> int:
             *map(str, policy_inputs(images, candidate)),
             "-o", str(output), "-f", str(file_contexts),
         ]
+        print(f"KAORIOS SELinux: validating split policy using {compiler}", flush=True)
         result = subprocess.run(command, text=True, capture_output=True)
         (report_dir / "secilc.stdout.log").write_text(result.stdout, encoding="utf-8")
         (report_dir / "secilc.stderr.log").write_text(result.stderr, encoding="utf-8")
         if result.returncode:
+            # Report the real compiler diagnostics in Actions as well as artifacts.
+            print(result.stderr[-12000:] or result.stdout[-12000:], file=sys.stderr, flush=True)
             raise IntegrationError(
                 "split policy compilation failed; see " + str(report_dir / "secilc.stderr.log")
             )
