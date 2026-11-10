@@ -22,15 +22,12 @@ apksigner="$tools_dir/apksigner.jar"
 [[ -s "$apksigner" ]] || apksigner="$(find "$work_dir/bin" -name "apksigner.jar" | head -n1)"
 [[ -s "$apksigner" ]] || { error "PowerKeeper: apksigner.jar not found"; exit 1; }
 
-baksmali="$tools_dir/baksmali-3.0.5.jar"
-[[ -s "$baksmali" ]] || baksmali="$tools_dir/baksmaliv2.jar"
-[[ -s "$baksmali" ]] || baksmali="$(find "$work_dir/bin" -name "baksmali*.jar" | head -n1)"
-[[ -s "$baksmali" ]] || { error "PowerKeeper: baksmali JAR not found"; exit 1; }
+# A16/A17 share the canonical, compatibility-tested Smali toolchain.
+baksmali="$tools_dir/baksmaliv2.jar"
+[[ -s "$baksmali" ]] || { error "PowerKeeper: baksmaliv2.jar not found"; exit 1; }
 
-smali="$tools_dir/smali-3.0.5.jar"
-[[ -s "$smali" ]] || smali="$tools_dir/smaliv2.jar"
-[[ -s "$smali" ]] || smali="$(find "$work_dir/bin" -name "smali*.jar" | head -n1)"
-[[ -s "$smali" ]] || { error "PowerKeeper: smali JAR not found"; exit 1; }
+smali="$tools_dir/smaliv2.jar"
+[[ -s "$smali" ]] || { error "PowerKeeper: smaliv2.jar not found"; exit 1; }
 
 rm -rf "$tmp"
 mkdir -p "$tmp/smali" "$report_dir"
@@ -46,14 +43,14 @@ python3 "$base_dir/preserve_powerkeeper_identity.py" \
 
 # 2. Extract and disassemble classes.dex
 unzip -p "$apk" classes.dex > "$tmp/classes.dex"
-java -jar "$baksmali" d "$tmp/classes.dex" -o "$tmp/smali"
+java -jar "$baksmali" d --api 34 "$tmp/classes.dex" -o "$tmp/smali"
 
 # 3. Patch Smali (Doze, SleepMode, CustomerPower, CloudUpdate, etc.)
 python3 "$base_dir/powerkeeper_patcher_a17.py" "$tmp/smali" \
   --report "$report_dir/powerkeeper-patch-report.json"
 
 # 4. Reassemble patched classes.dex
-java -jar "$smali" a "$tmp/smali" -o "$tmp/classes_patched.dex"
+java -jar "$smali" a --api 34 "$tmp/smali" -o "$tmp/classes_patched.dex"
 [[ -s "$tmp/classes_patched.dex" ]] || { error "PowerKeeper: failed to assemble patched classes.dex"; exit 1; }
 
 # 5. Build donor wrapper and transplant classes.dex with preserved identity

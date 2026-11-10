@@ -13,6 +13,8 @@ if [[ -f "$work_dir/bin/ddevice/rom_source.txt" ]] &&
 fi
 source $work_dir/functions.sh
 sdkLevel=$(cat $work_dir/bin/ddevice/sdkLevel.txt)
+smaliLevel="$sdkLevel"
+case "$smaliLevel" in 36|37) smaliLevel=34 ;; esac
 deviceTYPE=$(cat $work_dir/bin/ddevice/device_type.txt)
 rom_os=$(cat $work_dir/bin/ddevice/rom_os.txt)
 tar1="$work_dir/bin/modfile/UpdateFile/Framework_FixDevicePolicy/enforceVersionPolicy.ini"
@@ -22,8 +24,8 @@ jar_util()
     cd $work_dir
     #binary
     if [[ $3 == "fw" ]]; then 
-        bak="java -jar $work_dir/bin/apktool/baksmaliv2.jar d --api $sdkLevel"
-        sma="java -jar $work_dir/bin/apktool/smaliv2.jar a --api $sdkLevel"
+        bak="java -jar $work_dir/bin/apktool/baksmaliv2.jar d --api $smaliLevel"
+        sma="java -jar $work_dir/bin/apktool/smaliv2.jar a --api $smaliLevel"
     fi
 
     if [[ $1 == "d" ]]; then

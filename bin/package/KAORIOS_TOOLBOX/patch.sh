@@ -162,6 +162,8 @@ NVC_APPLIED=0
 
 ANDROID_VER=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/androidver.txt")
 SDK_LEVEL=$(tr -d ' \r\n' < "$work_dir/bin/ddevice/sdkLevel.txt")
+SMALI_SDK_LEVEL="$SDK_LEVEL"
+case "$SMALI_SDK_LEVEL" in 36|37) SMALI_SDK_LEVEL=34 ;; esac
 
 case "$ANDROID_VER" in
   15|16|17) ;;
@@ -255,13 +257,13 @@ run_baksmali() {
   local dex="$1" out="$2"
   rm -rf "$out"
   mkdir -p "$out"
-  java -jar "$BAKSMALI" d --api "$SDK_LEVEL" "$dex" -o "$out"
+  java -jar "$BAKSMALI" d --api "$SMALI_SDK_LEVEL" "$dex" -o "$out"
 }
 
 run_smali() {
   local src="$1" out="$2"
   rm -f "$out"
-  java -jar "$SMALI" a --api "$SDK_LEVEL" "$src" -o "$out"
+  java -jar "$SMALI" a --api "$SMALI_SDK_LEVEL" "$src" -o "$out"
   [[ -s "$out" ]]
 }
 

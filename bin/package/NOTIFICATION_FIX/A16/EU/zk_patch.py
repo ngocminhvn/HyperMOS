@@ -920,7 +920,7 @@ def _donor_directories(root, directory, tools):
             if len(data) < 112 or not data.startswith(b"dex\n"):
                 raise ValueError("Malformed DEX header: " + str(file))
             group = "smali" if file.name == "classes.dex" else "smali_" + file.stem
-            _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "36",
+            _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "34",
                  file, "-o", out / group)
         result[family] = out
     global_dex = sources["power"] / "global.dex"
@@ -930,7 +930,7 @@ def _donor_directories(root, directory, tools):
     if len(global_bytes) < 112 or not global_bytes.startswith(b"dex\n"):
         raise ValueError("Invalid original Global303 donor DEX: " + str(global_dex))
     global_root = directory / "global"
-    _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "36",
+    _cmd("java", "-jar", tools / "baksmaliv2.jar", "d", "--api", "34",
          global_dex, "-o", global_root / "smali")
     return result["services"], result["power"], global_root
 
@@ -947,7 +947,7 @@ def _dex_extract(target, base, root, tools):
     for n in dexes:
         input_dex=base/n
         input_dex.write_bytes(contents[n])
-        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api","36",input_dex,
+        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api", "34",input_dex,
              "-o",root/("smali" if n=="classes.dex" else "smali_"+n[:-4]))
     return infos,contents,comment,dexes
 
@@ -957,8 +957,8 @@ def _dex_rebuild(infos, contents, comment, dexes, base, root, tools, output):
     for n in dexes:
         label="smali" if n=="classes.dex" else "smali_"+n[:-4]
         new_dex=base/("patched-"+n)
-        _cmd("java","-jar",tools/"smaliv2.jar","a","--api","36",root/label,"-o",new_dex)
-        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api","36",new_dex,
+        _cmd("java","-jar",tools/"smaliv2.jar","a","--api", "34",root/label,"-o",new_dex)
+        _cmd("java","-jar",tools/"baksmaliv2.jar","d","--api", "34",new_dex,
              "-o",verified/label)
         compiled[n]=new_dex.read_bytes()
     for f in verified.rglob("*.smali"):

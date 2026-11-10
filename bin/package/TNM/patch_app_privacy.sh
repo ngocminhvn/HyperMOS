@@ -11,13 +11,13 @@ case "$android_version" in
   16)
     baksmali="$work_dir/bin/apktool/baksmaliv2.jar"
     smali="$work_dir/bin/apktool/smaliv2.jar"
-    api_level=36
+    api_level=34
     ;;
   17)
-    # Android 17 requires an SDK 37-aware dex toolchain.
-    baksmali="$work_dir/bin/apktool/baksmali-3.0.5.jar"
-    smali="$work_dir/bin/apktool/smali-3.0.5.jar"
-    api_level=37
+    # Shared upstream Smali 3.0.10 has supported DEX040 output with API34.
+    baksmali="$work_dir/bin/apktool/baksmaliv2.jar"
+    smali="$work_dir/bin/apktool/smaliv2.jar"
+    api_level=34
     ;;
   *)
     baksmali=""

@@ -18,11 +18,11 @@ ensure_tools() {
       return 1
     }
   done
-  [[ -f "$TOOLS_DIR/baksmaliv2.jar" || -f "$TOOLS_DIR/baksmali-3.0.5.jar" ]] || {
+  [[ -f "$TOOLS_DIR/baksmaliv2.jar" ]] || {
     err "baksmali JAR not found in $TOOLS_DIR"
     return 1
   }
-  [[ -f "$TOOLS_DIR/smaliv2.jar" || -f "$TOOLS_DIR/smali-3.0.5.jar" ]] || {
+  [[ -f "$TOOLS_DIR/smaliv2.jar" ]] || {
     err "smali JAR not found in $TOOLS_DIR"
     return 1
   }
@@ -37,10 +37,11 @@ decompile_jar() {
   local api_args=()
   base_name="$(basename "$jar_file" .jar)"
   output_dir="$WORK_DIR/${base_name}_decompile"
-  [[ -n "${API_LEVEL:-}" ]] && api_args=(--api "$API_LEVEL")
+  local dex_api="${API_LEVEL:-}"
+  case "$dex_api" in 36|37) dex_api=34 ;; esac
+  [[ -n "$dex_api" ]] && api_args=(--api "$dex_api")
 
   baksmali="$TOOLS_DIR/baksmaliv2.jar"
-  [[ -f "$baksmali" ]] || baksmali="$TOOLS_DIR/baksmali-3.0.5.jar"
 
   [[ -f "$jar_file" ]] || { err "JAR not found: $jar_file"; return 1; }
   unzip -t "$jar_file" >/dev/null 2>&1 || {
@@ -80,11 +81,12 @@ recompile_jar() {
   base_name="$(basename "$jar_file" .jar)"
   output_dir="$WORK_DIR/${base_name}_decompile"
   patched_jar="$WORK_DIR/${base_name}_patched.jar"
-  [[ -n "${API_LEVEL:-}" ]] && api_args=(--api "$API_LEVEL")
+  local dex_api="${API_LEVEL:-}"
+  case "$dex_api" in 36|37) dex_api=34 ;; esac
+  [[ -n "$dex_api" ]] && api_args=(--api "$dex_api")
   [[ -d "$output_dir" ]] || { err "decode directory missing: $output_dir"; return 1; }
 
   smali="$TOOLS_DIR/smaliv2.jar"
-  [[ -f "$smali" ]] || smali="$TOOLS_DIR/smali-3.0.5.jar"
 
   for link in "$output_dir/classes" "$output_dir"/classes[0-9]*; do
     [[ -L "$link" ]] && rm -f "$link"

@@ -11,6 +11,8 @@ fi
 deviceTYPE="$(cat "$work_dir/bin/ddevice/device_type.txt")"
 rom_os="$(cat "$work_dir/bin/ddevice/rom_os.txt")"
 sdkLevel="$(cat "$work_dir/bin/ddevice/sdkLevel.txt")"
+smaliLevel="$sdkLevel"
+case "$smaliLevel" in 36|37) smaliLevel=34 ;; esac
 
 # China keeps its existing power-menu patch. Xiaomi.eu OS3 is patched
 # automatically based on ROM source, without a workflow toggle.
@@ -56,7 +58,7 @@ fi
 
 for dex in "${dex_files[@]}"; do
     dex_name="$(basename "$dex")"
-    java -jar "$bak" d --api "$sdkLevel" "$dex" \
+    java -jar "$bak" d --api "$smaliLevel" "$dex" \
         -o "$patch_tmp/disasm/$dex_name" >/dev/null || {
         error "FixDelayPowerMenu: failed to disassemble $dex_name"
         exit 1
@@ -96,7 +98,7 @@ fi
 
 relative="${smali_file#"$patch_tmp/disasm/"}"
 dex_name="${relative%%/*}"
-java -jar "$sma" a --api "$sdkLevel" "$patch_tmp/disasm/$dex_name" \
+java -jar "$sma" a --api "$smaliLevel" "$patch_tmp/disasm/$dex_name" \
     -o "$patch_tmp/$dex_name" >/dev/null || {
     error "FixDelayPowerMenu: failed to reassemble $dex_name"
     exit 1
@@ -104,7 +106,7 @@ java -jar "$sma" a --api "$sdkLevel" "$patch_tmp/disasm/$dex_name" \
 [[ -s "$patch_tmp/$dex_name" ]] || { error "FixDelayPowerMenu: rebuilt DEX missing"; exit 1; }
 
 # Verify rebuilt DEX independently, not just the intermediate smali text.
-java -jar "$bak" d --api "$sdkLevel" "$patch_tmp/$dex_name" \
+java -jar "$bak" d --api "$smaliLevel" "$patch_tmp/$dex_name" \
     -o "$patch_tmp/verified" >/dev/null || {
     error "FixDelayPowerMenu: rebuilt DEX failed validation"
     exit 1

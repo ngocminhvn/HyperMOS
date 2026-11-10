@@ -29,7 +29,7 @@ while (($#)); do
         --kaorios-dex) TASK_KAORIOS_DEX=$2; shift 2 ;;
         --baksmali) TASK_BAKSMALI=$2; shift 2 ;;
         --smali) TASK_SMALI=$2; shift 2 ;;
-        --api) TASK_API=$2; shift 2 ;;
+        --api) TASK_API=$2; case "$TASK_API" in 36|37) TASK_API=34 ;; esac; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac

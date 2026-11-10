@@ -18,8 +18,15 @@ conflicting package-visibility hook stops the build instead of silently omitting
 All six APM call sites and the helper are checked directly after patching.
 The redundant *pre-pack* Hide App List audit is removed, but the separate
 pre-pack LOCK staging check remains. This does not establish boot/runtime
-compatibility or direct Binder/query-API filtering. Android 16 remains the established reference. Android 17 attempts the same six
-precise APM hooks using the available SDK 37-aware smali tools, only if all exact
+compatibility or direct Binder/query-API filtering. Both Android versions use bin/apktool/smaliv2.jar and baksmaliv2.jar,
+upgraded together to Smali/Baksmali 3.0.10. Build scripts normalize SDK 36/37 to supported --api 34 when using the unmodified
+upstream Smali/Baksmali 3.0.10 pair; the resulting DEX 040 is supported on
+Android 16 and Android 17. The API-level normalization affects only the DEX
+tool invocation, not the detected Android OS or enabled mods. This changes
+assembled DEX headers from legacy 039 to 040 (supported by Android 16/17),
+so both OS3 and OS4 require full ROM regression testing.
+Android 16 remains the established reference. Android 17 attempts the same six
+precise APM hooks using the shared SDK-37-compatible smali tools, only if all exact
 method signatures match. It fails closed on incompatible layouts, missing tools,
 assembly failures, or post-build verification failures; a successful build is
 not proof of Android 17 runtime/boot compatibility.

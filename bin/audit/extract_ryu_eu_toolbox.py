@@ -451,7 +451,7 @@ def decompile_dex_archive(path: Path, identity: str,
                 destination = parent / ("smali-%d" % no)
                 try:
                     proc = subprocess.run([
-                        "java", "-Xmx3g", "-jar", "bin/apktool/baksmali-3.0.5.jar",
+                        "java", "-Xmx3g", "-jar", "bin/apktool/baksmaliv2.jar",
                         "d", str(dex), "-o", str(destination)],
                         capture_output=True, text=True, errors="replace", timeout=240)
                     if proc.returncode:
