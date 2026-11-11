@@ -49,11 +49,12 @@ CONTENT_CATCHER_METHOD = re.compile(
     r".*?^\.end method[ \t]*$"
 )
 
-EU_FORCE_STOP_METHOD = re.compile(
-    r"(?ms)^\.method[^\n]*\bisForceStopEnable\(Lcom/android/server/am/ProcessRecord;I\)Z[^\n]*\n"
-    r".*?^\.end method[ \t]*$"
+# ROM-built preset: XNotifyFix KEEP_NOTIF=ALL, with no config file or runtime module.
+KEEP_NOTIFICATIONS_MODE = "ALL"
+FORCE_STOP_METHOD = re.compile(
+    r"(?ms)^\\.method[^\\n]*\\bisForceStopEnable\\(Lcom/android/server/am/ProcessRecord;I\\)Z[^\\n]*\\n"
+    r".*?^\\.end method[ \\t]*$"
 )
-EU_FORCE_STOP_REASON = re.compile(r"(?m)^[ \t]*const/16[ \t]+([vp]\d+),[ \t]+0xd[ \t]*$")
 
 REGION_READ = re.compile(
     r"(?m)^([ \t]*)sget-boolean[ \t]+([vp]\d+),[ \t]+"
@@ -129,21 +130,48 @@ def patch_process_policy(source: str):
 
 
 def patch_force_stop(source: str):
-    methods = list(EU_FORCE_STOP_METHOD.finditer(source))
+    """XNotifyFix KEEP_NOTIF=ALL: keep notifications for every app on MIUI cleanup.
+
+    ProcessManagerService.isForceStopEnable(ProcessRecord, int) decides whether
+    OneKeyClean/SwipeUpClean/AutoIdleKill force-stop an app (which clears its
+    notifications), or merely kill its process. Return false for every non-null
+    ProcessRecord, matching XNotifyFix's ALL preset, without a runtime config.
+    Preserve the stock method for unexpected null ProcessRecord arguments.
+    """
+    if KEEP_NOTIFICATIONS_MODE != "ALL":
+        raise ValueError("Keep Notifications preset must be ALL")
+    methods = list(FORCE_STOP_METHOD.finditer(source))
     if len(methods) != 1:
         raise ValueError(f"ProcessManagerService: expected one isForceStopEnable, got {len(methods)}")
     block = methods[0].group()
-    if not EU_FORCE_STOP_REASON.search(block):
-        raise ValueError("ProcessManagerService: policy 13 (0xd) check missing")
-    # In OS4, line has sget-boolean v0, Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z
-    # replacing IS_INTERNATIONAL_BUILD with const/4 v0, 0x1 makes it return false (0x0)
-    # for all policies other than 0xd.
-    patched_block, count = force_international_true(block)
-    if count == 0:
-        # Fallback: if already different structure, ensure policy != 13 returns 0
-        pass
-    output = source[:methods[0].start()] + patched_block + source[methods[0].end():]
-    return output, {"method_patched": True, "region_reads_in_method": count}
+    marker = ":hypermos_keep_notif_all_stock"
+    if marker in block:
+        return source, {"method_patched": True, "keep_notifications": "ALL", "already_patched": True}
+    header = block.split("\n", 1)[0]
+    if re.search(r"\\bstatic\\b", header):
+        raise ValueError("ProcessManagerService: isForceStopEnable unexpectedly static")
+    registers = re.search(r"(?m)^([ \\t]*)\\.(?:registers|locals)[ \\t]+\\d+[ \\t]*$", block)
+    if registers is None:
+        raise ValueError("ProcessManagerService: isForceStopEnable has no registers directive")
+
+    # p0=this, p1=ProcessRecord, p2=int policy. Reuse the int parameter as
+    # the boolean return register: no new locals or DEX method references.
+    preamble = (
+        "\n\n"
+        "    if-eqz p1, :hypermos_keep_notif_all_stock\n\n"
+        "    const/4 p2, 0x0\n\n"
+        "    return p2\n\n"
+        "    :hypermos_keep_notif_all_stock"
+    )
+    block = block[:registers.end()] + preamble + block[registers.end():]
+    output = source[:methods[0].start()] + block + source[methods[0].end():]
+    return output, {
+        "method_patched": True,
+        "keep_notifications": "ALL",
+        "per_app_filter": False,
+        "runtime_module_required": False,
+    }
+
 
 
 def replace_boolean_method(source: str, signature: str, value: int, registers: int = 1):
