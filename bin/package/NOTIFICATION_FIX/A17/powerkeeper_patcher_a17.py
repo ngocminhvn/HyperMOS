@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Scoped Android 17 / OS4 PowerKeeper smali patcher.
 
-Fixes aggressive battery saver, exclusive WeChat/QQ Doze whitelisting,
-night sleep mode app kill, alarm restrictions, and China cloud control
-by steering region checks to international behavior.
+Only disables the outgoing Google-network limiter that blocks FCM.  It does
+not change Doze, sleep mode, alarms, cloud policy, or per-app battery policy.
 Does NOT import PerfHook or external Ryu classes.
 """
 import argparse
@@ -11,43 +10,7 @@ import json
 import re
 from pathlib import Path
 
-REGION_READ = re.compile(
-    r"(?m)^([ \t]*)sget-boolean[ \t]+([vp]\d+),[ \t]+"
-    r"Lmiui/os/(?:x)?Build;->IS_INTERNATIONAL_BUILD:Z([ \t]*.*)$"
-)
-
 GMS_OBSERVER = "com/miui/powerkeeper/utils/GmsObserver.smali"
-
-TARGET_CLASSES = (
-    "com/miui/powerkeeper/controller/DeviceIdleController$1.smali",
-    "com/miui/powerkeeper/controller/DeviceIdleController$2.smali",
-    "com/miui/powerkeeper/statemachine/PadSleepModeController.smali",
-    "com/miui/powerkeeper/customerpower/CustomerPowerCheck.smali",
-    "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali",
-    "com/miui/powerkeeper/cloudcontrol/CloudUpdateReceiver.smali",
-    "com/miui/powerkeeper/cloudcontrol/CloudUpdateHideMode.smali",
-    "com/miui/powerkeeper/utils/Utils.smali",
-    "com/miui/powerkeeper/unionpower/utils/UnionPowerConfig.smali",
-    "com/miui/powerkeeper/PowerKeeperApplication.smali",
-    "com/miui/powerkeeper/feedbackcontrol/ThermalLogUploader.smali",
-    "com/miui/powerkeeper/statemachine/DisplayFrameSetting.smali",
-    "com/miui/powerkeeper/thermalcollector/event/BaseEvent.smali",
-    "com/miui/powerkeeper/tracker/TrackerManager$PrivacyPolicy.smali",
-    "com/miui/powerkeeper/perfservice/onetrack/TrackAnalytics.smali",
-)
-
-
-def force_international_true(source: str):
-    count = 0
-
-    def replace(match):
-        nonlocal count
-        count += 1
-        indent, register, suffix = match.groups()
-        opcode = "const/4" if int(register[1:]) <= 15 else "const/16"
-        return f"{indent}{opcode} {register}, 0x1{suffix}"
-
-    return REGION_READ.sub(replace, source), count
 
 
 def locate(root: Path, relative: str, required=True):
@@ -93,40 +56,11 @@ def patch(root: Path):
     details = {}
     total = 0
 
-    # Patch explicitly targeted classes
-    for rel in TARGET_CLASSES:
-        matches = list(root.glob("smali*/" + rel))
-        if not matches:
-            direct = root / rel
-            if direct.is_file():
-                matches = [direct]
-        if not matches:
-            continue
-        file = matches[0]
-        text = file.read_text(encoding="utf-8", errors="replace")
-        patched, count = force_international_true(text)
-        if count:
-            file.write_text(patched, encoding="utf-8")
-            details[rel] = count
-            total += count
-
-    # Also scan mqsas and any remaining files in PowerKeeper
-    for file in root.rglob("*.smali"):
-        rel_str = str(file.relative_to(root))
-        if rel_str in details:
-            continue
-        text = file.read_text(encoding="utf-8", errors="replace")
-        if "IS_INTERNATIONAL_BUILD" in text:
-            patched, count = force_international_true(text)
-            if count:
-                file.write_text(patched, encoding="utf-8")
-                details[rel_str] = count
-                total += count
-
     # OS4 moved the old region-gated FCM behavior into a Google-reachability
     # observer. It inverts "reachable" to a Greezer "limit" bit. Keep the old
-    # RYU outcome narrowly by forcing only that outgoing notification limit
-    # bit false; do not alter sleep mode, alarms, or unrelated power policy.
+    # XNotifyFix's runtime gms_control=false outcome narrowly by forcing only
+    # that outgoing notification-limit bit false; do not alter sleep mode,
+    # alarms, cloud configuration, or unrelated power policy.
     gms = locate(root, GMS_OBSERVER)
     gms.write_text(
         force_boolean_parameter(

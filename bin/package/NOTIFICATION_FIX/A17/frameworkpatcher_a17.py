@@ -2,8 +2,12 @@
 """Scoped Android 17 / OS4 notification, power, and process patcher for miui-services.jar.
 
 Fixes background FCM delivery, JobScheduler cancellation, full-screen intents (VoIP calls),
-aggressive process killing, low-power doze, and auto-start restrictions on China ROMs
+aggressive process killing and auto-start restrictions on China ROMs
 by steering region checks to international behavior without introducing external dependencies.
+
+Native low-power Doze policy is deliberately left intact.  FCM delivery is repaired
+at its actual broadcast/Greeze gates, so idle power policy remains Xiaomi's stock
+policy instead of being disabled globally.
 """
 import argparse
 import json
@@ -37,7 +41,6 @@ SCOPED_PRESERVED_READS = {
 
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
 PROCESS_POLICY = "com/android/server/am/ProcessPolicy.smali"
-DOZE_CONTROLLER = "com/android/server/DeviceIdleControllerStubImpl.smali"
 GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
 AUROGON_FILTER = "com/miui/server/greeze/AurogonFilterManager.smali"
 
@@ -56,12 +59,6 @@ REGION_READ = re.compile(
     r"(?m)^([ \t]*)sget-boolean[ \t]+([vp]\d+),[ \t]+"
     # CorePatch A17 redirects stock Build reads to xBuild before this pass.
     r"Lmiui/os/(?:x)?Build;->IS_INTERNATIONAL_BUILD:Z([ \t]*.*)$"
-)
-
-DOZE_INIT = re.compile(r"(?ms)^\.method[^\n]*\s<clinit>\(\)V[^\n]*\n.*?^\.end method[ \t]*$")
-DOZE_FIELD_WRITE = re.compile(
-    r"(?m)^([ \t]*)sput-boolean[ \t]+(v\d+),[ \t]+"
-    r"Lcom/android/server/DeviceIdleControllerStubImpl;->mIsLowPowerDozeDevice:Z[ \t]*$"
 )
 
 def locate(root: Path, relative: str):
@@ -147,33 +144,6 @@ def patch_force_stop(source: str):
         pass
     output = source[:methods[0].start()] + patched_block + source[methods[0].end():]
     return output, {"method_patched": True, "region_reads_in_method": count}
-
-
-def patch_doze_flag(source: str):
-    inits = list(DOZE_INIT.finditer(source))
-    if len(inits) != 1:
-        raise ValueError(f"Doze controller: expected one <clinit>, got {len(inits)}")
-    block = inits[0].group()
-    # Check if region read is inside <clinit>
-    patched_block, count = force_international_true(block)
-    # Also explicitly ensure mIsLowPowerDozeDevice assignment is 0
-    writes = list(DOZE_FIELD_WRITE.finditer(patched_block))
-    if len(writes) != 1:
-        raise ValueError(
-            f"Doze controller: expected one mIsLowPowerDozeDevice write, got {len(writes)}")
-    assignment = writes[0]
-    indent, reg = assignment.groups()
-    opcode = "const/4" if int(reg[1:]) <= 15 else "const/16"
-    neutralize = f"{indent}{opcode} {reg}, 0x0\n"
-    insertion_at = assignment.start()
-    before_write = patched_block[:insertion_at]
-    already_false = re.search(
-        rf"(?m)^[ \t]*const/(?:4|16)[ \t]+{re.escape(reg)},[ \t]+0x0[ \t]*$\s*$",
-        before_write)
-    if not already_false:
-        patched_block = before_write + neutralize + patched_block[insertion_at:]
-    output = source[:inits[0].start()] + patched_block + source[inits[0].end():]
-    return output, {"region_reads": count, "field_write_forced_false": True}
 
 
 def replace_boolean_method(source: str, signature: str, value: int, registers: int = 1):
@@ -276,14 +246,6 @@ def patch(root: Path):
         patched_pm, pm_info = patch_force_stop(original_pm)
         process_manager.write_text(patched_pm, encoding="utf-8")
         details[PROCESS_MANAGER] = pm_info
-
-    doze = locate(root, DOZE_CONTROLLER)
-    if doze is not None:
-        original_doze = doze.read_text(encoding="utf-8")
-        patched_doze, doze_info = patch_doze_flag(original_doze)
-        doze.write_text(patched_doze, encoding="utf-8")
-        details[DOZE_CONTROLLER] = {"low_power_doze_disabled": True, **doze_info}
-        total += 1
 
     # Port the verified fcm_notification_fix vectors to OS4/A17 without its
     # runtime module. Only C2DM broadcasts bypass screen-off Greeze policy.

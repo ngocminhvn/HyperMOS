@@ -46,7 +46,7 @@ python3 "$base_dir/preserve_powerkeeper_identity.py" \
 unzip -p "$apk" classes.dex > "$tmp/classes.dex"
 java -jar "$baksmali" d --api 34 "$tmp/classes.dex" -o "$tmp/smali"
 
-# 3. Patch Smali (Doze, SleepMode, CustomerPower, CloudUpdate, etc.)
+# 3. Patch only the OS4 GMS notification limiter smali gate.
 python3 "$base_dir/powerkeeper_patcher_a17.py" "$tmp/smali" \
   --report "$report_dir/powerkeeper-patch-report.json"
 
