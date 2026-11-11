@@ -52,8 +52,8 @@ CONTENT_CATCHER_METHOD = re.compile(
 # ROM-built preset: XNotifyFix KEEP_NOTIF=ALL, with no config file or runtime module.
 KEEP_NOTIFICATIONS_MODE = "ALL"
 FORCE_STOP_METHOD = re.compile(
-    r"(?ms)^\\.method[^\\n]*\\bisForceStopEnable\\(Lcom/android/server/am/ProcessRecord;I\\)Z[^\\n]*\\n"
-    r".*?^\\.end method[ \\t]*$"
+    r"(?ms)^\.method[^\n]*\bisForceStopEnable\(Lcom/android/server/am/ProcessRecord;I\)Z[^\n]*\n"
+    r".*?^\.end method[ \t]*$"
 )
 
 REGION_READ = re.compile(
@@ -148,9 +148,9 @@ def patch_force_stop(source: str):
     if marker in block:
         return source, {"method_patched": True, "keep_notifications": "ALL", "already_patched": True}
     header = block.split("\n", 1)[0]
-    if re.search(r"\\bstatic\\b", header):
+    if re.search(r"\bstatic\b", header):
         raise ValueError("ProcessManagerService: isForceStopEnable unexpectedly static")
-    registers = re.search(r"(?m)^([ \\t]*)\\.(?:registers|locals)[ \\t]+\\d+[ \\t]*$", block)
+    registers = re.search(r"(?m)^([ \t]*)\.(?:registers|locals)[ \t]+\d+[ \t]*$", block)
     if registers is None:
         raise ValueError("ProcessManagerService: isForceStopEnable has no registers directive")
 
