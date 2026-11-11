@@ -21,8 +21,8 @@ IMAGES="$work_dir/build/baserom/images"
 
 # Pinned v2.0.6.2 release assets (SHA256SUMS of the release).
 declare -A PIN=(
-  [app/classes.dex]=656d3a151cee87df098647cf0527f41cd9ad1bb125d7a3f70402df0e957bf40e
-  [app/KaoriosToolbox.apk]=b5ba9152cc5d3c1403166222309f56797f6bbd54379eb0f976bef5700db0e0f5
+  [app/classes.dex]=0b2b163eee2b1b65dc00c1111b53d2831e2af8ed808a8c1d48dc87cb6c00dd36
+  [app/KaoriosToolbox.apk]=1481e743b08910097fb6b29a9733d013eb911064d7cd17441edd7ee7fdff0154
   [app/lib/arm64-v8a/libkaoripif.so]=01545baca35c0b2f95a78d7a27d4a1f632b97a66114e6ba1cc87474c687c0d84
   [app/lib/arm64-v8a/libkaoripif_diagnostic.so]=33437268198b6f8dda461fb975eeb266d4b23a505ad1585d9819b4d02305416b
   [app/lib/armeabi-v7a/libkaoripif.so]=153ebe54d3b0ec3e4835521c5c172ec0c4f7ea10c6cb36eecdda6065ea9b7edc
