@@ -19,4 +19,9 @@ mapfile -t scripts < <(find "$target_dir" -mindepth 2 -type f -name 'update.sh' 
 for script in "${scripts[@]}"; do
     bash "$script" || { error "OS4 mod failed: $script"; exit 1; }
 done
+# Replace stock Gallery only on OS4 China when a local SystemApp APK is present.
+bash "$work_dir/bin/modfile/ModApp/SystemApp/update.sh" || {
+    error "OS4 SystemApp Gallery integration failed"
+    exit 1
+}
 mods "OS4 Kashi mods integrated"
