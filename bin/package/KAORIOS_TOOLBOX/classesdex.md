@@ -45,3 +45,19 @@
     - `ro.product.manufacturer_for_attestation`
     - `ro.product.name_for_attestation`
 - **Hệ quả:** Khi Google Play Store truy vấn định danh hệ thống qua các API cấp thấp hoặc thuộc tính attestation chuyên biệt, hệ thống trả về giá trị gốc của thiết bị, gây lệch thông tin giữa kết quả kiểm tra và hồ sơ giả lập.
+
+---
+
+## 3. Thuật Toán Ký EC Theo Đúng Curve của Keybox (`o.h`)
+
+- **Class / File Smali:** `com.kousei.framework.o` (hàm `b(PrivateKey)`, `e(Certificate[], String[])`, và helper mới `h(String, PrivateKey)`)
+- **Nguyên nhân:** `o.b` gán cứng `"SHA256withECDSA"` cho mọi khóa EC, còn `o.e` sao chép `leaf.getSigAlgName()` của khóa thiết bị gốc thay vì đối chiếu curve của Private Key trong Keybox (ví dụ P-384 dùng `SHA384withECDSA`, P-521 dùng `SHA512withECDSA`).
+- **Cách vá:** Thêm `o.h(String, PrivateKey)` kiểm tra `ECKey.getParams().getCurve().getField().getFieldSize()` (`<=256` -> `SHA256withECDSA`, `<=384` -> `SHA384withECDSA`, `>384` -> `SHA512withECDSA`), dùng cho cả chế độ `GEN` và Leaf Hack.
+
+---
+
+## 4. Tự Động Nâng Cấp Google Hardware Attestation Root Hết Hạn (`g0.k`)
+
+- **Class / File Smali:** `com.kousei.framework.g0` (gọi `g0.k(ArrayList)` ngay sau khi `g0.d(...)` sắp xếp chuỗi chứng chỉ và trước khi `g0.i(...)` kiểm tra chữ ký).
+- **Nguyên nhân:** Keybox cũ đi kèm thiết bị chứa chứng chỉ Google Hardware Attestation Root đời cũ (cùng khóa công khai `f92009e853b6b045`) đã hết hạn vào ngày `2026-05-24`. Các trình kiểm tra khắt khe sẽ từ chối chuỗi chứng chỉ nếu giữ nguyên chứng chỉ gốc đã hết hạn.
+- **Cách vá:** Kiểm tra phần tử root cuối chuỗi; nếu có cùng `PublicKey.getEncoded()` nhưng khác `Certificate.getEncoded()` với Google Hardware Attestation Root hiện hành (`2022-03-20` – `2042-03-15`), tự động thay thế chứng chỉ root mới trước khi lưu vào `f0`.

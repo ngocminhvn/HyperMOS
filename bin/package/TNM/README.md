@@ -67,6 +67,11 @@ full-build, boot, linker namespace and AVC checks remain separate requirements.
 
 The LOCK staging and SELinux helpers are consolidated into
 `TNM/integrate_lock.py`; original managed init/CIL markers and helper bytes
-are unchanged. `TNM/patch.sh --check-lock` validates LOCK staging during Pack
-ROM. The six-API verifier now lives in `TNM/patch_app_privacy.py --verify`.
+are unchanged. `integrate_lock.py` also isolates `ro.boot.vbmeta.device_state`
+into a dedicated `vbmeta_device_state_prop` type readable by `(and domain (not untrusted_app_all))`
+in `system_ext_sepolicy.cil` and `system_ext_property_contexts` (removing
+conflicting entries from other `*property_contexts`) so third-party user apps
+cannot read it directly while system/GMS domains continue reading `locked`.
+`TNM/patch.sh --check-lock` validates LOCK and vbmeta SELinux staging during
+Pack ROM. The six-API verifier now lives in `TNM/patch_app_privacy.py --verify`.
 Reports are written to `build/reports/tnm/lock`.

@@ -124,7 +124,69 @@ POLICY_BLOCK = b'''; BEGIN HyperMOS LOCK (managed)
 (allow init tnm_helper_exec (file (read getattr map execute open execute_no_trans)))
 ; END HyperMOS LOCK (managed)
 '''
+VBMETA_PROP = b'ro.boot.vbmeta.device_state'
+VBMETA_PROP_TYPE = b'vbmeta_device_state_prop'
+VBMETA_PROP_LINE = VBMETA_PROP + b' u:object_r:' + VBMETA_PROP_TYPE + b':s0 exact string'
+VBMETA_POLICY_BLOCK = b'''; BEGIN HyperMOS VBMETA_SELINUX (managed)
+(type vbmeta_device_state_prop)
+(roletype object_r vbmeta_device_state_prop)
+(typeattributeset property_type (vbmeta_device_state_prop))
+(typeattributeset system_property_type (vbmeta_device_state_prop))
+(typeattributeset system_restricted_property_type (vbmeta_device_state_prop))
+(typeattribute vbmeta_state_reader)
+(typeattributeset vbmeta_state_reader (and domain (not untrusted_app_all)))
+(allow vbmeta_state_reader vbmeta_device_state_prop (file (read getattr map open)))
+; END HyperMOS VBMETA_SELINUX (managed)
+'''
 TOKENS = (b'tnm_helper', b'hypermos-resetprop', b'tnm_resetprop_exec', b'hypermos-lock.rc')
+VBMETA_TOKENS = (b'vbmeta_device_state_prop', b'vbmeta_state_reader')
+
+
+def find_property_contexts(images):
+    candidates = []
+    for part in PARTS:
+        folder = images / part
+        if part == 'system' and (folder / 'system').is_dir():
+            folder /= 'system'
+        selinux_dir = folder / 'etc/selinux'
+        if not selinux_dir.is_dir():
+            continue
+        for p in sorted(selinux_dir.glob('*property_contexts')):
+            candidates.append(checked(images, str(p.relative_to(images))))
+    if not candidates:
+        raise ValueError('Missing *property_contexts in extracted image')
+    target = images / 'system_ext/etc/selinux/system_ext_property_contexts'
+    if target not in candidates:
+        for fallback in ('system/system/etc/selinux/plat_property_contexts',
+                         'system/etc/selinux/plat_property_contexts'):
+            cand = images / fallback
+            if cand in candidates:
+                target = cand
+                break
+        else:
+            target = candidates[0]
+    return candidates, target
+
+
+def update_vbmeta_prop_context(data, is_target):
+    lines = data.splitlines()
+    kept = []
+    matches = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith(b'#') and line.split()[0] == VBMETA_PROP:
+            matches.append(line)
+            continue
+        kept.append(line)
+    if is_target:
+        if len(matches) == 1 and matches[0].split() == VBMETA_PROP_LINE.split():
+            return data
+        out = b'\n'.join(kept)
+        return (out + (b'\n' if out else b'') + VBMETA_PROP_LINE + b'\n')
+    if not matches:
+        return data
+    out = b'\n'.join(kept)
+    return out + (b'\n' if out else b'')
 
 
 def managed(data, block):
@@ -213,13 +275,16 @@ def integrate(images, binary, report, check=False):
         elif not path.is_file() or path.read_bytes()[:5] != b'\x7fELF\x02':
             raise ValueError(f'Missing ARM64 runtime dependency path: {relative}')
     original_init, installed_init = managed(init.read_bytes(), INIT_BLOCK)
-    original_policy, installed_policy = managed(policy.read_bytes(), POLICY_BLOCK)
+    raw_policy = policy.read_bytes()
+    original_policy, installed_policy = managed(raw_policy, POLICY_BLOCK)
+    original_policy, installed_vbmeta = managed(original_policy, VBMETA_POLICY_BLOCK)
     if installed_init != installed_policy:
         raise ValueError('Partial LOCK installation; rebuild a clean image')
     if not installed_init and helper.exists():
         raise ValueError('Unmanaged helper already installed; rebuild a clean image')
     if helper.exists() and hashlib.sha256(helper.read_bytes()).hexdigest() != HASH:
         raise ValueError('Conflicting installed helper')
+    prop_contexts, target_prop_ctx = find_property_contexts(images)
     expected_context = f'{RUNTIME} {CONTEXT}'.encode()
     expected_dac = b'system_ext/xbin/tnm_helper 0 2000 0755'
     allowed_rows = {**{p: expected_context for p in contexts}, dac: expected_dac}
@@ -253,15 +318,26 @@ def integrate(images, binary, report, check=False):
                 # Only the precise dedicated row is allowed; no broad/context aliases.
                 data = b'\n'.join(line for line in data.splitlines()
                                   if line.split() != allowed_rows[path].split())
-            if any(token in data for token in TOKENS):
+            if any(token in data for token in (*TOKENS, *VBMETA_TOKENS)):
                 raise ValueError(f'Unmanaged/duplicate LOCK reference: {path.relative_to(images)}')
+    if installed_policy and installed_vbmeta:
+        proposed_policy = raw_policy
+    else:
+        proposed_policy = original_policy
+        proposed_policy = append(proposed_policy, POLICY_BLOCK)
+        proposed_policy = append(proposed_policy, VBMETA_POLICY_BLOCK)
     proposed = {
         init: init.read_bytes() if installed_init else append(original_init, INIT_BLOCK),
-        policy: policy.read_bytes() if installed_policy else append(original_policy, POLICY_BLOCK),
+        policy: proposed_policy,
         **{p: row(p.read_bytes(), RUNTIME.encode(), expected_context) for p in contexts},
         dac: row(dac.read_bytes(), b'system_ext/xbin/tnm_helper', expected_dac),
         helper: payload,
     }
+    for prop_path in prop_contexts:
+        prop_data = prop_path.read_bytes()
+        updated_prop_data = update_vbmeta_prop_context(prop_data, prop_path == target_prop_ctx)
+        if updated_prop_data != prop_data or prop_path == target_prop_ctx:
+            proposed[prop_path] = updated_prop_data
     # Validate the complete action grammar we own, without executing the helper.
     commands = INIT_BLOCK.decode().splitlines()[2:-1]
     for line, (name, value) in zip(commands, PROPERTIES):
@@ -272,7 +348,8 @@ def integrate(images, binary, report, check=False):
     for path in caches:
         checked(images, str(path.relative_to(images)))
     if check:
-        if not installed_init or not helper.is_file() or caches or stat.S_IMODE(helper.stat().st_mode) != 0o755:
+        if (not installed_init or not installed_policy or not installed_vbmeta
+                or not helper.is_file() or caches or stat.S_IMODE(helper.stat().st_mode) != 0o755):
             raise ValueError('Incomplete LOCK staging or stale precompiled policy')
         if any(not p.exists() or p.read_bytes() != data for p, data in proposed.items()):
             raise ValueError('LOCK payload/metadata does not match managed configuration')
@@ -335,6 +412,8 @@ def integrate(images, binary, report, check=False):
     result = {'mode': 'check' if check else 'install', 'helper_sha256': HASH,
               'init_path': '/system/etc/init/hw/init.rc', 'trigger': 'post-fs',
               'helper_commands': len(PROPERTIES), 'blacklist_added': False,
+              'vbmeta_selinux_hidden': True,
+              'vbmeta_property_contexts': str(target_prop_ctx.relative_to(images)),
               'split_policy': compilation, 'native_init': native_init,
               'runtime_tested': False, 'hardware_bootloader_or_tee_operations_added': False}
     (report / 'integration.json').write_text(json.dumps(result, indent=2) + '\n')
