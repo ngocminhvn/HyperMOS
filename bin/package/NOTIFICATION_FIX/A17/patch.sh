@@ -22,12 +22,15 @@ miui_jar="$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
 report_dir="$work_dir/build/reports/frameworkpatcher-a17"
 services_output="$work_dir/services_patched.jar"
 miui_output="$work_dir/miui-services_patched.jar"
+systemui_output="$work_dir/MiuiSystemUI_a17_patched.apk"
+systemui_target="$report_dir/systemui-target"
+images="$work_dir/build/baserom/images"
 
 init_env
 ensure_tools
 mkdir -p "$report_dir"
-trap 'rm -rf "$work_dir/services_decompile" "$work_dir/miui-services_decompile" "$services_output" "$miui_output"' EXIT
-rm -f "$services_output" "$miui_output"
+trap 'rm -rf "$work_dir/services_decompile" "$work_dir/miui-services_decompile" "$services_output" "$miui_output" "$systemui_output"' EXIT
+rm -f "$services_output" "$miui_output" "$systemui_output" "$systemui_target"
 
 stage_jar() {
   local jar="$1" patcher="$2" report="$3" output="$4" decoded changed
@@ -48,6 +51,20 @@ stage_jar() {
 
 stage_jar "$services_jar" servicespatcher_a17.py "$report_dir/services-fcm-wake.json" "$services_output"
 stage_jar "$miui_jar" frameworkpatcher_a17.py "$report_dir/notification-gates.json" "$miui_output"
+
+bash "$base/systemui_a17.sh" "$systemui_output" "$systemui_target"
+
+if [[ -z "${TNM_SECILC:-}" ]]; then
+  export TNM_SECILC="$work_dir/build/tools/tnm-secilc-3.11/secilc"
+  bash "$work_dir/bin/package/TNM/build_secilc_a17.sh" "$TNM_SECILC"
+fi
+python3 "$base/gmswall_a17.py" "$images" "$report_dir"
+
+if [[ -f "$systemui_output" ]]; then
+  systemui="$(<"$systemui_target")"
+  mv -f "$systemui_output" "$systemui"
+  rm -rf "$(dirname "$systemui")/oat"
+fi
 
 if [[ -f "$services_output" ]]; then
   mv -f "$services_output" "$services_jar"

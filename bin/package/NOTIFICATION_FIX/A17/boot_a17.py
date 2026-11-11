@@ -2,6 +2,7 @@
 
 import os
 
+from gmswall_a17 import PROP
 from smali_a17 import FSI_PACKAGES, edit_method, replace_site
 
 BOOT_CLASS = "com/android/server/am/ActivityManagerService.smali"
@@ -48,8 +49,14 @@ SOUND_SETTINGS = {
 
 def patch_boot(ams):
     source = ams.read_text(encoding="utf-8")
+    boot_class = ams.with_name("HypermosNotificationBoot.smali")
     if f"{HELPER}-><init>" in source:
-        return False
+        old = boot_class.read_text(encoding="utf-8")
+        updated = patch_firewall_trigger(old)
+        if updated == old:
+            return False
+        boot_class.write_text(updated, encoding="utf-8")
+        return True
 
     def insert(block):
         return replace_site(
@@ -80,10 +87,28 @@ def patch_boot(ams):
     ]
     boot = boot.replace("    # Full-screen packages", "\n".join(fsi_calls))
     ams.write_text(source + SCHEDULE_BOOT, encoding="utf-8")
-    ams.with_name("HypermosNotificationBoot.smali").write_text(
-        boot + "".join(methods) + BOOT_GMS + BOOT_FSI, encoding="utf-8"
+    boot_class.write_text(
+        patch_firewall_trigger(boot + "".join(methods) + BOOT_GMS + BOOT_FSI),
+        encoding="utf-8",
     )
     return True
+
+
+def patch_firewall_trigger(source):
+    def edit(block):
+        if PROP in block:
+            return block
+        return replace_site(
+            block,
+            r"(^    invoke-virtual \{v0, v1, v2, v3, v4\}, Landroid/content/ContentResolver;"
+            r"->call\(Landroid/net/Uri;Ljava/lang/String;Ljava/lang/String;Landroid/os/Bundle;\)Landroid/os/Bundle;)$",
+            r"\1" + f'\n\n    const-string v2, "{PROP}"'
+            '\n    const-string v3, "1"'
+            "\n    invoke-static {v2, v3}, Landroid/os/SystemProperties;->set(Ljava/lang/String;Ljava/lang/String;)V",
+            "init GMS firewall action",
+        )
+
+    return edit_method(source, r"disarmPowerKeeper\(Landroid/content/Context;\)V", edit)
 
 
 def settings_method(name, marker, settings):
