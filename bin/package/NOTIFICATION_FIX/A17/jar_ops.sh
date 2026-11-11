@@ -12,7 +12,7 @@ init_env() {
 
 ensure_tools() {
   local program
-  for program in java unzip zip; do
+  for program in java unzip python3; do
     command -v "$program" >/dev/null 2>&1 || {
       err "missing host tool: $program"
       return 1
@@ -104,12 +104,8 @@ recompile_jar() {
     rm -rf "$smali_dir"
   done
 
-  rm -f "$output_dir/apktool.yml" "$patched_jar"
-  if command -v 7z >/dev/null 2>&1; then
-    (cd "$output_dir" && 7z a -tzip -mx=0 "$patched_jar" . >/dev/null) || return 1
-  else
-    (cd "$output_dir" && zip -qr -0 "$patched_jar" .) || return 1
-  fi
+  rm -f "$patched_jar"
+  python3 "$base/repack_jar_a17.py" "$jar_file" "$output_dir" "$patched_jar" || return 1
   java -jar "$TOOLS_DIR/timestamp.jar" "$patched_jar" 1199145600
   log "Created patched JAR: $patched_jar"
   printf '%s\n' "$patched_jar"

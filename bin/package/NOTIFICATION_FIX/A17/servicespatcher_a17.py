@@ -7,8 +7,12 @@ module: add FLAG_INCLUDE_STOPPED_PACKAGES only to C2DM receive broadcasts.
 """
 import argparse
 import json
+import os
 import re
 from pathlib import Path
+
+from smali_a17 import edit_method, replace_site
+from boot_a17 import BOOT_CLASS, patch_boot
 
 
 BROADCAST_CONTROLLER = "com/android/server/am/BroadcastController.smali"
@@ -19,6 +23,7 @@ BROADCAST_METHOD = re.compile(
 INTENT_MOVE = re.compile(
     r"(?m)^([ \t]*)move-object/from16[ \t]+v0,[ \t]+p4[ \t]*$"
 )
+ATTENTION_HELPER = "com/android/server/notification/NotificationAttentionHelper.smali"
 PATCH_LABEL = ":fcm_a17_c2dm_continue"
 
 
@@ -39,30 +44,125 @@ def patch_broadcast_controller(source: str):
             "BroadcastController: expected one broadcastIntentLockedTraced method, "
             f"got {len(methods)}")
     block = methods[0].group()
-    if PATCH_LABEL in block:
+    if PATCH_LABEL in block or "->hypermosApplyC2dmWake(" in block or (
+        "com.google.android.c2dm.intent.RECEIVE" in block
+        and re.search(r"const/16 v11, 0x20\s+invoke-virtual \{v0, v11\}, Landroid/content/Intent;->addFlags", block)
+    ):
         return source, False
 
-    moves = list(INTENT_MOVE.finditer(block))
-    if not moves:
-        raise ValueError(
-            "BroadcastController: p4 Intent move into v0 not found")
-    indent = moves[0].group(1)
+    if not re.match(
+        r"^\.method[^\n]*broadcastIntentLockedTraced\("
+        r"Lcom/android/server/am/ProcessRecord;Ljava/lang/String;Ljava/lang/String;"
+        r"Landroid/content/Intent;", block,
+    ):
+        raise ValueError("BroadcastController: expected Intent at p4")
+    move = INTENT_MOVE.search(block)
+    if not move:
+        raise ValueError("BroadcastController: expected Intent setup")
     hook = (
-        "\n\n"
-        f"{indent}invoke-virtual {{v0}}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n"
-        f"{indent}move-result-object v11\n\n"
-        f'{indent}const-string v12, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-        f"{indent}invoke-virtual {{v12, v11}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n"
-        f"{indent}move-result v11\n\n"
-        f"{indent}if-eqz v11, {PATCH_LABEL}\n\n"
-        f"{indent}const/16 v11, 0x20\n\n"
-        f"{indent}invoke-virtual {{v0, v11}}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;\n\n"
-        f"{indent}{PATCH_LABEL}"
+        "\n\n    invoke-static/range {p4 .. p4}, Lcom/android/server/am/BroadcastController;"
+        "->hypermosApplyC2dmWake(Landroid/content/Intent;)V"
     )
-    at = moves[0].end()
+    at = move.end()
     block = block[:at] + hook + block[at:]
     output = source[:methods[0].start()] + block + source[methods[0].end():]
-    return output, True
+    return output + WAKE_HELPER, True
+
+
+WAKE_HELPER = """
+.method private static hypermosApplyC2dmWake(Landroid/content/Intent;)V
+    .locals 2
+
+    if-eqz p0, :done
+
+    invoke-virtual {p0}, Landroid/content/Intent;->getAction()Ljava/lang/String;
+
+    move-result-object v0
+
+    const-string v1, "com.google.android.c2dm.intent.RECEIVE"
+
+    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+
+    move-result v0
+
+    if-eqz v0, :done
+
+    const/16 v0, 0x20
+
+    invoke-virtual {p0, v0}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;
+
+    :done
+    return-void
+.end method
+"""
+
+
+def patch_alerts(source, group, anti_mute, unthrottle):
+    def mute_reasons(block):
+        for method, feature in (
+            ("suppressAlertingDueToGrouping()Z", "group alert"),
+            ("isAlertRateLimited(Ljava/lang/String;)Z", "alert rate limit"),
+        ):
+            enabled = group if feature == "group alert" else unthrottle
+            if enabled:
+                site = (
+                    r"(^[ \t]*invoke-virtual(?:/range)? [^\n]+->" + re.escape(method)
+                    + r"\s+move-result (v\d+)\s*\n)([ \t]*)"
+                )
+                block = replace_site(
+                    block,
+                    site + r"(if-eqz \2, :\w+)$",
+                    r"\1\3const/16 \2, 0x0\n\n\3\4",
+                    feature,
+                    site + r"const/(?:4|16) \2, 0x0\s+if-eqz \2, :\w+$",
+                )
+        return block
+
+    def update_effects(block):
+        for effect in ("Sound", "Vibrate"):
+            # Jump over the existing cancellation block, preserving the key and
+            # flags used earlier in this method for other alert decisions.
+            cancellation = (
+                r"(:\w+)(?=\s+if-nez v\d+, \2\s+(?:\.line \d+\s+)?"
+                r"invoke-virtual \{v\d+\}, [^\n]+"
+                rf"->clear{effect}Locked\(\)V)"
+            )
+            block = replace_site(
+                block,
+                r"^([ \t]*)if-eqz v\d+, " + cancellation,
+                r"\1goto/16 \2",
+                f"anti-mute {effect}",
+                r"^[ \t]*goto(?:/16)? :goto_([0-9a-f]+)"
+                r"(?=\s+if-nez v\d+, :cond_\1\s+(?:\.line \d+\s+)?"
+                r"invoke-virtual \{v\d+\}, [^\n]+"
+                rf"->clear{effect}Locked\(\)V)",
+            )
+        return block
+
+    def play_sound(block):
+        focus = r'(^[ \t]*const-string(?:/jumbo)? v\d+, "NotifAttentionHelper"\s*\n)[ \t]*'
+        deny = (
+            r"(^[ \t]*invoke-virtual[^\n]+->isDeniedPlaySound\([^\n]+\)Z"
+            r"\s+move-result (v\d+)\s*\n)[ \t]*"
+        )
+        block = replace_site(
+            block, focus + r"if-nez v\d+, (:\w+)$",
+            r"\1    goto/16 \2", "play sound focus",
+            focus + r"goto(?:/16)? :\w+$",
+        )
+        return replace_site(
+            block, deny + r"if-eqz \2, (:\w+)$",
+            r"\1    goto/16 \3", "play sound MIUI gate",
+            deny + r"goto(?:/16)? :\w+$",
+        )
+
+    if group or unthrottle:
+        source = edit_method(source, r"shouldMuteNotificationLocked\([^\n]+\)I", mute_reasons)
+    if anti_mute:
+        source = edit_method(source, r"buzzBeepBlinkLocked\([^\n]+\)I", update_effects)
+    if unthrottle:
+        source = edit_method(source, r"playSound\([^\n]+\)Z", play_sound)
+    return source
 
 
 def patch(root: Path):
@@ -71,12 +171,33 @@ def patch(root: Path):
     controller = locate(root, BROADCAST_CONTROLLER)
     changed, inserted = patch_broadcast_controller(
         controller.read_text(encoding="utf-8"))
-    controller.write_text(changed, encoding="utf-8")
+    if inserted:
+        controller.write_text(changed, encoding="utf-8")
+
+    flags = {}
+    for option, default in (
+        ("GROUP_ALERT_BYPASS", "0"),
+        ("ANTI_MUTE_UPDATE", "1"),
+        ("UNTHROTTLE_ALERT", "0"),
+    ):
+        value = os.getenv("A17_" + option, default)
+        if value not in ("0", "1"):
+            raise ValueError(f"A17_{option}: expected 0 or 1")
+        flags[option] = value == "1"
+    attention = locate(root, ATTENTION_HELPER)
+    original = attention.read_text(encoding="utf-8")
+    patched = patch_alerts(original, *flags.values())
+    if patched != original:
+        attention.write_text(patched, encoding="utf-8")
+    boot_inserted = patch_boot(locate(root, BOOT_CLASS))
     return {
         "status": "success",
+        "changed": inserted or patched != original or boot_inserted,
         "target_jar": "services.jar",
         "c2dm_include_stopped_packages": True,
         "hook_inserted": inserted,
+        "alert_options": flags,
+        "boot_actions_inserted": boot_inserted,
         "class": BROADCAST_CONTROLLER,
     }
 

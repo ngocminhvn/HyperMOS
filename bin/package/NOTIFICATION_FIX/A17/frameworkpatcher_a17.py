@@ -1,53 +1,26 @@
 #!/usr/bin/env python3
-"""Scoped Android 17 / OS4 notification, power, and process patcher for miui-services.jar.
-
-Fixes background FCM delivery, JobScheduler cancellation, full-screen intents (VoIP calls),
-aggressive process killing and auto-start restrictions on China ROMs
-by steering region checks to international behavior without introducing external dependencies.
-
-Native low-power Doze policy is deliberately left intact.  FCM delivery is repaired
-at its actual broadcast/Greeze gates, so idle power policy remains Xiaomi's stock
-policy instead of being disabled globally.
-"""
+"""Port the XNotifyFix HyperOS China hooks to Android 17 miui-services.jar."""
 import argparse
 import json
 import re
 from pathlib import Path
 
-TARGETS = (
-    "com/android/server/am/BroadcastQueueModernStubImpl.smali",
-    "com/android/server/am/ActivityManagerServiceImpl.smali",
-    "com/android/server/am/ProcessSceneCleaner.smali",
-    "com/android/server/job/JobServiceContextImpl.smali",
-    "com/android/server/notification/NotificationManagerServiceImpl.smali",
-    "miui/app/ActivitySecurityHelper.smali",
-    "com/android/server/am/PreStartFeedbackImpl.smali",
-    "com/android/server/am/ProcessPolicy.smali",
-    "com/android/server/pm/PackageManagerServiceImpl.smali",
-)
-
-OPTIONAL_TARGETS = (
-    "com/android/server/audio/AudioServiceStubImpl.smali",
-    "com/android/server/clipboard/ClipboardServiceStubImpl.smali",
-    "com/android/server/input/InputManagerServiceStubImpl.smali",
-    "com/android/server/inputmethod/InputMethodManagerServiceImpl.smali",
-    "com/miui/server/turbosched/TurboSchedManagerService.smali",
-)
-
-SCOPED_PRESERVED_READS = {
-    "com/android/server/alarm/AlarmManagerServiceStubImpl.smali": 1,
-    "com/android/server/AppOpsServiceStubImpl.smali": 4,
-}
+from smali_a17 import FSI_PACKAGES, edit_method
 
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
-PROCESS_POLICY = "com/android/server/am/ProcessPolicy.smali"
 GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
 AUROGON_FILTER = "com/miui/server/greeze/AurogonFilterManager.smali"
 
-CONTENT_CATCHER_METHOD = re.compile(
-    r"(?ms)^\.method[^\n]*\bupdateContentCatcherWhitelist\(\)V[^\n]*\n"
-    r".*?^\.end method[ \t]*$"
+REGION_GATES = (
+    ("com/android/server/am/BroadcastQueueModernStubImpl.smali",
+     "checkApplicationAutoStart(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Landroid/content/pm/ResolveInfo;)Z"),
+    ("com/android/server/am/ActivityManagerServiceImpl.smali",
+     "checkRunningCompatibility(Landroid/content/ComponentName;III)Z"),
+    ("com/android/server/alarm/AlarmManagerServiceStubImpl.smali",
+     "init(Lcom/android/server/alarm/AlarmManagerService;)V"),
 )
+FSI_CLASS = "com/android/server/notification/NotificationManagerServiceImpl.smali"
+FSI_METHOD = "checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOpsManager;ILjava/lang/String;)V"
 
 # ROM-built preset: XNotifyFix KEEP_NOTIF=ALL, with no config file or runtime module.
 KEEP_NOTIFICATIONS_MODE = "ALL"
@@ -74,59 +47,76 @@ def locate(root: Path, relative: str):
     return matches[0] if matches else None
 
 
-def force_international_true(source: str):
-    count = 0
+def patch_region_gate(source, signature, fsi_packages=()):
 
-    def replace(match):
-        nonlocal count
-        count += 1
-        indent, register, suffix = match.groups()
+    def edit(block):
+        if "# XNotifyFix international gate" in block or ":a17_compat_ready" in block:
+            return block
+        if signature.startswith("checkRunningCompatibility(") and re.search(
+            r"(?m)^    move-object/from16 v1, p1\s+if-eqz v1, :\w+\s+const/4 v1, 0x1",
+            block,
+        ):
+            return block
+        if signature.startswith("init(") and re.search(
+            r"(?m)^    const/4 (v\d+), 0x1\s+if-eqz \1, :\w+\s+"
+            r"(?:\.line \d+\s+)?new-instance \1, Ljava/util/ArrayList;",
+            block,
+        ):
+            return block
+        matches = list(REGION_READ.finditer(block))
+        if not matches:
+            if signature.startswith("checkApplicationAutoStart(") and re.search(
+                r'(?m)^    const/(?:4|16) (v\d+), 0x1\s+if-eqz \1, :[^\n]+'
+                r'\s+(?:\.line \d+\s+)?const-string(?:/jumbo)? \1, "com.google.android.c2dm.intent.RECEIVE"',
+                block,
+            ):
+                return block
+            raise ValueError(f"{signature}: region gate missing")
+        gate = matches[0]
+        indent, register, _ = gate.groups()
         opcode = "const/4" if int(register[1:]) <= 15 else "const/16"
-        return f"{indent}{opcode} {register}, 0x1{suffix}"
+        replacement = f"{indent}{opcode} {register}, 0x1  # XNotifyFix international gate"
+        if signature == FSI_METHOD:
+            if not fsi_packages:
+                return block
+            # The A17 gate uses v0. v1 is a local overwritten by the stock path.
+            if register != "v0" or "    .registers 12" not in block:
+                raise ValueError("checkFullScreenIntent: unsupported register layout")
+            if ":a17_fsi_allowed" in block or all(
+                re.search(
+                    rf'const-string(?:/jumbo)? v1, "{re.escape(package)}"\s+'
+                    r'invoke-virtual \{v1, p4\}, Ljava/lang/String;->equals',
+                    block,
+                )
+                for package in fsi_packages
+            ):
+                return block
+            checks = []
+            for package in fsi_packages:
+                checks.extend((
+                    f'    const-string v1, "{package}"',
+                    "    invoke-virtual {v1, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z",
+                    "    move-result v0",
+                    "    if-nez v0, :a17_fsi_allowed",
+                ))
+            checks.extend((gate.group(), "    :a17_fsi_allowed"))
+            replacement = "\n\n".join(checks)
+        elif signature.startswith("checkRunningCompatibility("):
+            # XNotifyFix returns false for a null ComponentName in Allow All.
+            if register != "v1":
+                raise ValueError("checkRunningCompatibility: unexpected region register")
+            replacement = (
+                "    move-object/from16 v1, p1\n\n"
+                "    if-eqz v1, :a17_compat_null\n\n"
+                "    const/4 v1, 0x1\n\n"
+                "    goto :a17_compat_ready\n\n"
+                "    :a17_compat_null\n"
+                "    const/4 v1, 0x0\n\n"
+                "    :a17_compat_ready"
+            )
+        return block[:gate.start()] + replacement + block[gate.end():]
 
-    return REGION_READ.sub(replace, source), count
-
-
-def patch_process_policy(source: str):
-    """Preserve CorePatch A17's ContentCatcher=false fix; own other gates only."""
-    methods = list(CONTENT_CATCHER_METHOD.finditer(source))
-    if len(methods) != 1:
-        raise ValueError(
-            f"ProcessPolicy: expected one updateContentCatcherWhitelist()V, got {len(methods)}")
-    method = methods[0].group()
-
-    # The preceding HyperMOS CorePatch pass is the sole owner of this gate.
-    # Never replace it again. Fail closed if CorePatch did not apply its edit.
-    if "IS_INTERNATIONAL_BUILD" in method:
-        raise ValueError(
-            "ProcessPolicy: ContentCatcher region gate still present; "
-            "expected CorePatch A17 to patch it first")
-    corepatch_constants = re.findall(
-        r"(?m)^[ \t]*const/4[ \t]+v0,[ \t]*0x0[ \t]*(?:#.*)?$", method
-    )
-    if len(corepatch_constants) != 1:
-        raise ValueError(
-            "ProcessPolicy: cannot verify exactly one CorePatch "
-            "ContentCatcher=false constant")
-
-    other_reads = 0
-
-    def replace_other(match):
-        nonlocal other_reads
-        other_reads += 1
-        indent, register, suffix = match.groups()
-        opcode = "const/4" if int(register[1:]) <= 15 else "const/16"
-        return f"{indent}{opcode} {register}, 0x1{suffix}"
-
-    # Preserve the ContentCatcher method byte-for-byte; modify only unrelated
-    # international-region reads in the remainder of ProcessPolicy.
-    before = REGION_READ.sub(replace_other, source[:methods[0].start()])
-    after = REGION_READ.sub(replace_other, source[methods[0].end():])
-    return (
-        before + method + after,
-        {"content_catcher_false": 1, "content_catcher_owner": "CorePatch",
-         "other_true": other_reads, "audited_total": 1 + other_reads}
-    )
+    return edit_method(source, re.escape(signature), edit)
 
 
 def patch_force_stop(source: str):
@@ -145,7 +135,9 @@ def patch_force_stop(source: str):
         raise ValueError(f"ProcessManagerService: expected one isForceStopEnable, got {len(methods)}")
     block = methods[0].group()
     marker = ":hypermos_keep_notif_all_stock"
-    if marker in block:
+    if marker in block or re.search(
+        r"(?m)^    if-eqz p1, :\w+\s+const/4 p2, 0x0\s+return p2", block
+    ):
         return source, {"method_patched": True, "keep_notifications": "ALL", "already_patched": True}
     header = block.split("\n", 1)[0]
     if re.search(r"\bstatic\b", header):
@@ -174,22 +166,20 @@ def patch_force_stop(source: str):
 
 
 
-def replace_boolean_method(source: str, signature: str, value: int, registers: int = 1):
-    method_re = re.compile(
-        rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
-    )
-    methods = list(method_re.finditer(source))
-    if len(methods) != 1:
-        raise ValueError(f"expected one {signature}, got {len(methods)}")
-    header = methods[0].group().splitlines()[0]
-    replacement = (
-        f"{header}\n"
-        f"    .registers {registers}\n\n"
-        f"    const/4 v0, 0x{value:x}\n\n"
-        "    return v0\n"
-        ".end method"
-    )
-    return source[:methods[0].start()] + replacement + source[methods[0].end():]
+def disable_gms_app_check(source):
+    def edit(block):
+        # In a two-register instance method, v0 and p0 are aliases. Baksmali
+        # emits p0 on a second pass even if the original stub used v0.
+        if re.fullmatch(
+            r"\.method[^\n]*\n\s*\.(?:registers|locals) \d+\s+"
+            r"const/4 ([vp]\d+), 0x0\s+return \1\s+\.end method",
+            block,
+        ):
+            return block
+        header = block.splitlines()[0]
+        return f"{header}\n    .registers 2\n\n    const/4 p0, 0x0\n\n    return p0\n.end method"
+
+    return edit_method(source, r"isGmsApp\(I\)Z", edit)
 
 
 def replace_void_method(source: str, signature: str, registers: int = 1):
@@ -217,7 +207,8 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
     if len(methods) != 1:
         raise ValueError(f"expected one {signature}, got {len(methods)}")
     block = methods[0].group()
-    if label in block:
+    existing = re.sub(r":fcm_a17_\w+", lambda _: r":\w+", re.escape(preamble.rstrip().rsplit("\n", 1)[0]))
+    if label in block or re.search(existing, block):
         return source
     registers = re.search(r"(?m)^[ \t]*\.(?:registers|locals)[ \t]+\d+[ \t]*$", block)
     if not registers:
@@ -231,58 +222,47 @@ def patch(root: Path):
     if not root.is_dir():
         raise ValueError(f"Missing decompiled miui-services: {root}")
     details = {}
-    total = 0
-    preserved = {}
-
-    for cls in SCOPED_PRESERVED_READS:
-        file = locate(root, cls)
-        if file is not None:
-            count = len(REGION_READ.findall(file.read_text(encoding="utf-8")))
-            preserved[cls] = {"present": True, "original_region_reads": count, "replaced": 0}
-
-    for cls in TARGETS:
-        file = locate(root, cls)
+    modified = False
+    for relative, signature in REGION_GATES:
+        file = locate(root, relative)
         if file is None:
-            details[cls] = {"present": False, "replaced": 0}
-            continue
+            raise ValueError(f"{relative}: missing")
         original = file.read_text(encoding="utf-8")
-        if cls == PROCESS_POLICY:
-            changed, split = patch_process_policy(original)
-            # The ContentCatcher gate is already patched by CorePatch.
-            count = split["other_true"]
-            details[cls] = {"present": True, "replaced": count, **split}
-        else:
-            changed, count = force_international_true(original)
-            details[cls] = {"present": True, "replaced": count}
-        if count:
+        changed = patch_region_gate(original, signature)
+        if changed != original:
             file.write_text(changed, encoding="utf-8")
-        total += count
+            modified = True
+        details[signature] = "patched" if changed != original else "already patched"
 
-    for cls in OPTIONAL_TARGETS:
-        file = locate(root, cls)
-        if file is not None:
-            original = file.read_text(encoding="utf-8")
-            changed, count = force_international_true(original)
-            if count:
-                file.write_text(changed, encoding="utf-8")
-                details[cls] = {"present": True, "replaced": count}
-                total += count
+    fsi = locate(root, FSI_CLASS)
+    if fsi is None:
+        raise ValueError(f"{FSI_CLASS}: missing")
+    original = fsi.read_text(encoding="utf-8")
+    changed = patch_region_gate(original, FSI_METHOD, FSI_PACKAGES)
+    if changed != original:
+        fsi.write_text(changed, encoding="utf-8")
+        modified = True
+    details[FSI_METHOD] = "patched" if changed != original else "already patched"
+    details["full_screen_packages"] = FSI_PACKAGES
 
     process_manager = locate(root, PROCESS_MANAGER)
-    if process_manager is not None:
-        original_pm = process_manager.read_text(encoding="utf-8")
-        patched_pm, pm_info = patch_force_stop(original_pm)
+    if process_manager is None:
+        raise ValueError(f"{PROCESS_MANAGER}: missing")
+    original_pm = process_manager.read_text(encoding="utf-8")
+    patched_pm, pm_info = patch_force_stop(original_pm)
+    if patched_pm != original_pm:
         process_manager.write_text(patched_pm, encoding="utf-8")
-        details[PROCESS_MANAGER] = pm_info
+        modified = True
+    details[PROCESS_MANAGER] = pm_info
 
     # Port the verified fcm_notification_fix vectors to OS4/A17 without its
     # runtime module. Only C2DM broadcasts bypass screen-off Greeze policy.
     greeze_service = locate(root, GREEZE_SERVICE)
     if greeze_service is None:
         raise ValueError("GreezeManagerService missing")
-    service_text = greeze_service.read_text(encoding="utf-8")
+    original_greeze = greeze_service.read_text(encoding="utf-8")
     service_text = inject_method_preamble(
-        service_text,
+        original_greeze,
         "isAllowBroadcast(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
         '    const-string v0, "com.google.android.c2dm.intent.RECEIVE"\n\n'
         '    invoke-virtual {v0, p5}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
@@ -292,25 +272,28 @@ def patch(root: Path):
         '    return v0\n\n'
         '    :fcm_a17_greeze_stock',
         ":fcm_a17_greeze_stock")
+    # On OS4, PowerKeeper's updateGmsNetStatus calls this same limiter.
+    # Keep its Binder status round-trip and disable the limiter at its source.
     service_text = replace_void_method(
         service_text, "triggerGMSLimitAction()V")
-    service_text = replace_boolean_method(
-        service_text, "isGmsApp(I)Z", 0, registers=2)
-    greeze_service.write_text(service_text, encoding="utf-8")
+    service_text = disable_gms_app_check(service_text)
+    if service_text != original_greeze:
+        greeze_service.write_text(service_text, encoding="utf-8")
+        modified = True
     details[GREEZE_SERVICE] = {
         "c2dm_screen_off_thaw": True,
         "gms_limit_action_disabled": True,
         "gms_special_freeze_path_disabled": True,
     }
-    total += 3
 
     # A17 also quick-freezes GMS through AurogonFilterManager, independently
     # of triggerGMSLimitAction. Match the reference freeze shield for GMS only.
     aurogon = locate(root, AUROGON_FILTER)
     if aurogon is None:
         raise ValueError("AurogonFilterManager missing")
+    original_aurogon = aurogon.read_text(encoding="utf-8")
     aurogon_text = inject_method_preamble(
-        aurogon.read_text(encoding="utf-8"),
+        original_aurogon,
         "filter(ILjava/lang/String;I)Z",
         '    const-string v0, "com.google.android.gms"\n\n'
         '    invoke-virtual {v0, p2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
@@ -322,19 +305,16 @@ def patch(root: Path):
         '    return v0\n\n'
         '    :fcm_a17_aurogon_stock',
         ":fcm_a17_aurogon_stock")
-    aurogon.write_text(aurogon_text, encoding="utf-8")
+    if aurogon_text != original_aurogon:
+        aurogon.write_text(aurogon_text, encoding="utf-8")
+        modified = True
     details[AUROGON_FILTER] = {"gms_quick_freeze_shield": True}
-    total += 1
-
-    if total == 0:
-        raise ValueError("no Android 17 notification gates were patched")
 
     return {
         "status": "success",
+        "changed": modified,
         "target_jar": "miui-services.jar",
-        "gates_replaced": total,
         "classes": details,
-        "preserved_reads": preserved,
     }
 
 
