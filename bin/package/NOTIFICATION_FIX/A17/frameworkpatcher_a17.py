@@ -24,7 +24,7 @@ FSI_METHOD = "checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOp
 
 # Match #268's scoped keep-notification policy: AutoIdleKill (13) keeps its
 # original force-stop behavior; the other cleanup policies use Global semantics.
-AUTO_IDLE_POLICY = re.compile(r"(?m)^[ \\t]*const/16[ \\t]+([vp]\\d+),[ \\t]+0xd[ \\t]*$")
+AUTO_IDLE_POLICY = re.compile(r"(?m)^[ \t]*const/16[ \t]+([vp]\d+),[ \t]+0xd[ \t]*$")
 FORCE_STOP_METHOD = re.compile(
     r"(?ms)^\.method[^\n]*\bisForceStopEnable\(Lcom/android/server/am/ProcessRecord;I\)Z[^\n]*\n"
     r".*?^\.end method[ \t]*$"
