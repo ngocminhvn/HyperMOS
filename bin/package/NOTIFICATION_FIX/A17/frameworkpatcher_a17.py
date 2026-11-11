@@ -22,8 +22,9 @@ REGION_GATES = (
 FSI_CLASS = "com/android/server/notification/NotificationManagerServiceImpl.smali"
 FSI_METHOD = "checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOpsManager;ILjava/lang/String;)V"
 
-# ROM-built preset: XNotifyFix KEEP_NOTIF=ALL, with no config file or runtime module.
-KEEP_NOTIFICATIONS_MODE = "ALL"
+# Match #268's scoped keep-notification policy: AutoIdleKill (13) keeps its
+# original force-stop behavior; the other cleanup policies use Global semantics.
+AUTO_IDLE_POLICY = re.compile(r"(?m)^[ \\t]*const/16[ \\t]+([vp]\\d+),[ \\t]+0xd[ \\t]*$")
 FORCE_STOP_METHOD = re.compile(
     r"(?ms)^\.method[^\n]*\bisForceStopEnable\(Lcom/android/server/am/ProcessRecord;I\)Z[^\n]*\n"
     r".*?^\.end method[ \t]*$"
@@ -120,47 +121,42 @@ def patch_region_gate(source, signature, fsi_packages=()):
 
 
 def patch_force_stop(source: str):
-    """XNotifyFix KEEP_NOTIF=ALL: keep notifications for every app on MIUI cleanup.
+    """Preserve #268's AutoIdleKill (policy 13) exception.
 
-    ProcessManagerService.isForceStopEnable(ProcessRecord, int) decides whether
-    OneKeyClean/SwipeUpClean/AutoIdleKill force-stop an app (which clears its
-    notifications), or merely kill its process. Return false for every non-null
-    ProcessRecord, matching XNotifyFix's ALL preset, without a runtime config.
-    Preserve the stock method for unexpected null ProcessRecord arguments.
+    On the verified OS4/A17 China ROM, forcing the international region read
+    inside isForceStopEnable() makes normal recents cleanup kill the process
+    without force-stopping it. The stock policy-13 branch still returns true,
+    allowing Xiaomi's AutoIdleKill to force-stop an idle app as in #268.
+    No global KEEP_NOTIF=ALL preamble is injected.
     """
-    if KEEP_NOTIFICATIONS_MODE != "ALL":
-        raise ValueError("Keep Notifications preset must be ALL")
     methods = list(FORCE_STOP_METHOD.finditer(source))
     if len(methods) != 1:
         raise ValueError(f"ProcessManagerService: expected one isForceStopEnable, got {len(methods)}")
     block = methods[0].group()
-    marker = ":hypermos_keep_notif_all_stock"
-    if marker in block or re.search(
-        r"(?m)^    if-eqz p1, :\w+\s+const/4 p2, 0x0\s+return p2", block
-    ):
-        return source, {"method_patched": True, "keep_notifications": "ALL", "already_patched": True}
-    header = block.split("\n", 1)[0]
-    if re.search(r"\bstatic\b", header):
-        raise ValueError("ProcessManagerService: isForceStopEnable unexpectedly static")
-    registers = re.search(r"(?m)^([ \t]*)\.(?:registers|locals)[ \t]+\d+[ \t]*$", block)
-    if registers is None:
-        raise ValueError("ProcessManagerService: isForceStopEnable has no registers directive")
+    if not AUTO_IDLE_POLICY.search(block):
+        raise ValueError("ProcessManagerService: AutoIdleKill policy 13 (0xd) guard missing")
+    if ":hypermos_keep_notif_all_stock" in block:
+        raise ValueError("ProcessManagerService: unconditional KEEP_NOTIF=ALL hook still present")
 
-    # p0=this, p1=ProcessRecord, p2=int policy. Reuse the int parameter as
-    # the boolean return register: no new locals or DEX method references.
-    preamble = (
-        "\n\n"
-        "    if-eqz p1, :hypermos_keep_notif_all_stock\n\n"
-        "    const/4 p2, 0x0\n\n"
-        "    return p2\n\n"
-        "    :hypermos_keep_notif_all_stock"
-    )
-    block = block[:registers.end()] + preamble + block[registers.end():]
-    output = source[:methods[0].start()] + block + source[methods[0].end():]
+    gates = list(REGION_READ.finditer(block))
+    if not gates:
+        # A second application to a compiled JAR loses Smali comments. If no
+        # region read remains, the patcher cannot prove #268's exact behavior.
+        # Refuse to silently accept an unknown method body as equivalent.
+        raise ValueError("ProcessManagerService: region read missing; cannot verify #268 policy-13 behavior")
+
+    def enable_international(match):
+        indent, register, suffix = match.groups()
+        opcode = "const/4" if int(register[1:]) <= 15 else "const/16"
+        return f"{indent}{opcode} {register}, 0x1{suffix}"
+
+    patched_block = REGION_READ.sub(enable_international, block)
+    output = source[:methods[0].start()] + patched_block + source[methods[0].end():]
     return output, {
         "method_patched": True,
-        "keep_notifications": "ALL",
-        "per_app_filter": False,
+        "keep_notifications": "scoped_268",
+        "auto_idle_policy_13": "stock_force_stop",
+        "region_reads_replaced": len(gates),
         "runtime_module_required": False,
     }
 
