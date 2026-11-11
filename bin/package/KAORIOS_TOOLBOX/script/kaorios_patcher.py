@@ -204,6 +204,7 @@ def _remove_legacy_register_hook(body: str, pattern: re.Pattern, param_count: in
             + remainder[directive.end():])
 
 
+
 def patch_keystore_generator(content: str, update: bool = False) -> tuple[str, bool]:
     start = content.find("generateKeyPair()Ljava/security/KeyPair;")
     if start == -1:
@@ -214,8 +215,24 @@ def patch_keystore_generator(content: str, update: bool = False) -> tuple[str, b
 
     method_body = content[start:end]
     if "KaoriosHook;->initGenerateSoftwareKeyPair" in method_body:
-        verify_target_content('AndroidKeyStoreKeyPairGeneratorSpi.smali', content)
-        return content, False
+        try:
+            verify_target_content('AndroidKeyStoreKeyPairGeneratorSpi.smali', content)
+            return content, False
+        except ValueError:
+            if not update:
+                raise
+        hook_re = re.compile(
+            r'(?m)^[ \t]*invoke-static(?:/range)?[^\n]*KaoriosHook;->initGenerateSoftwareKeyPair[^\n]*\n'
+            r'[ \t]*move-result-object\s+[vp]\d+\n'
+            r'(?:\s*\n)*'
+            r'[ \t]*if-eqz[^\n]*\n'
+            r'[ \t]*return-object\s+[vp]\d+\n'
+            r'(?:\s*\n)*'
+            r'[ \t]*:cond_kaorios_gen_stock[^\n]*\n?'
+        )
+        stripped_body = _remove_legacy_register_hook(method_body, hook_re, 1)
+        stripped_content = content[:start] + stripped_body + content[end:]
+        return patch_keystore_generator(stripped_content, update=False)
 
     match = re.search(r'\.(registers|locals)\s+(\d+)', method_body)
     if not match:
@@ -226,6 +243,7 @@ def patch_keystore_generator(content: str, update: bool = False) -> tuple[str, b
     new_reg = old_reg + 1
 
     if directive == "registers":
+        # generateKeyPair() is a virtual (non-static) method with 1 implicit param (p0=this)
         method_body = _canonicalize_param_aliases(method_body, old_reg, 1)
         v_target = f"v{new_reg - 2}"
         p0_num = new_reg - 1
@@ -265,17 +283,72 @@ def _patch_certificate_chain(content: str) -> tuple[str, bool]:
         raise ValueError("unterminated engineGetCertificateChain method in KeyStoreSpi")
 
     method_body = content[start:end]
-    if "KaoriosHook;->CertificateChainIfNeeded" in method_body:
-        debug_gap = r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
-        old_hook = re.compile(
-            r'(?P<prefix>aput-object\s+[vp]\d+,\s*(?P<array>[vp]\d+),\s*[vp]\d+'
-            + debug_gap + r'invoke-static(?:/range)?\s*\{(?P=array)(?:\s*\.\.\s*(?P=array))?\},\s*'
-            r'Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded\(\[Ljava/security/cert/Certificate;\)\[Ljava/security/cert/Certificate;'
-            + debug_gap + r'move-result-object\s+)(?P<result>[vp]\d+)'
-            r'(?P<tail>' + debug_gap + r'return-object\s+(?P=array))')
-        repaired = old_hook.sub(lambda match: match['prefix'] + match['array'] + match['tail'], method_body)
-        return content[:start] + repaired + content[end:], repaired != method_body
+    one_arg = ("Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded"
+               "([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;")
+    three_arg = ("Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded"
+                 "(Ljava/lang/Object;Ljava/lang/String;[Ljava/security/cert/Certificate;)"
+                 "[Ljava/security/cert/Certificate;")
+    debug_gap = r'(?:\s*\.(?:line|local|end local|restart local|param)[^\n]*\n|\s*\n)*\s*'
 
+    reg_match = re.search(r'\.(registers|locals)\s+(\d+)', method_body)
+    if not reg_match:
+        raise ValueError("engineGetCertificateChain register directive not found")
+    reg_count = int(reg_match.group(2))
+    param_base = reg_count - 2 if reg_match.group(1) == "registers" else reg_count
+    if param_base + 1 > 15:
+        raise ValueError("engineGetCertificateChain: p0/p1 exceed non-range invoke limit")
+
+    def physical(register: str) -> int:
+        return param_base + int(register[1:]) if register.startswith('p') else int(register[1:])
+
+    if one_arg in method_body or three_arg in method_body:
+        call = re.compile(
+            r'(?P<indent>[ \t]*)invoke-static(?:/range)?\s*\{(?P<args>[^}]*)\}\s*,\s*'
+            r'Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded'
+            r'\([^)]*\)\[Ljava/security/cert/Certificate;')
+        calls = list(call.finditer(method_body))
+        if len(calls) != 1:
+            raise ValueError(
+                f"engineGetCertificateChain: expected one covered chain hook, found {len(calls)}")
+        match = calls[0]
+        args = [item.strip() for item in match.group('args').split(',')]
+        if len(args) == 3:
+            if args[0] != 'p0' or args[1] != 'p1':
+                raise ValueError("engineGetCertificateChain: unexpected three-argument hook registers")
+            already = True
+        elif len(args) == 1:
+            already = False
+        else:
+            raise ValueError("engineGetCertificateChain: unsupported chain hook registers")
+        array = args[-1]
+        if not re.fullmatch(r'[vp]\d+', array) or physical(array) > 15:
+            raise ValueError("engineGetCertificateChain: chain register exceeds non-range invoke limit")
+        # The hook must feed the populated certificate-array return; a historical
+        # hook discarded its result, so the move-result target is normalised too.
+        pair = re.compile(
+            re.escape(f"invoke-static {{p0, p1, {array}}}, {three_arg}")
+            + debug_gap + r'move-result-object\s+(?P<result>[vp]\d+)'
+            + debug_gap + r'return-object\s+(?P<ret>[vp]\d+)')
+        if already:
+            found = pair.search(method_body)
+            if not found or found.group('ret') != array:
+                raise ValueError("engineGetCertificateChain: three-argument hook is not at the return boundary")
+            if found.group('result') != array:
+                repaired = method_body[:found.start('result')] + array + method_body[found.end('result'):]
+                return content[:start] + repaired + content[end:], True
+            return content, False
+        invoke = f"invoke-static {{p0, p1, {array}}}, {three_arg}"
+        new_body = method_body[:match.start()] + match.group('indent') + invoke + method_body[match.end():]
+        found = pair.search(new_body)
+        if not found or found.group('ret') != array:
+            raise ValueError("engineGetCertificateChain: legacy hook does not dominate its return")
+        if found.group('result') != array:
+            new_body = new_body[:found.start('result')] + array + new_body[found.end('result'):]
+        return content[:start] + new_body + content[end:], True
+
+    # The actual A13-A17 methods have two null returns and one populated
+    # certificate array return. Match the leaf insertion immediately before
+    # that return; a loop's earlier aput-object is not a safe hook point.
     pattern = re.compile(
         r'(?P<aput>aput-object\s+[vp]\d+,\s*(?P<array>[vp]\d+),\s*[vp]\d+)'
         r'(?P<gap>(?:[ \t]*\.(?:line|local|end local|restart local)[^\n]*\n|[ \t]*\n)*)'
@@ -294,18 +367,12 @@ def _patch_certificate_chain(content: str) -> tuple[str, bool]:
     elif len(returns) != len(matches):
         raise ValueError("engineGetCertificateChain: unsupported return layout")
 
-    reg_match = re.search(r'\.(registers|locals)\s+(\d+)', method_body)
-    if not reg_match:
-        raise ValueError("engineGetCertificateChain register directive not found")
-    reg_count = int(reg_match.group(2))
-    param_base = reg_count - 2 if reg_match.group(1) == "registers" else reg_count
     new_body = method_body
     for match in reversed(matches):
         array = match.group('array')
-        physical = param_base + int(array[1:]) if array.startswith('p') else int(array[1:])
-        source = f"{{{array} .. {array}}}" if physical > 15 else f"{{{array}}}"
-        opcode = "invoke-static/range" if physical > 15 else "invoke-static"
-        invoke = f"{opcode} {source}, Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;"
+        if physical(array) > 15:
+            raise ValueError("engineGetCertificateChain: chain register exceeds non-range invoke limit")
+        invoke = f"invoke-static {{p0, p1, {array}}}, {three_arg}"
         inject = f"{invoke}\n    move-result-object {array}\n    "
         new_body = new_body[:match.start('ret')] + inject + new_body[match.start('ret'):]
     return content[:start] + new_body + content[end:], True
@@ -345,7 +412,6 @@ def patch_keystore_spi(content: str, update: bool = False) -> tuple[str, bool]:
 """
     body = body[:directive.end()] + inject + body[directive.end():]
     return content[:start] + body + content[end:], True
-
 
 
 INSTRUMENTATION_HOOK_RE = re.compile(
@@ -676,11 +742,15 @@ def verify_target_content(filename: str, content: str) -> None:
             raise ValueError(
                 f"AndroidKeyStoreSpi: expected {expected_hooks} CertificateChainIfNeeded hooks, found {hook_count}"
             )
+        if ('Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded'
+                '([Ljava/security/cert/Certificate;)[Ljava/security/cert/Certificate;') in body:
+            raise ValueError("AndroidKeyStoreSpi: legacy one-argument chain hook must be updated")
         pairs = list(re.finditer(
             r'aput-object\s+[vp]\d+,\s*(?P<array>[vp]\d+),\s*[vp]\d+'
             r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
-            r'invoke-static(?:/range)?\s*\{(?P=array)(?:\s*\.\.\s*(?P=array))?\},\s*'
-            r'Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded\(\[Ljava/security/cert/Certificate;\)\[Ljava/security/cert/Certificate;'
+            r'invoke-static\s*\{p0, p1, (?P=array)\},\s*'
+            r'Landroid/security/kaorios/KaoriosHook;->CertificateChainIfNeeded'
+            r'\(Ljava/lang/Object;Ljava/lang/String;\[Ljava/security/cert/Certificate;\)\[Ljava/security/cert/Certificate;'
             r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
             r'move-result-object\s+(?P=array)'
             r'(?:\s*\.(?:line|local|end local|restart local)[^\n]*\n|\s*\n)*\s*'
@@ -924,8 +994,8 @@ def process_files(root_path: str | Path, mode: str, slow: bool = True, update: b
             "SystemServer.smali": patch_system_server,
             "AndroidKeyStoreKeyPairGeneratorSpi.smali": patch_keystore_generator,
             "AndroidKeyStoreSpi.smali": patch_keystore_spi,
-            "Instrumentation.smali": patch_instrumentation,
             "ApplicationPackageManager.smali": patch_app_pkg_manager,
+            "Instrumentation.smali": patch_instrumentation,
             "Settings$NameValueCache.smali": patch_name_value_cache,
         })
     if mode in ['2', '3']:
