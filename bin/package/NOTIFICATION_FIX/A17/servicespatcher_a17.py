@@ -24,6 +24,7 @@ INTENT_MOVE = re.compile(
     r"(?m)^([ \t]*)move-object/from16[ \t]+v0,[ \t]+p4[ \t]*$"
 )
 ATTENTION_HELPER = "com/android/server/notification/NotificationAttentionHelper.smali"
+NOTIFICATION_MANAGER = "com/android/server/notification/NotificationManagerService.smali"
 PATCH_LABEL = ":fcm_a17_c2dm_continue"
 
 
@@ -165,6 +166,42 @@ def patch_alerts(source, group, anti_mute, unthrottle):
     return source
 
 
+def patch_call_full_screen_intent(source):
+    # The null-intent branch already skips the permission check and sticky HUN
+    # fallback. Take that same branch for call notifications with an intent.
+    guard = (
+        r"(^    iget-object v8, v1, Landroid/app/Notification;->fullScreenIntent:"
+        r"Landroid/app/PendingIntent;\s+if-eqz v8, (:\w+))"
+    )
+    category_check = (
+        "    iget-object v8, v1, Landroid/app/Notification;->category:Ljava/lang/String;\n\n"
+        '    const-string v9, "call"\n\n'
+        "    invoke-virtual {v9, v8}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n"
+        "    move-result v8\n\n"
+        r"    if-nez v8, \2"
+    )
+
+    def edit(block):
+        return replace_site(
+            block,
+            guard + r"$(?=\s+(?:\.line \d+\s+)?"
+            r"new-instance v8, Landroid/content/AttributionSource\$Builder;)",
+            r"\1" + "\n\n" + category_check,
+            "call full-screen intent",
+            guard + r"\s+iget-object v8, v1, Landroid/app/Notification;->category:"
+            r'Ljava/lang/String;\s+const-string(?:/jumbo)? v9, "call"\s+'
+            r"invoke-virtual \{v9, v8\}, Ljava/lang/String;->equals\(Ljava/lang/Object;\)Z"
+            r"\s+move-result v8\s+if-nez v8, \2$",
+        )
+
+    return edit_method(
+        source,
+        r"fixNotification\(Landroid/app/Notification;Ljava/lang/String;Ljava/lang/String;"
+        r"IIILandroid/app/ActivityManagerInternal\$ServiceNotificationPolicy;ZZ\)V",
+        edit,
+    )
+
+
 def patch(root: Path):
     if not root.is_dir():
         raise ValueError(f"missing decompiled services.jar: {root}")
@@ -189,14 +226,22 @@ def patch(root: Path):
     patched = patch_alerts(original, *flags.values())
     if patched != original:
         attention.write_text(patched, encoding="utf-8")
+    manager = locate(root, NOTIFICATION_MANAGER)
+    original_manager = manager.read_text(encoding="utf-8")
+    patched_manager = patch_call_full_screen_intent(original_manager)
+    call_gate_inserted = patched_manager != original_manager
+    if call_gate_inserted:
+        manager.write_text(patched_manager, encoding="utf-8")
+
     boot_inserted = patch_boot(locate(root, BOOT_CLASS))
     return {
         "status": "success",
-        "changed": inserted or patched != original or boot_inserted,
+        "changed": inserted or patched != original or boot_inserted or call_gate_inserted,
         "target_jar": "services.jar",
         "c2dm_include_stopped_packages": True,
         "hook_inserted": inserted,
         "alert_options": flags,
+        "call_fsi_gate_inserted": call_gate_inserted,
         "boot_actions_inserted": boot_inserted,
         "class": BROADCAST_CONTROLLER,
     }
