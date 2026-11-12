@@ -20,6 +20,10 @@ SETTINGS = {
         ("wake_up_for_notification", "1"),
         ("wakeup_for_keyguard_notification", "1"),
         ("pref_key_enable_notification_body", "1"),
+        ("cloud_sleepmode_networkpolicy_enabled", "off"),
+    ),
+    "Global": (
+        ("mobile_data_always_on", "1"),
     ),
 }
 

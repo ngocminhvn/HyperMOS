@@ -12,6 +12,8 @@ GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
 AUROGON_FILTER = "com/miui/server/greeze/AurogonFilterManager.smali"
 DOMESTIC_POLICY = "com/miui/server/greeze/DomesticPolicyManager.smali"
 ALARM_STUB = "com/android/server/alarm/AlarmManagerServiceStubImpl.smali"
+POWER_IMPL = "com/android/server/power/PowerManagerServiceImpl.smali"
+NETWORK_POLICY = "com/android/server/net/MiuiNetworkPolicyManagerService.smali"
 
 REGION_GATES = (
     ("com/android/server/am/BroadcastQueueModernStubImpl.smali",
@@ -142,6 +144,14 @@ def patch_force_stop(source: str):
 
     gates = list(REGION_READ.finditer(block))
     if not gates:
+        if re.search(r"(?m)^\s+const/4\s+v\d+,\s+0x1\s+const/4\s+v\d+,\s+0x0\s+if-eqz", block):
+            return source, {
+                "method_patched": False,
+                "already_patched": True,
+                "keep_notifications": "scoped_268",
+                "auto_idle_policy_13": "stock_force_stop",
+                "runtime_module_required": False,
+            }
         # A second application to a compiled JAR loses Smali comments. If no
         # region read remains, the patcher cannot prove #268's exact behavior.
         # Refuse to silently accept an unknown method body as equivalent.
@@ -341,6 +351,7 @@ def patch(root: Path):
         details[DOMESTIC_POLICY] = {"defer_broadcast_disabled": True, "need_cache_broadcast_disabled": True}
 
     # Alarm throttling: exempt only GMS from SSRU 120s budget denial (canAfford=false)
+    # and exempt GMS heartbeat/push alarms from screen-off alarm alignment and adjustment.
     # canAffordBillLocked uses .registers 14 (locals: v0..v10, params: p0=this, p1=v12, p2=v13).
     # v0 and v1 are available locals.
     alarm_stub = locate(root, ALARM_STUB)
@@ -362,10 +373,109 @@ def patch(root: Path):
             alarm_hook,
             ":fcm_a17_alarm_stock"
         )
+        align_hook = (
+            '    if-nez p1, :fcm_a17_align_stock\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    const-string v1, "com.google.android.gms"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_align_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    if-nez v0, :fcm_a17_align_stock\n\n'
+            '    const-string v1, "GCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_align_exempt\n\n'
+            '    goto :fcm_a17_align_stock\n\n'
+            '    :cond_fcm_align_exempt\n\n'
+            '    const/4 v0, 0x0\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_align_stock'
+        )
+        alarm_text = inject_method_preamble(
+            alarm_text,
+            "alignAlarmLocked(Lcom/android/server/alarm/Alarm;)Z",
+            align_hook,
+            ":fcm_a17_align_stock"
+        )
+        adjust_hook = (
+            '    if-nez p1, :fcm_a17_adjust_stock\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    const-string v1, "com.google.android.gms"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    if-nez v0, :fcm_a17_adjust_stock\n\n'
+            '    const-string v1, "GCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
+            '    goto :fcm_a17_adjust_stock\n\n'
+            '    :cond_fcm_adjust_exempt\n\n'
+            '    const/4 v0, 0x0\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_adjust_stock'
+        )
+        alarm_text = inject_method_preamble(
+            alarm_text,
+            "adjustAlarmLocked(Lcom/android/server/alarm/Alarm;)Z",
+            adjust_hook,
+            ":fcm_a17_adjust_stock"
+        )
         if alarm_text != original_alarm:
             alarm_stub.write_text(alarm_text, encoding="utf-8")
             modified = True
-        details[ALARM_STUB] = {"gms_alarm_budget_shield": True}
+        details[ALARM_STUB] = {
+            "gms_alarm_budget_shield": True,
+            "gms_alarm_align_exempt": True,
+            "gms_alarm_adjust_exempt": True,
+        }
+
+    # Wakelock policy: prevent disabling GMS / C2DM wakelocks with UidFrozen
+    power_impl = locate(root, POWER_IMPL)
+    if power_impl is not None:
+        original_power = power_impl.read_text(encoding="utf-8")
+        wl_hook = (
+            '    if-nez p1, :fcm_a17_wl_stock\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mPackageName:Ljava/lang/String;\n\n'
+            '    const-string v1, "com.google.android.gms"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_match\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    if-nez v0, :fcm_a17_wl_stock\n\n'
+            '    const-string v1, "C2DM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_match\n\n'
+            '    goto :fcm_a17_wl_stock\n\n'
+            '    :cond_fcm_wl_match\n\n'
+            '    const/4 v0, 0x0\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_wl_stock'
+        )
+        power_text = inject_method_preamble(
+            original_power,
+            "isWakelockDisabledByPolicy(Lcom/android/server/power/PowerManagerService$WakeLock;)Z",
+            wl_hook,
+            ":fcm_a17_wl_stock"
+        )
+        if power_text != original_power:
+            power_impl.write_text(power_text, encoding="utf-8")
+            modified = True
+        details[POWER_IMPL] = {"c2dm_wakelock_shield": True}
+
+    # Sleep Mode network firewall: disable kernel/netd sleep mode chain blocking background data
+    net_policy = locate(root, NETWORK_POLICY)
+    if net_policy is not None:
+        original_net = net_policy.read_text(encoding="utf-8")
+        net_text = replace_boolean_method(original_net, "sleepModeEnableControl()Z", 0)
+        net_text = replace_void_method(net_text, "enableSleepModeChain(Z)V", registers=2)
+        if net_text != original_net:
+            net_policy.write_text(net_text, encoding="utf-8")
+            modified = True
+        details[NETWORK_POLICY] = {"sleep_mode_chain_disabled": True}
 
     return {
         "status": "success",
