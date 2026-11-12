@@ -242,6 +242,44 @@ def count_param_registers(signature: str, is_static: bool = False) -> int:
     return count
 
 
+def find_header_end(block: str) -> int:
+    """Find the exact end position of all method header directives.
+
+    Handles .registers, .locals, .param, .end param, nested .annotation ... .end annotation,
+    .prologue, and .line, ensuring preamble is inserted right before the first executable instruction.
+    """
+    lines = block.splitlines(True)
+    in_annotation = False
+    header_end = 0
+    cur_pos = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(".method"):
+            cur_pos += len(line)
+            header_end = cur_pos
+            continue
+        if stripped.startswith(".annotation"):
+            in_annotation = True
+            cur_pos += len(line)
+            header_end = cur_pos
+            continue
+        if in_annotation:
+            cur_pos += len(line)
+            header_end = cur_pos
+            if stripped == ".end annotation":
+                in_annotation = False
+            continue
+        if stripped.startswith((".registers", ".locals", ".param", ".end param", ".prologue", ".line")):
+            cur_pos += len(line)
+            header_end = cur_pos
+            continue
+        if not stripped:
+            cur_pos += len(line)
+            continue
+        break
+    return header_end
+
+
 def inject_method_preamble(source: str, signature: str, preamble: str, label: str, min_locals: int = 2):
     method_re = re.compile(
         rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
@@ -250,8 +288,22 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
     if len(methods) != 1:
         raise ValueError(f"expected one {signature}, got {len(methods)}")
     block = methods[0].group()
-    if preamble.strip() in block:
+
+    # Match already-patched instruction sequence (supports both raw Smali and baksmali-decompiled DEX)
+    clean_lines = [l.strip() for l in preamble.splitlines() if l.strip() and not l.strip().startswith("#")]
+    body_lines = clean_lines[:-1] if clean_lines and clean_lines[-1].startswith(":") else clean_lines
+    escaped = [re.escape(l) for l in body_lines]
+    pattern_str = r"\s+".join(escaped)
+    pattern_str = re.sub(r":fcm_a17_\w+", lambda _: r":\w+", pattern_str)
+    if re.search(pattern_str, block):
         return source
+
+    # Fail-safe: if label exists but instruction sequence differs, do not guess with regex
+    if label in block:
+        raise ValueError(
+            f"{signature}: found {label} but bytecode differs from target preamble; "
+            f"refusing to patch to preserve stock bytecode integrity"
+        )
 
     is_static = bool(re.search(r"(?m)^\.method[^\n]*\bstatic\b", block))
     param_count = count_param_registers(signature, is_static)
@@ -269,36 +321,11 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
         if num_locals < min_locals:
             raise ValueError(f"{signature}: insufficient local registers (locals={num_locals}, required={min_locals})")
 
-    start_marker = f"# >>> HYPERMOS_HOOK_START: {label} >>>"
-    end_marker = f"# <<< HYPERMOS_HOOK_END: {label} <<<"
-    wrapped_preamble = f"    {start_marker}\n{preamble.rstrip()}\n    {end_marker}"
-
-    # 1. Try modern marker replacement
-    marker_pattern = re.compile(rf"(?ms)^[ \t]*{re.escape(start_marker)}.*?^[ \t]*{re.escape(end_marker)}")
-    m = marker_pattern.search(block)
-    if m:
-        block = block[:m.start()] + wrapped_preamble + block[m.end():]
-        return source[:methods[0].start()] + block + source[methods[0].end():]
-
-    # 2. Try strict legacy hook replacement (only matching hooks starting with exact target label branch or GMS constant)
-    legacy_pattern = re.compile(
-        rf"(?ms)^[ \t]*(?:if-(?:eqz|nez)[ \t]+p1,[ \t]*{re.escape(label)}|const-string[ \t]+v0,[ \t]*\"com\.google\.[^\"]+\").*?^[ \t]*{re.escape(label)}"
-    )
-    m_legacy = legacy_pattern.search(block)
-    if m_legacy:
-        block = block[:m_legacy.start()] + wrapped_preamble + block[m_legacy.end():]
-        return source[:methods[0].start()] + block + source[methods[0].end():]
-
-    # 3. If label exists but neither boundary matched, abort safely
-    if label in block:
-        raise ValueError(f"{signature}: found {label} but could not safely identify hook boundaries; refusing to patch")
-
-    # 4. Fresh insertion after all header directives
-    directives = list(re.finditer(r"(?m)^[ \t]*\.(?:registers|locals|param|annotation|prologue|end annotation)[^\n]*$", block))
-    if not directives:
+    # Locate insertion point after all header directives (.registers, .locals, .param, .end param, .annotation, .prologue, .line)
+    at = find_header_end(block)
+    if at <= 0:
         raise ValueError(f"{signature}: failed to locate method header directives")
-    at = directives[-1].end()
-    block = block[:at] + "\n\n" + wrapped_preamble + block[at:]
+    block = block[:at] + "\n\n" + preamble.rstrip() + "\n" + block[at:]
 
     return source[:methods[0].start()] + block + source[methods[0].end():]
 
@@ -436,7 +463,8 @@ def patch(root: Path):
         original_alarm = alarm_stub.read_text(encoding="utf-8")
         alarm_hook = (
             '    const-string v0, "com.google.android.gms"\n\n'
-            '    iget-object v1, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    move-object/from16 v1, p1\n\n'
+            '    iget-object v1, v1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_alarm_stock\n\n'
@@ -452,29 +480,34 @@ def patch(root: Path):
         )
         align_hook = (
             '    if-eqz p1, :fcm_a17_align_stock\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_align_stock\n\n'
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_align_stock\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_align_stock\n\n'
             '    const-string v1, "GCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_align_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    const-string v1, "fcm"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_align_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    const-string v1, "FCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_align_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    const-string v1, "chimera"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
@@ -492,29 +525,34 @@ def patch(root: Path):
         )
         adjust_hook = (
             '    if-eqz p1, :fcm_a17_adjust_stock\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
             '    const-string v1, "GCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    const-string v1, "fcm"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    const-string v1, "FCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
             '    const-string v1, "chimera"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
@@ -545,34 +583,40 @@ def patch(root: Path):
         original_power = power_impl.read_text(encoding="utf-8")
         wl_hook = (
             '    if-eqz p1, :fcm_a17_wl_stock\n\n'
-            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mPackageName:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mPackageName:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
-            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
             '    const-string v1, "C2DM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_wl_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
             '    const-string v1, "GCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_wl_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
             '    const-string v1, "gcm"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_wl_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
             '    const-string v1, "FCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-nez v0, :cond_fcm_wl_exempt\n\n'
-            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
             '    const-string v1, "fcm"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
