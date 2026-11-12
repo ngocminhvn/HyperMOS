@@ -271,17 +271,18 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
 
     # If an older hook with this label exists, replace it cleanly rather than keeping the old hook
     hook_pattern = re.compile(
-        rf"(?ms)(\.(?:registers|locals)[^\n]*\n(?:[ \t]*\.param[^\n]*\n)*)\s*(?:if-(?:eqz|nez)|const-string).*?^[ \t]*{re.escape(label)}"
+        rf"(?ms)^([ \t]*(?:if-(?:eqz|nez)|const-string)\b.*?^[ \t]*{re.escape(label)})"
     )
     m = hook_pattern.search(block)
     if m:
-        block = block[:m.start()] + m.group(1) + "\n" + preamble.rstrip() + block[m.end():]
+        block = block[:m.start(1)] + preamble.rstrip() + block[m.end(1):]
     else:
-        header_match = re.search(r"(?ms)^(\s*\.(?:registers|locals)[^\n]*\n(?:\s*\.param[^\n]*\n)*)", block)
-        if not header_match:
-            raise ValueError(f"{signature}: failed to locate method header")
-        at = header_match.end()
-        block = block[:at] + "\n" + preamble.rstrip() + "\n" + block[at:]
+        # Locate insertion point after all header directives (.registers, .locals, .param, .annotation, .prologue)
+        directives = list(re.finditer(r"(?m)^[ \t]*\.(?:registers|locals|param|annotation|prologue|end annotation)[^\n]*$", block))
+        if not directives:
+            raise ValueError(f"{signature}: failed to locate method header directives")
+        at = directives[-1].end()
+        block = block[:at] + "\n\n" + preamble.rstrip() + block[at:]
 
     return source[:methods[0].start()] + block + source[methods[0].end():]
 
@@ -441,6 +442,28 @@ def patch(root: Path):
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_align_stock\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_align_stock\n\n'
+            '    const-string v1, "GCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_align_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "fcm"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_align_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "FCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_align_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "chimera"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_align_stock\n\n'
+            '    :cond_fcm_align_exempt\n\n'
             '    const/4 v0, 0x0\n\n'
             '    return v0\n\n'
             '    :fcm_a17_align_stock'
@@ -459,6 +482,28 @@ def patch(root: Path):
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
+            '    const-string v1, "GCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "fcm"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "FCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "chimera"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
+            '    :cond_fcm_adjust_exempt\n\n'
             '    const/4 v0, 0x0\n\n'
             '    return v0\n\n'
             '    :fcm_a17_adjust_stock'
@@ -490,6 +535,33 @@ def patch(root: Path):
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    const-string v1, "C2DM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "GCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "gcm"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "FCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "fcm"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    :cond_fcm_wl_exempt\n\n'
             '    const/4 v0, 0x0\n\n'
             '    return v0\n\n'
             '    :fcm_a17_wl_stock'
