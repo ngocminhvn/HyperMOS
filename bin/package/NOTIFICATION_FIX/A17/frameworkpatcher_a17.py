@@ -269,20 +269,36 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
         if num_locals < min_locals:
             raise ValueError(f"{signature}: insufficient local registers (locals={num_locals}, required={min_locals})")
 
-    # If an older hook with this label exists, replace it cleanly rather than keeping the old hook
-    hook_pattern = re.compile(
-        rf"(?ms)^([ \t]*(?:if-(?:eqz|nez)|const-string)\b.*?^[ \t]*{re.escape(label)})"
-    )
-    m = hook_pattern.search(block)
+    start_marker = f"# >>> HYPERMOS_HOOK_START: {label} >>>"
+    end_marker = f"# <<< HYPERMOS_HOOK_END: {label} <<<"
+    wrapped_preamble = f"    {start_marker}\n{preamble.rstrip()}\n    {end_marker}"
+
+    # 1. Try modern marker replacement
+    marker_pattern = re.compile(rf"(?ms)^[ \t]*{re.escape(start_marker)}.*?^[ \t]*{re.escape(end_marker)}")
+    m = marker_pattern.search(block)
     if m:
-        block = block[:m.start(1)] + preamble.rstrip() + block[m.end(1):]
-    else:
-        # Locate insertion point after all header directives (.registers, .locals, .param, .annotation, .prologue)
-        directives = list(re.finditer(r"(?m)^[ \t]*\.(?:registers|locals|param|annotation|prologue|end annotation)[^\n]*$", block))
-        if not directives:
-            raise ValueError(f"{signature}: failed to locate method header directives")
-        at = directives[-1].end()
-        block = block[:at] + "\n\n" + preamble.rstrip() + block[at:]
+        block = block[:m.start()] + wrapped_preamble + block[m.end():]
+        return source[:methods[0].start()] + block + source[methods[0].end():]
+
+    # 2. Try strict legacy hook replacement (only matching hooks starting with exact target label branch or GMS constant)
+    legacy_pattern = re.compile(
+        rf"(?ms)^[ \t]*(?:if-(?:eqz|nez)[ \t]+p1,[ \t]*{re.escape(label)}|const-string[ \t]+v0,[ \t]*\"com\.google\.[^\"]+\").*?^[ \t]*{re.escape(label)}"
+    )
+    m_legacy = legacy_pattern.search(block)
+    if m_legacy:
+        block = block[:m_legacy.start()] + wrapped_preamble + block[m_legacy.end():]
+        return source[:methods[0].start()] + block + source[methods[0].end():]
+
+    # 3. If label exists but neither boundary matched, abort safely
+    if label in block:
+        raise ValueError(f"{signature}: found {label} but could not safely identify hook boundaries; refusing to patch")
+
+    # 4. Fresh insertion after all header directives
+    directives = list(re.finditer(r"(?m)^[ \t]*\.(?:registers|locals|param|annotation|prologue|end annotation)[^\n]*$", block))
+    if not directives:
+        raise ValueError(f"{signature}: failed to locate method header directives")
+    at = directives[-1].end()
+    block = block[:at] + "\n\n" + wrapped_preamble + block[at:]
 
     return source[:methods[0].start()] + block + source[methods[0].end():]
 
