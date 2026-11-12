@@ -282,11 +282,11 @@ def patch(root: Path):
         "gms_special_freeze_path_disabled": True,
     }
 
-    # AurogonFilterManager is the PolicyMaker/PowerStrategyMode filter for
-    # "tobg" and "from system" freeze attempts. Protect GMS as before, plus
-    # Messenger (observed frozen via PolicyMaker on OS4 A17). This is a
-    # package-scoped JAR hook, not an AppOps/Settings/PowerKeeper change.
-    # Leave all other packages' freeze policy untouched.
+    # XNotifyFix-style Aurogon protection is scoped to GMS only.
+    # Ordinary messenger apps may freeze when idle; they are awakened on
+    # incoming C2DM by the GreezeManagerService.isAllowBroadcast hook and
+    # FLAG_INCLUDE_STOPPED_PACKAGES in services.jar. Do not permanently exempt
+    # apps such as Messenger here, to preserve stock idle battery behavior.
     aurogon = locate(root, AUROGON_FILTER)
     if aurogon is None:
         raise ValueError("AurogonFilterManager missing")
@@ -297,12 +297,7 @@ def patch(root: Path):
         '    const-string v0, "com.google.android.gms"\n\n'
         '    invoke-virtual {v0, p2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
         '    move-result v0\n\n'
-        '    if-nez v0, :fcm_a17_aurogon_exempt\n\n'
-        '    const-string v0, "com.facebook.orca"\n\n'
-        '    invoke-virtual {v0, p2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-        '    move-result v0\n\n'
         '    if-eqz v0, :fcm_a17_aurogon_stock\n\n'
-        '    :fcm_a17_aurogon_exempt\n\n'
         '    const/16 v0, 0x40\n\n'
         '    iput v0, p0, Lcom/miui/server/greeze/AurogonFilterManager;->mContinueReason:I\n\n'
         '    const/4 v0, 0x0\n\n'
@@ -312,10 +307,7 @@ def patch(root: Path):
     if aurogon_text != original_aurogon:
         aurogon.write_text(aurogon_text, encoding="utf-8")
         modified = True
-    details[AUROGON_FILTER] = {
-        "gms_quick_freeze_shield": True,
-        "messenger_powerstrategy_freeze_shield": True,
-    }
+    details[AUROGON_FILTER] = {"gms_quick_freeze_shield": True}
 
     return {
         "status": "success",
