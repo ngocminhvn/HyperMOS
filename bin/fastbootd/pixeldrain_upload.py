@@ -96,7 +96,7 @@ def api_response_detail(response: requests.Response, key: str) -> str:
     for field in ("value", "message"):
         if field in payload:
             safe = str(payload[field]).replace(key, "[REDACTED]")
-            safe = re.sub(r"[\\r\\n\\x00-\\x1f]+", " ", safe)[:180]
+            safe = re.sub(r"[\r\n\x00-\x1f]+", " ", safe)[:180]
             parts.append(f"{field}={safe!r}")
     parts.append(f"fields={','.join(sorted(str(k) for k in payload))[:180]}")
     return "; ".join(parts)
