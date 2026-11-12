@@ -227,10 +227,24 @@ def main() -> int:
         item = results_by_part[part]
         link_lines.extend((f"{part}.img: {item['url']}",
                            f"  bytes={item['bytes']} sha256={item['sha256']}", ""))
+    link_lines.extend((
+        "FastbootD flash commands after downloading the matching image files:",
+        "  adb reboot fastboot",
+        "  fastboot getvar product",
+        "  fastboot getvar is-userspace",
+    ))
+    for part in manifest["selected_partitions"]:
+        link_lines.append(f'  fastboot flash {part} "{results_by_part[part]["name"]}"')
+    link_lines.extend(("  fastboot reboot", "", "Do NOT flash an IMG with a mismatched SHA-256.", ""))
     links_path = directory / "PIXELDRAIN_LINKS.txt"
     links_path.write_text("\n".join(link_lines) + "\n", encoding="utf-8")
+    remote_sums = directory / "PIXELDRAIN_SHA256SUMS.txt"
+    remote_sums.write_text("".join(
+        f'{results_by_part[part]["sha256"]}  {results_by_part[part]["name"]}\n'
+        for part in manifest["selected_partitions"]
+    ), encoding="utf-8")
     metadata = []
-    for filename in ("manifest.json", "SHA256SUMS.txt", "README_FASTBOOTD.txt", "PIXELDRAIN_LINKS.txt"):
+    for filename in ("manifest.json", "PIXELDRAIN_SHA256SUMS.txt", "PIXELDRAIN_LINKS.txt"):
         path = directory / filename
         if not path.is_file():
             raise UploadError(f"Missing metadata: {filename}")
@@ -248,7 +262,7 @@ def main() -> int:
             for part in manifest["selected_partitions"]:
                 item = results_by_part[part]
                 out.write(f"| {part} | [Pixeldrain]({item['url']}) | "
-                          f"{item['bytes']:,} | \`{item['sha256']}\` |\n")
+                          f"{item['bytes']:,} | `{item['sha256']}` |\n")
             out.write("\n")
             for item in metadata:
                 out.write(f"[{item['name']}]({item['url']})  \n")
