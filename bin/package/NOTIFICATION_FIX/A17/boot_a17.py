@@ -20,7 +20,6 @@ SETTINGS = {
         ("wake_up_for_notification", "1"),
         ("wakeup_for_keyguard_notification", "1"),
         ("pref_key_enable_notification_body", "1"),
-        ("cloud_sleepmode_networkpolicy_enabled", "off"),
     ),
 }
 
@@ -54,6 +53,7 @@ def patch_boot(ams):
     if f"{HELPER}-><init>" in source:
         old = boot_class.read_text(encoding="utf-8")
         updated = patch_firewall_trigger(old)
+        updated = patch_sleepmode_policy(updated)
         if updated == old:
             return False
         boot_class.write_text(updated, encoding="utf-8")
@@ -107,6 +107,26 @@ def patch_firewall_trigger(source):
             '\n    const-string v3, "1"'
             "\n    invoke-static {v2, v3}, Landroid/os/SystemProperties;->set(Ljava/lang/String;Ljava/lang/String;)V",
             "init GMS firewall action",
+        )
+
+    return edit_method(source, r"disarmPowerKeeper\(Landroid/content/Context;\)V", edit)
+
+
+def patch_sleepmode_policy(source):
+    if "cloud_sleepmode_networkpolicy_enabled" in source:
+        return source
+
+    def edit(block):
+        if "cloud_sleepmode_networkpolicy_enabled" in block:
+            return block
+        return replace_site(
+            block,
+            r"(^    invoke-virtual \{v0, v1, v2, v3, v4\}, Landroid/content/ContentResolver;"
+            r"->update\(Landroid/net/Uri;Landroid/content/ContentValues;Ljava/lang/String;\[Ljava/lang/String;\)I)$",
+            r"\1" + '\n\n    const-string v1, "cloud_sleepmode_networkpolicy_enabled"'
+            '\n    const-string v2, "off"'
+            "\n    invoke-static {v0, v1, v2}, Landroid/provider/Settings$System;->putString(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z",
+            "disable cloud sleepmode networkpolicy",
         )
 
     return edit_method(source, r"disarmPowerKeeper\(Landroid/content/Context;\)V", edit)
@@ -255,6 +275,10 @@ BOOT_GMS = f"""
     const-string v3, "pkgName='com.android.vending' AND userId=0"
     const/4 v4, 0x0
     invoke-virtual {{v0, v1, v2, v3, v4}}, Landroid/content/ContentResolver;->update(Landroid/net/Uri;Landroid/content/ContentValues;Ljava/lang/String;[Ljava/lang/String;)I
+
+    const-string v1, "cloud_sleepmode_networkpolicy_enabled"
+    const-string v2, "off"
+    invoke-static {{v0, v1, v2}}, Landroid/provider/Settings$System;->putString(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
     :end
     .catch Ljava/lang/RuntimeException; {{:start .. :end}} :error
     return-void

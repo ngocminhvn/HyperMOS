@@ -207,7 +207,42 @@ def replace_void_method(source: str, signature: str, registers: int = 1):
     return source[:methods[0].start()] + replacement + source[methods[0].end():]
 
 
-def inject_method_preamble(source: str, signature: str, preamble: str, label: str):
+def count_param_registers(signature: str, is_static: bool = False) -> int:
+    """Calculate the number of Dalvik registers occupied by method parameters."""
+    params_match = re.search(r"\((.*?)\)", signature)
+    if not params_match:
+        return 0
+    param_str = params_match.group(1)
+    count = 0 if is_static else 1  # p0 is this for instance methods
+    i = 0
+    while i < len(param_str):
+        c = param_str[i]
+        if c in "ZBCSIF":
+            count += 1
+            i += 1
+        elif c in "JD":
+            count += 2
+            i += 1
+        elif c == "[":
+            while i < len(param_str) and param_str[i] == "[":
+                i += 1
+            if i < len(param_str):
+                if param_str[i] == "L":
+                    end = param_str.find(";", i)
+                    i = end + 1 if end != -1 else len(param_str)
+                else:
+                    i += 1
+            count += 1
+        elif c == "L":
+            end = param_str.find(";", i)
+            i = end + 1 if end != -1 else len(param_str)
+            count += 1
+        else:
+            i += 1
+    return count
+
+
+def inject_method_preamble(source: str, signature: str, preamble: str, label: str, min_locals: int = 2):
     method_re = re.compile(
         rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
     )
@@ -218,10 +253,28 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
     existing = re.sub(r":fcm_a17_\w+", lambda _: r":\w+", re.escape(preamble.rstrip().rsplit("\n", 1)[0]))
     if label in block or re.search(existing, block):
         return source
-    registers = re.search(r"(?m)^[ \t]*\.(?:registers|locals)[ \t]+\d+[ \t]*$", block)
-    if not registers:
-        raise ValueError(f"{signature}: missing registers declaration")
-    at = registers.end()
+    is_static = bool(re.search(r"(?m)^\.method[^\n]*\bstatic\b", block))
+    param_count = count_param_registers(signature, is_static)
+    reg_match = re.search(r"(?m)^([ \t]*)\.(registers|locals)[ \t]+(\d+)[ \t]*$", block)
+    if not reg_match:
+        raise ValueError(f"{signature}: missing registers/locals declaration")
+    indent, kind, val_str = reg_match.groups()
+    val = int(val_str)
+    if kind == "locals":
+        if val < min_locals:
+            new_reg_line = f"{indent}.locals {min_locals}"
+            block = block[:reg_match.start()] + new_reg_line + block[reg_match.end():]
+            at = reg_match.start() + len(new_reg_line)
+        else:
+            at = reg_match.end()
+    else:  # registers
+        num_locals = val - param_count
+        if num_locals < min_locals:
+            new_reg_line = f"{indent}.registers {val + (min_locals - num_locals)}"
+            block = block[:reg_match.start()] + new_reg_line + block[reg_match.end():]
+            at = reg_match.start() + len(new_reg_line)
+        else:
+            at = reg_match.end()
     block = block[:at] + "\n\n" + preamble.rstrip() + block[at:]
     return source[:methods[0].start()] + block + source[methods[0].end():]
 
@@ -374,20 +427,19 @@ def patch(root: Path):
             ":fcm_a17_alarm_stock"
         )
         align_hook = (
-            '    if-nez p1, :fcm_a17_align_stock\n\n'
+            '    if-eqz p1, :fcm_a17_align_stock\n\n'
             '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_align_stock\n\n'
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_align_exempt\n\n'
+            '    if-eqz v0, :fcm_a17_align_stock\n\n'
             '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
-            '    if-nez v0, :fcm_a17_align_stock\n\n'
+            '    if-eqz v0, :fcm_a17_align_stock\n\n'
             '    const-string v1, "GCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_align_exempt\n\n'
-            '    goto :fcm_a17_align_stock\n\n'
-            '    :cond_fcm_align_exempt\n\n'
+            '    if-eqz v0, :fcm_a17_align_stock\n\n'
             '    const/4 v0, 0x0\n\n'
             '    return v0\n\n'
             '    :fcm_a17_align_stock'
@@ -399,20 +451,19 @@ def patch(root: Path):
             ":fcm_a17_align_stock"
         )
         adjust_hook = (
-            '    if-nez p1, :fcm_a17_adjust_stock\n\n'
+            '    if-eqz p1, :fcm_a17_adjust_stock\n\n'
             '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
+            '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
             '    iget-object v0, p1, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
-            '    if-nez v0, :fcm_a17_adjust_stock\n\n'
+            '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
             '    const-string v1, "GCM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_adjust_exempt\n\n'
-            '    goto :fcm_a17_adjust_stock\n\n'
-            '    :cond_fcm_adjust_exempt\n\n'
+            '    if-eqz v0, :fcm_a17_adjust_stock\n\n'
             '    const/4 v0, 0x0\n\n'
             '    return v0\n\n'
             '    :fcm_a17_adjust_stock'
@@ -437,20 +488,25 @@ def patch(root: Path):
     if power_impl is not None:
         original_power = power_impl.read_text(encoding="utf-8")
         wl_hook = (
-            '    if-nez p1, :fcm_a17_wl_stock\n\n'
+            '    if-eqz p1, :fcm_a17_wl_stock\n\n'
             '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mPackageName:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_wl_match\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
             '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
-            '    if-nez v0, :fcm_a17_wl_stock\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
             '    const-string v1, "C2DM"\n\n'
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_wl_match\n\n'
-            '    goto :fcm_a17_wl_stock\n\n'
-            '    :cond_fcm_wl_match\n\n'
+            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
+            '    iget-object v0, p1, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "GCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    :cond_fcm_wl_exempt\n\n'
             '    const/4 v0, 0x0\n\n'
             '    return v0\n\n'
             '    :fcm_a17_wl_stock'
@@ -471,7 +527,18 @@ def patch(root: Path):
     if net_policy is not None:
         original_net = net_policy.read_text(encoding="utf-8")
         net_text = replace_boolean_method(original_net, "sleepModeEnableControl()Z", 0)
-        net_text = replace_void_method(net_text, "enableSleepModeChain(Z)V", registers=2)
+        sleep_chain_hook = (
+            '    if-eqz p1, :fcm_a17_sleep_disable\n\n'
+            '    return-void\n\n'
+            '    :fcm_a17_sleep_disable'
+        )
+        net_text = inject_method_preamble(
+            net_text,
+            "enableSleepModeChain(Z)V",
+            sleep_chain_hook,
+            ":fcm_a17_sleep_disable",
+            min_locals=0
+        )
         if net_text != original_net:
             net_policy.write_text(net_text, encoding="utf-8")
             modified = True
