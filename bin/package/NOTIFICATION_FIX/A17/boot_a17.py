@@ -113,9 +113,6 @@ def patch_firewall_trigger(source):
 
 
 def patch_sleepmode_policy(source):
-    if "cloud_sleepmode_networkpolicy_enabled" in source:
-        return source
-
     def edit(block):
         if "cloud_sleepmode_networkpolicy_enabled" in block:
             return block
