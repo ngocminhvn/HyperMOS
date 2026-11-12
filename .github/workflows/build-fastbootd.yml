@@ -179,6 +179,11 @@ jobs:
           echo "[PHASE] Pack FastbootD partition images" | tee -a build_action.log
           sudo -E bash bin/package/TNM/patch.sh --check-lock 2>&1 | tee -a build_action.log
           sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
+          # packROM.sh runs as root; the following Python uploader runs as the runner.
+          # Transfer ownership of staged FastbootD outputs so it can write its
+          # verified Pixeldrain JSON, link list and SHA-256 metadata beside the IMG files.
+          sudo chown -R "$(id -u):$(id -g)" out/fastbootd
+          test -w out/fastbootd
           test -s out/fastbootd/manifest.json
           echo "[FASTBOOTD] Images ready for Pixeldrain: ${FASTBOOTD_PARTITIONS}"
           echo "[FASTBOOTD] Run number: ${GITHUB_RUN_NUMBER}"
