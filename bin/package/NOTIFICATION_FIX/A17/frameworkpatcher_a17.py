@@ -216,6 +216,24 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
     return source[:methods[0].start()] + block + source[methods[0].end():]
 
 
+def replace_boolean_method(source: str, signature: str, value: int):
+    method_re = re.compile(
+        rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    methods = list(method_re.finditer(source))
+    if len(methods) != 1:
+        raise ValueError(f"expected one {signature}, got {len(methods)}")
+    header = methods[0].group().splitlines()[0]
+    replacement = (
+        f"{header}\n"
+        "    .registers 1\n\n"
+        f"    const/4 v0, 0x{value:x}\n\n"
+        "    return v0\n"
+        ".end method"
+    )
+    return source[:methods[0].start()] + replacement + source[methods[0].end():]
+
+
 def patch(root: Path):
     if not root.is_dir():
         raise ValueError(f"Missing decompiled miui-services: {root}")
@@ -323,35 +341,25 @@ def patch(root: Path):
         details[DOMESTIC_POLICY] = {"defer_broadcast_disabled": True, "need_cache_broadcast_disabled": True}
 
     # Alarm throttling: exempt only GMS from SSRU 120s budget denial (canAfford=false)
-    # Other apps remain strictly constrained by stock SSRU budget to protect idle battery and thermals.
+    # canAffordBillLocked uses .registers 14 (locals: v0..v10, params: p0=this, p1=v12, p2=v13).
+    # v0 and v1 are available locals.
     alarm_stub = locate(root, ALARM_STUB)
     if alarm_stub is not None:
         original_alarm = alarm_stub.read_text(encoding="utf-8")
+        alarm_hook = (
+            '    const-string v0, "com.google.android.gms"\n\n'
+            '    iget-object v1, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_alarm_stock\n\n'
+            '    const/4 v0, 0x1\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_alarm_stock'
+        )
         alarm_text = inject_method_preamble(
             original_alarm,
             "canAffordBillLocked(Lcom/android/server/alarm/Alarm;Lcom/android/server/ssru/ResourceBudgetManagerInternal$OperateAccount;)Z",
-            '    const-string v0, "com.google.android.gms"
-
-'
-            '    iget-object v1, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;
-
-'
-            '    invoke-virtual {v0, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
-
-'
-            '    move-result v0
-
-'
-            '    if-eqz v0, :fcm_a17_alarm_stock
-
-'
-            '    const/4 v0, 0x1
-
-'
-            '    return v0
-
-'
-            '    :fcm_a17_alarm_stock',
+            alarm_hook,
             ":fcm_a17_alarm_stock"
         )
         if alarm_text != original_alarm:
