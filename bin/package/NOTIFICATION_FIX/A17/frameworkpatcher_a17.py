@@ -226,7 +226,7 @@ def replace_boolean_method(source: str, signature: str, value: int):
     header = methods[0].group().splitlines()[0]
     replacement = (
         f"{header}\n"
-        "    .registers 1\n\n"
+        "    .locals 1\n\n"
         f"    const/4 v0, 0x{value:x}\n\n"
         "    return v0\n"
         ".end method"
