@@ -22,9 +22,6 @@ SETTINGS = {
         ("pref_key_enable_notification_body", "1"),
         ("cloud_sleepmode_networkpolicy_enabled", "off"),
     ),
-    "Global": (
-        ("mobile_data_always_on", "1"),
-    ),
 }
 
 
