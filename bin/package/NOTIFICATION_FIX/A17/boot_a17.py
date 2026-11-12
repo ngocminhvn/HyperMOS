@@ -20,6 +20,7 @@ SETTINGS = {
         ("wake_up_for_notification", "1"),
         ("wakeup_for_keyguard_notification", "1"),
         ("pref_key_enable_notification_body", "1"),
+        ("cloud_sleepmode_networkpolicy_enabled", "off"),
     ),
 }
 
@@ -47,28 +48,7 @@ SOUND_SETTINGS = {
 }
 
 
-def patch_boot(ams):
-    source = ams.read_text(encoding="utf-8")
-    boot_class = ams.with_name("HypermosNotificationBoot.smali")
-    if f"{HELPER}-><init>" in source:
-        old = boot_class.read_text(encoding="utf-8")
-        updated = patch_firewall_trigger(old)
-        updated = patch_sleepmode_policy(updated)
-        if updated == old:
-            return False
-        boot_class.write_text(updated, encoding="utf-8")
-        return True
-
-    def insert(block):
-        return replace_site(
-            block,
-            r"(^    invoke-virtual \{v\d+\}, Lcom/android/server/am/ActivityManagerServiceStub;->finishBooting\(\)V)$",
-            r"\1" + r"\n\n    invoke-direct/range {p0 .. p0}, "
-            r"Lcom/android/server/am/ActivityManagerService;->hypermosScheduleNotificationBoot()V",
-            "boot actions",
-        )
-
-    source = edit_method(source, r"finishBooting\(\)V", insert)
+def generate_boot_smali():
     methods = [settings_method("applyDefaults", "defaults", SETTINGS)]
     calls = []
     for feature, settings in SOUND_SETTINGS.items():
@@ -87,11 +67,33 @@ def patch_boot(ams):
         for package in FSI_PACKAGES
     ]
     boot = boot.replace("    # Full-screen packages", "\n".join(fsi_calls))
+    return patch_firewall_trigger(boot + "".join(methods) + BOOT_GMS + BOOT_FSI)
+
+
+def patch_boot(ams):
+    source = ams.read_text(encoding="utf-8")
+    boot_class = ams.with_name("HypermosNotificationBoot.smali")
+    new_boot = generate_boot_smali()
+    if f"{HELPER}-><init>" in source:
+        if boot_class.is_file():
+            old = boot_class.read_text(encoding="utf-8")
+            if old == new_boot:
+                return False
+        boot_class.write_text(new_boot, encoding="utf-8")
+        return True
+
+    def insert(block):
+        return replace_site(
+            block,
+            r"(^    invoke-virtual \{v\d+\}, Lcom/android/server/am/ActivityManagerServiceStub;->finishBooting\(\)V)$",
+            r"\1" + r"\n\n    invoke-direct/range {p0 .. p0}, "
+            r"Lcom/android/server/am/ActivityManagerService;->hypermosScheduleNotificationBoot()V",
+            "boot actions",
+        )
+
+    source = edit_method(source, r"finishBooting\(\)V", insert)
     ams.write_text(source + SCHEDULE_BOOT, encoding="utf-8")
-    boot_class.write_text(
-        patch_firewall_trigger(boot + "".join(methods) + BOOT_GMS + BOOT_FSI),
-        encoding="utf-8",
-    )
+    boot_class.write_text(new_boot, encoding="utf-8")
     return True
 
 
@@ -182,20 +184,29 @@ BOOT_START = f""".class final {HELPER}
     # Sound settings
     :settings_end
     .catch Ljava/lang/RuntimeException; {{:settings_start .. :settings_end}} :settings_error
-    goto :gms_start
+    goto :pk_call_start
 
     :settings_error
     move-exception v1
     invoke-static {{v1}}, {HELPER}->logFailure(Ljava/lang/Exception;)V
 
-    :gms_start
+    :pk_call_start
     invoke-static {{v0}}, {HELPER}->disarmPowerKeeper(Landroid/content/Context;)V
+    :pk_call_end
+    .catch Ljava/lang/Exception; {{:pk_call_start .. :pk_call_end}} :pk_call_error
+    goto :gms_call_start
+
+    :pk_call_error
+    move-exception v1
+    invoke-static {{v1}}, {HELPER}->logFailure(Ljava/lang/Exception;)V
+
+    :gms_call_start
     invoke-static {{v0}}, {HELPER}->configureGms(Landroid/content/Context;)V
-    :gms_end
-    .catch Ljava/lang/Exception; {{:gms_start .. :gms_end}} :gms_error
+    :gms_call_end
+    .catch Ljava/lang/Exception; {{:gms_call_start .. :gms_call_end}} :gms_call_error
     goto :fsi
 
-    :gms_error
+    :gms_call_error
     move-exception v1
     invoke-static {{v1}}, {HELPER}->logFailure(Ljava/lang/Exception;)V
 
@@ -242,10 +253,22 @@ BOOT_GMS = f"""
 .method private static disarmPowerKeeper(Landroid/content/Context;)V
     .locals 5
 
-    :start
     invoke-virtual {{p0}}, Landroid/content/Context;->getContentResolver()Landroid/content/ContentResolver;
     move-result-object v0
 
+    :sleep_start
+    const-string v1, "cloud_sleepmode_networkpolicy_enabled"
+    const-string v2, "off"
+    invoke-static {{v0, v1, v2}}, Landroid/provider/Settings$System;->putString(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
+    :sleep_end
+    .catch Ljava/lang/Exception; {{:sleep_start .. :sleep_end}} :sleep_error
+    goto :pk_start
+
+    :sleep_error
+    move-exception v1
+    invoke-static {{v1}}, {HELPER}->logFailure(Ljava/lang/Exception;)V
+
+    :pk_start
     const-string v1, "content://com.miui.powerkeeper.configure/SimpleSettings/misc"
     invoke-static {{v1}}, Landroid/net/Uri;->parse(Ljava/lang/String;)Landroid/net/Uri;
     move-result-object v1
@@ -272,15 +295,11 @@ BOOT_GMS = f"""
     const-string v3, "pkgName='com.android.vending' AND userId=0"
     const/4 v4, 0x0
     invoke-virtual {{v0, v1, v2, v3, v4}}, Landroid/content/ContentResolver;->update(Landroid/net/Uri;Landroid/content/ContentValues;Ljava/lang/String;[Ljava/lang/String;)I
-
-    const-string v1, "cloud_sleepmode_networkpolicy_enabled"
-    const-string v2, "off"
-    invoke-static {{v0, v1, v2}}, Landroid/provider/Settings$System;->putString(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
     :end
-    .catch Ljava/lang/RuntimeException; {{:start .. :end}} :error
+    .catch Ljava/lang/Exception; {{:pk_start .. :end}} :pk_error
     return-void
 
-    :error
+    :pk_error
     move-exception v0
     invoke-static {{v0}}, {HELPER}->logFailure(Ljava/lang/Exception;)V
     return-void

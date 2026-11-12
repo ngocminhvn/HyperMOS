@@ -14,6 +14,7 @@ DOMESTIC_POLICY = "com/miui/server/greeze/DomesticPolicyManager.smali"
 ALARM_STUB = "com/android/server/alarm/AlarmManagerServiceStubImpl.smali"
 POWER_IMPL = "com/android/server/power/PowerManagerServiceImpl.smali"
 NETWORK_POLICY = "com/android/server/net/MiuiNetworkPolicyManagerService.smali"
+BQ_STUB = "com/android/server/am/BroadcastQueueModernStubImpl.smali"
 
 REGION_GATES = (
     ("com/android/server/am/BroadcastQueueModernStubImpl.smali",
@@ -384,6 +385,65 @@ def patch(root: Path):
         process_manager.write_text(patched_pm, encoding="utf-8")
         modified = True
     details[PROCESS_MANAGER] = pm_info
+
+    # Exempt C2DM/FCM from Security_WakePath calleeAliveMatchBlackRule (warm process)
+    # and Greezer Denial (need cached broadcast) in BroadcastQueueModernStubImpl.
+    bq_stub = locate(root, BQ_STUB)
+    if bq_stub is not None:
+        original_bq = bq_stub.read_text(encoding="utf-8")
+        deal_hook = (
+            '    if-eqz p2, :fcm_a17_deal_stock\n\n'
+            '    move-object/from16 v0, p2\n\n'
+            '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
+            '    if-eqz v0, :fcm_a17_deal_stock\n\n'
+            '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
+            '    move-result-object v0\n\n'
+            '    if-eqz v0, :fcm_a17_deal_stock\n\n'
+            '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_deal_stock\n\n'
+            '    const/4 v0, 0x1\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_deal_stock'
+        )
+        restr_hook = (
+            '    if-eqz p2, :fcm_a17_restr_stock\n\n'
+            '    move-object/from16 v0, p2\n\n'
+            '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
+            '    if-eqz v0, :fcm_a17_restr_stock\n\n'
+            '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
+            '    move-result-object v0\n\n'
+            '    if-eqz v0, :fcm_a17_restr_stock\n\n'
+            '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_restr_stock\n\n'
+            '    const/4 v0, 0x0\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_restr_stock'
+        )
+        bq_text = inject_method_preamble(
+            original_bq,
+            "checkReceiverAppDealBroadcast(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
+            deal_hook,
+            ":fcm_a17_deal_stock",
+            min_locals=2,
+        )
+        bq_text = inject_method_preamble(
+            bq_text,
+            "checkReceiverIfRestricted(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
+            restr_hook,
+            ":fcm_a17_restr_stock",
+            min_locals=2,
+        )
+        if bq_text != original_bq:
+            bq_stub.write_text(bq_text, encoding="utf-8")
+            modified = True
+        details[BQ_STUB] = {
+            "c2dm_app_deal_broadcast_exempt": True,
+            "c2dm_receiver_restricted_exempt": True,
+        }
 
     # Port the verified fcm_notification_fix vectors to OS4/A17 without its
     # runtime module. Only C2DM broadcasts bypass screen-off Greeze policy.
