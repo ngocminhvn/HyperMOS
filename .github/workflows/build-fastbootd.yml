@@ -180,13 +180,8 @@ jobs:
           sudo -E bash bin/package/TNM/patch.sh --check-lock 2>&1 | tee -a build_action.log
           sudo -E bash packROM.sh 2>&1 | tee -a build_action.log
           test -s out/fastbootd/manifest.json
-          FASTBOOTD_ARTIFACT_NAME=$(python3 -c \
-            'import json; print(json.load(open("out/fastbootd/manifest.json"))["artifact_name"])')
-          # Rename the packed artifact to include the Actions run number,
-          # so downloaded zips are distinguishable: ...#system#system_ext#16
-          FASTBOOTD_ARTIFACT_NAME="${FASTBOOTD_ARTIFACT_NAME}#${GITHUB_RUN_NUMBER}"
-          echo "artifact_name=$FASTBOOTD_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
-          echo "[FASTBOOTD] Artifact: ${FASTBOOTD_ARTIFACT_NAME}.zip"
+          echo "[FASTBOOTD] Images ready for Pixeldrain: ${FASTBOOTD_PARTITIONS}"
+          echo "[FASTBOOTD] Run number: ${GITHUB_RUN_NUMBER}"
           echo "### FastbootD images" >> "$GITHUB_STEP_SUMMARY"
           python3 - <<'PY'
           import json
@@ -198,7 +193,7 @@ jobs:
           PY
 
       # One Pixeldrain PUT per IMG. Files upload concurrently, not in a giant
-      # GitHub artifact ZIP. Each download is verified against SHA256SUMS.
+      # GitHub artifact ZIP. Verify server-side SHA256 and publish checksums.
       - name: Upload partition IMG files to Pixeldrain in parallel
         shell: bash
         env:
