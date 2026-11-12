@@ -84,6 +84,56 @@ def load_partitions(directory: Path) -> tuple[dict, list[tuple[str, Path, dict]]
     return manifest, entries
 
 
+def api_response_detail(response: requests.Response, key: str) -> str:
+    """Log Pixeldrain error codes and response structure, never credentials/body."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return f"non-JSON response (content-type={response.headers.get('Content-Type', 'unknown')})"
+    if not isinstance(payload, dict):
+        return f"unexpected JSON type {type(payload).__name__}"
+    parts = [f"success={payload.get('success')!r}"]
+    for field in ("value", "message"):
+        if field in payload:
+            safe = str(payload[field]).replace(key, "[REDACTED]")
+            safe = re.sub(r"[\\r\\n\\x00-\\x1f]+", " ", safe)[:180]
+            parts.append(f"{field}={safe!r}")
+    parts.append(f"fields={','.join(sorted(str(k) for k in payload))[:180]}")
+    return "; ".join(parts)
+
+
+def recover_uploaded_file(remote_name: str, expected_size: int, expected_hash: str,
+                          key: str) -> str | None:
+    """Recover a completed PUT whose 201 response lacked a usable file ID.
+
+    Never trust name alone: match name, size and server-side SHA-256 to avoid
+    publishing a stale or unrelated partition image.
+    """
+    try:
+        response = requests.get(f"{API}/user/files", auth=("", key), timeout=(20, 120))
+        if response.status_code != 200:
+            print(f"::warning::Pixeldrain file lookup HTTP {response.status_code}; "
+                  f"{api_response_detail(response, key)}", flush=True)
+            return None
+        payload = response.json()
+        files = payload.get("files", []) if isinstance(payload, dict) else []
+        if not isinstance(files, list):
+            return None
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            file_id = item.get("id")
+            if (item.get("name") == remote_name
+                    and item.get("size") == expected_size
+                    and isinstance(item.get("hash_sha256"), str)
+                    and item["hash_sha256"].lower() == expected_hash.lower()
+                    and isinstance(file_id, str) and valid_identifier(file_id)):
+                return file_id
+    except (requests.RequestException, ValueError) as exc:
+        print(f"::warning::Pixeldrain file lookup unavailable ({type(exc).__name__})", flush=True)
+    return None
+
+
 def verify_upload(file_id: str, expected_size: int, expected_hash: str, key: str) -> None:
     if not valid_identifier(file_id):
         raise UploadError("Invalid Pixeldrain file ID")
@@ -91,19 +141,19 @@ def verify_upload(file_id: str, expected_size: int, expected_hash: str, key: str
     for attempt in range(5):
         try:
             response = requests.get(
-                url, headers={"Authorization": f"Bearer {key}"}, timeout=(20, 60)
+                url, auth=("", key), timeout=(20, 60)
             )
             if response.status_code == 200:
                 obj = response.json()
                 if obj.get("success") is not True:
-                    raise UploadError("Pixeldrain info returned success=false")
+                    raise UploadError(f"Pixeldrain info rejected file {file_id}: {api_response_detail(response, key)}")
                 if obj.get("size") != expected_size:
                     raise UploadError(f"Pixeldrain size mismatch for {file_id}")
                 if obj.get("hash_sha256", "").lower() != expected_hash.lower():
                     raise UploadError(f"Pixeldrain SHA256 mismatch for {file_id}")
                 return
             if response.status_code not in TRANSIENT_STATUS and response.status_code != 404:
-                raise UploadError(f"Pixeldrain info HTTP {response.status_code}")
+                raise UploadError(f"Pixeldrain info HTTP {response.status_code}: {api_response_detail(response, key)}")
         except requests.RequestException:
             if attempt == 4:
                 raise
@@ -124,24 +174,54 @@ def upload_one(path: Path, remote_name: str, key: str, expected_hash: str, expec
                 response = requests.put(
                     endpoint,
                     data=ProgressFile(handle, expected_size, remote_name),
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/octet-stream",
-                    },
+                    auth=("", key),
+                    headers={"Content-Type": "application/octet-stream"},
                     timeout=(30, 1800),
+                    allow_redirects=False,
                 )
             if response.status_code in TRANSIENT_STATUS:
-                raise requests.RequestException(f"Temporary upload HTTP {response.status_code}")
+                raise requests.RequestException(
+                    f"Temporary Pixeldrain HTTP {response.status_code}: "
+                    f"{api_response_detail(response, key)}"
+                )
             if response.status_code != 201:
-                try:
-                    description = response.json().get("value", "unknown")
-                except ValueError:
-                    description = "non-json-response"
-                raise UploadError(f"{remote_name}: Pixeldrain HTTP {response.status_code} ({description})")
-            data = response.json()
-            file_id = data.get("id", "")
-            if data.get("success") is not True or not valid_identifier(file_id):
-                raise UploadError(f"{remote_name}: upload response lacks valid file ID")
+                raise UploadError(
+                    f"{remote_name}: Pixeldrain HTTP {response.status_code}: "
+                    f"{api_response_detail(response, key)}"
+                )
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise UploadError(
+                    f"{remote_name}: HTTP 201 but non-JSON response: "
+                    f"{api_response_detail(response, key)}"
+                ) from exc
+            file_id = data.get("id") if isinstance(data, dict) else None
+            if (not isinstance(data, dict) or data.get("success") is not True
+                    or not isinstance(file_id, str) or not valid_identifier(file_id)):
+                print(
+                    f"::warning::Pixeldrain returned HTTP 201 without a usable ID for "
+                    f"{remote_name}: {api_response_detail(response, key)}. "
+                    "Checking account files before any reupload.",
+                    flush=True,
+                )
+                file_id = None
+                for recovery_attempt in range(3):
+                    file_id = recover_uploaded_file(
+                        remote_name, expected_size, expected_hash, key
+                    )
+                    if file_id:
+                        print(f"[PIXELDRAIN] Recovered uploaded file ID for {remote_name}",
+                              flush=True)
+                        break
+                    if recovery_attempt < 2:
+                        time.sleep(2 ** recovery_attempt)
+                if file_id is None:
+                    raise UploadError(
+                        f"{remote_name}: HTTP 201 did not return a valid file ID "
+                        "and no matching file (name/size/SHA256) was found in the account; "
+                        "refusing to silently reupload the same large image"
+                    )
             verify_upload(file_id, expected_size, expected_hash, key)
             url = f"https://pixeldrain.com/u/{file_id}"
             print(f"[PIXELDRAIN] VERIFIED {remote_name}: {url}", flush=True)
@@ -158,7 +238,7 @@ def post_list(results: list[dict], title: str, key: str) -> str | None:
     try:
         response = requests.post(
             f"{API}/list",
-            headers={"Authorization": f"Bearer {key}"},
+            auth=("", key),
             json={"title": title, "anonymous": False,
                   "files": [{"id": item["id"]} for item in results]},
             timeout=(20, 90),
