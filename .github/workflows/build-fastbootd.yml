@@ -43,6 +43,11 @@ on:
         required: false
         type: string
         default: ''
+      upload_workers:
+        description: 'Parallel Pixeldrain image uploads (1-6)'
+        required: true
+        type: number
+        default: 4
 
 permissions:
   contents: read
@@ -90,6 +95,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+
+      - name: Validate Pixeldrain upload credentials
+        shell: bash
+        env:
+          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          if [[ -z "${PIXELDRAIN_API_KEY:-}" ]]; then
+            echo "::error::Set PIXELDRAIN_API_KEY in repository Actions secrets before building"
+            exit 1
+          fi
 
       - name: Validate selected partitions
         shell: bash
@@ -182,14 +197,18 @@ jobs:
               f.write("Selected partitions: " + ", ".join(manifest["selected_partitions"]) + "\n")
           PY
 
-      - name: Upload selected images as GitHub Actions Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.repack.outputs.artifact_name }}
-          path: out/fastbootd/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
+      # One Pixeldrain PUT per IMG. Files upload concurrently, not in a giant
+      # GitHub artifact ZIP. Each download is verified against SHA256SUMS.
+      - name: Upload partition IMG files to Pixeldrain in parallel
+        shell: bash
+        env:
+          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+          PIXELDRAIN_WORKERS: ${{ inputs.upload_workers }}
+        run: |
+          set -euo pipefail
+          python3 bin/fastbootd/pixeldrain_upload.py \
+            --dir out/fastbootd \
+            --workers "$PIXELDRAIN_WORKERS"
 
       - name: Build errors
         if: failure()
