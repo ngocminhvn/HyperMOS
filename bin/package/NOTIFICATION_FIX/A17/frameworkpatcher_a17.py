@@ -12,7 +12,6 @@ GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
 AUROGON_FILTER = "com/miui/server/greeze/AurogonFilterManager.smali"
 DOMESTIC_POLICY = "com/miui/server/greeze/DomesticPolicyManager.smali"
 ALARM_STUB = "com/android/server/alarm/AlarmManagerServiceStubImpl.smali"
-SMART_POWER_SETTINGS = "com/miui/app/smartpower/SmartPowerSettings.smali"
 
 REGION_GATES = (
     ("com/android/server/am/BroadcastQueueModernStubImpl.smali",
@@ -323,37 +322,42 @@ def patch(root: Path):
             modified = True
         details[DOMESTIC_POLICY] = {"defer_broadcast_disabled": True, "need_cache_broadcast_disabled": True}
 
-    # Alarm throttling: prevent SSRU 120s budget denial (canAfford=false) for alarms
+    # Alarm throttling: exempt only GMS from SSRU 120s budget denial (canAfford=false)
+    # Other apps remain strictly constrained by stock SSRU budget to protect idle battery and thermals.
     alarm_stub = locate(root, ALARM_STUB)
     if alarm_stub is not None:
         original_alarm = alarm_stub.read_text(encoding="utf-8")
-        alarm_text = replace_boolean_method(
+        alarm_text = inject_method_preamble(
             original_alarm,
             "canAffordBillLocked(Lcom/android/server/alarm/Alarm;Lcom/android/server/ssru/ResourceBudgetManagerInternal$OperateAccount;)Z",
-            1
+            '    const-string v0, "com.google.android.gms"
+
+'
+            '    iget-object v1, p1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;
+
+'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+
+'
+            '    move-result v0
+
+'
+            '    if-eqz v0, :fcm_a17_alarm_stock
+
+'
+            '    const/4 v0, 0x1
+
+'
+            '    return v0
+
+'
+            '    :fcm_a17_alarm_stock',
+            ":fcm_a17_alarm_stock"
         )
         if alarm_text != original_alarm:
             alarm_stub.write_text(alarm_text, encoding="utf-8")
             modified = True
-        details[ALARM_STUB] = {"can_afford_bill_forced_true": True}
-
-    # SmartPower intercept: force PROP_INTERCEPT_ENABLE = false at class initialization
-    sp_settings = locate(root, SMART_POWER_SETTINGS)
-    if sp_settings is not None:
-        original_sp = sp_settings.read_text(encoding="utf-8")
-        sp_match = re.search(
-            r"(?m)^([ 	]*)sput-boolean\s+([vp]\d+),\s+Lcom/miui/app/smartpower/SmartPowerSettings;->PROP_INTERCEPT_ENABLE:Z[ 	]*$",
-            original_sp
-        )
-        if sp_match:
-            indent, reg = sp_match.groups()
-            sp_neutralize = f"{indent}const/4 {reg}, 0x0
-"
-            sp_text = original_sp[:sp_match.start()] + sp_neutralize + original_sp[sp_match.start():]
-            if sp_text != original_sp:
-                sp_settings.write_text(sp_text, encoding="utf-8")
-                modified = True
-            details[SMART_POWER_SETTINGS] = {"prop_intercept_enable_forced_false": True}
+        details[ALARM_STUB] = {"gms_alarm_budget_shield": True}
 
     return {
         "status": "success",
