@@ -1,0 +1,100 @@
+name: Delete All Workflow Runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DELETE ALL RUNS to confirm permanent deletion'
+        required: true
+        type: string
+      dry_run:
+        description: 'Preview the runs without deleting them'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: delete-all-workflow-runs
+  cancel-in-progress: false
+
+jobs:
+  delete-history:
+    name: Delete completed workflow run history
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Validate confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CONFIRMATION" != "DELETE ALL RUNS" ]]; then
+            echo "::error::Type DELETE ALL RUNS in the confirmation field."
+            exit 1
+          fi
+
+      - name: Delete completed runs across every workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Snapshot IDs before deletion: paginating while deleting would skip runs.
+          run_ids_file="$(mktemp)"
+          trap 'rm -f "$run_ids_file"' EXIT
+          gh api --paginate \
+            --jq '.workflow_runs[] | select(.status == "completed") | .id' \
+            "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" > "$run_ids_file"
+          mapfile -t run_ids < "$run_ids_file"
+          total="${#run_ids[@]}"
+          echo "Found $total completed workflow runs in $GITHUB_REPOSITORY."
+
+          {
+            echo "### Workflow run history cleanup"
+            echo
+            echo "- Completed runs found: $total"
+            echo "- Dry run: $DRY_RUN"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            printf 'Would delete run %s\n' "${run_ids[@]}"
+            echo "- No runs deleted (preview only)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          deleted=0
+          failed=0
+          for run_id in "${run_ids[@]}"; do
+            success=false
+            for attempt in 1 2 3; do
+              if gh api --silent -X DELETE \
+                  "repos/${GITHUB_REPOSITORY}/actions/runs/$run_id"; then
+                success=true
+                break
+              fi
+              sleep "$(( attempt * 3 ))"
+            done
+            if [[ "$success" == "true" ]]; then
+              deleted=$((deleted + 1))
+              echo "Deleted run $run_id ($deleted/$total)"
+            else
+              failed=$((failed + 1))
+              echo "::warning::Failed to delete run $run_id after 3 attempts"
+            fi
+          done
+
+          {
+            echo "- Deleted runs: $deleted"
+            echo "- Failed deletions: $failed"
+            echo
+            echo "The current cleanup run and other active runs are not deleted."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if (( failed > 0 )); then
+            exit 1
+          fi
