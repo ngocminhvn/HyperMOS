@@ -277,7 +277,7 @@ def patch_active_services(source: str):
         hook = (
             f"    invoke-static {{v5}}, Lcom/android/server/am/ActiveServices;->hypermosIsMqttServiceExempt(Lcom/android/server/am/ServiceRecord;)Z\n\n"
             f"    move-result v6\n\n"
-            f"    if-eqz v6, {skip_label}  # XNotifyFix mqtt service idle exemption\n\n"
+            f"    if-nez v6, {skip_label}  # Messenger MQTT idle exemption\n\n"
         )
         return block[:m.start()] + hook + block[m.start():]
 
