@@ -397,70 +397,70 @@ def patch(root: Path):
     if bq_stub is None:
         raise ValueError(f"{BQ_STUB}: missing")
     original_bq = bq_stub.read_text(encoding="utf-8")
-        deal_hook = (
-            '    if-eqz p2, :fcm_a17_deal_stock\n\n'
-            '    move-object/from16 v0, p2\n\n'
-            '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
-            '    if-eqz v0, :fcm_a17_deal_stock\n\n'
-            '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
-            '    move-result-object v0\n\n'
-            '    if-eqz v0, :fcm_a17_deal_stock\n\n'
-            '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fcm_a17_deal_stock\n\n'
-            '    if-eqz p3, :cond_c2dm_deal_allow\n\n'
-            '    invoke-static {}, Lcom/miui/server/greeze/GreezeManagerInternal;->getInstance()Lcom/miui/server/greeze/GreezeManagerInternal;\n\n'
-            '    move-result-object v0\n\n'
-            '    if-eqz v0, :cond_c2dm_deal_allow\n\n'
-            '    move-object/from16 v1, p3\n\n'
-            '    iget v1, v1, Lcom/android/server/am/ProcessRecord;->uid:I\n\n'
-            '    const/16 v2, 0x3e8\n\n'
-            '    const-string v3, "fcm_c2dm_thaw"\n\n'
-            '    invoke-virtual {v0, v1, v2, v3}, Lcom/miui/server/greeze/GreezeManagerInternal;->thawUid(IILjava/lang/String;)Z\n\n'
-            '    :cond_c2dm_deal_allow\n\n'
-            '    const/4 v0, 0x1\n\n'
-            '    return v0\n\n'
-            '    :fcm_a17_deal_stock'
-        )
-        restr_hook = (
-            '    if-eqz p2, :fcm_a17_restr_stock\n\n'
-            '    move-object/from16 v0, p2\n\n'
-            '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
-            '    if-eqz v0, :fcm_a17_restr_stock\n\n'
-            '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
-            '    move-result-object v0\n\n'
-            '    if-eqz v0, :fcm_a17_restr_stock\n\n'
-            '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fcm_a17_restr_stock\n\n'
-            '    const/4 v0, 0x0\n\n'
-            '    return v0\n\n'
-            '    :fcm_a17_restr_stock'
-        )
-        bq_text = inject_method_preamble(
-            original_bq,
-            "checkReceiverAppDealBroadcast(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
-            deal_hook,
-            ":fcm_a17_deal_stock",
-            min_locals=4,
-        )
-        bq_text = inject_method_preamble(
-            bq_text,
-            "checkReceiverIfRestricted(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
-            restr_hook,
-            ":fcm_a17_restr_stock",
-            min_locals=2,
-        )
-        if bq_text != original_bq:
-            bq_stub.write_text(bq_text, encoding="utf-8")
-            modified = True
-        details[BQ_STUB] = {
-            "c2dm_app_deal_broadcast_exempt": True,
-            "c2dm_app_deal_broadcast_thaw": True,
-            "c2dm_receiver_restricted_exempt": True,
-        }
+    deal_hook = (
+        '    if-eqz p2, :fcm_a17_deal_stock\n\n'
+        '    move-object/from16 v0, p2\n\n'
+        '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
+        '    if-eqz v0, :fcm_a17_deal_stock\n\n'
+        '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
+        '    move-result-object v0\n\n'
+        '    if-eqz v0, :fcm_a17_deal_stock\n\n'
+        '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
+        '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+        '    move-result v0\n\n'
+        '    if-eqz v0, :fcm_a17_deal_stock\n\n'
+        '    if-eqz p3, :cond_c2dm_deal_allow\n\n'
+        '    invoke-static {}, Lcom/miui/server/greeze/GreezeManagerInternal;->getInstance()Lcom/miui/server/greeze/GreezeManagerInternal;\n\n'
+        '    move-result-object v0\n\n'
+        '    if-eqz v0, :cond_c2dm_deal_allow\n\n'
+        '    move-object/from16 v1, p3\n\n'
+        '    iget v1, v1, Lcom/android/server/am/ProcessRecord;->uid:I\n\n'
+        '    const/16 v2, 0x3e8\n\n'
+        '    const-string v3, "fcm_c2dm_thaw"\n\n'
+        '    invoke-virtual {v0, v1, v2, v3}, Lcom/miui/server/greeze/GreezeManagerInternal;->thawUid(IILjava/lang/String;)Z\n\n'
+        '    :cond_c2dm_deal_allow\n\n'
+        '    const/4 v0, 0x1\n\n'
+        '    return v0\n\n'
+        '    :fcm_a17_deal_stock'
+    )
+    restr_hook = (
+        '    if-eqz p2, :fcm_a17_restr_stock\n\n'
+        '    move-object/from16 v0, p2\n\n'
+        '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
+        '    if-eqz v0, :fcm_a17_restr_stock\n\n'
+        '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
+        '    move-result-object v0\n\n'
+        '    if-eqz v0, :fcm_a17_restr_stock\n\n'
+        '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
+        '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+        '    move-result v0\n\n'
+        '    if-eqz v0, :fcm_a17_restr_stock\n\n'
+        '    const/4 v0, 0x0\n\n'
+        '    return v0\n\n'
+        '    :fcm_a17_restr_stock'
+    )
+    bq_text = inject_method_preamble(
+        original_bq,
+        "checkReceiverAppDealBroadcast(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
+        deal_hook,
+        ":fcm_a17_deal_stock",
+        min_locals=4,
+    )
+    bq_text = inject_method_preamble(
+        bq_text,
+        "checkReceiverIfRestricted(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
+        restr_hook,
+        ":fcm_a17_restr_stock",
+        min_locals=2,
+    )
+    if bq_text != original_bq:
+        bq_stub.write_text(bq_text, encoding="utf-8")
+        modified = True
+    details[BQ_STUB] = {
+        "c2dm_app_deal_broadcast_exempt": True,
+        "c2dm_app_deal_broadcast_thaw": True,
+        "c2dm_receiver_restricted_exempt": True,
+    }
 
     # Port the verified fcm_notification_fix vectors to OS4/A17 without its
     # runtime module. When C2DM broadcast arrives for an app, thaw its UID
@@ -507,37 +507,37 @@ def patch(root: Path):
     if policy_maker is None:
         raise ValueError(f"{POLICY_MAKER}: missing")
     original_pm = policy_maker.read_text(encoding="utf-8")
-        freeze_hook_lines = [
-            '    if-eqz p2, :cond_check_freeze_stock\n\n'
-        ]
-        for pkg in FSI_PACKAGES:
-            freeze_hook_lines.append(
-                f'    const-string v0, "{pkg}"\n\n'
-                f'    invoke-virtual {{v0, p2}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-                f'    move-result v0\n\n'
-                f'    if-nez v0, :cond_check_freeze_exempt\n\n'
-            )
+    freeze_hook_lines = [
+        '    if-eqz p2, :cond_check_freeze_stock\n\n'
+    ]
+    for pkg in FSI_PACKAGES:
         freeze_hook_lines.append(
-            '    goto :cond_check_freeze_stock\n\n'
-            '    :cond_check_freeze_exempt\n\n'
-            '    const-string v0, "fcm_voip_exempt"\n\n'
-            '    iput-object v0, p0, Lcom/miui/server/greeze/power/PolicyMaker;->mLastReason:Ljava/lang/String;\n\n'
-            '    sget v0, Lcom/miui/server/greeze/power/PolicyMaker;->CANNOT_FREEZE:I\n\n'
-            '    return v0\n\n'
-            '    :cond_check_freeze_stock'
+            f'    const-string v0, "{pkg}"\n\n'
+            f'    invoke-virtual {{v0, p2}}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            f'    move-result v0\n\n'
+            f'    if-nez v0, :cond_check_freeze_exempt\n\n'
         )
-        freeze_hook = "".join(freeze_hook_lines)
-        pm_text = inject_method_preamble(
-            original_pm,
-            "checkCannotFreezePolicy(ILjava/lang/String;)I",
-            freeze_hook,
-            ":cond_check_freeze_stock",
-            min_locals=2,
-        )
-        if pm_text != original_pm:
-            policy_maker.write_text(pm_text, encoding="utf-8")
-            modified = True
-        details[POLICY_MAKER] = {"fcm_voip_freeze_exempt": True}
+    freeze_hook_lines.append(
+        '    goto :cond_check_freeze_stock\n\n'
+        '    :cond_check_freeze_exempt\n\n'
+        '    const-string v0, "fcm_voip_exempt"\n\n'
+        '    iput-object v0, p0, Lcom/miui/server/greeze/power/PolicyMaker;->mLastReason:Ljava/lang/String;\n\n'
+        '    sget v0, Lcom/miui/server/greeze/power/PolicyMaker;->CANNOT_FREEZE:I\n\n'
+        '    return v0\n\n'
+        '    :cond_check_freeze_stock'
+    )
+    freeze_hook = "".join(freeze_hook_lines)
+    pm_text = inject_method_preamble(
+        original_pm,
+        "checkCannotFreezePolicy(ILjava/lang/String;)I",
+        freeze_hook,
+        ":cond_check_freeze_stock",
+        min_locals=2,
+    )
+    if pm_text != original_pm:
+        policy_maker.write_text(pm_text, encoding="utf-8")
+        modified = True
+    details[POLICY_MAKER] = {"fcm_voip_freeze_exempt": True}
 
     # XNotifyFix-style Aurogon protection is scoped to GMS only.
     # Ordinary messenger apps may freeze when idle; they are awakened on
