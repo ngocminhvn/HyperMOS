@@ -449,7 +449,8 @@ def patch(root: Path):
 
     # Port the verified fcm_notification_fix vectors to OS4/A17 without its
     # runtime module. When C2DM broadcast arrives for an app, thaw its UID
-    # asynchronously (5000ms grace period) so it can process incoming FCM/calls.
+    # asynchronously using MIUI standard caller convention 1000 (0x3e8) and
+    # post tryDelayFreeze (2000ms) to ensure process receives and processes FCM.
     greeze_service = locate(root, GREEZE_SERVICE)
     if greeze_service is None:
         raise ValueError("GreezeManagerService missing")
@@ -461,7 +462,7 @@ def patch(root: Path):
         '    invoke-virtual {v0, p5}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
         '    move-result v0\n\n'
         '    if-eqz v0, :fcm_a17_greeze_stock\n\n'
-        '    const/16 v0, 0x1388\n\n'
+        '    const/16 v0, 0x3e8\n\n'
         '    const-string v1, "fcm_c2dm_thaw"\n\n'
         '    invoke-virtual {p0, p3, v0, v1}, Lcom/miui/server/greeze/GreezeManagerService;->thawUidAsync(IILjava/lang/String;)V\n\n'
         '    const/4 v0, 0x1\n\n'
@@ -716,26 +717,19 @@ def patch(root: Path):
             "gms_alarm_adjust_exempt": True,
         }
 
-    # Wakelock policy: prevent disabling GMS / C2DM wakelocks and app FcmListenerService wakelocks with UidFrozen
+    # Wakelock policy: prevent disabling GMS / C2DM wakelocks and FSI app FcmListenerService wakelocks with UidFrozen
     power_impl = locate(root, POWER_IMPL)
     if power_impl is not None:
         original_power = power_impl.read_text(encoding="utf-8")
         wl_hook = (
             '    if-eqz p1, :fcm_a17_wl_stock\n\n'
             '    move-object/from16 v0, p1\n\n'
-            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
-            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
-            '    const-string v1, "FcmListenerService"\n\n'
-            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
-            '    move-object/from16 v0, p1\n\n'
             '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mPackageName:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    move-result v1\n\n'
+            '    if-nez v1, :cond_check_fsi_pkg\n\n'
             '    move-object/from16 v0, p1\n\n'
             '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
@@ -767,6 +761,27 @@ def patch(root: Path):
             '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    goto :cond_fcm_wl_exempt\n\n'
+            '    :cond_check_fsi_pkg\n\n'
+            '    const-string v1, "com.facebook.orca"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v1\n\n'
+            '    if-nez v1, :cond_check_fsi_zalo\n\n'
+            '    goto :cond_check_fcm_tag\n\n'
+            '    :cond_check_fsi_zalo\n\n'
+            '    const-string v1, "com.zing.zalo"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    :cond_check_fcm_tag\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    const-string v1, "FcmListenerService"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
+            '    goto :fcm_a17_wl_stock\n\n'
             '    :cond_fcm_wl_exempt\n\n'
             '    const/4 v0, 0x0\n\n'
             '    return v0\n\n'
