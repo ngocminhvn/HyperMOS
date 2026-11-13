@@ -338,17 +338,14 @@ def main() -> int:
         with open(summary, "a", encoding="utf-8") as out:
             out.write("### Pixeldrain FastbootD downloads\n\n")
             out.write(f"Device: {device} | Base: {base} | Run: {run}\n\n")
-            out.write("| Partition | Download | Size | SHA-256 |\n|---|---|---:|---|\n")
+            out.write("| Partition | Download | Direct | Size | SHA-256 |\n")
+            out.write("|---|---|---|---:|---|\n")
             for part in manifest["selected_partitions"]:
                 item = results_by_part[part]
+                direct_url = f"https://cdn32.pixeldrain.eu.cc/api/file/{quote(item['id'], safe='')}"
                 out.write(f"| {part} | [Pixeldrain]({item['url']}) | "
-                          f"{item['bytes']:,} | `{item['sha256']}` |\n")
-            out.write("\n")
-            for item in metadata:
-                out.write(f"[{item['name']}]({item['url']})  \n")
-            if list_url:
-                out.write(f"\n[All uploaded files on Pixeldrain]({list_url})\n")
-            out.write("\n**Flash only matching images. Check SHA-256 after download.**\n")
+                          f"[Bypass]({direct_url}) | {item['bytes']:,} | "
+                          f"`{item['sha256']}` |\n")
     print("[PIXELDRAIN] ALL SELECTED IMAGES VERIFIED", flush=True)
     if list_url:
         print("[PIXELDRAIN] List: " + list_url, flush=True)
