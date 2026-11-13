@@ -3,7 +3,13 @@
 import re
 
 
-FSI_PACKAGES = ("com.zing.zalo", "com.facebook.orca")
+FSI_PACKAGES = (
+    "com.zing.zalo",
+    "com.facebook.orca",
+    "org.telegram.messenger",
+    "com.whatsapp",
+    "com.viber.voip",
+)
 
 
 def edit_method(source, signature, edit):

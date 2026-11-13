@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 GMS_OBSERVER = "com/miui/powerkeeper/utils/GmsObserver.smali"
+INTERNATIONAL_ADAPTER = "com/miui/powerkeeper/utils/InternationalAdapter.smali"
 
 
 def locate(root: Path, relative: str, required=True):
@@ -69,6 +70,39 @@ def patch(root: Path):
         encoding="utf-8")
     details[GMS_OBSERVER] = {"gms_network_limit_forced_false": True}
     total += 1
+
+    # 2. InternationalAdapter: empty initRestrictPkgs (no-op) and clear sNetworkAllowApps
+    # matches Global EEA behavior to eliminate sleep-mode alarm throttling and network restriction.
+    ia_file = locate(root, INTERNATIONAL_ADAPTER, required=False)
+    if ia_file is not None:
+        ia_text = ia_file.read_text(encoding="utf-8")
+        irp_re = re.compile(
+            r"(?ms)^\.method[^\n]*\binitRestrictPkgs\([^\n]*\n.*?^\.end method[ \t]*$"
+        )
+        if irp_re.search(ia_text):
+            new_irp = (
+                ".method public static initRestrictPkgs(Landroid/content/Context;)V\n"
+                "    .registers 1\n\n"
+                "    return-void\n"
+                ".end method"
+            )
+            ia_text = irp_re.sub(new_irp, ia_text)
+        ia_text = re.sub(
+            r'(?m)^(\.field public static sNetworkAllowApps:Ljava/lang/String; = )".*?"',
+            r'\1""',
+            ia_text
+        )
+        ia_text = re.sub(
+            r'(?m)^([ \t]*const-string[ \t]+[vp]\d+,[ \t]+)"com\.xiaomi\.xmsf.*?"(\s*\n[ \t]*sput-object[ \t]+[vp]\d+,[ \t]+Lcom/miui/powerkeeper/utils/InternationalAdapter;->sNetworkAllowApps:Ljava/lang/String;)',
+            r'\1""\2',
+            ia_text
+        )
+        ia_file.write_text(ia_text, encoding="utf-8")
+        details[INTERNATIONAL_ADAPTER] = {
+            "init_restrict_pkgs_noop": True,
+            "network_allow_apps_emptied": True,
+        }
+        total += 1
 
     if total == 0:
         raise ValueError("no Android 17 PowerKeeper gates were patched")

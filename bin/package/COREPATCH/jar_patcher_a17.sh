@@ -708,11 +708,30 @@ $decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/GameLatencyPredict.smal
 $decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/SLAAppLib.smali
 $decompile_dir/smali*/com/xiaomi/NetworkBoost/slaservice/SLAAppLib\$2.smali
 $decompile_dir/smali*/miui/app/ActivitySecurityHelper.smali
+$decompile_dir/smali*/com/miui/server/WakePathChecker.smali
+$decompile_dir/smali*/com/miui/server/SecurityManagerService.smali
+$decompile_dir/smali*/com/miui/server/SecurityManagerService\$LocalService.smali
+$decompile_dir/smali*/com/android/server/MiuiBatteryStatsService\$BatteryStatsHandler.smali
+$decompile_dir/smali*/com/android/server/usb/MiuiUsbServiceImpl.smali
+$decompile_dir/smali*/com/android/server/accessibility/A11yBlockOneTrackHelper.smali
+$decompile_dir/smali*/com/miui/server/SplashScreenServiceDelegate.smali
+$decompile_dir/smali*/com/android/server/display/statistics/OneTrackUploaderHelper.smali
+$decompile_dir/smali*/com/android/server/BootKeeperStubImpl\$BootKeeperOneTrack.smali
+$decompile_dir/smali*/com/android/server/input/shoulderkey/MiuiShoulderKeyShortcutListener\$ShoulderKeyShortcutOneTrack.smali
+$decompile_dir/smali*/com/android/server/input/shoulderkey/ShoulderKeyManagerService\$ShoulderKeyOneTrack.smali
 "
   for i in $class; do
     [ -f "$i" ] || continue
     sed -i 's/com.baidu.input_mi/com.google.android.inputmethod.latin/g' "$i"
     sed -i -E 's|(sget-boolean[[:space:]]+)([vp][0-9]+),[[:space:]]+Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z|\1\2, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z|g' "$i"
+  done
+  for i in $decompile_dir/smali*/com/android/server/wm/OneTrackDragDropHelper.smali $decompile_dir/smali*/com/android/server/wm/OneTrackVulkanHelper.smali; do
+    [ -f "$i" ] || continue
+    sed -i 's|    new-instance v0, Landroid/content/Intent;|    return-void\n\n    new-instance v0, Landroid/content/Intent;|g' "$i"
+  done
+  for i in $decompile_dir/smali*/com/android/server/power/statistic/OneTrackerHelper.smali; do
+    [ -f "$i" ] || continue
+    sed -i -E 's/(sput-boolean[[:space:]]+[vp][0-9]+,[[:space:]]+Lcom\/android\/server\/power\/statistic\/OneTrackerHelper;->IS_INTERNATIONAL_BUILD:Z)/const\/4 v0, 0x1\n    \1/g' "$i"
   done
   for i in $decompile_dir/smali*/com/android/server/am/ActivityManagerServiceImpl.smali; do
     [ -f "$i" ] || continue
