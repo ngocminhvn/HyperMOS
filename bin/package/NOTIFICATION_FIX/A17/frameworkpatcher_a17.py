@@ -505,18 +505,62 @@ def patch(root: Path):
         modified = True
     details[AUROGON_FILTER] = {"gms_quick_freeze_shield": True}
 
-    # Video scenario / Immobulus mode: prevent deferring & caching broadcasts to background apps
+    # Video scenario / Immobulus mode: prevent deferring & caching FCM / GMS push broadcasts
     domestic = locate(root, DOMESTIC_POLICY)
     if domestic is not None:
         original_domestic = domestic.read_text(encoding="utf-8")
-        domestic_text = replace_boolean_method(original_domestic, "deferBroadcast(Ljava/lang/String;)Z", 0)
-        domestic_text = replace_boolean_method(domestic_text, "needCacheBroadcast(Ljava/lang/String;II)Z", 0)
+        defer_hook = (
+            '    if-eqz p1, :fcm_a17_defer_stock\n\n'
+            '    const-string v0, "com.google.android.c2dm.intent.RECEIVE"\n\n'
+            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_defer_allow\n\n'
+            '    const-string v0, "com.google.android.intent.action.GCM_RECONNECT"\n\n'
+            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_defer_allow\n\n'
+            '    goto :fcm_a17_defer_stock\n\n'
+            '    :cond_fcm_defer_allow\n\n'
+            '    const/4 v0, 0x0\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_defer_stock'
+        )
+        cache_hook = (
+            '    if-eqz p1, :fcm_a17_cache_stock\n\n'
+            '    const-string v0, "com.google.android.c2dm.intent.RECEIVE"\n\n'
+            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_cache_allow\n\n'
+            '    const-string v0, "com.google.android.intent.action.GCM_RECONNECT"\n\n'
+            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_cache_allow\n\n'
+            '    goto :fcm_a17_cache_stock\n\n'
+            '    :cond_fcm_cache_allow\n\n'
+            '    const/4 v0, 0x0\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_cache_stock'
+        )
+        domestic_text = inject_method_preamble(
+            original_domestic,
+            "deferBroadcast(Ljava/lang/String;)Z",
+            defer_hook,
+            ":fcm_a17_defer_stock",
+            min_locals=1
+        )
+        domestic_text = inject_method_preamble(
+            domestic_text,
+            "needCacheBroadcast(Ljava/lang/String;II)Z",
+            cache_hook,
+            ":fcm_a17_cache_stock",
+            min_locals=1
+        )
         if domestic_text != original_domestic:
             domestic.write_text(domestic_text, encoding="utf-8")
             modified = True
-        details[DOMESTIC_POLICY] = {"defer_broadcast_disabled": True, "need_cache_broadcast_disabled": True}
+        details[DOMESTIC_POLICY] = {"defer_fcm_broadcast_disabled": True, "cache_fcm_broadcast_disabled": True}
 
-    # Alarm throttling: exempt only GMS from SSRU 120s budget denial (canAfford=false)
+    # Alarm throttling: exempt only GMS heartbeat/push alarms from SSRU 120s budget denial (canAfford=false)
     # and exempt GMS heartbeat/push alarms from screen-off alarm alignment and adjustment.
     # canAffordBillLocked uses .registers 14 (locals: v0..v10, params: p0=this, p1=v12, p2=v13).
     # v0 and v1 are available locals.
@@ -524,12 +568,40 @@ def patch(root: Path):
     if alarm_stub is not None:
         original_alarm = alarm_stub.read_text(encoding="utf-8")
         alarm_hook = (
-            '    const-string v0, "com.google.android.gms"\n\n'
-            '    move-object/from16 v1, p1\n\n'
-            '    iget-object v1, v1, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
-            '    invoke-virtual {v0, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    if-eqz p1, :fcm_a17_alarm_stock\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->sourcePackage:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_alarm_stock\n\n'
+            '    const-string v1, "com.google.android.gms"\n\n'
+            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
             '    if-eqz v0, :fcm_a17_alarm_stock\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_alarm_stock\n\n'
+            '    const-string v1, "GCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_alarm_exempt\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "fcm"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_alarm_exempt\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "FCM"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_alarm_exempt\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/alarm/Alarm;->statsTag:Ljava/lang/String;\n\n'
+            '    const-string v1, "chimera"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_alarm_stock\n\n'
+            '    :cond_fcm_alarm_exempt\n\n'
             '    const/4 v0, 0x1\n\n'
             '    return v0\n\n'
             '    :fcm_a17_alarm_stock'
