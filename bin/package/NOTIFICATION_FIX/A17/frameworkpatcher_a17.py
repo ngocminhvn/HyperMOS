@@ -448,7 +448,8 @@ def patch(root: Path):
         }
 
     # Port the verified fcm_notification_fix vectors to OS4/A17 without its
-    # runtime module. Only C2DM broadcasts bypass screen-off Greeze policy.
+    # runtime module. When C2DM broadcast arrives for an app, thaw its UID
+    # asynchronously (5000ms grace period) so it can process incoming FCM/calls.
     greeze_service = locate(root, GREEZE_SERVICE)
     if greeze_service is None:
         raise ValueError("GreezeManagerService missing")
@@ -460,10 +461,14 @@ def patch(root: Path):
         '    invoke-virtual {v0, p5}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
         '    move-result v0\n\n'
         '    if-eqz v0, :fcm_a17_greeze_stock\n\n'
+        '    const/16 v0, 0x1388\n\n'
+        '    const-string v1, "fcm_c2dm_thaw"\n\n'
+        '    invoke-virtual {p0, p3, v0, v1}, Lcom/miui/server/greeze/GreezeManagerService;->thawUidAsync(IILjava/lang/String;)V\n\n'
         '    const/4 v0, 0x1\n\n'
         '    return v0\n\n'
         '    :fcm_a17_greeze_stock',
-        ":fcm_a17_greeze_stock")
+        ":fcm_a17_greeze_stock",
+        min_locals=2)
     # On OS4, PowerKeeper's updateGmsNetStatus calls this same limiter.
     # Keep its Binder status round-trip and disable the limiter at its source.
     service_text = replace_void_method(
@@ -711,12 +716,19 @@ def patch(root: Path):
             "gms_alarm_adjust_exempt": True,
         }
 
-    # Wakelock policy: prevent disabling GMS / C2DM wakelocks with UidFrozen
+    # Wakelock policy: prevent disabling GMS / C2DM wakelocks and app FcmListenerService wakelocks with UidFrozen
     power_impl = locate(root, POWER_IMPL)
     if power_impl is not None:
         original_power = power_impl.read_text(encoding="utf-8")
         wl_hook = (
             '    if-eqz p1, :fcm_a17_wl_stock\n\n'
+            '    move-object/from16 v0, p1\n\n'
+            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
+            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
+            '    const-string v1, "FcmListenerService"\n\n'
+            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
             '    move-object/from16 v0, p1\n\n'
             '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mPackageName:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
@@ -764,12 +776,13 @@ def patch(root: Path):
             original_power,
             "isWakelockDisabledByPolicy(Lcom/android/server/power/PowerManagerService$WakeLock;)Z",
             wl_hook,
-            ":fcm_a17_wl_stock"
+            ":fcm_a17_wl_stock",
+            min_locals=2
         )
         if power_text != original_power:
             power_impl.write_text(power_text, encoding="utf-8")
             modified = True
-        details[POWER_IMPL] = {"c2dm_wakelock_shield": True}
+        details[POWER_IMPL] = {"c2dm_wakelock_shield": True, "fcm_listener_wakelock_shield": True}
 
     # Sleep Mode network firewall: disable kernel/netd sleep mode chain blocking background data
     net_policy = locate(root, NETWORK_POLICY)
