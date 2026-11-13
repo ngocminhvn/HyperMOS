@@ -415,7 +415,7 @@ BOOT_FSI = f"""
     # upstream WebUI selection is saved. Later Android AppOps edits persist.
     invoke-virtual {{p0}}, Landroid/content/Context;->getContentResolver()Landroid/content/ContentResolver;
     move-result-object v5
-    const-string v6, "hypermos_xnotify_fsi_uid_"
+    const-string v6, "hypermos_xnotify_fsi_v2_uid_"
     invoke-virtual {{v6, p1}}, Ljava/lang/String;->concat(Ljava/lang/String;)Ljava/lang/String;
     move-result-object v6
     const/4 v1, -0x1
@@ -432,6 +432,8 @@ BOOT_FSI = f"""
     const-string v4, "android:use_full_screen_intent"
     invoke-static {{v4}}, Landroid/app/AppOpsManager;->strOpToOp(Ljava/lang/String;)I
     move-result v4
+    invoke-static {{v3, v4, v2, p1}}, {HELPER}->allowOp(Landroid/app/AppOpsManager;IILjava/lang/String;)V
+    const/16 v4, 0x2718
     invoke-static {{v3, v4, v2, p1}}, {HELPER}->allowOp(Landroid/app/AppOpsManager;IILjava/lang/String;)V
     const/16 v4, 0x2724
     invoke-static {{v3, v4, v2, p1}}, {HELPER}->allowOp(Landroid/app/AppOpsManager;IILjava/lang/String;)V

@@ -127,13 +127,14 @@ def patch_region_gate(source, signature, fsi_packages=()):
     return edit_method(source, re.escape(signature), edit)
 
 
-def patch_force_stop(source: str):
-    """Preserve #268's AutoIdleKill (policy 13) exception.
+def patch_force_stop(source: str, fsi_packages=FSI_PACKAGES):
+    """Preserve #268's AutoIdleKill (policy 13) exception, but exempt FSI packages.
 
     On the verified OS4/A17 China ROM, forcing the international region read
     inside isForceStopEnable() makes normal recents cleanup kill the process
-    without force-stopping it. The stock policy-13 branch still returns true,
-    allowing Xiaomi's AutoIdleKill to force-stop an idle app as in #268.
+    without force-stopping it. For FSI packages (com.zing.zalo, com.facebook.orca),
+    isForceStopEnable returns false so AutoIdleKill (policy 13) will not force-stop
+    idle chat apps. For all other apps, the stock policy-13 branch still returns true.
     No global KEEP_NOTIF=ALL preamble is injected.
     """
     methods = list(FORCE_STOP_METHOD.finditer(source))
@@ -147,12 +148,12 @@ def patch_force_stop(source: str):
 
     gates = list(REGION_READ.finditer(block))
     if not gates:
-        if re.search(r"(?m)^\s+const/4\s+v\d+,\s+0x1\s+const/4\s+v\d+,\s+0x0\s+if-eqz", block):
+        if re.search(r"(?m)^\s+const/4\s+v\d+,\s+0x1\s+const/4\s+v\d+,\s+0x0\s+if-eqz", block) or ":hypermos_fsi_exempt" in block:
             return source, {
                 "method_patched": False,
                 "already_patched": True,
                 "keep_notifications": "scoped_268",
-                "auto_idle_policy_13": "stock_force_stop",
+                "auto_idle_policy_13": "fsi_exempt_268",
                 "runtime_module_required": False,
             }
         # A second application to a compiled JAR loses Smali comments. If no
@@ -166,11 +167,37 @@ def patch_force_stop(source: str):
         return f"{indent}{opcode} {register}, 0x1{suffix}"
 
     patched_block = REGION_READ.sub(enable_international, block)
+
+    if fsi_packages and ":hypermos_fsi_exempt" not in patched_block:
+        fsi_checks = [
+            "    if-eqz p1, :hypermos_fsi_check_done\n",
+            "    iget-object v0, p1, Lcom/android/server/am/ProcessRecord;->info:Landroid/content/pm/ApplicationInfo;\n",
+            "    if-eqz v0, :hypermos_fsi_check_done\n",
+            "    iget-object v0, v0, Landroid/content/pm/ApplicationInfo;->packageName:Ljava/lang/String;\n",
+            "    if-eqz v0, :hypermos_fsi_check_done\n",
+        ]
+        for pkg in fsi_packages:
+            fsi_checks.extend([
+                f'    const-string v1, "{pkg}"\n',
+                "    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n",
+                "    move-result v1\n",
+                "    if-nez v1, :hypermos_fsi_exempt\n",
+            ])
+        fsi_checks.extend([
+            "    goto :hypermos_fsi_check_done\n\n",
+            "    :hypermos_fsi_exempt\n",
+            "    const/4 v0, 0x0\n\n",
+            "    return v0\n\n",
+            "    :hypermos_fsi_check_done\n",
+        ])
+        header_end = find_header_end(patched_block)
+        patched_block = patched_block[:header_end] + "\n" + "".join(fsi_checks) + patched_block[header_end:]
+
     output = source[:methods[0].start()] + patched_block + source[methods[0].end():]
     return output, {
         "method_patched": True,
         "keep_notifications": "scoped_268",
-        "auto_idle_policy_13": "stock_force_stop",
+        "auto_idle_policy_13": "fsi_exempt_268",
         "region_reads_replaced": len(gates),
         "runtime_module_required": False,
     }
@@ -780,21 +807,11 @@ def patch(root: Path):
             '    const-string v1, "com.facebook.orca"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v1\n\n'
-            '    if-eqz v1, :cond_check_fsi_zalo\n\n'
-            '    goto :cond_check_fcm_tag\n\n'
-            '    :cond_check_fsi_zalo\n\n'
+            '    if-nez v1, :cond_fcm_wl_exempt\n\n'
             '    const-string v1, "com.zing.zalo"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
-            '    :cond_check_fcm_tag\n\n'
-            '    move-object/from16 v0, p1\n\n'
-            '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
-            '    if-eqz v0, :fcm_a17_wl_stock\n\n'
-            '    const-string v1, "FcmListenerService"\n\n'
-            '    invoke-virtual {v0, v1}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_wl_exempt\n\n'
+            '    move-result v1\n\n'
+            '    if-nez v1, :cond_fcm_wl_exempt\n\n'
             '    goto :fcm_a17_wl_stock\n\n'
             '    :cond_fcm_wl_exempt\n\n'
             '    const/4 v0, 0x0\n\n'
