@@ -15,6 +15,8 @@ ALARM_STUB = "com/android/server/alarm/AlarmManagerServiceStubImpl.smali"
 POWER_IMPL = "com/android/server/power/PowerManagerServiceImpl.smali"
 NETWORK_POLICY = "com/android/server/net/MiuiNetworkPolicyManagerService.smali"
 BQ_STUB = "com/android/server/am/BroadcastQueueModernStubImpl.smali"
+ACTIVITY_STARTER = "com/android/server/wm/ActivityStarterImpl.smali"
+AMS_IMPL = "com/android/server/am/ActivityManagerServiceImpl.smali"
 
 REGION_GATES = (
     ("com/android/server/am/BroadcastQueueModernStubImpl.smali",
@@ -718,6 +720,134 @@ def patch(root: Path):
             net_policy.write_text(net_text, encoding="utf-8")
             modified = True
         details[NETWORK_POLICY] = {"sleep_mode_chain_disabled": True}
+
+    # Background Activity / FSI Start: Allow FSI packages (Messenger, Zalo) to launch
+    # call activities / incoming call UI from background even when screen is locked/off
+    activity_starter = locate(root, ACTIVITY_STARTER)
+    if activity_starter is not None:
+        original_starter = activity_starter.read_text(encoding="utf-8")
+        starter_text = original_starter
+
+        # 1. Hook checkStartActivityPermission(Lcom/android/server/wm/ActivityStarter$Request;)Z
+        lines_check = [
+            '    if-eqz p1, :fsi_a17_check_start_stock\n\n',
+            '    move-object/from16 v0, p1\n\n',
+            '    iget-object v0, v0, Lcom/android/server/wm/ActivityStarter$Request;->callingPackage:Ljava/lang/String;\n\n',
+            '    if-eqz v0, :fsi_a17_check_start_stock\n\n',
+        ]
+        for pkg in FSI_PACKAGES:
+            lines_check.extend([
+                f'    const-string v1, "{pkg}"\n\n',
+                '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
+                '    move-result v1\n\n',
+                '    if-nez v1, :cond_fsi_check_start_exempt\n\n',
+            ])
+        lines_check.extend([
+            '    goto :fsi_a17_check_start_stock\n\n',
+            '    :cond_fsi_check_start_exempt\n\n',
+            '    const/4 v0, 0x1\n\n',
+            '    return v0\n\n',
+            '    :fsi_a17_check_start_stock'
+        ])
+        starter_text = inject_method_preamble(
+            starter_text,
+            "checkStartActivityPermission(Lcom/android/server/wm/ActivityStarter$Request;)Z",
+            "".join(lines_check),
+            ":fsi_a17_check_start_stock",
+            min_locals=2
+        )
+
+        # 2. Hook isAllowedStartActivity(IILjava/lang/String;)Z
+        lines_allowed_3 = [
+            '    if-eqz p3, :fsi_a17_allowed_3_stock\n\n',
+        ]
+        for pkg in FSI_PACKAGES:
+            lines_allowed_3.extend([
+                f'    const-string v0, "{pkg}"\n\n',
+                '    invoke-virtual {v0, p3}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
+                '    move-result v0\n\n',
+                '    if-nez v0, :cond_fsi_allowed_3_exempt\n\n',
+            ])
+        lines_allowed_3.extend([
+            '    goto :fsi_a17_allowed_3_stock\n\n',
+            '    :cond_fsi_allowed_3_exempt\n\n',
+            '    const/4 v0, 0x1\n\n',
+            '    return v0\n\n',
+            '    :fsi_a17_allowed_3_stock'
+        ])
+        starter_text = inject_method_preamble(
+            starter_text,
+            "isAllowedStartActivity(IILjava/lang/String;)Z",
+            "".join(lines_allowed_3),
+            ":fsi_a17_allowed_3_stock",
+            min_locals=1
+        )
+
+        # 3. Hook isAllowedStartActivity(Landroid/content/Intent;IILjava/lang/String;IILandroid/content/pm/ActivityInfo;Lcom/android/server/wm/BackgroundActivityStartController$BalVerdict;Lcom/android/server/wm/ActivityRecord;)Z
+        lines_allowed_9 = [
+            '    if-eqz p4, :fsi_a17_allowed_9_stock\n\n',
+            '    move-object/from16 v0, p4\n\n',
+        ]
+        for pkg in FSI_PACKAGES:
+            lines_allowed_9.extend([
+                f'    const-string v1, "{pkg}"\n\n',
+                '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
+                '    move-result v1\n\n',
+                '    if-nez v1, :cond_fsi_allowed_9_exempt\n\n',
+            ])
+        lines_allowed_9.extend([
+            '    goto :fsi_a17_allowed_9_stock\n\n',
+            '    :cond_fsi_allowed_9_exempt\n\n',
+            '    const/4 v0, 0x1\n\n',
+            '    return v0\n\n',
+            '    :fsi_a17_allowed_9_stock'
+        ])
+        starter_text = inject_method_preamble(
+            starter_text,
+            "isAllowedStartActivity(Landroid/content/Intent;IILjava/lang/String;IILandroid/content/pm/ActivityInfo;Lcom/android/server/wm/BackgroundActivityStartController$BalVerdict;Lcom/android/server/wm/ActivityRecord;)Z",
+            "".join(lines_allowed_9),
+            ":fsi_a17_allowed_9_stock",
+            min_locals=2
+        )
+
+        if starter_text != original_starter:
+            activity_starter.write_text(starter_text, encoding="utf-8")
+            modified = True
+        details[ACTIVITY_STARTER] = {"fsi_background_start_allowed": True}
+
+    # 4. Hook AMS checkRunningCompatibility with ActivityInfo for FSI callingPackage
+    ams_impl = locate(root, AMS_IMPL)
+    if ams_impl is not None:
+        original_ams = ams_impl.read_text(encoding="utf-8")
+        lines_ams = [
+            '    if-eqz p5, :fsi_a17_ams_compat_stock\n\n',
+            '    move-object/from16 v0, p5\n\n',
+        ]
+        for pkg in FSI_PACKAGES:
+            lines_ams.extend([
+                f'    const-string v1, "{pkg}"\n\n',
+                '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
+                '    move-result v1\n\n',
+                '    if-nez v1, :cond_fsi_ams_compat_exempt\n\n',
+            ])
+        lines_ams.extend([
+            '    goto :fsi_a17_ams_compat_stock\n\n',
+            '    :cond_fsi_ams_compat_exempt\n\n',
+            '    const/4 v0, 0x1\n\n',
+            '    return v0\n\n',
+            '    :fsi_a17_ams_compat_stock'
+        ])
+        ams_text = inject_method_preamble(
+            original_ams,
+            "checkRunningCompatibility(Landroid/app/IApplicationThread;Landroid/content/pm/ActivityInfo;Landroid/content/Intent;ILjava/lang/String;)Z",
+            "".join(lines_ams),
+            ":fsi_a17_ams_compat_stock",
+            min_locals=2
+        )
+        if ams_text != original_ams:
+            ams_impl.write_text(ams_text, encoding="utf-8")
+            modified = True
+        details[AMS_IMPL] = {"fsi_ams_compat_exempt": True}
 
     return {
         "status": "success",
