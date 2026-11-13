@@ -766,7 +766,7 @@ def patch(root: Path):
             '    const-string v1, "com.facebook.orca"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v1\n\n'
-            '    if-nez v1, :cond_check_fsi_zalo\n\n'
+            '    if-eqz v1, :cond_check_fsi_zalo\n\n'
             '    goto :cond_check_fcm_tag\n\n'
             '    :cond_check_fsi_zalo\n\n'
             '    const-string v1, "com.zing.zalo"\n\n'
