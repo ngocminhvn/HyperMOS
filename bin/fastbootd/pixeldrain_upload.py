@@ -346,6 +346,12 @@ def main() -> int:
                 out.write(f"| {part} | [Pixeldrain]({item['url']}) | "
                           f"[Bypass]({direct_url}) | {item['bytes']:,} | "
                           f"`{item['sha256']}` |\n")
+            out.write("\n### Flash script\n\n```bash\n")
+            out.write("cd ~/Downloads && \\\n")
+            for part in manifest["selected_partitions"]:
+                item = results_by_part[part]
+                out.write(f'fastboot flash {part} "{item["name"]}" && \\\n')
+            out.write("fastboot reboot\n```\n")
     print("[PIXELDRAIN] ALL SELECTED IMAGES VERIFIED", flush=True)
     if list_url:
         print("[PIXELDRAIN] List: " + list_url, flush=True)
