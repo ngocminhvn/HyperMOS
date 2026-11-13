@@ -23,6 +23,7 @@ BROADCAST_METHOD = re.compile(
 INTENT_MOVE = re.compile(
     r"(?m)^([ \t]*)move-object/from16[ \t]+v0,[ \t]+p4[ \t]*$"
 )
+ACTIVE_SERVICES = "com/android/server/am/ActiveServices.smali"
 ATTENTION_HELPER = "com/android/server/notification/NotificationAttentionHelper.smali"
 NOTIFICATION_MANAGER = "com/android/server/notification/NotificationManagerService.smali"
 PATCH_LABEL = ":fcm_a17_c2dm_continue"
@@ -202,6 +203,94 @@ def patch_call_full_screen_intent(source):
     )
 
 
+MQTT_EXEMPT_HELPER = """
+.method private static hypermosIsMqttServiceExempt(Lcom/android/server/am/ServiceRecord;)Z
+    .locals 3
+    .param p0, "service"    # Lcom/android/server/am/ServiceRecord;
+
+    const/4 v0, 0x0
+
+    if-nez p0, :cond_check_null
+
+    return v0
+
+    :cond_check_null
+    iget-object v1, p0, Lcom/android/server/am/ServiceRecord;->packageName:Ljava/lang/String;
+
+    if-nez v1, :cond_check_pkg
+
+    return v0
+
+    :cond_check_pkg
+    const-string v2, "com.facebook.orca"
+
+    invoke-virtual {v2, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+
+    move-result v1
+
+    if-nez v1, :cond_check_comp
+
+    return v0
+
+    :cond_check_comp
+    iget-object v1, p0, Lcom/android/server/am/ServiceRecord;->shortInstanceName:Ljava/lang/String;
+
+    if-nez v1, :cond_check_name
+
+    return v0
+
+    :cond_check_name
+    const-string v2, "MqttService"
+
+    invoke-virtual {v1, v2}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z
+
+    move-result v1
+
+    if-nez v1, :cond_check_done
+
+    return v0
+
+    :cond_check_done
+    const/4 v0, 0x1
+
+    return v0
+.end method
+"""
+
+
+def patch_active_services(source: str):
+    method_sig = r"stopInBackgroundLocked\(I\)V"
+    pattern = (
+        r"^[ \t]*invoke-virtual/range \{v8 \.\. v16\}, "
+        r"Lcom/android/server/am/ActivityManagerService;->getAppStartModeLOSP\([^\)]+\)I\s*\n"
+        r"[ \t]*move-result v6\s*\n"
+        r"[ \t]*if-eqz v6, :(\w+)\s*$"
+    )
+
+    def edit(block):
+        if "hypermosIsMqttServiceExempt" in block or "# XNotifyFix mqtt service idle exemption" in block:
+            return block
+        m = re.search(pattern, block, re.MULTILINE)
+        if not m:
+            raise ValueError("stopInBackgroundLocked: getAppStartModeLOSP pattern not found")
+        skip_label = ":" + m.group(1)
+        hook = (
+            f"    invoke-static {{v5}}, Lcom/android/server/am/ActiveServices;->hypermosIsMqttServiceExempt(Lcom/android/server/am/ServiceRecord;)Z\n\n"
+            f"    move-result v6\n\n"
+            f"    if-eqz v6, {skip_label}  # XNotifyFix mqtt service idle exemption\n\n"
+        )
+        return block[:m.start()] + hook + block[m.start():]
+
+    method_pattern = rf"(?ms)^\.method[^\n]*\s{method_sig}[ \t]*\n.*?^\.end method[ \t]*$"
+    m_meth = re.search(method_pattern, source)
+    if not m_meth:
+        raise ValueError("ActiveServices: expected stopInBackgroundLocked(I)V method")
+    patched_method = edit(m_meth.group(0))
+    if patched_method != m_meth.group(0):
+        return source[:m_meth.start()] + patched_method + source[m_meth.end():] + MQTT_EXEMPT_HELPER, True
+    return source, False
+
+
 def patch(root: Path):
     if not root.is_dir():
         raise ValueError(f"missing decompiled services.jar: {root}")
@@ -234,15 +323,22 @@ def patch(root: Path):
         manager.write_text(patched_manager, encoding="utf-8")
 
     boot_inserted = patch_boot(locate(root, BOOT_CLASS))
+
+    active_services = locate(root, ACTIVE_SERVICES)
+    patched_as, as_inserted = patch_active_services(active_services.read_text(encoding="utf-8"))
+    if as_inserted:
+        active_services.write_text(patched_as, encoding="utf-8")
+
     return {
         "status": "success",
-        "changed": inserted or patched != original or boot_inserted or call_gate_inserted,
+        "changed": inserted or patched != original or boot_inserted or call_gate_inserted or as_inserted,
         "target_jar": "services.jar",
         "c2dm_include_stopped_packages": True,
         "hook_inserted": inserted,
         "alert_options": flags,
         "call_fsi_gate_inserted": call_gate_inserted,
         "boot_actions_inserted": boot_inserted,
+        "mqtt_service_exempt_inserted": as_inserted,
         "class": BROADCAST_CONTROLLER,
     }
 

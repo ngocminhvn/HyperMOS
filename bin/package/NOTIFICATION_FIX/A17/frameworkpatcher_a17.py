@@ -394,8 +394,9 @@ def patch(root: Path):
     # When C2DM broadcast arrives for a warm process, actively thaw its UID via
     # GreezeManagerInternal so Modern BroadcastQueue does not timeout with ANR warning.
     bq_stub = locate(root, BQ_STUB)
-    if bq_stub is not None:
-        original_bq = bq_stub.read_text(encoding="utf-8")
+    if bq_stub is None:
+        raise ValueError(f"{BQ_STUB}: missing")
+    original_bq = bq_stub.read_text(encoding="utf-8")
         deal_hook = (
             '    if-eqz p2, :fcm_a17_deal_stock\n\n'
             '    move-object/from16 v0, p2\n\n'
@@ -503,8 +504,9 @@ def patch(root: Path):
     # and background transition (tobg/screen_off), making them completely unable
     # to receive real-time FCM VoIP calls or run broadcast receivers.
     policy_maker = locate(root, POLICY_MAKER)
-    if policy_maker is not None:
-        original_pm = policy_maker.read_text(encoding="utf-8")
+    if policy_maker is None:
+        raise ValueError(f"{POLICY_MAKER}: missing")
+    original_pm = policy_maker.read_text(encoding="utf-8")
         freeze_hook_lines = [
             '    if-eqz p2, :cond_check_freeze_stock\n\n'
         ]
