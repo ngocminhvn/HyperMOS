@@ -13,6 +13,10 @@ on:
         type: boolean
         default: true
 
+  # GitHub cron is UTC: 02:20 UTC = 09:20 Vietnam time.
+  schedule:
+    - cron: '20 2 * * *'
+
 permissions:
   actions: write
   contents: read
@@ -32,6 +36,7 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - name: Validate confirmation
+        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -40,29 +45,42 @@ jobs:
             exit 1
           fi
 
-      - name: Delete completed runs across every workflow
+      - name: Delete workflow run history (scheduled 3-day retention / manual all)
         shell: bash
         run: |
           set -euo pipefail
 
+          # Scheduled mode deletes only completed runs whose last update
+          # was at least 72 hours ago. Manual mode retains "delete all".
+          mode="Manual all-run cleanup"
+          dry_run="${DRY_RUN:-true}"
+          query="repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100"
+          jq_filter='.workflow_runs[] | select(.status == "completed") | .id'
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            cutoff="$(date -u -d '72 hours ago' +'%Y-%m-%dT%H:%M:%SZ')"
+            mode="Scheduled 72-hour retention (updated_at <= $cutoff)"
+            dry_run=false
+            query="${query}&created=..${cutoff}"
+            jq_filter=".workflow_runs[] | select(.status == \"completed\" and .updated_at <= \"${cutoff}\") | .id"
+          fi
+
           # Snapshot IDs before deletion: paginating while deleting would skip runs.
           run_ids_file="$(mktemp)"
           trap 'rm -f "$run_ids_file"' EXIT
-          gh api --paginate \
-            --jq '.workflow_runs[] | select(.status == "completed") | .id' \
-            "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" > "$run_ids_file"
+          gh api --paginate --jq "$jq_filter" "$query" > "$run_ids_file"
           mapfile -t run_ids < "$run_ids_file"
           total="${#run_ids[@]}"
-          echo "Found $total completed workflow runs in $GITHUB_REPOSITORY."
+          echo "Found $total eligible completed workflow runs in $GITHUB_REPOSITORY."
 
           {
             echo "### Workflow run history cleanup"
             echo
-            echo "- Completed runs found: $total"
-            echo "- Dry run: $DRY_RUN"
+            echo "- Mode: $mode"
+            echo "- Eligible completed runs: $total"
+            echo "- Dry run: $dry_run"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$DRY_RUN" == "true" ]]; then
+          if [[ "$dry_run" == "true" ]]; then
             for run_id in "${run_ids[@]}"; do
               echo "Would delete run $run_id"
             done
