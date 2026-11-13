@@ -63,7 +63,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$DRY_RUN" == "true" ]]; then
-            printf 'Would delete run %s\n' "${run_ids[@]}"
+            for run_id in "${run_ids[@]}"; do
+              echo "Would delete run $run_id"
+            done
             echo "- No runs deleted (preview only)." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
