@@ -187,15 +187,6 @@ jobs:
           test -s out/fastbootd/manifest.json
           echo "[FASTBOOTD] Images ready for Pixeldrain: ${FASTBOOTD_PARTITIONS}"
           echo "[FASTBOOTD] Run number: ${GITHUB_RUN_NUMBER}"
-          echo "### FastbootD images" >> "$GITHUB_STEP_SUMMARY"
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          manifest=json.loads(Path("out/fastbootd/manifest.json").read_text())
-          with open(__import__("os").environ["GITHUB_STEP_SUMMARY"],"a") as f:
-              f.write(f"Source: {manifest['rom_source']} / {manifest['base_rom_code']} / {manifest['device']}\n\n")
-              f.write("Selected partitions: " + ", ".join(manifest["selected_partitions"]) + "\n")
-          PY
 
       # One Pixeldrain PUT per IMG. Files upload concurrently, not in a giant
       # GitHub artifact ZIP. Verify server-side SHA256 and publish checksums.
