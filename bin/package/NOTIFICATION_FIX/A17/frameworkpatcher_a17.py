@@ -729,7 +729,7 @@ def patch(root: Path):
             '    const-string v1, "com.google.android.gms"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v1\n\n'
-            '    if-nez v1, :cond_check_fsi_pkg\n\n'
+            '    if-eqz v1, :cond_check_fsi_pkg\n\n'
             '    move-object/from16 v0, p1\n\n'
             '    iget-object v0, v0, Lcom/android/server/power/PowerManagerService$WakeLock;->mTag:Ljava/lang/String;\n\n'
             '    if-eqz v0, :fcm_a17_wl_stock\n\n'
