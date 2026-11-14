@@ -14,8 +14,9 @@ android_ver="$(tr -d '\r\n' < "$version")"
 WORK_DIR="$work_dir"
 TOOLS_DIR="$work_dir/bin/apktool"
 API_LEVEL=36
-miui_jar="$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
-report_dir="$work_dir/build/reports/frameworkpatcher-a17"
+image_root="$work_dir/build/baserom/images"
+miui_jar="$image_root/system_ext/framework/miui-services.jar"
+report_dir="$work_dir/build/reports/notification-a17"
 miui_output="$work_dir/miui-services_patched.jar"
 
 ensure_tools() {
@@ -123,21 +124,85 @@ with zipfile.ZipFile(orig) as src, zipfile.ZipFile(out, "w") as dst:
   printf '%s\n' "$patched_jar"
 }
 
-stage_jar() {
-  local jar="$1" patcher="$2" report="$3" output="$4" decoded changed
-  info "[A17 Notification] Checking $(basename "$jar")"
-  decoded="$(decompile_jar "$jar")"
-  python3 "$base/$patcher" "$decoded" --report "$report"
-  changed="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["changed"])' "$report")"
+patch_miui_services() {
+  info "[A17 Notification] Checking $(basename "$miui_jar")"
+  local decoded changed
+  decoded="$(decompile_jar "$miui_jar")"
+  python3 "$base/framework_patcher.py" "$decoded" --report "$report_dir/notification-gates.json"
+  changed="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["changed"])' "$report_dir/notification-gates.json")"
   if [[ "$changed" == "False" ]]; then
-    info "[A17 Notification] $(basename "$jar") already patched"
+    info "[A17 Notification] $(basename "$miui_jar") already patched"
     return
   fi
-  recompile_jar "$jar" >/dev/null
-  [[ -s "$output" ]] && unzip -t "$output" >/dev/null || {
-    error "A17 Notification: invalid rebuilt $(basename "$jar")"
+  recompile_jar "$miui_jar" >/dev/null
+  [[ -s "$miui_output" ]] && unzip -t "$miui_output" >/dev/null || {
+    error "A17 Notification: invalid rebuilt $(basename "$miui_jar")"
     return 1
   }
+  mv -f "$miui_output" "$miui_jar"
+  info "[A17 Notification] Successfully patched $(basename "$miui_jar")"
+}
+
+patch_powerkeeper() {
+  local apks apk tmp final_apk
+  mapfile -d '' apks < <(find "$image_root" -type f -name PowerKeeper.apk -print0)
+  (( ${#apks[@]} == 1 )) || { error "PowerKeeper: exactly one stock Xiaomi APK required"; exit 1; }
+  apk="${apks[0]}"
+  [[ -s "$apk" ]] || { error "PowerKeeper: empty base APK"; exit 1; }
+
+  local apksigner="$TOOLS_DIR/apksigner.jar"
+  [[ -s "$apksigner" ]] || apksigner="$(find "$WORK_DIR/bin" -name "apksigner.jar" | head -n1)"
+  [[ -s "$apksigner" ]] || { error "PowerKeeper: apksigner.jar not found"; exit 1; }
+
+  info "[A17 Notification] Checking $(basename "$apk")"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+
+  # 1. Verify Xiaomi base signature
+  python3 "$base/powerkeeper_patcher.py" \
+    --check-base --apk "$apk" --reference "$apk" \
+    --allow-stripped-base \
+    --apksigner "$apksigner" \
+    --report "$report_dir/stock-identity.json"
+
+  # 2. Extract and disassemble classes.dex
+  unzip -p "$apk" classes.dex > "$tmp/classes.dex"
+  java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api 34 "$tmp/classes.dex" -o "$tmp/smali"
+
+  # 3. Patch PowerKeeper smali (GMS limiter bit 0, jupiter international sync, GLOBAL, xuanyuan)
+  python3 "$base/powerkeeper_patcher.py" \
+    --patch-smali "$tmp/smali" \
+    --report "$report_dir/powerkeeper-patch-report.json"
+
+  # 4. Reassemble patched classes.dex
+  java -jar "$TOOLS_DIR/smaliv2.jar" a --api 34 "$tmp/smali" -o "$tmp/classes_patched.dex"
+  [[ -s "$tmp/classes_patched.dex" ]] || { error "PowerKeeper: failed to assemble patched classes.dex"; exit 1; }
+
+  # 5. Transplant patched classes.dex into stock APK with preserved Xiaomi identity
+  python3 "$base/powerkeeper_patcher.py" \
+    --rebuild --base "$apk" --patched "$tmp/classes_patched.dex" \
+    --reference "$apk" --apksigner "$apksigner" \
+    --allow-stripped-base \
+    --apk "$tmp/PowerKeeper.preserved.apk" \
+    --report "$report_dir/preserved-metadata.json"
+
+  # 6. Zipalign if available
+  if command -v zipalign >/dev/null 2>&1; then
+    zipalign -p -f 4 "$tmp/PowerKeeper.preserved.apk" "$tmp/PowerKeeper.aligned.apk"
+    zipalign -c -p 4 "$tmp/PowerKeeper.aligned.apk"
+    final_apk="$tmp/PowerKeeper.aligned.apk"
+  else
+    final_apk="$tmp/PowerKeeper.preserved.apk"
+  fi
+
+  # 7. Final verification of preserved identity
+  python3 "$base/powerkeeper_patcher.py" \
+    --verify --apk "$final_apk" --reference "$apk" \
+    --report "$report_dir/final-metadata.json"
+
+  cp -f "$final_apk" "$apk"
+  rm -rf "$(dirname "$apk")/oat"
+  info "[A17 Notification] Successfully patched $(basename "$apk")"
 }
 
 ensure_tools
@@ -146,13 +211,9 @@ trap 'rm -rf "$work_dir/miui-services_decompile" "$miui_output"' EXIT
 rm -f "$miui_output"
 
 # 1. Patch miui-services.jar: activate InternationalPolicyManager (isCnModel = false)
-stage_jar "$miui_jar" frameworkpatcher_a17.py "$report_dir/notification-gates.json" "$miui_output"
-
-if [[ -f "$miui_output" ]]; then
-  mv -f "$miui_output" "$miui_jar"
-fi
+patch_miui_services
 
 # 2. Patch PowerKeeper: Global cloud sync & identity preservation
-bash "$base/PowerKeeper.sh"
+patch_powerkeeper
 
 log "[A17 Notification] Android 17 Pure Global notification patch complete"
