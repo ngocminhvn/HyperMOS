@@ -124,23 +124,44 @@ def rebuild(base, patched, reference, output, signer, java, allow_stripped=False
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent, prefix='powerkeeper-identity-') as folder:
         candidate = Path(folder) / 'PowerKeeper.apk'
-        with zipfile.ZipFile(base) as original, zipfile.ZipFile(patched) as rebuilt:
-            for z in [original, rebuilt]:
-                if len(z.namelist()) != len(set(z.namelist())) or z.testzip():
-                    raise ValueError('Duplicate or corrupted input ZIP')
+        with zipfile.ZipFile(base) as original:
+            if len(original.namelist()) != len(set(original.namelist())) or original.testzip():
+                raise ValueError('Duplicate or corrupted base ZIP')
             dex = {n for n in original.namelist() if DEX.fullmatch(n)}
-            rebuilt_dex = {n for n in rebuilt.namelist() if DEX.fullmatch(n)}
-            if not dex or not dex.issubset(rebuilt_dex):
-                raise ValueError('Compiled DEX set differs from stock')
-            with zipfile.ZipFile(candidate, 'w') as dest:
-                dest.comment = original.comment
-                for member in original.infolist():
-                    if member.filename.upper().startswith('META-INF/'):
-                        continue
-                    raw = rebuilt.read(member.filename) if member.filename in rebuilt_dex else original.read(member)
-                    dest.writestr(copy.copy(member), raw)
-                for name, raw in meta.items():
-                    dest.writestr(name, raw, compress_type=zipfile.ZIP_DEFLATED)
+
+            if patched.is_file() and patched.suffix == '.dex':
+                dex_bytes = patched.read_bytes()
+                if len(dex_bytes) < 112 or not dex_bytes.startswith(b"dex\n"):
+                    raise ValueError('Invalid patched DEX file')
+                rebuilt_dex = {'classes.dex'}
+                with zipfile.ZipFile(candidate, 'w') as dest:
+                    dest.comment = original.comment
+                    for member in original.infolist():
+                        if member.filename.upper().startswith('META-INF/'):
+                            continue
+                        raw = dex_bytes if member.filename == 'classes.dex' else original.read(member)
+                        dest.writestr(copy.copy(member), raw)
+                    for name, raw in meta.items():
+                        dest.writestr(name, raw, compress_type=zipfile.ZIP_DEFLATED)
+                compiled_hashes = {'classes.dex': hashlib.sha256(dex_bytes).hexdigest()}
+            else:
+                with zipfile.ZipFile(patched) as rebuilt:
+                    if len(rebuilt.namelist()) != len(set(rebuilt.namelist())) or rebuilt.testzip():
+                        raise ValueError('Duplicate or corrupted rebuilt ZIP')
+                    rebuilt_dex = {n for n in rebuilt.namelist() if DEX.fullmatch(n)}
+                    if not dex or not dex.issubset(rebuilt_dex):
+                        raise ValueError('Compiled DEX set differs from stock')
+                    with zipfile.ZipFile(candidate, 'w') as dest:
+                        dest.comment = original.comment
+                        for member in original.infolist():
+                            if member.filename.upper().startswith('META-INF/'):
+                                continue
+                            raw = rebuilt.read(member.filename) if member.filename in rebuilt_dex else original.read(member)
+                            dest.writestr(copy.copy(member), raw)
+                        for name, raw in meta.items():
+                            dest.writestr(name, raw, compress_type=zipfile.ZIP_DEFLATED)
+                    compiled_hashes = {n: hashlib.sha256(rebuilt.read(n)).hexdigest() for n in sorted(rebuilt_dex)}
+
             report = verify(candidate, reference)
             with zipfile.ZipFile(candidate) as final:
                 for n in original.namelist():
@@ -149,7 +170,7 @@ def rebuild(base, patched, reference, output, signer, java, allow_stripped=False
                             raise ValueError('Non-DEX content changed: ' + n)
             report['base_sha256'] = sha(base)
             report['base_verification'] = base_verification
-            report['compiled_dex_sha256'] = {n: hashlib.sha256(rebuilt.read(n)).hexdigest() for n in sorted(rebuilt_dex)}
+            report['compiled_dex_sha256'] = compiled_hashes
         os.replace(candidate, output)
     return report
 
