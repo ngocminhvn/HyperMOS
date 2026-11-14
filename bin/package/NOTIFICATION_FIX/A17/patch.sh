@@ -73,4 +73,6 @@ if [[ -f "$miui_output" ]]; then
   mv -f "$miui_output" "$miui_jar"
 fi
 
+bash "$base/PowerKeeper.sh"
+
 log "[A17 Notification] Android 17 framework patch complete"
