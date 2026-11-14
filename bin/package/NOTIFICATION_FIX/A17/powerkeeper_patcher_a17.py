@@ -12,6 +12,9 @@ from pathlib import Path
 
 GMS_OBSERVER = "com/miui/powerkeeper/utils/GmsObserver.smali"
 INTERNATIONAL_ADAPTER = "com/miui/powerkeeper/utils/InternationalAdapter.smali"
+LOCAL_UPDATE_UTILS = "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali"
+UTILS = "com/miui/powerkeeper/utils/Utils.smali"
+DEVICE = "com/miui/powerkeeper/utils/Device.smali"
 
 
 def locate(root: Path, relative: str, required=True):
@@ -103,6 +106,80 @@ def patch(root: Path):
             "network_allow_apps_emptied": True,
         }
         total += 1
+
+    # 3. Direct PowerKeeper Cloud Sync to International Endpoint:
+    # Routes to jupiter.intl.sys.miui.com with global SIDs (disables GMS control,
+    # drops aggressive freeze/sync kill, and sets standby chain delay to 30s).
+    lu_file = locate(root, LOCAL_UPDATE_UTILS, required=False)
+    if lu_file is not None:
+        lu_text = lu_file.read_text(encoding="utf-8")
+        set_server_re = re.compile(
+            r"(?ms)^\.method private static setServerConfigurations\([^\n]*\n.*?^\.end method[ \t]*$"
+        )
+        if set_server_re.search(lu_text):
+            new_set_server = (
+                ".method private static setServerConfigurations(Landroid/content/Context;)V\n"
+                "    .registers 2\n\n"
+                '    const-string/jumbo v0, "https://jupiter.intl.sys.miui.com/api/profile/getProfile.do?"\n\n'
+                "    sput-object v0, Lcom/miui/powerkeeper/cloudcontrol/Constants;->CLOUD_NEW_SERVER:Ljava/lang/String;\n\n"
+                '    const-string/jumbo v0, "wdFSzmfNh"\n\n'
+                "    sput-object v0, Lcom/miui/powerkeeper/cloudcontrol/Constants;->CLOUD_POWER_NEW_SID:Ljava/lang/String;\n\n"
+                '    const-string/jumbo v0, "kxIu9S9Wi"\n\n'
+                "    sput-object v0, Lcom/miui/powerkeeper/cloudcontrol/Constants;->CLOUD_PERF_ENGINE_SID:Ljava/lang/String;\n\n"
+                '    const-string/jumbo v0, "J6G4oVvvp"\n\n'
+                "    sput-object v0, Lcom/miui/powerkeeper/cloudcontrol/Constants;->CLOUD_THERMAL_NEW_SID:Ljava/lang/String;\n\n"
+                '    const-string/jumbo v0, "MGdeXyMDu"\n\n'
+                "    sput-object v0, Lcom/miui/powerkeeper/cloudcontrol/Constants;->CLOUD_PERF_SHIELDER_SID:Ljava/lang/String;\n\n"
+                "    return-void\n"
+                ".end method"
+            )
+            lu_text = set_server_re.sub(new_set_server, lu_text)
+            lu_file.write_text(lu_text, encoding="utf-8")
+            details[LOCAL_UPDATE_UTILS] = {"cloud_server_forced_international": True}
+            total += 1
+
+    # 4. Scope-isolated Utils.getRegion():
+    # Returns GLOBAL within PowerKeeper so cloud registration uses rgn-GLOBAL.
+    utils_file = locate(root, UTILS, required=False)
+    if utils_file is not None:
+        u_text = utils_file.read_text(encoding="utf-8")
+        get_rgn_re = re.compile(
+            r"(?ms)^\.method static getRegion\(\)Ljava/lang/String;\s*\n.*?^\.end method[ \t]*$"
+        )
+        if get_rgn_re.search(u_text):
+            new_get_rgn = (
+                ".method static getRegion()Ljava/lang/String;\n"
+                "    .registers 1\n\n"
+                '    const-string/jumbo v0, "GLOBAL"\n\n'
+                "    return-object v0\n"
+                ".end method"
+            )
+            u_text = get_rgn_re.sub(new_get_rgn, u_text)
+            utils_file.write_text(u_text, encoding="utf-8")
+            details[UTILS] = {"region_forced_global": True}
+            total += 1
+
+    # 5. Scope-isolated Device.getModel():
+    # Maps model to 2412DPN6CG (Xiaomi 15 Ultra Global / xuanyuan) ONLY within
+    # PowerKeeper cloud sync without affecting system camera, HAL, or properties.
+    dev_file = locate(root, DEVICE, required=False)
+    if dev_file is not None:
+        d_text = dev_file.read_text(encoding="utf-8")
+        get_mod_re = re.compile(
+            r"(?ms)^\.method public static getModel\(\)Ljava/lang/String;\s*\n.*?^\.end method[ \t]*$"
+        )
+        if get_mod_re.search(d_text):
+            new_get_mod = (
+                ".method public static getModel()Ljava/lang/String;\n"
+                "    .registers 1\n\n"
+                '    const-string/jumbo v0, "2412DPN6CG"\n\n'
+                "    return-object v0\n"
+                ".end method"
+            )
+            d_text = get_mod_re.sub(new_get_mod, d_text)
+            dev_file.write_text(d_text, encoding="utf-8")
+            details[DEVICE] = {"model_mapped_xuanyuan_global": True}
+            total += 1
 
     if total == 0:
         raise ValueError("no Android 17 PowerKeeper gates were patched")
