@@ -216,4 +216,4 @@ patch_miui_services
 # 2. Patch PowerKeeper: Global cloud sync & identity preservation
 patch_powerkeeper
 
-log "[A17 Notification] Android 17 Pure Global notification patch complete"
+patch "[A17 Notification] Android 17 Pure Global notification patch complete"
