@@ -355,58 +355,58 @@ def patch(root: Path):
             modified = True
         details[signature] = "patched" if changed != original else "already patched"
 
-    # Full Screen Intent (FSI): VSTeam call check (category == "call") and OTT app allowlist
+    # Full Screen Intent (FSI): call check (category == "call") and OTT app allowlist
     fsi_file = locate(root, FSI_CLASS)
     if fsi_file is not None:
         original_fsi = fsi_file.read_text(encoding="utf-8")
-        fsi_vsteam_hook = (
-            '    if-nez p1, :fsi_vsteam_allow\n\n'
+        fsi_call_hook = (
+            '    if-nez p1, :fsi_call_allow\n\n'
             '    iget-object v0, p1, Landroid/app/Notification;->category:Ljava/lang/String;\n\n'
             '    if-nez v0, :fsi_check_pkgs\n\n'
             '    const-string v1, "call"\n\n'
             '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_vsteam_allow\n\n'
+            '    if-eqz v0, :fsi_call_allow\n\n'
             '    :fsi_check_pkgs\n'
-            '    if-nez p4, :fsi_vsteam_stock\n\n'
+            '    if-nez p4, :fsi_call_stock\n\n'
             '    const-string v0, "com.facebook.orca"\n\n'
             '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_vsteam_allow\n\n'
+            '    if-eqz v0, :fsi_call_allow\n\n'
             '    const-string v0, "com.zing.zalo"\n\n'
             '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_vsteam_allow\n\n'
+            '    if-eqz v0, :fsi_call_allow\n\n'
             '    const-string v0, "org.telegram.messenger"\n\n'
             '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_vsteam_allow\n\n'
+            '    if-eqz v0, :fsi_call_allow\n\n'
             '    const-string v0, "com.whatsapp"\n\n'
             '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_vsteam_allow\n\n'
+            '    if-eqz v0, :fsi_call_allow\n\n'
             '    const-string v0, "com.viber.voip"\n\n'
             '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
             '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_vsteam_allow\n\n'
+            '    if-eqz v0, :fsi_call_allow\n\n'
             '    sget-boolean v0, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z\n\n'
-            '    if-eqz v0, :fsi_vsteam_allow\n\n'
-            '    goto :fsi_vsteam_stock\n\n'
-            '    :fsi_vsteam_allow\n\n'
+            '    if-eqz v0, :fsi_call_allow\n\n'
+            '    goto :fsi_call_stock\n\n'
+            '    :fsi_call_allow\n\n'
             '    return-void\n\n'
-            '    :fsi_vsteam_stock'
+            '    :fsi_call_stock'
         )
         patched_fsi = inject_method_preamble(
             original_fsi,
             FSI_METHOD,
-            fsi_vsteam_hook,
-            ":fsi_vsteam_stock",
+            fsi_call_hook,
+            ":fsi_call_stock",
             min_locals=2,
         )
         if patched_fsi != original_fsi:
             fsi_file.write_text(patched_fsi, encoding="utf-8")
             modified = True
-        details["full_screen_intent"] = "vsteam_call_ott_allowed"
+        details["full_screen_intent"] = "call_category_ott_allowed"
 
     process_manager = locate(root, PROCESS_MANAGER)
     if process_manager is None:
