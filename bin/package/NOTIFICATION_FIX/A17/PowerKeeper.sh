@@ -54,9 +54,12 @@ python3 "$base_dir/powerkeeper_patcher_a17.py" "$tmp/smali" \
 java -jar "$smali" a --api 34 "$tmp/smali" -o "$tmp/classes_patched.dex"
 [[ -s "$tmp/classes_patched.dex" ]] || { error "PowerKeeper: failed to assemble patched classes.dex"; exit 1; }
 
-# 5. Transplant patched classes.dex into stock APK with preserved Xiaomi identity
+# 5. Build donor wrapper and transplant classes.dex with preserved identity
+python3 "$base_dir/powerkeeper.py" prepare-donor \
+  --stock-apk "$apk" --dex-file "$tmp/classes_patched.dex" --output "$tmp/wrapper.apk"
+
 python3 "$base_dir/preserve_powerkeeper_identity.py" \
-  --base "$apk" --patched "$tmp/classes_patched.dex" \
+  --base "$apk" --patched "$tmp/wrapper.apk" \
   --reference "$apk" --apksigner "$apksigner" \
   --allow-stripped-base \
   --apk "$tmp/PowerKeeper.preserved.apk" \
