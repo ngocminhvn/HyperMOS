@@ -169,7 +169,7 @@ patch_powerkeeper() {
   unzip -p "$apk" classes.dex > "$tmp/classes.dex"
   java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api 34 "$tmp/classes.dex" -o "$tmp/smali"
 
-  # 3. Patch PowerKeeper smali (GMS limiter bit 0, jupiter international sync, GLOBAL, xuanyuan)
+  # 3. Patch PowerKeeper smali (GMS limiter bit 0, jupiter international sync, GLOBAL)
   python3 "$base/powerkeeper_patcher.py" \
     --patch-smali "$tmp/smali" \
     --report "$report_dir/powerkeeper-patch-report.json"

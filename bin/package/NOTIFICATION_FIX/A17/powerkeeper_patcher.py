@@ -2,8 +2,8 @@
 """Android 17 / OS4 PowerKeeper patcher and identity preserver.
 
 1. Smali patching: disables the outgoing Google-network limiter, configures
-   International cloud sync to jupiter.intl.sys.miui.com with model 2412DPN6CG (xuanyuan)
-   and rgn-GLOBAL, and clears app network restrictions.
+   International cloud sync to jupiter.intl.sys.miui.com and rgn-GLOBAL,
+   and clears app network restrictions.
 2. Identity preservation: retains Xiaomi official certificate identity and v1 metadata
    (CERT.RSA, CERT.SF, MANIFEST.MF) while transplanting patched classes.dex.
 """
@@ -25,7 +25,6 @@ GMS_OBSERVER = "com/miui/powerkeeper/utils/GmsObserver.smali"
 INTERNATIONAL_ADAPTER = "com/miui/powerkeeper/utils/InternationalAdapter.smali"
 LOCAL_UPDATE_UTILS = "com/miui/powerkeeper/cloudcontrol/LocalUpdateUtils.smali"
 UTILS = "com/miui/powerkeeper/utils/Utils.smali"
-DEVICE = "com/miui/powerkeeper/utils/Device.smali"
 
 
 def locate(root: Path, relative: str, required=True):
@@ -160,26 +159,6 @@ def patch_smali(root: Path):
             u_text = get_rgn_re.sub(new_get_rgn, u_text)
             utils_file.write_text(u_text, encoding="utf-8")
             details[UTILS] = {"region_forced_global": True}
-            total += 1
-
-    # 5. Scope-isolated Device.getModel(): maps model to 2412DPN6CG (xuanyuan Global)
-    dev_file = locate(root, DEVICE, required=False)
-    if dev_file is not None:
-        d_text = dev_file.read_text(encoding="utf-8")
-        get_mod_re = re.compile(
-            r"(?ms)^\.method public static getModel\(\)Ljava/lang/String;\s*\n.*?^\.end method[ \t]*$"
-        )
-        if get_mod_re.search(d_text):
-            new_get_mod = (
-                ".method public static getModel()Ljava/lang/String;\n"
-                "    .registers 1\n\n"
-                '    const-string/jumbo v0, "2412DPN6CG"\n\n'
-                "    return-object v0\n"
-                ".end method"
-            )
-            d_text = get_mod_re.sub(new_get_mod, d_text)
-            dev_file.write_text(d_text, encoding="utf-8")
-            details[DEVICE] = {"model_mapped_xuanyuan_global": True}
             total += 1
 
     if total == 0:
