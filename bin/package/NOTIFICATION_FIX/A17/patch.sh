@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Android 17 / OS4 Notification & Framework Integration for HyperMOS.
+# Pure Global EEA policy: activates InternationalPolicyManager and Global PowerKeeper cloud sync.
 set -euo pipefail
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
@@ -13,11 +14,8 @@ android_ver="$(tr -d '\r\n' < "$version")"
 WORK_DIR="$work_dir"
 TOOLS_DIR="$work_dir/bin/apktool"
 API_LEVEL=36
-services_jar="$work_dir/build/baserom/images/system/system/framework/services.jar"
 miui_jar="$work_dir/build/baserom/images/system_ext/framework/miui-services.jar"
-images="$work_dir/build/baserom/images"
 report_dir="$work_dir/build/reports/frameworkpatcher-a17"
-services_output="$work_dir/services_patched.jar"
 miui_output="$work_dir/miui-services_patched.jar"
 
 ensure_tools() {
@@ -142,67 +140,19 @@ stage_jar() {
   }
 }
 
-patch_systemui() {
-  local apks apk target_dex tmp result
-  mapfile -d '' -t apks < <(find "$images/system_ext" -type f -name MiuiSystemUI.apk -print0)
-  (( ${#apks[@]} == 1 )) || { error "A17 channel defaults: expected one MiuiSystemUI.apk"; exit 1; }
-  apk="${apks[0]}"
-  info "[A17 Notification] Checking $(basename "$apk")"
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
-
-  target_dex=""
-  while read -r dex; do
-    java -jar "$TOOLS_DIR/baksmaliv2.jar" list classes "$apk/$dex" > "$tmp/classes"
-    if grep -Fxq 'Lcom/miui/systemui/notification/NotificationSettingsManager;' "$tmp/classes"; then
-      [[ -z "$target_dex" ]] || { error "A17 channel defaults: duplicate settings manager"; exit 1; }
-      target_dex="$dex"
-    fi
-  done < <(unzip -Z1 "$apk" | awk '/^classes([2-9]|[1-9][0-9]+)?\.dex$/')
-  [[ -n "$target_dex" ]] || { error "A17 channel defaults: settings manager missing"; exit 1; }
-
-  java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api 34 "$apk/$target_dex" -o "$tmp/smali"
-  result="$(python3 "$base/systemui_a17.py" "$tmp/smali")"
-  if [[ "$result" == "already patched" ]]; then
-    info "[A17 Notification] $(basename "$apk") already patched"
-    return 0
-  fi
-
-  local framework="$images/system/system/framework/framework.jar"
-  if [[ -f "$framework" ]]; then
-    while read -r dex; do
-      java -jar "$TOOLS_DIR/baksmaliv2.jar" d --api 34 \
-        --classes 'Landroid/util/apk/ApkSigningBlockUtils;' "$framework/$dex" -o "$tmp/framework"
-      [[ ! -s "$tmp/framework/android/util/apk/ApkSigningBlockUtils.smali" ]] || break
-    done < <(unzip -Z1 "$framework" | awk '/^classes([2-9]|[1-9][0-9]+)?\.dex$/')
-    python3 "$base/systemui_a17.py" "$tmp/framework/android/util/apk/ApkSigningBlockUtils.smali" --corepatch
-  fi
-
-  java -jar "$TOOLS_DIR/smaliv2.jar" a --api 34 "$tmp/smali" -o "$tmp/$target_dex"
-  python3 "$base/systemui_a17.py" "$apk" --repack "$tmp/$target_dex" "$tmp/MiuiSystemUI.apk"
-
-  mv -f "$tmp/MiuiSystemUI.apk" "$apk"
-  rm -rf "$(dirname "$apk")/oat"
-  info "[A17 Notification] Successfully patched $(basename "$apk")"
-}
-
 ensure_tools
 mkdir -p "$report_dir"
-trap 'rm -rf "$work_dir/services_decompile" "$work_dir/miui-services_decompile" "$services_output" "$miui_output"' EXIT
-rm -f "$services_output" "$miui_output"
+trap 'rm -rf "$work_dir/miui-services_decompile" "$miui_output"' EXIT
+rm -f "$miui_output"
 
-stage_jar "$services_jar" servicespatcher_a17.py "$report_dir/services-fcm-wake.json" "$services_output"
+# 1. Patch miui-services.jar: activate InternationalPolicyManager (isCnModel = false)
 stage_jar "$miui_jar" frameworkpatcher_a17.py "$report_dir/notification-gates.json" "$miui_output"
 
-if [[ -f "$services_output" ]]; then
-  mv -f "$services_output" "$services_jar"
-fi
 if [[ -f "$miui_output" ]]; then
   mv -f "$miui_output" "$miui_jar"
 fi
 
-patch_systemui
-
+# 2. Patch PowerKeeper: Global cloud sync & identity preservation
 bash "$base/PowerKeeper.sh"
 
-log "[A17 Notification] Android 17 framework patch complete"
+log "[A17 Notification] Android 17 Pure Global notification patch complete"
