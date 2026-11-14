@@ -21,7 +21,13 @@ import json
 import re
 from pathlib import Path
 
-from smali_a17 import edit_method
+def edit_method(source, signature, edit):
+    pattern = rf"(?ms)^\.method[^\n]*\s{signature}[ \t]*\n.*?^\.end method[ \t]*$"
+    matches = list(re.finditer(pattern, source))
+    if len(matches) != 1:
+        raise ValueError(f"expected one method matching {signature}, got {len(matches)}")
+    method = matches[0]
+    return source[:method.start()] + edit(method.group()) + source[method.end():]
 
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
 GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
