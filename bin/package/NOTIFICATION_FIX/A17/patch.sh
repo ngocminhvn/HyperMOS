@@ -54,12 +54,6 @@ stage_jar "$miui_jar" frameworkpatcher_a17.py "$report_dir/notification-gates.js
 
 bash "$base/systemui_a17.sh" "$systemui_output" "$systemui_target"
 
-if [[ -z "${TNM_SECILC:-}" ]]; then
-  export TNM_SECILC="$work_dir/build/tools/tnm-secilc-3.11/secilc"
-  bash "$work_dir/bin/package/TNM/build_secilc_a17.sh" "$TNM_SECILC"
-fi
-python3 "$base/gmswall_a17.py" "$images" "$report_dir"
-
 if [[ -f "$systemui_output" ]]; then
   systemui="$(<"$systemui_target")"
   mv -f "$systemui_output" "$systemui"

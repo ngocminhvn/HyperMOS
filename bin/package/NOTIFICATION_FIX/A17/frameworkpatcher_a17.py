@@ -1,11 +1,27 @@
 #!/usr/bin/env python3
-"""Port the XNotifyFix HyperOS China hooks to Android 17 miui-services.jar."""
+"""Pure Global Android 17 / OS4 notification and power management patcher for miui-services.jar.
+
+Switches HyperOS 2 / OS4 into native International policy mode without custom hook methods:
+1. PolicyManagerConfig: forces isCnModel()Z to return false (0), activating native InternationalPolicyManager
+   in Greeze and Aurogon (handles C2DM apps and keeps push sockets open).
+2. WakePathChecker, SecurityManagerService, ActivityStarter, NotificationManagerService:
+   redirects Build.IS_INTERNATIONAL_BUILD to xBuild.IS_INTERNATIONAL_BUILD.
+3. NotificationManagerServiceImpl: native IS_INTERNATIONAL_BUILD check cleanly skips AppOps 0x2725
+   restriction on fullScreenIntent, allowing incoming call UI on lock screen for all apps.
+4. ProcessManagerService: preserves scoped AutoIdleKill (policy 0xd = 13) so idle apps can sleep,
+   while keeping Global semantics for other kill policies.
+5. AurogonFilterManager, GreezeManagerService, AlarmManagerServiceStub, PowerManagerService,
+   MiuiNetworkPolicyManagerService: ensures Google Play Services (GMS) is unblocked from
+   China-specific background throttling, network limits, and sleep-mode firewalls.
+6. Removes custom fcm_c2dm_thaw injections and custom background activity launch preambles,
+   restoring clean stock Modern Broadcast Queue and ActivityStarter execution.
+"""
 import argparse
 import json
 import re
 from pathlib import Path
 
-from smali_a17 import FSI_PACKAGES, edit_method
+from smali_a17 import edit_method
 
 PROCESS_MANAGER = "com/android/server/am/ProcessManagerService.smali"
 GREEZE_SERVICE = "com/miui/server/greeze/GreezeManagerService.smali"
@@ -21,9 +37,7 @@ POLICY_CONFIG = "com/miui/server/greeze/PolicyManagerConfig.smali"
 WAKEPATH_CHECKER = "com/miui/server/WakePathChecker.smali"
 SECURITY_MANAGER = "com/miui/server/SecurityManagerService.smali"
 SECURITY_LOCAL_SERVICE = "com/miui/server/SecurityManagerService$LocalService.smali"
-
 FSI_CLASS = "com/android/server/notification/NotificationManagerServiceImpl.smali"
-FSI_METHOD = "checkFullScreenIntent(Landroid/app/Notification;Landroid/app/AppOpsManager;ILjava/lang/String;)V"
 
 REGION_GATES = (
     ("com/android/server/am/BroadcastQueueModernStubImpl.smali",
@@ -34,8 +48,6 @@ REGION_GATES = (
      "init(Lcom/android/server/alarm/AlarmManagerService;)V"),
 )
 
-# Match #268's scoped keep-notification policy: AutoIdleKill (13) keeps its
-# original force-stop behavior; the other cleanup policies use Global semantics.
 AUTO_IDLE_POLICY = re.compile(r"(?m)^[ \t]*const/16[ \t]+([vp]\d+),[ \t]+0xd[ \t]*$")
 FORCE_STOP_METHOD = re.compile(
     r"(?ms)^\.method[^\n]*\bisForceStopEnable\(Lcom/android/server/am/ProcessRecord;I\)Z[^\n]*\n"
@@ -44,14 +56,13 @@ FORCE_STOP_METHOD = re.compile(
 
 REGION_READ = re.compile(
     r"(?m)^([ \t]*)sget-boolean[ \t]+([vp]\d+),[ \t]+"
-    # CorePatch A17 redirects stock Build reads to xBuild before this pass.
     r"Lmiui/os/(?:x)?Build;->IS_INTERNATIONAL_BUILD:Z([ \t]*.*)$"
 )
+
 
 def locate(root: Path, relative: str):
     matches = [p for p in root.glob("smali*/" + relative) if p.is_file()]
     if not matches:
-        # Also check direct relative path
         direct = root / relative
         if direct.is_file():
             return direct
@@ -61,7 +72,6 @@ def locate(root: Path, relative: str):
 
 
 def patch_region_gate(source, signature):
-
     def edit(block):
         if "# XNotifyFix international gate" in block or ":a17_compat_ready" in block:
             return block
@@ -76,13 +86,6 @@ def patch_region_gate(source, signature):
             block,
         ):
             return block
-        if signature == FSI_METHOD:
-            old_pkg_gate = re.search(
-                r"(?ms)^[ \t]*const-string[^\n]+\"com\.zing\.zalo\".*?Lmiui/os/(?:x)?Build;->IS_INTERNATIONAL_BUILD:Z\s*(?::\w+\s+)?",
-                block,
-            )
-            if old_pkg_gate:
-                return block[:old_pkg_gate.start()] + "    const/4 v0, 0x1  # XNotifyFix international gate\n\n    " + block[old_pkg_gate.end():]
 
         matches = list(REGION_READ.finditer(block))
         if not matches:
@@ -98,7 +101,6 @@ def patch_region_gate(source, signature):
         opcode = "const/4" if int(register[1:]) <= 15 else "const/16"
         replacement = f"{indent}{opcode} {register}, 0x1  # XNotifyFix international gate"
         if signature.startswith("checkRunningCompatibility("):
-            # XNotifyFix returns false for a null ComponentName in Allow All.
             if register != "v1":
                 raise ValueError("checkRunningCompatibility: unexpected region register")
             replacement = (
@@ -116,14 +118,6 @@ def patch_region_gate(source, signature):
 
 
 def patch_force_stop(source: str):
-    """Preserve #268's AutoIdleKill (policy 13) exception.
-
-    On the verified OS4/A17 China ROM, forcing the international region read
-    inside isForceStopEnable() makes normal recents cleanup kill the process
-    without force-stopping it. The stock policy-13 branch still returns true,
-    allowing Xiaomi's AutoIdleKill to force-stop an idle app as in #268.
-    No global KEEP_NOTIF=ALL preamble is injected.
-    """
     methods = list(FORCE_STOP_METHOD.finditer(source))
     if len(methods) != 1:
         raise ValueError(f"ProcessManagerService: expected one isForceStopEnable, got {len(methods)}")
@@ -143,9 +137,6 @@ def patch_force_stop(source: str):
                 "auto_idle_policy_13": "stock_force_stop",
                 "runtime_module_required": False,
             }
-        # A second application to a compiled JAR loses Smali comments. If no
-        # region read remains, the patcher cannot prove #268's exact behavior.
-        # Refuse to silently accept an unknown method body as equivalent.
         raise ValueError("ProcessManagerService: region read missing; cannot verify #268 policy-13 behavior")
 
     def enable_international(match):
@@ -164,11 +155,8 @@ def patch_force_stop(source: str):
     }
 
 
-
 def disable_gms_app_check(source):
     def edit(block):
-        # In a two-register instance method, v0 and p0 are aliases. Baksmali
-        # emits p0 on a second pass even if the original stub used v0.
         if re.fullmatch(
             r"\.method[^\n]*\n\s*\.(?:registers|locals) \d+\s+"
             r"const/4 ([vp]\d+), 0x0\s+return \1\s+\.end method",
@@ -198,47 +186,7 @@ def replace_void_method(source: str, signature: str, registers: int = 1):
     return source[:methods[0].start()] + replacement + source[methods[0].end():]
 
 
-def count_param_registers(signature: str, is_static: bool = False) -> int:
-    """Calculate the number of Dalvik registers occupied by method parameters."""
-    params_match = re.search(r"\((.*?)\)", signature)
-    if not params_match:
-        return 0
-    param_str = params_match.group(1)
-    count = 0 if is_static else 1  # p0 is this for instance methods
-    i = 0
-    while i < len(param_str):
-        c = param_str[i]
-        if c in "ZBCSIF":
-            count += 1
-            i += 1
-        elif c in "JD":
-            count += 2
-            i += 1
-        elif c == "[":
-            while i < len(param_str) and param_str[i] == "[":
-                i += 1
-            if i < len(param_str):
-                if param_str[i] == "L":
-                    end = param_str.find(";", i)
-                    i = end + 1 if end != -1 else len(param_str)
-                else:
-                    i += 1
-            count += 1
-        elif c == "L":
-            end = param_str.find(";", i)
-            i = end + 1 if end != -1 else len(param_str)
-            count += 1
-        else:
-            i += 1
-    return count
-
-
 def find_header_end(block: str) -> int:
-    """Find the exact end position of all method header directives.
-
-    Handles .registers, .locals, .param, .end param, nested .annotation ... .end annotation,
-    .prologue, and .line, ensuring preamble is inserted right before the first executable instruction.
-    """
     lines = block.splitlines(True)
     in_annotation = False
     header_end = 0
@@ -271,6 +219,40 @@ def find_header_end(block: str) -> int:
     return header_end
 
 
+def count_param_registers(signature: str, is_static: bool = False) -> int:
+    params_match = re.search(r"\((.*?)\)", signature)
+    if not params_match:
+        return 0
+    param_str = params_match.group(1)
+    count = 0 if is_static else 1
+    i = 0
+    while i < len(param_str):
+        c = param_str[i]
+        if c in "ZBCSIF":
+            count += 1
+            i += 1
+        elif c in "JD":
+            count += 2
+            i += 1
+        elif c == "[":
+            while i < len(param_str) and param_str[i] == "[":
+                i += 1
+            if i < len(param_str):
+                if param_str[i] == "L":
+                    end = param_str.find(";", i)
+                    i = end + 1 if end != -1 else len(param_str)
+                else:
+                    i += 1
+            count += 1
+        elif c == "L":
+            end = param_str.find(";", i)
+            i = end + 1 if end != -1 else len(param_str)
+            count += 1
+        else:
+            i += 1
+    return count
+
+
 def inject_method_preamble(source: str, signature: str, preamble: str, label: str, min_locals: int = 2):
     method_re = re.compile(
         rf"(?ms)^\.method[^\n]*\b{re.escape(signature)}[^\n]*\n.*?^\.end method[ \t]*$"
@@ -280,7 +262,6 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
         raise ValueError(f"expected one {signature}, got {len(methods)}")
     block = methods[0].group()
 
-    # Match already-patched instruction sequence (supports both raw Smali and baksmali-decompiled DEX)
     clean_lines = [l.strip() for l in preamble.splitlines() if l.strip() and not l.strip().startswith("#")]
     body_lines = clean_lines[:-1] if clean_lines and clean_lines[-1].startswith(":") else clean_lines
     escaped = [re.escape(l) for l in body_lines]
@@ -289,7 +270,6 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
     if re.search(pattern_str, block):
         return source
 
-    # Fail-safe: if label exists but instruction sequence differs, do not guess with regex
     if label in block:
         raise ValueError(
             f"{signature}: found {label} but bytecode differs from target preamble; "
@@ -307,12 +287,11 @@ def inject_method_preamble(source: str, signature: str, preamble: str, label: st
         if val < min_locals:
             new_reg_line = f"{indent}.locals {min_locals}"
             block = block[:reg_match.start()] + new_reg_line + block[reg_match.end():]
-    else:  # registers
+    else:
         num_locals = val - param_count
         if num_locals < min_locals:
             raise ValueError(f"{signature}: insufficient local registers (locals={num_locals}, required={min_locals})")
 
-    # Locate insertion point after all header directives (.registers, .locals, .param, .end param, .annotation, .prologue, .line)
     at = find_header_end(block)
     if at <= 0:
         raise ValueError(f"{signature}: failed to locate method header directives")
@@ -339,11 +318,141 @@ def replace_boolean_method(source: str, signature: str, value: int):
     return source[:methods[0].start()] + replacement + source[methods[0].end():]
 
 
+def clean_injected_c2dm_hooks(source: str) -> str:
+    """Restores BroadcastQueueModernStubImpl methods to clean stock code."""
+    # Clean checkReceiverAppDealBroadcast
+    deal_re = re.compile(
+        r"(?ms)^\.method[^\n]*\bcheckReceiverAppDealBroadcast\([^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    m = deal_re.search(source)
+    if m:
+        block = m.group(0)
+        if "fcm_c2dm_thaw" in block or ":fcm_a17_deal_stock" in block:
+            c_match = re.search(r"(?m)^[ \t]*:cond_[0-9a-f]+\s*\n[ \t]*move-object/from16 v1, p2", block)
+            if not c_match:
+                c_match = re.search(r"(?m)^[ \t]*:fcm_a17_deal_stock\s*\n", block)
+            if c_match:
+                hdr_end = find_header_end(block)
+                block = block[:hdr_end] + "\n\n    " + block[c_match.start():].lstrip()
+                source = source[:m.start()] + block + source[m.end():]
+
+    # Clean checkReceiverIfRestricted
+    restr_re = re.compile(
+        r"(?ms)^\.method[^\n]*\bcheckReceiverIfRestricted\([^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    m = restr_re.search(source)
+    if m:
+        block = m.group(0)
+        if "com.google.android.c2dm.intent.RECEIVE" in block and (
+            ":fcm_a17_restr_stock" in block or "const/4 v0, 0x0\n\n    return v0" in block
+        ):
+            c_match = re.search(r"(?m)^[ \t]*:cond_[0-9a-f]+\s*\n[ \t]*invoke-static \{\}, Lcom/miui/server/greeze/GreezeManagerInternal;", block)
+            if not c_match:
+                c_match = re.search(r"(?m)^[ \t]*:fcm_a17_restr_stock\s*\n", block)
+            if c_match:
+                hdr_end = find_header_end(block)
+                block = block[:hdr_end] + "\n\n    " + block[c_match.start():].lstrip()
+                source = source[:m.start()] + block + source[m.end():]
+
+    # Clean isInDeferCachedWhiteList
+    defer_re = re.compile(
+        r"(?ms)^\.method[^\n]*\bisInDeferCachedWhiteList\([^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    m = defer_re.search(source)
+    if m:
+        block = m.group(0)
+        if "com.google.android.c2dm.intent.RECEIVE" in block and (
+            ":fcm_a17_defer_stock" in block or "iput-boolean v0, v1, Lcom/android/server/am/BroadcastRecord;->deferUntilActive:Z" in block
+        ):
+            c_match = re.search(r"(?m)^[ \t]*:cond_[0-9a-f]+\s*\n[ \t]*invoke-static \{p1\}, Landroid/text/TextUtils;->isEmpty", block)
+            if not c_match:
+                c_match = re.search(r"(?m)^[ \t]*:fcm_a17_defer_stock\s*\n", block)
+            if c_match:
+                hdr_end = find_header_end(block)
+                block = block[:hdr_end] + "\n\n    " + block[c_match.start():].lstrip()
+                source = source[:m.start()] + block + source[m.end():]
+
+    return source
+
+
+def clean_injected_activity_starter_hooks(source: str) -> str:
+    """Restores ActivityStarterImpl methods to clean stock code."""
+    # Clean checkStartActivityPermission
+    m = re.search(r"(?ms)^\.method[^\n]*\bcheckStartActivityPermission\(Lcom/android/server/wm/ActivityStarter\$Request;\)Z\n.*?^\.end method[ \t]*$", source)
+    if m:
+        block = m.group(0)
+        if "com.zing.zalo" in block or ":fsi_a17_check_start_stock" in block:
+            c_match = re.search(r"(?m)^[ \t]*(?::cond_[0-9a-f]+|:goto_[0-9a-f]+|:fsi_a17_check_start_stock)\s*\n[ \t]*move-object/from16 v7, p1", block)
+            if c_match:
+                hdr_end = find_header_end(block)
+                block = block[:hdr_end] + "\n\n    " + block[c_match.start():].lstrip()
+                source = source[:m.start()] + block + source[m.end():]
+
+    # Clean isAllowedStartActivity 3-param
+    m = re.search(r"(?ms)^\.method[^\n]*\bisAllowedStartActivity\(IILjava/lang/String;\)Z\n.*?^\.end method[ \t]*$", source)
+    if m:
+        block = m.group(0)
+        if "com.zing.zalo" in block or ":fsi_a17_allowed_3_stock" in block:
+            c_match = re.search(r"(?m)^[ \t]*(?::cond_[0-9a-f]+|:goto_[0-9a-f]+|:fsi_a17_allowed_3_stock)\s*\n[ \t]*invoke-static \{p1\}, Landroid/os/UserHandle;->getAppId", block)
+            if c_match:
+                hdr_end = find_header_end(block)
+                block = block[:hdr_end] + "\n\n    " + block[c_match.start():].lstrip()
+                source = source[:m.start()] + block + source[m.end():]
+
+    return source
+
+
+def clean_injected_ams_compat_hooks(source: str) -> str:
+    """Restores ActivityManagerServiceImpl checkRunningCompatibility to clean stock code."""
+    m = re.search(r"(?ms)^\.method[^\n]*\bcheckRunningCompatibility\(Landroid/app/IApplicationThread;Landroid/content/pm/ActivityInfo;Landroid/content/Intent;ILjava/lang/String;\)Z\n.*?^\.end method[ \t]*$", source)
+    if m:
+        block = m.group(0)
+        if "com.zing.zalo" in block or ":fsi_a17_ams_compat_stock" in block:
+            c_match = re.search(r"(?m)^[ \t]*(?::cond_[0-9a-f]+|:goto_[0-9a-f]+|:fsi_a17_ams_compat_stock)\s*\n[ \t]*const/4 v0, 0x1\s*\n\s*if-nez p2,", block)
+            if c_match:
+                hdr_end = find_header_end(block)
+                block = block[:hdr_end] + "\n\n    " + block[c_match.start():].lstrip()
+                source = source[:m.start()] + block + source[m.end():]
+    return source
+
+
+def patch_fsi(source: str) -> str:
+    """Ensures NotificationManagerServiceImpl.checkFullScreenIntent uses clean Global check."""
+    method_re = re.compile(
+        r"(?ms)^\.method[^\n]*\bcheckFullScreenIntent\([^\n]*\n.*?^\.end method[ \t]*$"
+    )
+    m = method_re.search(source)
+    if not m:
+        return source
+    block = m.group(0)
+    hdr_end = find_header_end(block)
+    target_m = re.search(
+        r"sget-boolean\s+([vp]\d+),\s+Lmiui/os/(?:x)?Build;->IS_INTERNATIONAL_BUILD:Z\s+if-nez\s+\1,\s+:(\w+)",
+        block
+    )
+    if target_m and target_m.start() > hdr_end:
+        block = block[:hdr_end] + "\n\n    " + block[target_m.start():]
+    elif "com.zing.zalo" in block or ":fsi_call_stock" in block:
+        ib_match = re.search(r"sget-boolean\s+[vp]\d+,\s+Lmiui/os/(?:x)?Build;->IS_INTERNATIONAL_BUILD:Z", block)
+        if ib_match and ib_match.start() > hdr_end:
+            block = block[:hdr_end] + "\n\n    " + block[ib_match.start():]
+
+    # Redirect stock Build to xBuild
+    block = re.sub(
+        r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z",
+        "Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z",
+        block
+    )
+    return source[:m.start()] + block + source[m.end():]
+
+
 def patch(root: Path):
     if not root.is_dir():
         raise ValueError(f"Missing decompiled miui-services: {root}")
     details = {}
     modified = False
+
+    # 1. Region Gates: allow C2DM autostart and international running compatibility
     for relative, signature in REGION_GATES:
         file = locate(root, relative)
         if file is None:
@@ -355,59 +464,19 @@ def patch(root: Path):
             modified = True
         details[signature] = "patched" if changed != original else "already patched"
 
-    # Full Screen Intent (FSI): call check (category == "call") and OTT app allowlist
+    # 2. Full Screen Intent (FSI): pure Global branch
+    # When IS_INTERNATIONAL_BUILD is true, checkFullScreenIntent returns without AppOps check.
     fsi_file = locate(root, FSI_CLASS)
     if fsi_file is not None:
-        original_fsi = fsi_file.read_text(encoding="utf-8")
-        fsi_call_hook = (
-            '    if-nez p1, :fsi_call_allow\n\n'
-            '    iget-object v0, p1, Landroid/app/Notification;->category:Ljava/lang/String;\n\n'
-            '    if-nez v0, :fsi_check_pkgs\n\n'
-            '    const-string v1, "call"\n\n'
-            '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_call_allow\n\n'
-            '    :fsi_check_pkgs\n'
-            '    if-nez p4, :fsi_call_stock\n\n'
-            '    const-string v0, "com.facebook.orca"\n\n'
-            '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_call_allow\n\n'
-            '    const-string v0, "com.zing.zalo"\n\n'
-            '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_call_allow\n\n'
-            '    const-string v0, "org.telegram.messenger"\n\n'
-            '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_call_allow\n\n'
-            '    const-string v0, "com.whatsapp"\n\n'
-            '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_call_allow\n\n'
-            '    const-string v0, "com.viber.voip"\n\n'
-            '    invoke-virtual {v0, p4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-eqz v0, :fsi_call_allow\n\n'
-            '    sget-boolean v0, Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z\n\n'
-            '    if-eqz v0, :fsi_call_allow\n\n'
-            '    goto :fsi_call_stock\n\n'
-            '    :fsi_call_allow\n\n'
-            '    return-void\n\n'
-            '    :fsi_call_stock'
-        )
-        patched_fsi = inject_method_preamble(
-            original_fsi,
-            FSI_METHOD,
-            fsi_call_hook,
-            ":fsi_call_stock",
-            min_locals=2,
-        )
-        if patched_fsi != original_fsi:
+        orig_fsi = fsi_file.read_text(encoding="utf-8")
+        patched_fsi = patch_fsi(orig_fsi)
+        if patched_fsi != orig_fsi:
             fsi_file.write_text(patched_fsi, encoding="utf-8")
             modified = True
-        details["full_screen_intent"] = "call_category_ott_allowed"
+        details["full_screen_intent"] = "pure_global_xbuild"
 
+    # 3. ProcessManagerService: EU/scoped-268 force-stop policy
+    # AutoIdleKill (13) preserves stock force-stop behavior; other policies use Global semantics.
     process_manager = locate(root, PROCESS_MANAGER)
     if process_manager is None:
         raise ValueError(f"{PROCESS_MANAGER}: missing")
@@ -418,229 +487,114 @@ def patch(root: Path):
         modified = True
     details[PROCESS_MANAGER] = pm_info
 
-    # Exempt C2DM/FCM from Security_WakePath calleeAliveMatchBlackRule (warm process)
-    # and Greezer Denial (need cached broadcast) in BroadcastQueueModernStubImpl.
-    # When C2DM broadcast arrives for a warm process, actively thaw its UID via
-    # GreezeManagerInternal so Modern BroadcastQueue does not timeout with ANR warning.
+    # 4. Clean BroadcastQueueModernStubImpl: remove custom fcm_c2dm_thaw hooks
     bq_stub = locate(root, BQ_STUB)
-    if bq_stub is None:
-        raise ValueError(f"{BQ_STUB}: missing")
-    original_bq = bq_stub.read_text(encoding="utf-8")
-    deal_hook = (
-        '    if-eqz p2, :fcm_a17_deal_stock\n\n'
-        '    move-object/from16 v0, p2\n\n'
-        '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
-        '    if-eqz v0, :fcm_a17_deal_stock\n\n'
-        '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
-        '    move-result-object v0\n\n'
-        '    if-eqz v0, :fcm_a17_deal_stock\n\n'
-        '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-        '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-        '    move-result v0\n\n'
-        '    if-eqz v0, :fcm_a17_deal_stock\n\n'
-        '    if-eqz p3, :cond_c2dm_deal_allow\n\n'
-        '    invoke-static {}, Lcom/miui/server/greeze/GreezeManagerInternal;->getInstance()Lcom/miui/server/greeze/GreezeManagerInternal;\n\n'
-        '    move-result-object v0\n\n'
-        '    if-eqz v0, :cond_c2dm_deal_allow\n\n'
-        '    move-object/from16 v1, p3\n\n'
-        '    iget v1, v1, Lcom/android/server/am/ProcessRecord;->uid:I\n\n'
-        '    const/16 v2, 0x3e8\n\n'
-        '    const-string v3, "fcm_c2dm_thaw"\n\n'
-        '    invoke-virtual {v0, v1, v2, v3}, Lcom/miui/server/greeze/GreezeManagerInternal;->thawUid(IILjava/lang/String;)Z\n\n'
-        '    :cond_c2dm_deal_allow\n\n'
-        '    const/4 v0, 0x1\n\n'
-        '    return v0\n\n'
-        '    :fcm_a17_deal_stock'
-    )
-    restr_hook = (
-        '    if-eqz p2, :fcm_a17_restr_stock\n\n'
-        '    move-object/from16 v0, p2\n\n'
-        '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
-        '    if-eqz v0, :fcm_a17_restr_stock\n\n'
-        '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
-        '    move-result-object v0\n\n'
-        '    if-eqz v0, :fcm_a17_restr_stock\n\n'
-        '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-        '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-        '    move-result v0\n\n'
-        '    if-eqz v0, :fcm_a17_restr_stock\n\n'
-        '    const/4 v0, 0x0\n\n'
-        '    return v0\n\n'
-        '    :fcm_a17_restr_stock'
-    )
-    bq_text = inject_method_preamble(
-        original_bq,
-        "checkReceiverAppDealBroadcast(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
-        deal_hook,
-        ":fcm_a17_deal_stock",
-        min_locals=4,
-    )
-    bq_text = inject_method_preamble(
-        bq_text,
-        "checkReceiverIfRestricted(Lcom/android/server/am/BroadcastQueue;Lcom/android/server/am/BroadcastRecord;Lcom/android/server/am/ProcessRecord;Z)Z",
-        restr_hook,
-        ":fcm_a17_restr_stock",
-        min_locals=2,
-    )
-    defer_hook = (
-        '    if-eqz p2, :fcm_a17_defer_stock\n\n'
-        '    move-object/from16 v0, p2\n\n'
-        '    iget-object v0, v0, Lcom/android/server/am/BroadcastRecord;->intent:Landroid/content/Intent;\n\n'
-        '    if-eqz v0, :fcm_a17_defer_stock\n\n'
-        '    invoke-virtual {v0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n\n'
-        '    move-result-object v0\n\n'
-        '    const-string v1, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-        '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-        '    move-result v0\n\n'
-        '    if-eqz v0, :fcm_a17_defer_stock\n\n'
-        '    const/4 v0, 0x0\n\n'
-        '    move-object/from16 v1, p2\n\n'
-        '    iput-boolean v0, v1, Lcom/android/server/am/BroadcastRecord;->deferUntilActive:Z\n\n'
-        '    const/4 v0, 0x1\n\n'
-        '    return v0\n\n'
-        '    :fcm_a17_defer_stock'
-    )
-    bq_text = inject_method_preamble(
-        bq_text,
-        "isInDeferCachedWhiteList(Ljava/lang/String;Lcom/android/server/am/BroadcastRecord;)Z",
-        defer_hook,
-        ":fcm_a17_defer_stock",
-        min_locals=2,
-    )
-    if bq_text != original_bq:
-        bq_stub.write_text(bq_text, encoding="utf-8")
-        modified = True
-    details[BQ_STUB] = {
-        "c2dm_app_deal_broadcast_exempt": True,
-        "c2dm_app_deal_broadcast_thaw": True,
-        "c2dm_receiver_restricted_exempt": True,
-        "c2dm_defer_cached_whitelist_exempt": True,
-        "c2dm_reset_defer_until_active": True,
-    }
-
-    # Port the verified fcm_notification_fix vectors to OS4/A17 without its
-    # runtime module. When C2DM broadcast arrives for an app, thaw its UID
-    # asynchronously using MIUI standard caller convention 1000 (0x3e8) and
-    # post tryDelayFreeze (2000ms) to ensure process receives and processes FCM.
-    greeze_service = locate(root, GREEZE_SERVICE)
-    if greeze_service is None:
-        raise ValueError("GreezeManagerService missing")
-    original_greeze = greeze_service.read_text(encoding="utf-8")
-    service_text = inject_method_preamble(
-        original_greeze,
-        "isAllowBroadcast(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
-        '    const-string v0, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-        '    invoke-virtual {v0, p5}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-        '    move-result v0\n\n'
-        '    if-eqz v0, :fcm_a17_greeze_stock\n\n'
-        '    const/16 v0, 0x3e8\n\n'
-        '    const-string v1, "fcm_c2dm_thaw"\n\n'
-        '    invoke-virtual {p0, p3, v0, v1}, Lcom/miui/server/greeze/GreezeManagerService;->thawUidAsync(IILjava/lang/String;)V\n\n'
-        '    const/4 v0, 0x1\n\n'
-        '    return v0\n\n'
-        '    :fcm_a17_greeze_stock',
-        ":fcm_a17_greeze_stock",
-        min_locals=2)
-    # On OS4, PowerKeeper's updateGmsNetStatus calls this same limiter.
-    # Keep its Binder status round-trip and disable the limiter at its source.
-    service_text = replace_void_method(
-        service_text, "triggerGMSLimitAction()V")
-    service_text = disable_gms_app_check(service_text)
-    if service_text != original_greeze:
-        greeze_service.write_text(service_text, encoding="utf-8")
-        modified = True
-    details[GREEZE_SERVICE] = {
-        "c2dm_screen_off_thaw": True,
-        "gms_limit_action_disabled": True,
-        "gms_special_freeze_path_disabled": True,
-    }
-
-    # XNotifyFix-style Aurogon protection is scoped to GMS only.
-    # Ordinary messenger apps may freeze when idle; they are awakened on
-    # incoming C2DM by the GreezeManagerService.isAllowBroadcast hook and
-    # FLAG_INCLUDE_STOPPED_PACKAGES in services.jar. Do not permanently exempt
-    # apps such as Messenger here, to preserve stock idle battery behavior.
-    aurogon = locate(root, AUROGON_FILTER)
-    if aurogon is None:
-        raise ValueError("AurogonFilterManager missing")
-    original_aurogon = aurogon.read_text(encoding="utf-8")
-    aurogon_text = inject_method_preamble(
-        original_aurogon,
-        "filter(ILjava/lang/String;I)Z",
-        '    const-string v0, "com.google.android.gms"\n\n'
-        '    invoke-virtual {v0, p2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-        '    move-result v0\n\n'
-        '    if-eqz v0, :fcm_a17_aurogon_stock\n\n'
-        '    const/16 v0, 0x40\n\n'
-        '    iput v0, p0, Lcom/miui/server/greeze/AurogonFilterManager;->mContinueReason:I\n\n'
-        '    const/4 v0, 0x0\n\n'
-        '    return v0\n\n'
-        '    :fcm_a17_aurogon_stock',
-        ":fcm_a17_aurogon_stock")
-    if aurogon_text != original_aurogon:
-        aurogon.write_text(aurogon_text, encoding="utf-8")
-        modified = True
-    details[AUROGON_FILTER] = {"gms_quick_freeze_shield": True}
-
-    # Video scenario / Immobulus mode: prevent deferring & caching FCM / GMS push broadcasts
-    domestic = locate(root, DOMESTIC_POLICY)
-    if domestic is not None:
-        original_domestic = domestic.read_text(encoding="utf-8")
-        defer_hook = (
-            '    if-eqz p1, :fcm_a17_defer_stock\n\n'
-            '    const-string v0, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_defer_allow\n\n'
-            '    const-string v0, "com.google.android.intent.action.GCM_RECONNECT"\n\n'
-            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_defer_allow\n\n'
-            '    goto :fcm_a17_defer_stock\n\n'
-            '    :cond_fcm_defer_allow\n\n'
-            '    const/4 v0, 0x0\n\n'
-            '    return v0\n\n'
-            '    :fcm_a17_defer_stock'
-        )
-        cache_hook = (
-            '    if-eqz p1, :fcm_a17_cache_stock\n\n'
-            '    const-string v0, "com.google.android.c2dm.intent.RECEIVE"\n\n'
-            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_cache_allow\n\n'
-            '    const-string v0, "com.google.android.intent.action.GCM_RECONNECT"\n\n'
-            '    invoke-virtual {v0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
-            '    move-result v0\n\n'
-            '    if-nez v0, :cond_fcm_cache_allow\n\n'
-            '    goto :fcm_a17_cache_stock\n\n'
-            '    :cond_fcm_cache_allow\n\n'
-            '    const/4 v0, 0x0\n\n'
-            '    return v0\n\n'
-            '    :fcm_a17_cache_stock'
-        )
-        domestic_text = inject_method_preamble(
-            original_domestic,
-            "deferBroadcast(Ljava/lang/String;)Z",
-            defer_hook,
-            ":fcm_a17_defer_stock",
-            min_locals=1
-        )
-        domestic_text = inject_method_preamble(
-            domestic_text,
-            "needCacheBroadcast(Ljava/lang/String;II)Z",
-            cache_hook,
-            ":fcm_a17_cache_stock",
-            min_locals=1
-        )
-        if domestic_text != original_domestic:
-            domestic.write_text(domestic_text, encoding="utf-8")
+    if bq_stub is not None:
+        orig_bq = bq_stub.read_text(encoding="utf-8")
+        cleaned_bq = clean_injected_c2dm_hooks(orig_bq)
+        if cleaned_bq != orig_bq:
+            bq_stub.write_text(cleaned_bq, encoding="utf-8")
             modified = True
-        details[DOMESTIC_POLICY] = {"defer_fcm_broadcast_disabled": True, "cache_fcm_broadcast_disabled": True}
+        details[BQ_STUB] = {"clean_modern_queue": True}
 
-    # Alarm throttling: exempt only GMS heartbeat/push alarms from SSRU 120s budget denial (canAfford=false)
-    # and exempt GMS heartbeat/push alarms from screen-off alarm alignment and adjustment.
-    # canAffordBillLocked uses .registers 14 (locals: v0..v10, params: p0=this, p1=v12, p2=v13).
-    # v0 and v1 are available locals.
+    # 5. Clean ActivityStarterImpl & AMS: remove custom BAL preambles
+    activity_starter = locate(root, ACTIVITY_STARTER)
+    if activity_starter is not None:
+        orig_starter = activity_starter.read_text(encoding="utf-8")
+        cleaned_starter = clean_injected_activity_starter_hooks(orig_starter)
+        if cleaned_starter != orig_starter:
+            activity_starter.write_text(cleaned_starter, encoding="utf-8")
+            modified = True
+        details[ACTIVITY_STARTER] = {"clean_activity_starter": True}
+
+    ams_impl = locate(root, AMS_IMPL)
+    if ams_impl is not None:
+        orig_ams = ams_impl.read_text(encoding="utf-8")
+        cleaned_ams = clean_injected_ams_compat_hooks(orig_ams)
+        if cleaned_ams != orig_ams:
+            ams_impl.write_text(cleaned_ams, encoding="utf-8")
+            modified = True
+        details[AMS_IMPL] = {"clean_ams_compat": True}
+
+    # 6. PolicyManagerConfig: force isCnModel()Z to return false (0)
+    # Activates native InternationalPolicyManager in Greeze/Aurogon.
+    policy_config = locate(root, POLICY_CONFIG)
+    if policy_config is not None:
+        original_pc = policy_config.read_text(encoding="utf-8")
+        pc_text = replace_boolean_method(original_pc, "isCnModel()Z", 0)
+        if "sput-boolean v0, Lcom/miui/server/greeze/PolicyManagerConfig;->sCnModel:Z" not in pc_text or "const/4 v0, 0x0" not in pc_text:
+            pc_text = re.sub(
+                r"(?m)^([ \t]*sput-boolean[ \t]+[vp]\d+,[ \t]+Lcom/miui/server/greeze/PolicyManagerConfig;->sCnModel:Z[ \t]*)$",
+                r"    const/4 v0, 0x0\n    sput-boolean v0, Lcom/miui/server/greeze/PolicyManagerConfig;->sCnModel:Z",
+                pc_text
+            )
+        if pc_text != original_pc:
+            policy_config.write_text(pc_text, encoding="utf-8")
+            modified = True
+        details[POLICY_CONFIG] = {"is_cn_model_forced_false": True}
+
+    # 7. Extend xBuild redirection across all critical security, autostart & launch classes
+    for smali_target in (
+        WAKEPATH_CHECKER,
+        SECURITY_MANAGER,
+        SECURITY_LOCAL_SERVICE,
+        ACTIVITY_STARTER,
+        AMS_IMPL,
+        PROCESS_MANAGER,
+        BQ_STUB,
+        FSI_CLASS,
+    ):
+        target_file = locate(root, smali_target)
+        if target_file is not None:
+            orig_text = target_file.read_text(encoding="utf-8")
+            rewritten = re.sub(
+                r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z",
+                "Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z",
+                orig_text
+            )
+            if rewritten != orig_text:
+                target_file.write_text(rewritten, encoding="utf-8")
+                modified = True
+            details[smali_target] = {"xbuild_redirected": True}
+
+    # 8. GreezeManagerService: disable outgoing GMS limits
+    greeze_service = locate(root, GREEZE_SERVICE)
+    if greeze_service is not None:
+        original_greeze = greeze_service.read_text(encoding="utf-8")
+        service_text = replace_void_method(original_greeze, "triggerGMSLimitAction()V")
+        service_text = disable_gms_app_check(service_text)
+        if service_text != original_greeze:
+            greeze_service.write_text(service_text, encoding="utf-8")
+            modified = True
+        details[GREEZE_SERVICE] = {
+            "gms_limit_action_disabled": True,
+            "gms_special_freeze_path_disabled": True,
+        }
+
+    # 9. AurogonFilterManager: protect GMS from quick freeze
+    aurogon = locate(root, AUROGON_FILTER)
+    if aurogon is not None:
+        original_aurogon = aurogon.read_text(encoding="utf-8")
+        aurogon_text = inject_method_preamble(
+            original_aurogon,
+            "filter(ILjava/lang/String;I)Z",
+            '    const-string v0, "com.google.android.gms"\n\n'
+            '    invoke-virtual {v0, p2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+            '    move-result v0\n\n'
+            '    if-eqz v0, :fcm_a17_aurogon_stock\n\n'
+            '    const/16 v0, 0x40\n\n'
+            '    iput v0, p0, Lcom/miui/server/greeze/AurogonFilterManager;->mContinueReason:I\n\n'
+            '    const/4 v0, 0x0\n\n'
+            '    return v0\n\n'
+            '    :fcm_a17_aurogon_stock',
+            ":fcm_a17_aurogon_stock"
+        )
+        if aurogon_text != original_aurogon:
+            aurogon.write_text(aurogon_text, encoding="utf-8")
+            modified = True
+        details[AUROGON_FILTER] = {"gms_quick_freeze_shield": True}
+
+    # 10. Alarm throttling: exempt GMS heartbeat alarms from SSRU throttling & alignment
     alarm_stub = locate(root, ALARM_STUB)
     if alarm_stub is not None:
         original_alarm = alarm_stub.read_text(encoding="utf-8")
@@ -788,7 +742,7 @@ def patch(root: Path):
             "gms_alarm_adjust_exempt": True,
         }
 
-    # Wakelock policy: prevent disabling GMS / C2DM wakelocks with UidFrozen
+    # 11. PowerManagerServiceImpl: protect GMS wakelocks
     power_impl = locate(root, POWER_IMPL)
     if power_impl is not None:
         original_power = power_impl.read_text(encoding="utf-8")
@@ -849,7 +803,7 @@ def patch(root: Path):
             modified = True
         details[POWER_IMPL] = {"c2dm_wakelock_shield": True}
 
-    # Sleep Mode network firewall: disable kernel/netd sleep mode chain blocking background data
+    # 12. MiuiNetworkPolicyManagerService: disable sleep mode chain
     net_policy = locate(root, NETWORK_POLICY)
     if net_policy is not None:
         original_net = net_policy.read_text(encoding="utf-8")
@@ -870,170 +824,6 @@ def patch(root: Path):
             net_policy.write_text(net_text, encoding="utf-8")
             modified = True
         details[NETWORK_POLICY] = {"sleep_mode_chain_disabled": True}
-
-    if FSI_PACKAGES:
-        # Background Activity / FSI Start: Allow FSI packages (Messenger, Zalo) to launch
-        # call activities / incoming call UI from background even when screen is locked/off
-        activity_starter = locate(root, ACTIVITY_STARTER)
-        if activity_starter is not None:
-            original_starter = activity_starter.read_text(encoding="utf-8")
-            starter_text = original_starter
-
-            # 1. Hook checkStartActivityPermission(Lcom/android/server/wm/ActivityStarter$Request;)Z
-            lines_check = [
-                '    if-eqz p1, :fsi_a17_check_start_stock\n\n',
-                '    move-object/from16 v0, p1\n\n',
-                '    iget-object v0, v0, Lcom/android/server/wm/ActivityStarter$Request;->callingPackage:Ljava/lang/String;\n\n',
-                '    if-eqz v0, :fsi_a17_check_start_stock\n\n',
-            ]
-            for pkg in FSI_PACKAGES:
-                lines_check.extend([
-                    f'    const-string v1, "{pkg}"\n\n',
-                    '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
-                    '    move-result v1\n\n',
-                    '    if-nez v1, :cond_fsi_check_start_exempt\n\n',
-                ])
-            lines_check.extend([
-                '    goto :fsi_a17_check_start_stock\n\n',
-                '    :cond_fsi_check_start_exempt\n\n',
-                '    const/4 v0, 0x1\n\n',
-                '    return v0\n\n',
-                '    :fsi_a17_check_start_stock'
-            ])
-            starter_text = inject_method_preamble(
-                starter_text,
-                "checkStartActivityPermission(Lcom/android/server/wm/ActivityStarter$Request;)Z",
-                "".join(lines_check),
-                ":fsi_a17_check_start_stock",
-                min_locals=2
-            )
-
-            # 2. Hook isAllowedStartActivity(IILjava/lang/String;)Z
-            lines_allowed_3 = [
-                '    if-eqz p3, :fsi_a17_allowed_3_stock\n\n',
-            ]
-            for pkg in FSI_PACKAGES:
-                lines_allowed_3.extend([
-                    f'    const-string v0, "{pkg}"\n\n',
-                    '    invoke-virtual {v0, p3}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
-                    '    move-result v0\n\n',
-                    '    if-nez v0, :cond_fsi_allowed_3_exempt\n\n',
-                ])
-            lines_allowed_3.extend([
-                '    goto :fsi_a17_allowed_3_stock\n\n',
-                '    :cond_fsi_allowed_3_exempt\n\n',
-                '    const/4 v0, 0x1\n\n',
-                '    return v0\n\n',
-                '    :fsi_a17_allowed_3_stock'
-            ])
-            starter_text = inject_method_preamble(
-                starter_text,
-                "isAllowedStartActivity(IILjava/lang/String;)Z",
-                "".join(lines_allowed_3),
-                ":fsi_a17_allowed_3_stock",
-                min_locals=1
-            )
-
-            # 3. Hook isAllowedStartActivity(Landroid/content/Intent;IILjava/lang/String;IILandroid/content/pm/ActivityInfo;Lcom/android/server/wm/BackgroundActivityStartController$BalVerdict;Lcom/android/server/wm/ActivityRecord;)Z
-            lines_allowed_9 = [
-                '    if-eqz p4, :fsi_a17_allowed_9_stock\n\n',
-                '    move-object/from16 v0, p4\n\n',
-            ]
-            for pkg in FSI_PACKAGES:
-                lines_allowed_9.extend([
-                    f'    const-string v1, "{pkg}"\n\n',
-                    '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
-                    '    move-result v1\n\n',
-                    '    if-nez v1, :cond_fsi_allowed_9_exempt\n\n',
-                ])
-            lines_allowed_9.extend([
-                '    goto :fsi_a17_allowed_9_stock\n\n',
-                '    :cond_fsi_allowed_9_exempt\n\n',
-                '    const/4 v0, 0x1\n\n',
-                '    return v0\n\n',
-                '    :fsi_a17_allowed_9_stock'
-            ])
-            starter_text = inject_method_preamble(
-                starter_text,
-                "isAllowedStartActivity(Landroid/content/Intent;IILjava/lang/String;IILandroid/content/pm/ActivityInfo;Lcom/android/server/wm/BackgroundActivityStartController$BalVerdict;Lcom/android/server/wm/ActivityRecord;)Z",
-                "".join(lines_allowed_9),
-                ":fsi_a17_allowed_9_stock",
-                min_locals=2
-            )
-
-            if starter_text != original_starter:
-                activity_starter.write_text(starter_text, encoding="utf-8")
-                modified = True
-            details[ACTIVITY_STARTER] = {"fsi_background_start_allowed": True}
-
-        # 4. Hook AMS checkRunningCompatibility with ActivityInfo for FSI callingPackage
-        ams_impl = locate(root, AMS_IMPL)
-        if ams_impl is not None:
-            original_ams = ams_impl.read_text(encoding="utf-8")
-            lines_ams = [
-                '    if-eqz p5, :fsi_a17_ams_compat_stock\n\n',
-                '    move-object/from16 v0, p5\n\n',
-            ]
-            for pkg in FSI_PACKAGES:
-                lines_ams.extend([
-                    f'    const-string v1, "{pkg}"\n\n',
-                    '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n',
-                    '    move-result v1\n\n',
-                    '    if-nez v1, :cond_fsi_ams_compat_exempt\n\n',
-                ])
-            lines_ams.extend([
-                '    goto :fsi_a17_ams_compat_stock\n\n',
-                '    :cond_fsi_ams_compat_exempt\n\n',
-                '    const/4 v0, 0x1\n\n',
-                '    return v0\n\n',
-                '    :fsi_a17_ams_compat_stock'
-            ])
-            ams_text = inject_method_preamble(
-                original_ams,
-                "checkRunningCompatibility(Landroid/app/IApplicationThread;Landroid/content/pm/ActivityInfo;Landroid/content/Intent;ILjava/lang/String;)Z",
-                "".join(lines_ams),
-                ":fsi_a17_ams_compat_stock",
-                min_locals=2
-            )
-            if ams_text != original_ams:
-                ams_impl.write_text(ams_text, encoding="utf-8")
-                modified = True
-            details[AMS_IMPL] = {"fsi_ams_compat_exempt": True}
-
-    # 5. Greeze PolicyManagerConfig: force isCnModel()Z to return false (0).
-    # Awakens the stock InternationalPolicyManager in Greeze:
-    # exempts FCM/C2DM apps, avoids deferring Google broadcasts, and enables
-    # global background socket & broadcast delivery.
-    policy_config = locate(root, POLICY_CONFIG)
-    if policy_config is not None:
-        original_pc = policy_config.read_text(encoding="utf-8")
-        pc_text = replace_boolean_method(original_pc, "isCnModel()Z", 0)
-        if "sput-boolean v0, Lcom/miui/server/greeze/PolicyManagerConfig;->sCnModel:Z" not in pc_text or "const/4 v0, 0x0" not in pc_text:
-            pc_text = re.sub(
-                r"(?m)^([ \t]*sput-boolean[ \t]+[vp]\d+,[ \t]+Lcom/miui/server/greeze/PolicyManagerConfig;->sCnModel:Z[ \t]*)$",
-                r"    const/4 v0, 0x0\n    sput-boolean v0, Lcom/miui/server/greeze/PolicyManagerConfig;->sCnModel:Z",
-                pc_text
-            )
-        if pc_text != original_pc:
-            policy_config.write_text(pc_text, encoding="utf-8")
-            modified = True
-        details[POLICY_CONFIG] = {"is_cn_model_forced_false": True}
-
-    # 6. Extend xBuild redirection to WakePathChecker and SecurityManagerService
-    # to release cross-app wake restrictions for GMS and messaging apps.
-    for smali_target in (WAKEPATH_CHECKER, SECURITY_MANAGER, SECURITY_LOCAL_SERVICE):
-        target_file = locate(root, smali_target)
-        if target_file is not None:
-            orig_text = target_file.read_text(encoding="utf-8")
-            rewritten = re.sub(
-                r"Lmiui/os/Build;->IS_INTERNATIONAL_BUILD:Z",
-                "Lmiui/os/xBuild;->IS_INTERNATIONAL_BUILD:Z",
-                orig_text
-            )
-            if rewritten != orig_text:
-                target_file.write_text(rewritten, encoding="utf-8")
-                modified = True
-            details[smali_target] = {"xbuild_redirected": True}
 
     return {
         "status": "success",

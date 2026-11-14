@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Android 17 services.jar FCM wake patch.
+"""Android 17 services.jar patcher for HyperMOS.
 
-HyperOS can deliver C2DM through GMS while the target package remains stopped.
-Match the verified fcm_notification_fix wake vector without adding a runtime
-module: add FLAG_INCLUDE_STOPPED_PACKAGES only to C2DM receive broadcasts.
+Applies standard notification alert handling (anti-mute on update) and boot setup.
+Removes custom MQTT service exemptions and stopped-package broadcast injection,
+matching pure Global Android power management and idle battery behavior.
 """
 import argparse
 import json
@@ -15,18 +15,8 @@ from smali_a17 import edit_method, replace_site
 from boot_a17 import BOOT_CLASS, patch_boot
 
 
-BROADCAST_CONTROLLER = "com/android/server/am/BroadcastController.smali"
-BROADCAST_METHOD = re.compile(
-    r"(?ms)^\.method[^\n]*\bbroadcastIntentLockedTraced\([^\n]*\)I[^\n]*\n"
-    r".*?^\.end method[ \t]*$"
-)
-INTENT_MOVE = re.compile(
-    r"(?m)^([ \t]*)move-object/from16[ \t]+v0,[ \t]+p4[ \t]*$"
-)
-ACTIVE_SERVICES = "com/android/server/am/ActiveServices.smali"
 ATTENTION_HELPER = "com/android/server/notification/NotificationAttentionHelper.smali"
 NOTIFICATION_MANAGER = "com/android/server/notification/NotificationManagerService.smali"
-PATCH_LABEL = ":fcm_a17_c2dm_continue"
 
 
 def locate(root: Path, relative: str) -> Path:
@@ -37,66 +27,6 @@ def locate(root: Path, relative: str) -> Path:
     if len(matches) != 1:
         raise ValueError(f"expected one {relative}, got {len(matches)}")
     return matches[0]
-
-
-def patch_broadcast_controller(source: str):
-    methods = list(BROADCAST_METHOD.finditer(source))
-    if len(methods) != 1:
-        raise ValueError(
-            "BroadcastController: expected one broadcastIntentLockedTraced method, "
-            f"got {len(methods)}")
-    block = methods[0].group()
-    if PATCH_LABEL in block or "->hypermosApplyC2dmWake(" in block or (
-        "com.google.android.c2dm.intent.RECEIVE" in block
-        and re.search(r"const/16 v11, 0x20\s+invoke-virtual \{v0, v11\}, Landroid/content/Intent;->addFlags", block)
-    ):
-        return source, False
-
-    if not re.match(
-        r"^\.method[^\n]*broadcastIntentLockedTraced\("
-        r"Lcom/android/server/am/ProcessRecord;Ljava/lang/String;Ljava/lang/String;"
-        r"Landroid/content/Intent;", block,
-    ):
-        raise ValueError("BroadcastController: expected Intent at p4")
-    move = INTENT_MOVE.search(block)
-    if not move:
-        raise ValueError("BroadcastController: expected Intent setup")
-    hook = (
-        "\n\n    invoke-static/range {p4 .. p4}, Lcom/android/server/am/BroadcastController;"
-        "->hypermosApplyC2dmWake(Landroid/content/Intent;)V"
-    )
-    at = move.end()
-    block = block[:at] + hook + block[at:]
-    output = source[:methods[0].start()] + block + source[methods[0].end():]
-    return output + WAKE_HELPER, True
-
-
-WAKE_HELPER = """
-.method private static hypermosApplyC2dmWake(Landroid/content/Intent;)V
-    .locals 2
-
-    if-eqz p0, :done
-
-    invoke-virtual {p0}, Landroid/content/Intent;->getAction()Ljava/lang/String;
-
-    move-result-object v0
-
-    const-string v1, "com.google.android.c2dm.intent.RECEIVE"
-
-    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
-
-    move-result v0
-
-    if-eqz v0, :done
-
-    const/16 v0, 0x20
-
-    invoke-virtual {p0, v0}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;
-
-    :done
-    return-void
-.end method
-"""
 
 
 def patch_alerts(source, group, anti_mute, unthrottle):
@@ -203,102 +133,9 @@ def patch_call_full_screen_intent(source):
     )
 
 
-MQTT_EXEMPT_HELPER = """
-.method private static hypermosIsMqttServiceExempt(Lcom/android/server/am/ServiceRecord;)Z
-    .locals 3
-    .param p0, "service"    # Lcom/android/server/am/ServiceRecord;
-
-    const/4 v0, 0x0
-
-    if-nez p0, :cond_check_null
-
-    return v0
-
-    :cond_check_null
-    iget-object v1, p0, Lcom/android/server/am/ServiceRecord;->packageName:Ljava/lang/String;
-
-    if-nez v1, :cond_check_pkg
-
-    return v0
-
-    :cond_check_pkg
-    const-string v2, "com.facebook.orca"
-
-    invoke-virtual {v2, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
-
-    move-result v1
-
-    if-nez v1, :cond_check_comp
-
-    return v0
-
-    :cond_check_comp
-    iget-object v1, p0, Lcom/android/server/am/ServiceRecord;->shortInstanceName:Ljava/lang/String;
-
-    if-nez v1, :cond_check_name
-
-    return v0
-
-    :cond_check_name
-    const-string v2, "MqttService"
-
-    invoke-virtual {v1, v2}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z
-
-    move-result v1
-
-    if-nez v1, :cond_check_done
-
-    return v0
-
-    :cond_check_done
-    const/4 v0, 0x1
-
-    return v0
-.end method
-"""
-
-
-def patch_active_services(source: str):
-    method_sig = r"stopInBackgroundLocked\(I\)V"
-    pattern = (
-        r"^[ \t]*invoke-virtual/range \{v8 \.\. v16\}, "
-        r"Lcom/android/server/am/ActivityManagerService;->getAppStartModeLOSP\([^\)]+\)I\s*\n"
-        r"[ \t]*move-result v6\s*\n"
-        r"[ \t]*if-eqz v6, :(\w+)\s*$"
-    )
-
-    def edit(block):
-        if "hypermosIsMqttServiceExempt" in block or "# XNotifyFix mqtt service idle exemption" in block:
-            return block
-        m = re.search(pattern, block, re.MULTILINE)
-        if not m:
-            raise ValueError("stopInBackgroundLocked: getAppStartModeLOSP pattern not found")
-        skip_label = ":" + m.group(1)
-        hook = (
-            f"    invoke-static {{v5}}, Lcom/android/server/am/ActiveServices;->hypermosIsMqttServiceExempt(Lcom/android/server/am/ServiceRecord;)Z\n\n"
-            f"    move-result v6\n\n"
-            f"    if-nez v6, {skip_label}  # Messenger MQTT idle exemption\n\n"
-        )
-        return block[:m.start()] + hook + block[m.start():]
-
-    method_pattern = rf"(?ms)^\.method[^\n]*\s{method_sig}[ \t]*\n.*?^\.end method[ \t]*$"
-    m_meth = re.search(method_pattern, source)
-    if not m_meth:
-        raise ValueError("ActiveServices: expected stopInBackgroundLocked(I)V method")
-    patched_method = edit(m_meth.group(0))
-    if patched_method != m_meth.group(0):
-        return source[:m_meth.start()] + patched_method + source[m_meth.end():] + MQTT_EXEMPT_HELPER, True
-    return source, False
-
-
 def patch(root: Path):
     if not root.is_dir():
         raise ValueError(f"missing decompiled services.jar: {root}")
-    controller = locate(root, BROADCAST_CONTROLLER)
-    changed, inserted = patch_broadcast_controller(
-        controller.read_text(encoding="utf-8"))
-    if inserted:
-        controller.write_text(changed, encoding="utf-8")
 
     flags = {}
     for option, default in (
@@ -324,22 +161,13 @@ def patch(root: Path):
 
     boot_inserted = patch_boot(locate(root, BOOT_CLASS))
 
-    active_services = locate(root, ACTIVE_SERVICES)
-    patched_as, as_inserted = patch_active_services(active_services.read_text(encoding="utf-8"))
-    if as_inserted:
-        active_services.write_text(patched_as, encoding="utf-8")
-
     return {
         "status": "success",
-        "changed": inserted or patched != original or boot_inserted or call_gate_inserted or as_inserted,
+        "changed": patched != original or boot_inserted or call_gate_inserted,
         "target_jar": "services.jar",
-        "c2dm_include_stopped_packages": True,
-        "hook_inserted": inserted,
         "alert_options": flags,
         "call_fsi_gate_inserted": call_gate_inserted,
         "boot_actions_inserted": boot_inserted,
-        "mqtt_service_exempt_inserted": as_inserted,
-        "class": BROADCAST_CONTROLLER,
     }
 
 

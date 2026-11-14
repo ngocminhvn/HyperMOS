@@ -2,7 +2,6 @@
 
 import os
 
-from gmswall_a17 import PROP
 from smali_a17 import FSI_PACKAGES, edit_method, replace_site
 
 BOOT_CLASS = "com/android/server/am/ActivityManagerService.smali"
@@ -67,7 +66,7 @@ def generate_boot_smali():
         for package in FSI_PACKAGES
     ]
     boot = boot.replace("    # Full-screen packages", "\n".join(fsi_calls))
-    return patch_firewall_trigger(boot + "".join(methods) + BOOT_GMS + BOOT_FSI)
+    return boot + "".join(methods) + BOOT_GMS + BOOT_FSI
 
 
 def patch_boot(ams):
@@ -95,40 +94,6 @@ def patch_boot(ams):
     ams.write_text(source + SCHEDULE_BOOT, encoding="utf-8")
     boot_class.write_text(new_boot, encoding="utf-8")
     return True
-
-
-def patch_firewall_trigger(source):
-    def edit(block):
-        if PROP in block:
-            return block
-        return replace_site(
-            block,
-            r"(^    invoke-virtual \{v0, v1, v2, v3, v4\}, Landroid/content/ContentResolver;"
-            r"->call\(Landroid/net/Uri;Ljava/lang/String;Ljava/lang/String;Landroid/os/Bundle;\)Landroid/os/Bundle;)$",
-            r"\1" + f'\n\n    const-string v2, "{PROP}"'
-            '\n    const-string v3, "1"'
-            "\n    invoke-static {v2, v3}, Landroid/os/SystemProperties;->set(Ljava/lang/String;Ljava/lang/String;)V",
-            "init GMS firewall action",
-        )
-
-    return edit_method(source, r"disarmPowerKeeper\(Landroid/content/Context;\)V", edit)
-
-
-def patch_sleepmode_policy(source):
-    def edit(block):
-        if "cloud_sleepmode_networkpolicy_enabled" in block:
-            return block
-        return replace_site(
-            block,
-            r"(^    invoke-virtual \{v0, v1, v2, v3, v4\}, Landroid/content/ContentResolver;"
-            r"->update\(Landroid/net/Uri;Landroid/content/ContentValues;Ljava/lang/String;\[Ljava/lang/String;\)I)$",
-            r"\1" + '\n\n    const-string v1, "cloud_sleepmode_networkpolicy_enabled"'
-            '\n    const-string v2, "off"'
-            "\n    invoke-static {v0, v1, v2}, Landroid/provider/Settings$System;->putString(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z",
-            "disable cloud sleepmode networkpolicy",
-        )
-
-    return edit_method(source, r"disarmPowerKeeper\(Landroid/content/Context;\)V", edit)
 
 
 def settings_method(name, marker, settings):
