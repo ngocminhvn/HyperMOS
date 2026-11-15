@@ -1,0 +1,270 @@
+name: Extract RYU product overlays
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/extract-ryu-product-overlay.yml'
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'RYU ROM ZIP download URL'
+        required: true
+        type: string
+        default: 'https://index.projectryu.workers.dev/dl/1UEEFmUolMdFrRgW1RVMApGEAVj2U_889'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extract-ryu-product-overlay-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      ROM_URL: ${{ inputs.rom_url || 'https://index.projectryu.workers.dev/dl/1UEEFmUolMdFrRgW1RVMApGEAVj2U_889' }}
+      WORK: ${{ runner.temp }}/ryu-product-overlay
+
+    steps:
+      - name: Checkout extraction helpers
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - name: Free runner disk and install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 curl unzip erofs-utils e2fsprogs android-sdk-libsparse-utils
+          mkdir -p "$WORK/images" "$WORK/output/product/overlay" "$WORK/stage" "$WORK/mount"
+          df -h /
+
+      - name: Download original RYU ROM
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ROM_URL" == https://* ]] || { echo "::error::ROM URL must be HTTPS"; exit 1; }
+          if ! aria2c --continue=true --file-allocation=none \
+              --max-connection-per-server=4 --split=4 --min-split-size=16M \
+              --max-tries=8 --retry-wait=10 --connect-timeout=30 --timeout=90 \
+              --auto-file-renaming=false --dir="$WORK" --out=rom.zip "$ROM_URL"; then
+            echo "[WARN] Parallel download failed; retrying with one HTTP connection"
+            rm -f "$WORK/rom.zip" "$WORK/rom.zip.aria2"
+            curl --fail --location --retry 8 --retry-delay 10 --retry-all-errors \
+              --connect-timeout 30 --output "$WORK/rom.zip" "$ROM_URL"
+          fi
+          python3 - <<'PY'
+          import os, re, zipfile
+          path = os.path.join(os.environ["WORK"], "rom.zip")
+          if not zipfile.is_zipfile(path):
+              raise SystemExit("Downloaded file is not a ROM ZIP (check RYU link or access limits)")
+          with zipfile.ZipFile(path) as z:
+              files = [m.filename for m in z.infolist() if not m.is_dir()]
+              if len(files) != len(set(files)):
+                  raise SystemExit("Duplicate filenames inside ROM ZIP")
+              for n in files:
+                  if n.startswith("/") or "\\" in n or ".." in n.split("/"):
+                      raise SystemExit("Unsafe ZIP entry: " + n)
+              has_super = any(re.fullmatch(r"(?:.*/)?super\.img(?:\.\d+)?", n) for n in files)
+              has_payload = "payload.bin" in files
+              product_images = [n for n in files if re.fullmatch(r"(?:.*/)?product(?:_a)?\.img", n)]
+              if has_super:
+                  layout = "super"
+              elif has_payload:
+                  layout = "payload"
+              elif len(product_images) == 1:
+                  layout = "product-image"
+              else:
+                  raise SystemExit("Unsupported ROM ZIP: no super.img, payload.bin or product.img")
+              print("ROM layout:", layout, "entries:", len(files))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("layout=" + layout + "\n")
+              if layout == "product-image":
+                  out.write("entry=" + product_images[0] + "\n")
+          PY
+        id: rom
+
+      - name: Extract only the product partition from super.img
+        if: steps.rom.outputs.layout == 'super'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, sys, subprocess
+          from pathlib import Path
+          sys.path.insert(0, "bin/audit")
+          from audit_xiaomi_eu_apps import make_super, read_partition_names
+          work = Path(os.environ["WORK"])
+          super_img = make_super(work / "rom.zip", work)
+          names = read_partition_names(super_img, Path("bin/lpunpack.py"))
+          selected = next((p for p in ("product_a", "product", "product_b") if p in names), None)
+          if selected is None:
+              raise SystemExit("No product partition in super.img")
+          print("[SELECTED]", selected, flush=True)
+          subprocess.run([sys.executable, "bin/lpunpack.py", "-p", selected,
+                          str(super_img), str(work / "images")], check=True)
+          img = work / "images" / (selected + ".img")
+          if not img.is_file() or img.stat().st_size == 0:
+              raise SystemExit("Failed to extract " + selected)
+          img.rename(work / "images" / "product.img")
+          super_img.unlink()
+          PY
+
+      - name: Install OTA payload extraction tool
+        if: steps.rom.outputs.layout == 'payload'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache: false
+
+      - name: Extract only product from payload.bin
+        if: steps.rom.outputs.layout == 'payload'
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOBIN="$RUNNER_TEMP/ryu-payload-tools" go install github.com/ssut/payload-dumper-go@2.1.0
+          "$RUNNER_TEMP/ryu-payload-tools/payload-dumper-go" \
+            -c 4 -p product -o "$WORK/images" "$WORK/rom.zip"
+          test -s "$WORK/images/product.img"
+
+      - name: Read a direct product.img from ROM ZIP
+        if: steps.rom.outputs.layout == 'product-image'
+        shell: bash
+        env:
+          IMAGE_ENTRY: ${{ steps.rom.outputs.entry }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, shutil, zipfile
+          work = os.environ["WORK"]
+          with zipfile.ZipFile(os.path.join(work, "rom.zip")) as z:
+              with z.open(os.environ["IMAGE_ENTRY"]) as src:
+                  with open(os.path.join(work, "images", "product.img"), "wb") as dst:
+                      shutil.copyfileobj(src, dst, 8 * 1024 * 1024)
+          PY
+
+      - name: Extract original product/overlay only
+        shell: bash
+        run: |
+          set -euo pipefail
+          img="$WORK/images/product.img"
+          test -s "$img" || { echo "::error::Missing product.img"; exit 1; }
+          rm -f "$WORK/rom.zip"
+          if [[ "$(od -An -tx1 -N4 "$img" | tr -d ' \n')" == "3aff26ed" ]]; then
+            simg2img "$img" "$WORK/images/product.raw.img"
+            rm -f "$img"
+            img="$WORK/images/product.raw.img"
+          fi
+          kind="$(python3 - "$img" <<'PY'
+          import sys
+          with open(sys.argv[1], "rb") as f:
+              f.seek(1024)
+              erofs = f.read(4) == bytes.fromhex("e2e1f5e0")
+              f.seek(1080)
+              ext4 = f.read(2) == bytes.fromhex("53ef")
+          print("erofs" if erofs else "ext4" if ext4 else "unknown")
+          PY
+          )"
+          echo "[FILESYSTEM] $kind"
+          [[ "$kind" != unknown ]] || { echo "::error::Unsupported product filesystem"; exit 1; }
+          destination="$WORK/output/product/overlay"
+          if sudo mount -o loop,ro "$img" "$WORK/mount"; then
+            trap 'sudo umount "$WORK/mount" || true' EXIT
+            if [[ -d "$WORK/mount/overlay" ]]; then
+              sudo cp -a "$WORK/mount/overlay/." "$destination/"
+            elif [[ -d "$WORK/mount/product/overlay" ]]; then
+              sudo cp -a "$WORK/mount/product/overlay/." "$destination/"
+            else
+              echo "::error::product/overlay missing in mounted image"; exit 1
+            fi
+            sudo umount "$WORK/mount"
+            trap - EXIT
+          elif [[ "$kind" == erofs ]]; then
+            # Fallback for runners that disallow loop mounting.
+            # Only output the overlay tree, even when the tool must unpack EROFS to stage.
+            fsck.erofs --extract="$WORK/stage" "$img"
+            if [[ -d "$WORK/stage/overlay" ]]; then
+              cp -a "$WORK/stage/overlay/." "$destination/"
+            elif [[ -d "$WORK/stage/product/overlay" ]]; then
+              cp -a "$WORK/stage/product/overlay/." "$destination/"
+            else
+              echo "::error::product/overlay missing in EROFS"; exit 1
+            fi
+          else
+            # debugfs can dump a single ext4 directory without unpacking the entire image.
+            if debugfs -R 'stat /overlay' "$img" 2>/dev/null | grep -q 'Type: directory'; then
+              debugfs -R "rdump /overlay $WORK/stage" "$img"
+            elif debugfs -R 'stat /product/overlay' "$img" 2>/dev/null | grep -q 'Type: directory'; then
+              debugfs -R "rdump /product/overlay $WORK/stage" "$img"
+            else
+              echo "::error::product/overlay missing in ext4"; exit 1
+            fi
+            if [[ -d "$WORK/stage/overlay" ]]; then
+              cp -a "$WORK/stage/overlay/." "$destination/"
+            elif [[ -d "$WORK/stage/product/overlay" ]]; then
+              cp -a "$WORK/stage/product/overlay/." "$destination/"
+            else
+              echo "::error::debugfs could not dump product/overlay"; exit 1
+            fi
+          fi
+          sudo chown -R "$(id -u):$(id -g)" "$WORK/output"
+          test -n "$(find "$destination" -type f -print -quit)" || {
+            echo "::error::No files extracted from product/overlay"; exit 1;
+          }
+          rm -f "$img"
+          rm -rf "$WORK/stage"
+
+      - name: Generate manifest and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ["WORK"]) / "output"
+          overlay = root / "product" / "overlay"
+          items = []
+          for p in sorted(overlay.rglob("*")):
+              if not p.is_file() or p.is_symlink():
+                  continue
+              h = hashlib.sha256()
+              with p.open("rb") as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                      h.update(chunk)
+              items.append({"path": p.relative_to(root).as_posix(),
+                            "bytes": p.stat().st_size, "sha256": h.hexdigest()})
+          if not items:
+              raise SystemExit("No regular overlay files found")
+          (root / "SHA256SUMS.txt").write_text(
+              "".join(x["sha256"] + "  " + x["path"] + "\n" for x in items))
+          (root / "manifest.json").write_text(json.dumps({
+              "source_rom_url": os.environ["ROM_URL"],
+              "original_files_unmodified": True,
+              "source_directory": "/product/overlay/",
+              "file_count": len(items),
+              "apk_count": sum(x["path"].lower().endswith(".apk") for x in items),
+              "files": items
+          }, indent=2, ensure_ascii=False) + "\n")
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a") as s:
+              s.write("### Original RYU /product/overlay/ extraction\n\n")
+              s.write(f"- Files: {len(items)}\n")
+              s.write(f"- APKs: {sum(x['path'].lower().endswith('.apk') for x in items)}\n")
+              s.write("- Archive: RYU-product-overlay GitHub Actions artifact\n")
+              s.write("- Original APKs are unchanged and unsigned by this workflow.\n")
+          PY
+
+      - name: Upload product overlay artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RYU-product-overlay
+          path: ${{ runner.temp }}/ryu-product-overlay/output/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
