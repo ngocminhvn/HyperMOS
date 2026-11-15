@@ -48,3 +48,15 @@ Always keep a working backup and make sure you know how to restore the original 
 ## Disclaimer
 
 This project is provided for development, testing, and educational purposes. You are responsible for any changes made to your device and for verifying compatibility before flashing.
+
+## License and Attribution
+
+Original HyperMOS code and documentation for which contributors have licensing rights are provided under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for the original project attribution:
+
+- **Project:** HyperMOS
+- **Original author / maintainer:** [ngocminhvn](https://github.com/ngocminhvn)
+- **Upstream source:** https://github.com/ngocminhvn/HyperMOS
+
+When distributing HyperMOS source or derivative works, you must follow Apache-2.0 Section 4, including providing the license and retaining relevant copyright and attribution notices. Attribution may be included in a NOTICE file, the distributed source/documentation, or another location permitted by the license; it is **not** required to appear in a downstream README specifically. Please credit HyperMOS and link to the upstream repository when publishing a modified project or ROM.
+
+**Third-party rights:** Xiaomi firmware, Xiaomi.eu files, and third-party mods, tools, patches, and other bundled assets are **not automatically relicensed** under Apache-2.0. Their original copyright, license terms, and required notices continue to apply.
