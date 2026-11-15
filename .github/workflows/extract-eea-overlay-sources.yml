@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 180
     env:
       ROM_URL: ${{ inputs.rom_url }}
-      WORK: ${{ runner.temp }}/eea-overlay-sources
+      WORK: ${{ github.workspace }}/.eea-overlay-sources
     steps:
       - name: Checkout extraction context (read-only)
         uses: actions/checkout@v4
@@ -191,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EEA-myron-OS4-A17-overlay-source-system
-          path: ${{ runner.temp }}/eea-overlay-sources/output/system/
+          path: ${{ github.workspace }}/.eea-overlay-sources/output/system/
           if-no-files-found: error
           compression-level: 1
           retention-days: 14
@@ -200,7 +200,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EEA-myron-OS4-A17-overlay-source-system-ext
-          path: ${{ runner.temp }}/eea-overlay-sources/output/system_ext/
+          path: ${{ github.workspace }}/.eea-overlay-sources/output/system_ext/
           if-no-files-found: error
           compression-level: 1
           retention-days: 14
@@ -209,7 +209,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EEA-myron-OS4-A17-overlay-source-product
-          path: ${{ runner.temp }}/eea-overlay-sources/output/product/
+          path: ${{ github.workspace }}/.eea-overlay-sources/output/product/
           if-no-files-found: error
           compression-level: 1
           retention-days: 14
