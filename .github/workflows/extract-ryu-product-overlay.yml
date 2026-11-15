@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: extract-ryu-product-overlay-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   extract:
@@ -29,6 +29,15 @@ jobs:
       WORK: ${{ runner.temp }}/ryu-product-overlay
 
     steps:
+      - name: Maximize runner disk for sparse super.img
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
       - name: Checkout extraction helpers
         uses: actions/checkout@v4
         with:
