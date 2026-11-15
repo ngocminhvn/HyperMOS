@@ -47,4 +47,5 @@ apks=("$src"/*.apk)
 mkdir -p "$target"
 mods "Adding MultiLanguage to $rom_os China ROM..."
 cp -f -- "${apks[@]}" "$target/"
+[[ -f "$src/partition_order.xml" ]] && cp -f "$src/partition_order.xml" "$target/"
 mods "MultiLang $rom_os: copied ${#apks[@]} prebuilt overlay APKs unchanged into product/overlay"

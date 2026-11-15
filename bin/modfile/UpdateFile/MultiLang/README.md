@@ -11,7 +11,7 @@ MultiLang/
 ├── OS3/
 │   └── updatesource/   # 67 file Nothings.*.apk
 └── OS4/
-    └── updatesource/   # 79 file Vni.*.apk
+    └── updatesource/   # 59 file TNM.Multilang.*.apk + partition_order.xml
 ```
 
 `bin/modfile/UpdateFile/insupdate.sh` gọi **duy nhất** `MultiLang/update.sh` trong lúc build. Script này kiểm tra loại ROM, sau đó sử dụng cùng một lệnh copy cho cả hai phiên bản:
