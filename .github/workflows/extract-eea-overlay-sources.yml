@@ -1,0 +1,229 @@
+name: Extract EEA Overlay Sources (A17)
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Full HyperOS EEA OTA ZIP (source translations only)'
+        required: true
+        type: string
+        default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.1.0.XPMEUXM/myron_eea_global-ota_full-OS4.0.1.0.XPMEUXM-user-17.0-4e239889a6.zip'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eea-overlay-sources-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      ROM_URL: ${{ inputs.rom_url }}
+      WORK: ${{ runner.temp }}/eea-overlay-sources
+    steps:
+      - name: Checkout extraction context (read-only)
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - name: Reclaim space and install image tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 unzip erofs-utils e2fsprogs android-sdk-libsparse-utils xz-utils
+          mkdir -p "$WORK/images" "$WORK/output" "$WORK/mount"
+          df -h /
+
+      - name: Install selective OTA payload extractor
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache: false
+
+      - name: Build pinned payload-dumper-go
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOBIN="$RUNNER_TEMP/eea-tools" go install github.com/ssut/payload-dumper-go@2.1.0
+          "$RUNNER_TEMP/eea-tools/payload-dumper-go" -h
+
+      - name: Download EEA ROM and validate OTA layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ROM_URL" =~ ^https://[^[:space:]]+\.zip([?][^[:space:]]*)?$ ]] || {
+            echo '::error::Expected an HTTPS full OTA ZIP URL'; exit 1;
+          }
+          aria2c --continue=true --file-allocation=none --max-connection-per-server=8 \
+            --split=8 --min-split-size=8M --retry-wait=8 --max-tries=8 \
+            --connect-timeout=30 --timeout=60 --dir="$WORK" --out=source.zip "$ROM_URL"
+          python3 - <<'PY'
+          import os, zipfile
+          p = os.path.join(os.environ['WORK'], 'source.zip')
+          with zipfile.ZipFile(p) as z:
+              files = z.namelist()
+              assert 'payload.bin' in files, 'Not a full OTA ZIP containing payload.bin'
+              assert z.getinfo('payload.bin').file_size > 100_000_000, 'Unexpected payload size'
+              print('OTA validated: payload.bin bytes =', z.getinfo('payload.bin').file_size)
+          PY
+          "$RUNNER_TEMP/eea-tools/payload-dumper-go" -l "$WORK/source.zip" | tee "$WORK/partitions.txt"
+
+      - name: Extract ONLY the three translation-source partitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/eea-tools/payload-dumper-go" \
+            -c 4 -p system,system_ext,product -o "$WORK/images" "$WORK/source.zip"
+          for p in system system_ext product; do
+            test -s "$WORK/images/$p.img" || { echo "::error::Missing $p.img"; exit 1; }
+            ls -lh "$WORK/images/$p.img"
+          done
+          rm -f "$WORK/source.zip"
+
+      - name: Collect resource-only APK bundles without DEX or native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for part in system system_ext product; do
+            img="$WORK/images/$part.img"
+            mount_dir="$WORK/mount/$part"
+            mkdir -p "$mount_dir"
+            mounted=0
+            extracted=0
+            # Read-only loop mount avoids unpacking many GB of unrelated files.
+            if sudo mount -o loop,ro "$img" "$mount_dir"; then
+              mounted=1
+            else
+              # Hosted runners may not allow loop mounts. EROFS and ext4 fallbacks
+              # are strictly read-only and processed one partition at a time.
+              kind="$(python3 - "$img" <<'PY'
+          import sys
+          with open(sys.argv[1], 'rb') as f:
+              f.seek(1024); erofs = f.read(4) == b'\xe2\xe1\xf5\xe0'
+              f.seek(1080); ext4 = f.read(2) == b'\x53\xef'
+          print('erofs' if erofs else 'ext4' if ext4 else 'unknown')
+          PY
+              )"
+              [[ "$kind" != unknown ]] || { echo "::error::Unknown filesystem in $part.img"; exit 1; }
+              echo "[FALLBACK] Extracting $part ($kind) without mounting"
+              if [[ "$kind" == erofs ]]; then
+                fsck.erofs --extract="$mount_dir" "$img"
+              else
+                debugfs -R "rdump / $mount_dir" "$img"
+              fi
+              extracted=1
+            fi
+
+            # Read-only input, output is a bundle of compiled XML/ARSC only.
+            # This is for re-generating RROs, NEVER for installing on a phone.
+            sudo -E env WORK="$WORK" PART="$part" MOUNT_DIR="$mount_dir" ROM_URL="$ROM_URL" python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, urllib.parse, zipfile
+          root = pathlib.Path(os.environ['MOUNT_DIR'])
+          part = os.environ['PART']
+          output = pathlib.Path(os.environ['WORK']) / 'output' / part
+          source_file = pathlib.PurePosixPath(urllib.parse.urlsplit(os.environ['ROM_URL']).path).name
+          source_build = re.search(r'OS\d+(?:\.\d+){3}\.[A-Z0-9]+', source_file)
+          records = []
+          for src in sorted(root.rglob('*.apk')):
+              rel = src.relative_to(root)
+              # Only system application, framework and overlay sources; not an app-data dump.
+              if not any(x in rel.parts for x in ('app', 'priv-app', 'overlay', 'framework')):
+                  continue
+              try:
+                  with zipfile.ZipFile(src) as zin:
+                      wanted = [x for x in zin.infolist() if not x.is_dir() and (
+                          x.filename in ('AndroidManifest.xml', 'resources.arsc', 'resources.pb')
+                          or x.filename.startswith('res/'))]
+                      if not any(x.filename in ('resources.arsc', 'resources.pb') for x in wanted):
+                          continue
+                      dst = output / (str(rel) + '.resources.zip')
+                      dst.parent.mkdir(parents=True, exist_ok=True)
+                      with zipfile.ZipFile(dst, 'w', compression=zipfile.ZIP_DEFLATED,
+                                           compresslevel=1, allowZip64=True) as zout:
+                          for item in wanted:
+                              zout.writestr(item, zin.read(item))
+              except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
+                  raise SystemExit(f'Cannot preserve resources from {part}/{rel}: {exc}')
+              h = hashlib.sha256()
+              with dst.open('rb') as stream:
+                  for block in iter(lambda: stream.read(1024 * 1024), b''):
+                      h.update(block)
+              records.append({'source': f'{part}/{rel}', 'bundle': str(dst.relative_to(output)),
+                              'original_apk_bytes': src.stat().st_size,
+                              'bundle_bytes': dst.stat().st_size, 'sha256': h.hexdigest()})
+          if not records:
+              raise SystemExit('No resource APKs found in ' + part)
+          (output / 'manifest.json').write_text(json.dumps({
+              'purpose': 'EEA resource source for HyperMOS overlays; NOT flashable or installable',
+              'source_rom_url': os.environ['ROM_URL'], 'source_file': source_file,
+              'source_device': source_file.split('_')[0],
+              'source_build': source_build.group() if source_build else 'unknown',
+              'partition': part,
+              'apk_count': len(records), 'files': records
+          }, indent=2, ensure_ascii=False) + '\n')
+          (output / 'README.txt').write_text(
+              'Resource-only snapshots: AndroidManifest.xml, resources.arsc/resources.pb, res/.\n'
+              'No classes.dex, native libraries, signing metadata or original full APKs.\n'
+              'These .resources.zip bundles are NOT INSTALLABLE.\n'
+              'Decode using apktool/aapt2 after renaming a bundle to .apk if necessary.\n'
+              'Rebuild any HyperMOS RRO against the final patched China target APK;\n'
+              'never copy EEA resource IDs verbatim.\n')
+          print(f'[EEA] {part}: {len(records)} resource bundles')
+          PY
+
+            if [[ "$mounted" -eq 1 ]]; then
+              sudo umount "$mount_dir"
+            elif [[ "$extracted" -eq 1 ]]; then
+              sudo rm -rf "$mount_dir"
+            fi
+            rm -f "$img"
+          done
+          sudo chown -R "$(id -u):$(id -g)" "$WORK/output"
+          find "$WORK/output" -name '*.resources.zip' | wc -l
+
+      - name: Upload EEA system translation resources
+        uses: actions/upload-artifact@v4
+        with:
+          name: EEA-myron-OS4-A17-overlay-source-system
+          path: ${{ runner.temp }}/eea-overlay-sources/output/system/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 14
+
+      - name: Upload EEA system_ext translation resources
+        uses: actions/upload-artifact@v4
+        with:
+          name: EEA-myron-OS4-A17-overlay-source-system-ext
+          path: ${{ runner.temp }}/eea-overlay-sources/output/system_ext/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 14
+
+      - name: Upload EEA product translation resources
+        uses: actions/upload-artifact@v4
+        with:
+          name: EEA-myron-OS4-A17-overlay-source-product
+          path: ${{ runner.temp }}/eea-overlay-sources/output/product/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 14
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo '### EEA source resources for HyperMOS OS4 overlays'
+            echo ''
+            echo '- Source: myron EEA OS4.0.1.0.XPMEUXM, Android 17'
+            echo '- Input: OTA ZIP URL (editable when dispatching)'
+            echo '- Extracted partitions: system, system_ext, product only'
+            echo '- Output: three GitHub Artifacts with resource-only ZIP files and manifests'
+            echo '- No DEX, native libraries, firmware, ROM build, push or flash'
+            echo '- These are sources, not ready-to-install RRO APKs.'
+          } >> "$GITHUB_STEP_SUMMARY"
