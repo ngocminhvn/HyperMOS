@@ -276,4 +276,4 @@ jobs:
           path: ${{ github.workspace }}/.ryu-product-overlay/output/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: 1

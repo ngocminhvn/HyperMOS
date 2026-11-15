@@ -152,7 +152,7 @@ jobs:
             ${{ runner.temp }}/hypermos-dump/work/updater-script.txt
             ${{ runner.temp }}/hypermos-dump/mirror-report.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
       - name: Copy files and create map
         id: collect
@@ -219,7 +219,7 @@ jobs:
           name: ${{ env.DUMP_ARTIFACT_NAME }}
           path: ${{ env.DUMP_OUT_NAME }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload Google Drive using existing rclone config
         id: upload_drive

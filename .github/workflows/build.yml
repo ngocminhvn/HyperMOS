@@ -394,4 +394,4 @@ jobs:
           name: hypermos-build-log-${{ github.run_id }}-${{ github.run_attempt }}
           path: failure-diagnostics/build_action.log
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
