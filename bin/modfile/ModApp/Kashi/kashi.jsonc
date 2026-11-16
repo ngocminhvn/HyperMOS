@@ -33,7 +33,7 @@
     "launcher": {
       "name": "HyperOS Launcher",
       "os3_china": true,
-      "os4_china": true,
+      "os4_china": false,
       "selected_zip": "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip",
       "available_zips": [
         "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip",
