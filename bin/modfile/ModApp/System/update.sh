@@ -186,4 +186,11 @@ replace_system_app \
     "com.miui.weather2" \
     "MIUIWeather"
 
+# 4. MIUICloudBackupGlobal (replaces MIUICloudBackup)
+replace_system_app \
+    "SystemApp CloudBackup" \
+    "MIUICloudBackupGlobal.apk" \
+    "com.miui.cloudbackup" \
+    "MIUICloudBackup"
+
 mods "System Global APK replacements -> Done"
