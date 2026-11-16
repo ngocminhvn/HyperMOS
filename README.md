@@ -34,7 +34,7 @@ HyperMOS is a Xiaomi HyperOS ROM build and modification project designed to auto
 
 Xiaomi.eu ZIP filenames (`xiaomi.eu_<DEVICE>_<VERSION>_...`) select
 `rom_source=xiaomi_eu`, independently from the `CNXM` base region tag.
-This enables `bin/modfile/EU/update.sh` to remove only stock
+This enables `bin/modfile/UpdateFile/EU/update.sh` to remove only stock
 `/product/priv-app/XiaomiEUExt`. All existing China/shared mods are still
 applied, but the China-only `NOTIFICATION_FIX` stage is skipped; EU retains
 its original notification/PowerKeeper behavior. The final ROM filename uses

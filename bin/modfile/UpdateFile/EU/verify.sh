@@ -5,11 +5,9 @@ set -euo pipefail
 work_dir="$(pwd)"
 source "$work_dir/functions.sh"
 source_file="$work_dir/bin/ddevice/rom_source.txt"
-[[ -s "$source_file" ]] || { error "EU: rom_source.txt missing"; exit 1; }
-[[ "$(tr -d '\r\n' < "$source_file")" == "xiaomi_eu" ]] || {
-    error "EU verification invoked for non-Xiaomi.eu source"
-    exit 1
-}
+if [[ ! -s "$source_file" ]] || [[ "$(tr -d '\r\n' < "$source_file")" != "xiaomi_eu" ]]; then
+    exit 0
+fi
 
 images="$work_dir/build/baserom/images"
 components=(XiaomiEUExt XiaomiEUInject)

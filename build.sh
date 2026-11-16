@@ -260,11 +260,6 @@ fi
 bash $work_dir/bin/ddevice/DEBLOAT/debloat.sh || exit 1
 info "Done"
 
-# Only Xiaomi.eu gets dedicated cleanup. Shared/China mod order is unchanged.
-if [[ "$rom_source" == "xiaomi_eu" ]]; then
-    bash "$work_dir/bin/modfile/EU/update.sh" || exit 1
-fi
-
 bash $work_dir/bin/modfile/ModApp/OS3/insmod.sh || exit 1
 bash "$work_dir/bin/modfile/ModApp/OS4/insmod.sh" || exit 1
 bash $work_dir/bin/modfile/Universal/insfile.sh || exit 1
@@ -272,7 +267,7 @@ bash $work_dir/bin/modfile/UpdateFile/insupdate.sh || exit 1
 bash $work_dir/bin/package/patchpackage.sh || exit 1
 
 if [[ "$rom_source" == "xiaomi_eu" ]]; then
-    bash "$work_dir/bin/modfile/EU/verify.sh" || exit 1
+    bash "$work_dir/bin/modfile/UpdateFile/EU/verify.sh" || exit 1
 fi
 
 # Preserve vendor/ODM thermal and performance policy.
