@@ -7,7 +7,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/update-kashi-apps.yml'
-      - 'bin/modfile/ModApp/OS4/kashimod.sh'
+      - 'bin/modfile/ModApp/Kashi/kashimod.sh'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -81,7 +81,7 @@ jobs:
           # continues to check and update all Kashi snapshots.
           SOURCES = ([x for x in ALL_SOURCES if x[1] == "Mods-Center/HyperOS-Rust-Launcher-Mod"]
                      if os.environ.get("GITHUB_EVENT_NAME") == "push" else ALL_SOURCES)
-          DEST = Path("bin/modfile/ModApp/Kashi")
+          DEST = Path("bin/modfile/ModApp/Kashi/Zip")
           DEST.mkdir(parents=True, exist_ok=True)
           # An upstream module must never be silently omitted from the report.
           # Every checked-in ZIP has to belong to exactly one configured source.

@@ -29,13 +29,12 @@
     },
 
     // 3. HyperOS Launcher (MiuiHome)
-    // Co the cau hinh zip rieng cho OS3 va OS4 neu can (vi du OS4 dung Rust Launcher).
+    // Mac dinh ban dau su dung HyperOS_LauncherV7.5F cho ca OS3 va OS4.
     "launcher": {
       "name": "HyperOS Launcher",
       "os3_china": true,
       "os4_china": true,
-      "selected_zip_os3": "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip",
-      "selected_zip_os4": "HyperOS4_RustLauncherMod_v1.2.zip",
+      "selected_zip": "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip",
       "available_zips": [
         "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip",
         "HyperOS4_RustLauncherMod_v1.2.zip"
