@@ -260,8 +260,8 @@ fi
 bash $work_dir/bin/ddevice/DEBLOAT/debloat.sh || exit 1
 info "Done"
 
-bash $work_dir/bin/modfile/ModApp/OS3/insmod.sh || exit 1
-bash "$work_dir/bin/modfile/ModApp/OS4/insmod.sh" || exit 1
+bash "$work_dir/bin/modfile/ModApp/Kashi/insmod.sh" || exit 1
+bash "$work_dir/bin/modfile/ModApp/System/update.sh" || exit 1
 bash $work_dir/bin/modfile/Universal/insfile.sh || exit 1
 bash $work_dir/bin/modfile/UpdateFile/insupdate.sh || exit 1
 bash $work_dir/bin/package/patchpackage.sh || exit 1
