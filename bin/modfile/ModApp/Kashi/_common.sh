@@ -50,7 +50,7 @@ modscenter_prepare_fixed() {
     local prefix archive
     local -a matches=()
 
-    # If a specific zip is configured in kashi.json, load it directly
+    # If a specific zip is configured in kashi.jsonc, load it directly
     if [[ -n "$explicit_zip" ]]; then
         for search_dir in "$OS3_KASHI_DIR" "$work_dir/bin/modfile/ModApp/Kashi/Zip" "$work_dir/bin/modfile/ModApp/Kashi"; do
             if [[ -f "$search_dir/$explicit_zip" ]]; then
@@ -92,7 +92,7 @@ modscenter_prepare_fixed() {
     fi
 
     if (( ${#matches[@]} > 1 )); then
-        error "$label: multiple local ZIPs match ${prefix}*.zip; specify selected_zip in kashi.json"
+        error "$label: multiple local ZIPs match ${prefix}*.zip; specify selected_zip in kashi.jsonc"
         printf '  %s\n' "${matches[@]}" >&2
         return 1
     fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Kashi Mods Installer (OS3 & OS4 Unified)
-# Controlled by kashi.json (or kashi.jsonc)
+# Controlled by kashi.jsonc (or kashi.json)
 # ==============================================================================
 set -euo pipefail
 
@@ -35,7 +35,7 @@ get_mod_zip() {
     fi
 }
 
-mods "Starting Kashi mods integration for $rom_os (via kashi.json)..."
+mods "Starting Kashi mods integration for $rom_os (via kashi.jsonc)..."
 
 # 1. HyperOS App Vault
 if [[ "$(is_mod_enabled "app_vault")" == "1" ]]; then
@@ -87,7 +87,7 @@ if [[ "$(is_mod_enabled "app_vault")" == "1" ]]; then
             "MIUIPersonalAssistantPadOS3" || exit 1
     fi
 else
-    mods "HyperOS App Vault: disabled in kashi.json"
+    mods "HyperOS App Vault: disabled in kashi.jsonc"
 fi
 
 # 2. Control Center Plugin (ColorOS or FreeStyle)
@@ -102,7 +102,7 @@ if [[ "$(is_mod_enabled "control_center")" == "1" ]]; then
         "$cc_zip" \
         "MIUISystemUIPlugin" || exit 1
 else
-    mods "Control Center Plugin: disabled in kashi.json"
+    mods "Control Center Plugin: disabled in kashi.jsonc"
 fi
 
 # 3. HyperOS Screenshot
@@ -116,7 +116,7 @@ if [[ "$(is_mod_enabled "screenshot")" == "1" ]]; then
         "MIUIScreenshot" \
         "$screenshot_zip" || exit 1
 else
-    mods "HyperOS Screenshot: disabled in kashi.json"
+    mods "HyperOS Screenshot: disabled in kashi.jsonc"
 fi
 
 # 4. HyperOS Theme Manager
@@ -135,7 +135,7 @@ if [[ "$(is_mod_enabled "theme_manager")" == "1" ]]; then
         "MIUIThemeManagerPad" \
         "ThemeManager" || exit 1
 else
-    mods "HyperOS Theme Manager: disabled in kashi.json"
+    mods "HyperOS Theme Manager: disabled in kashi.jsonc"
 fi
 
 # 5. HyperOS Launcher
@@ -235,7 +235,7 @@ if [[ "$(is_mod_enabled "launcher")" == "1" ]]; then
     }
     apply_kashi_launcher || exit 1
 else
-    mods "HyperOS Launcher: disabled in kashi.json"
+    mods "HyperOS Launcher: disabled in kashi.jsonc"
 fi
 
 # 6. HyperOS Security Center (Disabled by default)

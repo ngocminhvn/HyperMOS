@@ -2,7 +2,7 @@
 * text=auto
 *.sh text eol=lf
 *.SH text eol=lf
+# Git LFS
 bin/modfile/Universal/LiteGapps/**/*.apk filter=lfs diff=lfs merge=lfs -text
 bin/modfile/Universal/LiteGapps/LiteGapps17/**/*.jar filter=lfs diff=lfs merge=lfs -text
-bin/modfile/ModApp/System/*.apk filter=lfs diff=lfs merge=lfs -text
 bin/modfile/ModApp/System/**/*.apk filter=lfs diff=lfs merge=lfs -text

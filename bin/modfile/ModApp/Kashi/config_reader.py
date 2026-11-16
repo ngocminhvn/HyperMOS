@@ -9,9 +9,9 @@ import re
 
 def load_config():
     dir_path = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(dir_path, "kashi.json")
+    json_path = os.path.join(dir_path, "kashi.jsonc")
     if not os.path.isfile(json_path):
-        json_path = os.path.join(dir_path, "kashi.jsonc")
+        json_path = os.path.join(dir_path, "kashi.json")
         if not os.path.isfile(json_path):
             return {}
 

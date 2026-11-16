@@ -17,7 +17,7 @@ if [[ "$rom_os" != "OS4" || "$rom_source" != "china" ]]; then
 fi
 
 images_root="$work_dir/build/baserom/images"
-source_dir="$work_dir/bin/modfile/ModApp/System"
+source_dir="$work_dir/bin/modfile/ModApp/System/Apk"
 staging_base="$work_dir/build/os4_system_global"
 rm -rf "$staging_base"
 mkdir -p "$staging_base"
