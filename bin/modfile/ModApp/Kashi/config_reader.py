@@ -43,8 +43,8 @@ def main():
         mod_key = sys.argv[2]
         rom_os = sys.argv[3].lower()  # "os3" or "os4"
         mod_info = cfg.get("mods", {}).get(mod_key, {})
-        key = f"{rom_os}_china"
-        enabled = mod_info.get(key, mod_info.get("enabled", True))
+        # Support direct "os3" / "os4" or legacy "os3_china" / "os4_china"
+        enabled = mod_info.get(rom_os, mod_info.get(f"{rom_os}_china", mod_info.get("enabled", True)))
         print("1" if enabled else "0")
         return
 

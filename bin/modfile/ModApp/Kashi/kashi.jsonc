@@ -1,78 +1,55 @@
 {
   // ==============================================================================
-  // Kashi Mods Configuration for HyperMOS (OS3 & OS4 China)
+  // Kashi Mods Configuration for HyperMOS (OS3 & OS4)
   // ==============================================================================
   "zip_dir": "bin/modfile/ModApp/Kashi/Zip",
   "mods": {
     // 1. HyperOS App Vault (PersonalAssistant)
     "app_vault": {
       "name": "HyperOS App Vault",
-      "os3_china": true,
-      "os4_china": true,
-      "selected_zip": "HyperOS_AppVaultV5@kashis_cringey_stuffs.zip",
-      "available_zips": [
-        "HyperOS_AppVaultV5@kashis_cringey_stuffs.zip"
-      ]
+      "os3": true,
+      "os4": true,
+      "selected_zip": "HyperOS_AppVaultV5@kashis_cringey_stuffs.zip"
     },
 
     // 2. Control Center Plugin (MIUISystemUIPlugin)
-    // Co 2 ban zip: ColorOS CC va FreeStyle CC. Chon 1 ban vao 'selected_zip'.
     "control_center": {
       "name": "Control Center Plugin",
-      "os3_china": true,
-      "os4_china": true,
-      "selected_zip": "ColorOS_plugin_mod_V4@kashis_cringey_stuffs.zip",
-      "available_zips": [
-        "ColorOS_plugin_mod_V4@kashis_cringey_stuffs.zip",
-        "FreeStyle_CC_mod_V1@kashis_cringey_stuffs.zip"
-      ]
+      "os3": true,
+      "os4": true,
+      "selected_zip": "ColorOS_plugin_mod_V4@kashis_cringey_stuffs.zip"
     },
 
     // 3. HyperOS Launcher (MiuiHome)
-    // Mac dinh ban dau su dung HyperOS_LauncherV7.5F cho ca OS3 va OS4.
     "launcher": {
       "name": "HyperOS Launcher",
-      "os3_china": true,
-      "os4_china": false,
-      "selected_zip": "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip",
-      "available_zips": [
-        "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip",
-        "HyperOS4_RustLauncherMod_v1.4.zip"
-      ]
+      "os3": true,
+      "os4": false,
+      "selected_zip": "HyperOS_LauncherV7.5F@kashis_cringey_stuffs.zip"
     },
 
     // 4. HyperOS Screenshot
     "screenshot": {
       "name": "HyperOS Screenshot",
-      "os3_china": true,
-      "os4_china": true,
-      "selected_zip": "HyperOS_ScreenshotV1.1@kashis_cringey_stuffs.zip",
-      "available_zips": [
-        "HyperOS_ScreenshotV1.1@kashis_cringey_stuffs.zip"
-      ]
+      "os3": true,
+      "os4": true,
+      "selected_zip": "HyperOS_ScreenshotV1.1@kashis_cringey_stuffs.zip"
     },
 
     // 5. HyperOS Theme Manager
     "theme_manager": {
       "name": "HyperOS Theme Manager",
-      "os3_china": true,
-      "os4_china": true,
-      "selected_zip": "HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip",
-      "available_zips": [
-        "HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip"
-      ]
+      "os3": true,
+      "os4": true,
+      "selected_zip": "HyperOS_ThemeManagerV7@kashis_cringey_stuffs.zip"
     },
 
-    // 6. HyperOS Security Center
-    // Mac dinh TAT vi dem nguoc 10s da duoc xu ly an toan trong UpdateFile/SecurityCountdown.
+    // 6. HyperOS Security Center (Mac dinh TAT vi dem nguoc 10s da duoc xu ly trong UpdateFile)
     "security_center": {
       "name": "HyperOS Security Center",
-      "os3_china": false,
-      "os4_china": false,
-      "selected_zip": "HyperOS_SecurityV8@kashis_cringey_stuffs.zip",
-      "available_zips": [
-        "HyperOS_SecurityV8@kashis_cringey_stuffs.zip"
-      ]
+      "os3": false,
+      "os4": false,
+      "selected_zip": "HyperOS_SecurityV8@kashis_cringey_stuffs.zip"
     }
   }
 }
