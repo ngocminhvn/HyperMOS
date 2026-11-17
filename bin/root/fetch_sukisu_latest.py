@@ -117,19 +117,23 @@ def run(out: Path, kmi: str) -> None:
     assets = release.get("assets", [])
     lkm = choose_asset(assets, re.escape(f"lkm-aarch64-{kmi}_kernelsu.ko"))
     init = choose_asset(assets, r"ksuinit-aarch64(?:\.zip)?")
-    manager_pattern = rf"SukiSU_{re.escape(tag)}_[0-9]+(?:-arm64-v8a)?-release\.apk"
+    manager_pattern = rf"SukiSU_(?:Nova_|Ultra_)?{re.escape(tag)}_[0-9]+(?:-arm64-v8a)?-release\.apk"
     manager = choose_asset(assets, manager_pattern)
     # Prefer the universal manager if a release ships both universal and split APKs.
     universal = [a for a in assets if re.fullmatch(
-        rf"SukiSU_{re.escape(tag)}_[0-9]+-release\.apk", str(a.get("name", "")))]
+        rf"SukiSU_(?:Nova_|Ultra_)?{re.escape(tag)}_[0-9]+-release\.apk", str(a.get("name", "")))]
     if universal:
         manager = choose_asset(universal, re.escape(universal[0]["name"]))
     picked = {"lkm": lkm, "init": init, "manager": manager}
     verified = {}
+    valid_prefixes = (
+        f"https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/download/{tag}/",
+        f"https://github.com/SukiSU-Nova/SukiSU-Nova/releases/download/{tag}/",
+    )
     for key, asset in picked.items():
         name = str(asset["name"])
         uri = str(asset.get("browser_download_url", ""))
-        if not uri.startswith(f"https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/download/{tag}/"):
+        if not uri.startswith(valid_prefixes):
             raise RuntimeError(f"untrusted source URL for {name}")
         digest = HEX.fullmatch(asset["digest"]).group(1).lower()
         dst = out / name
