@@ -40,12 +40,6 @@ if (( ${#matches[@]} == 0 )); then
 fi
 target="${matches[0]}"
 
-# Flutter/native launchers may have no DEX; Smali hooks cannot work there.
-if ! unzip -Z1 "$target" | grep -Eq '^classes([0-9]+)?\.dex$'; then
-    mods "HyperLight/Launcher: no classes.dex in $(basename "$target"); skipping Smali-based Anim-Curve/Big Folder safely"
-    exit 0
-fi
-
 editor="$work_dir/bin/apktool/apke.jar"
 [[ -s "$editor" ]] || { error "HyperLight/Launcher: APKEditor ($editor) missing"; exit 1; }
 
@@ -61,11 +55,7 @@ if ! java -jar "$editor" d -t raw -f -no-dex-debug \
 fi
 
 mods "HyperLight/Launcher: Applying patches..."
-patch_args=(--unpacked "$tmp/home")
-if [[ "$rom_os" == "OS4" ]]; then
-    patch_args+=(--skip-device-level)
-fi
-if ! python3 "$base/patch.py" "${patch_args[@]}" >"$tmp/patch.log" 2>&1; then
+if ! python3 "$base/patch.py" --unpacked "$tmp/home" >"$tmp/patch.log" 2>&1; then
     warn "HyperLight/Launcher: Patches not compatible; keeping original APK"
     cat "$tmp/patch.log" >&2
     exit 0
