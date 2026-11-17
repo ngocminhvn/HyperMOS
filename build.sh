@@ -262,6 +262,7 @@ info "Done"
 
 bash "$work_dir/bin/modfile/ModApp/Kashi/insmod.sh" || exit 1
 bash "$work_dir/bin/modfile/ModApp/System/update.sh" || exit 1
+bash "$work_dir/bin/modfile/ModApp/HyperLight/update.sh" || exit 1
 bash $work_dir/bin/modfile/Universal/insfile.sh || exit 1
 bash $work_dir/bin/modfile/UpdateFile/insupdate.sh || exit 1
 bash $work_dir/bin/package/patchpackage.sh || exit 1
