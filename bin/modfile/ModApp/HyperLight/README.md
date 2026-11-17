@@ -11,7 +11,10 @@ bin/modfile/ModApp/HyperLight/
 ├── SystemUI/               # Các bản vá nhắm vào MiuiSystemUI.apk
 │   ├── update.sh
 │   └── patch.py
-└── AOD/                    # Các bản vá nhắm vào MiuiAod.apk
+├── AOD/                    # Các bản vá nhắm vào MiuiAod.apk
+│   ├── update.sh
+│   └── patch.py
+└── Launcher/               # Các bản vá nhắm vào MiuiHome.apk (chạy khi Kashi Launcher tắt)
     ├── update.sh
     └── patch.py
 ```
@@ -32,6 +35,16 @@ bin/modfile/ModApp/HyperLight/
 ### 2. `AOD/` (`MiuiAod.apk`)
 - **`LockScreenDepthAvoid (AOD)`**: Gỡ bỏ giới hạn chiều sâu hình nền khóa. Nâng ngưỡng tỉ lệ che đồng hồ từ `0.2` (20%) lên `1.0` (100%) trong `Threshold`, ép `HierarchyImageAvoidController.isHierarchyEnable -> true`, `WallpaperInfo.getSupportSubject -> true` để bất kỳ hình nền nào cũng kích hoạt được hiệu ứng Depth 3D.
 - **`LockScreenBlurButton`**: Hỗ trợ nền mờ kính `MiGlass` cho 2 nút phím tắt (đèn pin & camera) ngoài màn hình khóa trong `ShortcutViewLayoutController`.
+
+### 3. `Launcher/` (`MiuiHome.apk`)
+> [!IMPORTANT]
+> **Điều kiện thực thi:** Chỉ kích hoạt khi mod **Kashi Launcher đang TẮT** trong `kashi.jsonc` (để tránh ghi đè hoặc xung đột với RustLauncherMod của Kashi).
+- **Phân biệt & Mở khóa `DeviceLevelUtils`:**
+  - Phân biệt profile kiểm tra cấu hình thiết bị trước khi can thiệp (whitelist, folme level, simple animation restrictions).
+  - Ép cấu hình Flagship Cấp độ 2 (`getDeviceLevel -> 2`, `isHighLevelDeviceByDefault -> true`, `isHighAnimationRate -> true`, `isUseWallpaperAnim -> true`).
+  - Tắt hoàn toàn `isUseSimpleAnim`, `isUseSimpleOpenCloseAnim`, `isLowLevelDevice` để mọi dòng máy đều có hoạt ảnh bung mở ứng dụng đầy đủ và mượt mà nhất.
+- **Đường cong hoạt ảnh mở/đóng App (`Anim-Curve` kiểu iOS):** Tinh chỉnh thông số phản hồi cử chỉ vuốt về Home và đường cong gia tốc trong `Utilities` & `FolmeSpringRegistry`.
+- **Tùy biến Thư mục lớn & Màn hình đa nhiệm:** Kích hoạt `fastBlurWhenEnterRecents` (làm mờ tức thì tránh tụt khung hình khi vào đa nhiệm), tùy biến bán kính mờ Recents và tối ưu layout thư mục lớn.
 
 ## Nguyên tắc an toàn
 - Sử dụng `apke.jar` đóng gói theo chế độ raw DEX/Smali.
