@@ -7,12 +7,11 @@ Applies clean, verified smali modifications directly to MiuiSystemUI.apk:
 3. LockScreenStackSink: Allow notification stack to sink down naturally without GXZW forced offset.
 4. LockScreenClockTop: Anchor notifications directly below the lock screen clock by default.
 5. NotificationGroupDisable: Disable notification grouping so each notification displays independently without hiding.
-6. NotificationGroupStack: Optimize card deck presentation for grouped notification containers.
-7. LockScreenDepthAvoid: Bypass lock screen depth avoid constraints in SystemUI (keep wallpaper depth with notifications).
-8. LockScreenPinKeyUnblur: Disable bouncer background blur/dimming on PIN pad (clear lockscreen wallpaper behind PIN).
-9. LockScreenPinKeyGlass: Apply real-time hardware blur (MiViewBlurMode) to PIN pad number keys.
-10. LockScreenBlurButton: Enable glass blur background for lockscreen shortcut buttons (flashlight & camera).
-11. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen.
+6. LockScreenDepthAvoid: Bypass lock screen depth avoid constraints in SystemUI (keep wallpaper depth with notifications).
+7. LockScreenPinKeyUnblur: Disable bouncer background blur/dimming on PIN pad (clear lockscreen wallpaper behind PIN).
+8. LockScreenPinKeyGlass: Apply real-time hardware blur (MiuiBlurUtils) to PIN pad number keys.
+9. LockScreenBlurButton: Enable glass blur background for lockscreen shortcut buttons (flashlight & camera).
+10. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen.
 """
 from __future__ import annotations
 
@@ -192,21 +191,8 @@ def patch_notification_ungroup(file_path: Path) -> bool:
     return modified
 
 
-def patch_group_stack(unpacked: Path) -> bool:
-    """6. NotificationGroupStack: Optimize grouped children container presentation."""
-    patched_any = False
-    for path in unpacked.rglob("NotificationChildrenContainer*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if "updateState" in content:
-            patched_any = True
-    return patched_any
-
-
 def patch_depth_avoid_systemui(unpacked: Path) -> bool:
-    """7. LockScreenDepthAvoid: Bypass depth avoiding in KeyguardDepthInteractor / KeyguardPanel."""
+    """6. LockScreenDepthAvoid: Bypass depth avoiding in KeyguardDepthInteractor / KeyguardPanel."""
     patched_any = False
     for path in unpacked.rglob("*.smali"):
         if "Keyguard" not in path.name:
@@ -215,18 +201,22 @@ def patch_depth_avoid_systemui(unpacked: Path) -> bool:
             content = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        if "updateAvoidStatus()V" in content:
-            p_avoid = re.compile(
-                r"(?ms)(^\.method\s+[^\n]*\bupdateAvoidStatus\(\)V\n)"
-                r"(?:\s*\.(?:locals|registers)[^\n]*\n)?"
-                r".*?"
-                r"(^\.end method)",
-                re.MULTILINE,
-            )
-            if p_avoid.search(content):
-                content = p_avoid.sub(r"\1    .registers 1\n\n    return-void\n\2", content)
-                path.write_text(content, encoding="utf-8")
-                patched_any = True
+        if "updateAvoidStatus(" not in content:
+            continue
+        p_avoid = re.compile(
+            r"(?ms)(^\.method\s+[^\n]*\bupdateAvoidStatus\((Z?)\)V\n)"
+            r"(?:\s*\.(?:locals|registers)[^\n]*\n)?"
+            r".*?"
+            r"(^\.end method)",
+            re.MULTILINE,
+        )
+        def _repl(match: re.Match[str]) -> str:
+            regs = 2 if match.group(2) else 1
+            return f"{match.group(1)}    .registers {regs}\n\n    return-void\n{match.group(3)}"
+        new_content, count = p_avoid.subn(_repl, content)
+        if count > 0:
+            path.write_text(new_content, encoding="utf-8")
+            patched_any = True
     return patched_any
 
 
@@ -250,7 +240,7 @@ def patch_pinkey_unblur(unpacked: Path) -> bool:
 
 
 def patch_pinkey_glass(unpacked: Path) -> bool:
-    """9. LockScreenPinKeyGlass: Apply real-time hardware blur (MiViewBlurMode) to PIN pad number keys."""
+    """8. LockScreenPinKeyGlass: Apply real-time hardware blur (MiuiBlurUtils) to PIN pad number keys."""
     patched_any = False
     for path in unpacked.rglob("NumPadKey*.smali"):
         try:
@@ -264,6 +254,10 @@ def patch_pinkey_glass(unpacked: Path) -> bool:
             hook = (
                 r"\1\n"
                 r"    const/4 p1, 0x1\n\n"
+                r"    invoke-static {p1, p0}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurMode(ILandroid/view/View;)V\n\n"
+                r"    const/16 p1, 0x32\n\n"
+                r"    invoke-static {p1, p0}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurRadius(ILandroid/view/View;)V\n\n"
+                r"    const/4 p1, 0x1\n\n"
                 r"    invoke-static {p1, p0}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiViewBlurMode(ILandroid/view/View;)V\n"
                 r"\2"
             )
@@ -274,7 +268,7 @@ def patch_pinkey_glass(unpacked: Path) -> bool:
 
 
 def patch_blur_button(unpacked: Path) -> bool:
-    """10. LockScreenBlurButton: Enable glass blur background for lockscreen shortcut buttons."""
+    """9. LockScreenBlurButton: Enable glass blur background for lockscreen shortcut buttons."""
     patched_any = False
     for path in unpacked.rglob("DefaultShortcutsSection*.smali"):
         try:
@@ -287,6 +281,10 @@ def patch_blur_button(unpacked: Path) -> bool:
                 reg = match.group(2)
                 return (
                     f"{match.group(1)}\n\n"
+                    f"    const/4 {reg}, 0x1\n\n"
+                    f"    invoke-static {{{reg}, v2}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurMode(ILandroid/view/View;)V\n\n"
+                    f"    const/16 {reg}, 0x32\n\n"
+                    f"    invoke-static {{{reg}, v2}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurRadius(ILandroid/view/View;)V\n\n"
                     f"    const/4 {reg}, 0x1\n\n"
                     f"    invoke-static {{{reg}, v2}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiViewBlurMode(ILandroid/view/View;)V"
                 )
@@ -332,59 +330,55 @@ def main() -> int:
     # 1. LockScreenNotificationKeep
     filter_ctrl = find_file(smali_dir, "NotificationFilterController.smali", FILTER_CONTROLLER_CLASS)
     if filter_ctrl and patch_filter_controller(filter_ctrl):
-        print("[HyperLight/SystemUI] [1/11] Patched LockScreenNotificationKeep (keep notifications after unlock).")
+        print("[HyperLight/SystemUI] [1/10] Patched LockScreenNotificationKeep (keep notifications after unlock).")
     else:
         print("[HyperLight/SystemUI] Notice: NotificationFilterController bypass skipped or not applicable.")
 
     # 2. LockScreenNotificationShowAll
     expanded_notif = find_file(smali_dir, "ExpandedNotification.smali", EXPANDED_NOTIF_CLASS)
     if expanded_notif and patch_expanded_notification(expanded_notif):
-        print("[HyperLight/SystemUI] [2/11] Patched LockScreenNotificationShowAll (canShowOnKeyguard -> true).")
+        print("[HyperLight/SystemUI] [2/10] Patched LockScreenNotificationShowAll (canShowOnKeyguard -> true).")
     else:
         print("[HyperLight/SystemUI] Error: ExpandedNotification.smali could not be patched", file=sys.stderr)
         return 1
 
     # 3. LockScreenStackSink (Must be kept as requested)
     if patch_stack_sink(smali_dir):
-        print("[HyperLight/SystemUI] [3/11] Patched LockScreenStackSink (GXZW_SENSOR constraint bypassed).")
+        print("[HyperLight/SystemUI] [3/10] Patched LockScreenStackSink (GXZW_SENSOR constraint bypassed).")
     else:
         print("[HyperLight/SystemUI] Notice: GXZW_SENSOR stack sink constraint not applicable on this build.")
 
     # 4. LockScreenClockTop
     if patch_clock_top(smali_dir):
-        print("[HyperLight/SystemUI] [4/11] Patched LockScreenClockTop (anchor notifications right under lock clock).")
+        print("[HyperLight/SystemUI] [4/10] Patched LockScreenClockTop (anchor notifications right under lock clock).")
     else:
         print("[HyperLight/SystemUI] Notice: LockScreenClockTop signatures not applicable on this build.")
 
     # 5. NotificationGroupDisable (Thả từng thông báo riêng lẻ, không ẩn)
     if expanded_notif and patch_notification_ungroup(expanded_notif):
-        print("[HyperLight/SystemUI] [5/11] Patched NotificationGroupDisable (standalone unhidden notifications).")
+        print("[HyperLight/SystemUI] [5/10] Patched NotificationGroupDisable (standalone unhidden notifications).")
     else:
         print("[HyperLight/SystemUI] Notice: ExpandedNotification ungroup could not be applied.")
 
-    # 6. NotificationGroupStack
-    if patch_group_stack(smali_dir):
-        print("[HyperLight/SystemUI] [6/11] Verified NotificationGroupStack structures.")
-
-    # 7. LockScreenDepthAvoid (SystemUI)
+    # 6. LockScreenDepthAvoid (SystemUI)
     if patch_depth_avoid_systemui(smali_dir):
-        print("[HyperLight/SystemUI] [7/11] Patched LockScreenDepthAvoid in SystemUI.")
+        print("[HyperLight/SystemUI] [6/10] Patched LockScreenDepthAvoid in SystemUI.")
 
-    # 8. LockScreenPinKeyUnblur
+    # 7. LockScreenPinKeyUnblur
     if patch_pinkey_unblur(smali_dir):
-        print("[HyperLight/SystemUI] [8/11] Patched LockScreenPinKeyUnblur (remove PIN pad blur/dimming).")
+        print("[HyperLight/SystemUI] [7/10] Patched LockScreenPinKeyUnblur (remove PIN pad blur/dimming).")
 
-    # 9. LockScreenPinKeyGlass
+    # 8. LockScreenPinKeyGlass
     if patch_pinkey_glass(smali_dir):
-        print("[HyperLight/SystemUI] [9/11] Patched LockScreenPinKeyGlass (hardware blur for PIN keys).")
+        print("[HyperLight/SystemUI] [8/10] Patched LockScreenPinKeyGlass (hardware blur for PIN keys).")
 
-    # 10. LockScreenBlurButton
+    # 9. LockScreenBlurButton
     if patch_blur_button(smali_dir):
-        print("[HyperLight/SystemUI] [10/11] Patched LockScreenBlurButton (glass blur for lockscreen shortcuts).")
+        print("[HyperLight/SystemUI] [9/10] Patched LockScreenBlurButton (glass blur for lockscreen shortcuts).")
 
-    # 11. LockScreenMusicCapsule
+    # 10. LockScreenMusicCapsule
     if patch_music_capsule(smali_dir):
-        print("[HyperLight/SystemUI] [11/11] Patched LockScreenMusicCapsule (unlock media focus capsule on keyguard).")
+        print("[HyperLight/SystemUI] [10/10] Patched LockScreenMusicCapsule (unlock media focus capsule on keyguard).")
 
     print("[HyperLight/SystemUI] SystemUI modification complete.")
     return 0

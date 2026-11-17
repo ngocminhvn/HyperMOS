@@ -9,9 +9,6 @@ Applies patches directly to MiuiAod.apk:
    - Forces WallpaperInfo.getSupportSubject -> true
    - Forces WallpaperController.needResetMagicType -> false
    - Raises DepthAvoidEvaluator$Threshold overlap ceiling from 0.2 (20%) to 1.0 (100%)
-2. LockScreenBlurButton:
-   Enables blur/glass background for lockscreen shortcut icons (camera & flashlight)
-   when managed by AOD ShortcutViewLayoutController.
 """
 from __future__ import annotations
 
@@ -97,19 +94,6 @@ def patch_depth_avoid_aod(smali_dir: Path) -> bool:
     return patched_any
 
 
-def patch_blur_buttons_aod(smali_dir: Path) -> bool:
-    """LockScreenBlurButton support in AOD ShortcutViewLayoutController if present."""
-    patched_any = False
-    for path in smali_dir.rglob("ShortcutViewLayoutController*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if "updateShortcutView" in content or "initView" in content:
-            patched_any = True
-    return patched_any
-
-
 def main() -> int:
     cli = argparse.ArgumentParser(description="Patch MiuiAod with HyperLight mods")
     cli.add_argument("--unpacked", type=Path, required=True, help="Path to unpacked AOD APK directory")
@@ -121,14 +105,9 @@ def main() -> int:
         return 1
 
     if patch_depth_avoid_aod(smali_dir):
-        print("[HyperLight/AOD] [1/2] Successfully patched LockScreenDepthAvoid (100% threshold + hierarchy force enable).")
+        print("[HyperLight/AOD] [1/1] Successfully patched LockScreenDepthAvoid (100% threshold + hierarchy force enable).")
     else:
         print("[HyperLight/AOD] Notice: Depth avoid signatures not found or not applicable on this AOD build.")
-
-    if patch_blur_buttons_aod(smali_dir):
-        print("[HyperLight/AOD] [2/2] Processed LockScreenBlurButton support in AOD.")
-    else:
-        print("[HyperLight/AOD] Notice: ShortcutViewLayoutController not present in this AOD build.")
 
     print("[HyperLight/AOD] AOD modification complete.")
     return 0

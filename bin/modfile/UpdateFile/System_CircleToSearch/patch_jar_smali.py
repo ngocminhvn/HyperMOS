@@ -133,6 +133,22 @@ def patch_services(root: Path) -> bool:
             print(f"[CTS][Services] Patched {file}")
             patched_any = True
 
+    # 3. SystemServer: always start ContextualSearchManagerService even when OEM config string is empty
+    sys_servers = locate_files(root, "com/android/server/SystemServer.smali")
+    for file in sys_servers:
+        ss_content = file.read_text(encoding="utf-8")
+        ss_pattern = (
+            r'const v\d+, 0x[0-9a-fA-F]+\s+'
+            r'invoke-direct \{[^}]+\}, Lcom/android/server/SystemServer;->deviceHasConfigString\(Landroid/content/Context;I\)Z\s+'
+            r'move-result ([vp]\d+)\s+'
+            r'(if-eqz \1, :cond_\w+\s+(?:\.line \d+\s+)?const-string [vp]\d+, "StartContextualSearchService")'
+        )
+        patched_ss = re.sub(ss_pattern, r'const/4 \1, 0x1\n\n    \2', ss_content, count=1)
+        if patched_ss != ss_content:
+            file.write_text(patched_ss, encoding="utf-8")
+            print(f"[CTS][Services] Patched {file} (force start ContextualSearchManagerService)")
+            patched_any = True
+
     return patched_any
 
 
