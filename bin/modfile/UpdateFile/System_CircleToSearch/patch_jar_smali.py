@@ -91,8 +91,8 @@ def patch_services(root: Path) -> bool:
         original = content
 
         # disableStartingContextualSearchViaVims() -> false (0)
-        flags_pattern = r'invoke-static \{\}, Lcom/android/internal/hidden_from_bootclasspath/com/android/server/voiceinteraction/flags/Flags;->disableStartingContextualSearchViaVims\(\)Z'
-        content = re.sub(flags_pattern, 'const/4 v0, 0x0', content)
+        flags_pattern = r'invoke-static \{\}, Lcom/android/internal/hidden_from_bootclasspath/com/android/server/voiceinteraction/flags/Flags;->disableStartingContextualSearchViaVims\(\)Z\s+move-result\s+([vp]\d+)'
+        content = re.sub(flags_pattern, r'const/4 \1, 0x0', content)
 
         # csKey 0x10402d3 -> "omni.entry_point"
         cskey_pattern = r'const v1, 0x10402d3\s+invoke-virtual \{[vp]\d+, v1\}, Landroid/content/res/Resources;->getString\(I\)Ljava/lang/String;\s+move-result-object [vp]\d+\s+move-object v1, [vp]\d+'
