@@ -69,6 +69,7 @@ else
   (
     cd "$source_dir"
     CARGO_TARGET_DIR="$cargo_target" \
+    RUSTFLAGS="${RUSTFLAGS:-} -A dead_code" \
       cargo build --package ksud --target x86_64-unknown-linux-gnu --release
   ) || die "Could not build matching host ksud for release $tag"
   built="$cargo_target/x86_64-unknown-linux-gnu/release/ksud"
