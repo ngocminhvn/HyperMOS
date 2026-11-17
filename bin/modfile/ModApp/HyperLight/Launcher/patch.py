@@ -310,7 +310,6 @@ def patch_big_folder_and_recents(smali_dir: Path) -> bool:
 def main() -> int:
     cli = argparse.ArgumentParser(description="Patch MiuiHome with HyperLight mods")
     cli.add_argument("--unpacked", type=Path, required=True, help="Path to unpacked MiuiHome APK directory")
-    cli.add_argument("--skip-device-level", action="store_true", help="Leave all DeviceLevelUtils methods unchanged")
     args = cli.parse_args()
 
     smali_dir = args.unpacked / "smali"
@@ -318,10 +317,8 @@ def main() -> int:
         print("[HyperLight/Launcher] Error: smali directory not found", file=sys.stderr)
         return 1
 
-    # 1. Keep DeviceLevelUtils untouched on OS4/A17 (Flutter or otherwise).
-    if args.skip_device_level:
-        print("[HyperLight/Launcher] DeviceLevelUtils explicitly skipped (OS4).")
-    elif distinguish_and_patch_device_level(smali_dir):
+    # 1. Phân biệt và mở khóa DeviceLevelUtils
+    if distinguish_and_patch_device_level(smali_dir):
         print("[HyperLight/Launcher] [1/3] Đã phân biệt và mở khóa DeviceLevelUtils (ép Flagship Cấp độ 2, Full Animation).")
     else:
         print("[HyperLight/Launcher] Notice: DeviceLevelUtils không cần sửa hoặc không tìm thấy.")
