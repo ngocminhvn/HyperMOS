@@ -710,7 +710,9 @@ patch_framework() {
   # Apply feature-specific patches based on flags
   apply_framework_signature_patches "$decompile_dir"
 
-
+  # Native Circle to Search: Spoof Google App in framework.jar
+  python3 "$work_dir/bin/modfile/UpdateFile/System_CircleToSearch/patch_jar_smali.py" \
+    --component framework --smali-root "$decompile_dir" || return 1
 
   # Recompile framework.jar
   recompile_jar "$framework_path"
@@ -859,6 +861,10 @@ patch_services() {
 
   # Decompile services.jar
   decompile_jar "$services_path"
+
+  # Native Circle to Search: VoiceInteraction & ContextualSearch in services.jar
+  python3 "$work_dir/bin/modfile/UpdateFile/System_CircleToSearch/patch_jar_smali.py" \
+    --component services --smali-root "$decompile_dir" || return 1
 
   # Apply feature-specific patches based on flags
   # Modify invoke-custom methods (common to all features)
@@ -1061,6 +1067,10 @@ patch_miui_services() {
     apply_miui_services_cn_notification_fix "$decompile_dir"
     apply_miui_services_gboard "$decompile_dir"
   fi
+
+  # Native Circle to Search: Home key & gesture line in miui-services.jar
+  python3 "$work_dir/bin/modfile/UpdateFile/System_CircleToSearch/patch_jar_smali.py" \
+    --component miui-services --smali-root "$decompile_dir" || return 1
 
   # Modify invoke-custom methods (common to all features)
   modify_invoke_custom_methods "$decompile_dir"

@@ -39,8 +39,13 @@ def disable_wifi_mobile_type_config_string(file_path):
 
     target_str = '"config_status_bar_show_mobile_type_when_wifi_on"'
     if target_str in content:
-        # VSTeam thay chuỗi này thành "vsteam" để làm mất hiệu lực cấu hình ép hiển thị
-        content = content.replace(target_str, '"vsteam"')
+        # VSTeam thay chuỗi này thành "vsteam" để làm mất hiệu lực cấu hình ép hiển thị.
+        # Dùng const-string/jumbo để tránh lỗi Dalvik 16-bit string index overflow (Short value out of range 0x131aa > 0xffff).
+        pattern = r'const-string(?:\/jumbo)?\s+([vp]\d+),\s+"config_status_bar_show_mobile_type_when_wifi_on"'
+        if re.search(pattern, content):
+            content = re.sub(pattern, r'const-string/jumbo \1, "vsteam"', content)
+        else:
+            content = content.replace(target_str, '"vsteam"')
         print(f"[HideMobileType] Disabled config_status_bar_show_mobile_type_when_wifi_on in {file_path}")
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
