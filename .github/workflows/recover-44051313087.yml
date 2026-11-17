@@ -12,7 +12,8 @@ permissions:
 
 jobs:
   dispatch:
-    if: ${{ github.event.head_commit.message == 'ci: trigger corrected HyperMOS build for run 44051313087' }}
+    if: >-
+      ${{ github.event.head_commit.message == 'ci: trigger corrected HyperMOS build for run 44051313087' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Dispatch same ROM build after toolchain fix
