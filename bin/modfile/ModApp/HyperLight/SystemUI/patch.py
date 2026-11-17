@@ -167,7 +167,7 @@ def patch_notification_ungroup(file_path: Path) -> bool:
         "    .registers 2\n\n"
         "    invoke-virtual {p0}, Landroid/service/notification/StatusBarNotification;->getKey()Ljava/lang/String;\n\n"
         "    move-result-object v0\n\n"
-        "    return v0\n"
+        "    return-object v0\n"
         ".end method"
     )
 
