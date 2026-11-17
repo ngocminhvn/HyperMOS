@@ -40,6 +40,60 @@ if (( ${#matches[@]} == 0 )); then
 fi
 target="${matches[0]}"
 
+# Flutter/native launchers may have no DEX; Smali hooks cannot work there.
+if ! unzip -Z1 "$target" | grep -Eq '^classes([0-9]+)?\\.dex"$work_dir/bin/apktool/apke.jar"
+[[ -s "$editor" ]] || { error "HyperLight/Launcher: APKEditor ($editor) missing"; exit 1; }
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+mods "HyperLight/Launcher: Unpacking $(basename "$target")..."
+if ! java -jar "$editor" d -t raw -f -no-dex-debug \
+    -i "$target" -o "$tmp/home" >"$tmp/unpack.log" 2>&1; then
+    error "HyperLight/Launcher: Failed to decode MiuiHome APK"
+    tail -n 30 "$tmp/unpack.log" >&2
+    exit 1
+fi
+
+mods "HyperLight/Launcher: Applying patches..."
+patch_args=(--unpacked "$tmp/home")
+if [[ "$rom_os" == "OS4" ]]; then
+    patch_args+=(--skip-device-level)
+fi
+if ! python3 "$base/patch.py" "${patch_args[@]}" >"$tmp/patch.log" 2>&1; then
+    warn "HyperLight/Launcher: Patches not compatible; keeping original APK"
+    cat "$tmp/patch.log" >&2
+    exit 0
+fi
+cat "$tmp/patch.log"
+
+mods "HyperLight/Launcher: Rebuilding $(basename "$target")..."
+if ! java -jar "$editor" b -t raw -f -i "$tmp/home" -o "$tmp/out.apk" \
+    >"$tmp/build.log" 2>&1; then
+    error "HyperLight/Launcher: Modified MiuiHome could not be assembled"
+    tail -n 30 "$tmp/build.log" >&2
+    exit 1
+fi
+
+[[ -s "$tmp/out.apk" ]] || {
+    error "HyperLight/Launcher: Output APK missing"
+    exit 1
+}
+
+unzip -tqq "$tmp/out.apk" || {
+    error "HyperLight/Launcher: Corrupted output APK"
+    exit 1
+}
+
+install -m 0644 "$tmp/out.apk" "$target"
+rm -rf "$(dirname "$target")/oat"
+
+mods "HyperLight/Launcher: Successfully integrated patches into $(basename "$target")"
+; then
+    mods "HyperLight/Launcher: no classes.dex in $(basename "$target"); skipping Smali-based Anim-Curve/Big Folder safely"
+    exit 0
+fi
+
 editor="$work_dir/bin/apktool/apke.jar"
 [[ -s "$editor" ]] || { error "HyperLight/Launcher: APKEditor ($editor) missing"; exit 1; }
 
