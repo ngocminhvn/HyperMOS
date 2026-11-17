@@ -8,7 +8,7 @@
     "app_vault": {
       "name": "HyperOS App Vault",
       "os3": true,
-      "os4": true,
+      "os4": false,
       "selected_zip": "HyperOS_AppVaultV5@kashis_cringey_stuffs.zip"
     },
 

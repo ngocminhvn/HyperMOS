@@ -19,8 +19,3 @@ fi
 if [[ -f "$hl_dir/AOD/update.sh" ]]; then
     bash "$hl_dir/AOD/update.sh" || exit 1
 fi
-
-# 3. Launcher Patches (DeviceLevelUtils, Anim-Curve, Big Folder & Recents)
-if [[ -f "$hl_dir/Launcher/update.sh" ]]; then
-    bash "$hl_dir/Launcher/update.sh" || exit 1
-fi
