@@ -167,17 +167,25 @@ def patch_group_stack(unpacked: Path) -> bool:
 
 
 def patch_depth_avoid_systemui(unpacked: Path) -> bool:
-    """6. LockScreenDepthAvoid: Bypass depth avoiding in KeyguardPanelViewController."""
+    """6. LockScreenDepthAvoid: Bypass depth avoiding in KeyguardDepthInteractor / KeyguardPanel."""
     patched_any = False
-    for path in unpacked.rglob("KeyguardPanelViewController*.smali"):
+    for path in unpacked.rglob("*.smali"):
+        if "Keyguard" not in path.name:
+            continue
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        if "updateAvoidStatus" in content:
-            p_avoid = re.compile(r"(?ms)^\.method[^\n]*\bupdateAvoidStatus\(\)V.*?^\.end method[ \t]*$")
+        if "updateAvoidStatus()V" in content:
+            p_avoid = re.compile(
+                r"(?ms)(^\.method\s+[^\n]*\bupdateAvoidStatus\(\)V\n)"
+                r"(?:\s*\.(?:locals|registers)[^\n]*\n)?"
+                r".*?"
+                r"(^\.end method)",
+                re.MULTILINE,
+            )
             if p_avoid.search(content):
-                content = p_avoid.sub(".method private final updateAvoidStatus()V\n    .registers 1\n    return-void\n.end method", content)
+                content = p_avoid.sub(r"\1    .registers 1\n\n    return-void\n\2", content)
                 path.write_text(content, encoding="utf-8")
                 patched_any = True
     return patched_any
@@ -192,19 +200,16 @@ def patch_pinkey_unblur(unpacked: Path) -> bool:
         except OSError:
             continue
         # In setBouncerShowingFraction(FZ...) or setBouncerShowingFraction$default
-        # Force the float fraction argument (usually p1) to const/4 p1, 0x0
-        p_bouncer = re.compile(r"(?ms)(\.method[^\n]*\bsetBouncerShowingFraction[^\n]*\n)(.*?)(^\.end method)", re.MULTILINE)
-        matches = list(p_bouncer.finditer(content))
-        if matches:
-            for m in matches:
-                header = m.group(1)
-                body = m.group(2)
-                footer = m.group(3)
-                # Overwrite incoming float fraction in p1
-                new_body = "\n    const/4 p1, 0x0\n" + body
-                content = content.replace(m.group(0), header + new_body + footer, 1)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
+        # Force the float fraction argument (p1) to const/4 p1, 0x0
+        # DIRECTIVE (.locals or .registers) MUST come first in smali method body!
+        p_bouncer = re.compile(
+            r"(?m)(^\.method[^\n]*\bsetBouncerShowingFraction[^\n]*\n(?:\s*\.(?:locals|registers)[^\n]*\n))"
+        )
+        if p_bouncer.search(content):
+            content, count = p_bouncer.subn(r"\1    const/4 p1, 0x0\n", content)
+            if count > 0:
+                path.write_text(content, encoding="utf-8")
+                patched_any = True
     return patched_any
 
 
