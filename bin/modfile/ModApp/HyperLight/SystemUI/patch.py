@@ -9,8 +9,6 @@ Applies clean, verified smali modifications directly to MiuiSystemUI.apk:
 5. NotificationGroupDisable: Disable notification grouping so each notification displays independently without hiding.
 6. NotificationGroupStack: Raise visible child limit in NotificationChildrenContainer when collapsed.
 7. LockScreenDepthAvoid: Bypass lock screen depth avoid constraints in SystemUI (keep wallpaper depth with notifications).
-8. LockScreenPinKeyUnblur: Disable bouncer background blur/dimming on PIN pad (clear lockscreen wallpaper behind PIN).
-9. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen.
 """
 from __future__ import annotations
 
@@ -287,48 +285,6 @@ def patch_depth_avoid_systemui(unpacked: Path) -> bool:
     return patched_any
 
 
-def patch_pinkey_unblur(unpacked: Path) -> bool:
-    """8. LockScreenPinKeyUnblur: Force bouncerShowingFraction to 0.0f so PIN pad background stays unblurred."""
-    patched_any = False
-    for path in unpacked.rglob("KeyguardPanelViewController*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_bouncer = re.compile(
-            r"(?m)(^\.method[^\n]*\bsetBouncerShowingFraction[^\n]*\n(?:\s*\.(?:locals|registers)[^\n]*\n))"
-        )
-        if p_bouncer.search(content):
-            content, count = p_bouncer.subn(r"\1    const/4 p1, 0x0\n", content)
-            if count > 0:
-                path.write_text(content, encoding="utf-8")
-                patched_any = True
-    return patched_any
-
-
-def patch_music_capsule(unpacked: Path) -> bool:
-    """9. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen."""
-    patched_any = False
-    for path in unpacked.rglob("NotificationSettingsManager*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_media = re.compile(r"(?ms)^\.method[^\n]*\bcanShowFocusMediaState\(.*?^\.end method[ \t]*$")
-        if p_media.search(content):
-            rep = (
-                ".method public final canShowFocusMediaState(Landroid/content/Context;Ljava/lang/String;)I\n"
-                "    .registers 4\n\n"
-                "    const/4 v0, 0x1\n\n"
-                "    return v0\n"
-                ".end method"
-            )
-            content = p_media.sub(rep, content, count=1)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
-    return patched_any
-
-
 def main() -> int:
     cli = argparse.ArgumentParser(description="Patch MiuiSystemUI with HyperLight mods")
     cli.add_argument("--unpacked", type=Path, required=True, help="Path to unpacked SystemUI APK directory")
@@ -342,51 +298,43 @@ def main() -> int:
     # 1. LockScreenNotificationKeep
     filter_ctrl = find_file(smali_dir, "NotificationFilterController.smali", FILTER_CONTROLLER_CLASS)
     if filter_ctrl and patch_filter_controller(filter_ctrl):
-        print("[HyperLight/SystemUI] [1/10] Patched LockScreenNotificationKeep (keep notifications after unlock).")
+        print("[HyperLight/SystemUI] [1/7] Patched LockScreenNotificationKeep (keep notifications after unlock).")
     else:
         print("[HyperLight/SystemUI] Notice: NotificationFilterController bypass skipped or not applicable.")
 
     # 2. LockScreenNotificationShowAll
     expanded_notif = find_file(smali_dir, "ExpandedNotification.smali", EXPANDED_NOTIF_CLASS)
     if expanded_notif and patch_expanded_notification(expanded_notif):
-        print("[HyperLight/SystemUI] [2/10] Patched LockScreenNotificationShowAll (canShowOnKeyguard -> true).")
+        print("[HyperLight/SystemUI] [2/7] Patched LockScreenNotificationShowAll (canShowOnKeyguard -> true).")
     else:
         print("[HyperLight/SystemUI] Error: ExpandedNotification.smali could not be patched", file=sys.stderr)
         return 1
 
     # 3. LockScreenStackSink (Must be kept as requested)
     if patch_stack_sink(smali_dir):
-        print("[HyperLight/SystemUI] [3/10] Patched LockScreenStackSink (GXZW_SENSOR constraint bypassed).")
+        print("[HyperLight/SystemUI] [3/7] Patched LockScreenStackSink (GXZW_SENSOR constraint bypassed).")
     else:
         print("[HyperLight/SystemUI] Notice: GXZW_SENSOR stack sink constraint not applicable on this build.")
 
     # 4. LockScreenClockTop
     if patch_clock_top(smali_dir):
-        print("[HyperLight/SystemUI] [4/10] Patched LockScreenClockTop (anchor notifications right under lock clock).")
+        print("[HyperLight/SystemUI] [4/7] Patched LockScreenClockTop (anchor notifications right under lock clock).")
     else:
         print("[HyperLight/SystemUI] Notice: LockScreenClockTop signatures not applicable on this build.")
 
     # 5. NotificationGroupDisable (Thả từng thông báo riêng lẻ, không ẩn)
     if expanded_notif and patch_notification_ungroup(expanded_notif):
-        print("[HyperLight/SystemUI] [5/10] Patched NotificationGroupDisable (standalone unhidden notifications).")
+        print("[HyperLight/SystemUI] [5/7] Patched NotificationGroupDisable (standalone unhidden notifications).")
     else:
         print("[HyperLight/SystemUI] Notice: ExpandedNotification ungroup could not be applied.")
 
     # 6. NotificationGroupStack
     if patch_group_stack(smali_dir):
-        print("[HyperLight/SystemUI] [6/9] Patched NotificationGroupStack (collapsed child limit -> 8).")
+        print("[HyperLight/SystemUI] [6/7] Patched NotificationGroupStack (collapsed child limit -> 8).")
 
     # 7. LockScreenDepthAvoid (SystemUI)
     if patch_depth_avoid_systemui(smali_dir):
-        print("[HyperLight/SystemUI] [7/9] Patched LockScreenDepthAvoid in SystemUI.")
-
-    # 8. LockScreenPinKeyUnblur
-    if patch_pinkey_unblur(smali_dir):
-        print("[HyperLight/SystemUI] [8/9] Patched LockScreenPinKeyUnblur (remove PIN pad blur/dimming).")
-
-    # 9. LockScreenMusicCapsule
-    if patch_music_capsule(smali_dir):
-        print("[HyperLight/SystemUI] [9/9] Patched LockScreenMusicCapsule (unlock media focus capsule on keyguard).")
+        print("[HyperLight/SystemUI] [7/7] Patched LockScreenDepthAvoid in SystemUI.")
 
     print("[HyperLight/SystemUI] SystemUI modification complete.")
     return 0
