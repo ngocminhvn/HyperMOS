@@ -52,11 +52,11 @@
       "selected_zip": "HyperOS_SecurityV8@kashis_cringey_stuffs.zip"
     },
 
-    // 7. HyperOS 4 AOD (MIUIAod - chi bat cho OS4)
+    // 7. HyperOS 4 AOD (MIUIAod - tat vi xung dot package voi ElderlyNavigationBarOverlay va haotian da co AOD goc)
     "aod": {
       "name": "HyperOS 4 AOD",
       "os3": false,
-      "os4": true,
+      "os4": false,
       "selected_zip": "HyperOS4_AOD_v4.0@kashis_cringey_stuffs.zip"
     }
   }

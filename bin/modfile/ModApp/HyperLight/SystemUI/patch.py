@@ -5,10 +5,9 @@ Applies clean, verified smali modifications directly to MiuiSystemUI.apk:
 1. LockScreenNotificationKeep: Keep notifications on lock screen after unlocking.
 2. LockScreenNotificationShowAll: Allow all notifications on lock screen.
 3. LockScreenStackSink: Allow notification stack to sink down naturally without GXZW forced offset.
-4. LockScreenClockTop: Anchor notifications directly below the lock screen clock by default.
-5. NotificationGroupDisable: Disable notification grouping so each notification displays independently without hiding.
-6. NotificationGroupStack: Raise visible child limit in NotificationChildrenContainer when collapsed.
-7. LockScreenDepthAvoid: Bypass lock screen depth avoid constraints in SystemUI (keep wallpaper depth with notifications).
+4. NotificationGroupDisable: Disable notification grouping so each notification displays independently without hiding.
+5. NotificationGroupStack: Raise visible child limit in NotificationChildrenContainer when collapsed.
+6. LockScreenDepthAvoid: Bypass lock screen depth avoid constraints in SystemUI (keep wallpaper depth with notifications).
 """
 from __future__ import annotations
 
@@ -102,102 +101,8 @@ def patch_stack_sink(unpacked: Path) -> bool:
     return patched_any
 
 
-def patch_clock_top(unpacked: Path) -> bool:
-    """4. LockScreenClockTop: Anchor notifications directly below lockscreen clock by default."""
-    patched_any = False
-
-    # A. NotificationStackingInteractor.calculateKeyguardNotifTop -> return p2 (bounds.top)
-    for path in unpacked.rglob("NotificationStackingInteractor*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_calc = re.compile(r"(?ms)^\.method[^\n]*\bcalculateKeyguardNotifTop\(FFF\)F.*?^\.end method[ \t]*$")
-        if p_calc.search(content):
-            rep = (
-                ".method public final calculateKeyguardNotifTop(FFF)F\n"
-                "    .registers 4\n\n"
-                "    return p2\n"
-                ".end method"
-            )
-            content = p_calc.sub(rep, content, count=1)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
-
-    # B. NotificationContainerScrollingBinder$transaction$1.invokeSuspend$getTargetTop -> return p2->top
-    for path in unpacked.rglob("NotificationContainerScrollingBinder$transaction$1*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_top = re.compile(r"(?ms)^\.method[^\n]*\binvokeSuspend\$getTargetTop\(.*?^\.end method[ \t]*$")
-        if p_top.search(content):
-            rep = (
-                ".method public static final invokeSuspend$getTargetTop(Lcom/miui/systemui/notification/view/viewmodel/NotificationContainerViewModel;FLcom/miui/systemui/notification/model/NotificationContainerBounds;F)F\n"
-                "    .registers 5\n\n"
-                "    iget v0, p2, Lcom/miui/systemui/notification/model/NotificationContainerBounds;->top:F\n\n"
-                "    return v0\n"
-                ".end method"
-            )
-            content = p_top.sub(rep, content, count=1)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
-
-    # C. NotificationContainerBoundsViewModel$notificationContainerBounds$2$1 -> preserve AOSP clockBottom (v1.top) when > 0
-    for path in unpacked.rglob("NotificationContainerBoundsViewModel$notificationContainerBounds$2$1*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_bounds = re.compile(
-            r"(invoke-static \{v0, v3, p1\}, Lcom/miui/systemui/notification/view/viewmodel/NotificationContainerBoundsViewModel;->computeNotifTopWithoutMinScrollRange\(FFF\)F\s*\n\s*move-result p1)"
-        )
-        if p_bounds.search(content) and ":cond_clock_fallback" not in content:
-            hook = (
-                r"\1\n\n"
-                r"    iget v5, v1, Lcom/android/systemui/common/shared/model/NotificationContainerBounds;->top:F\n\n"
-                r"    cmpl-float v5, v5, v4\n\n"
-                r"    if-lez v5, :cond_clock_fallback\n\n"
-                r"    iget p1, v1, Lcom/android/systemui/common/shared/model/NotificationContainerBounds;->top:F\n\n"
-                r"    :cond_clock_fallback"
-            )
-            content = p_bounds.sub(hook, content, count=1)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
-
-    # D. NotificationContainerViewModel.positionWithoutMinScrollRange -> return bounds.top when > 0
-    for path in unpacked.rglob("NotificationContainerViewModel.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_pos = re.compile(
-            r"(?m)(^\.method public final positionWithoutMinScrollRange\(F\)F\s*\n\s*\.(?:locals|registers)\s+\d+\s*\n)"
-        )
-        if p_pos.search(content) and ":cond_clock_orig" not in content:
-            hook = (
-                r"\1\n"
-                r"    invoke-virtual {p0}, Lcom/miui/systemui/notification/view/viewmodel/NotificationContainerViewModel;->getBounds()Lcom/miui/coroutines/syncflow/SynchronousStateFlow;\n\n"
-                r"    move-result-object v0\n\n"
-                r"    invoke-interface {v0}, Lcom/miui/coroutines/syncflow/SynchronousStateFlow;->getValue()Ljava/lang/Object;\n\n"
-                r"    move-result-object v0\n\n"
-                r"    check-cast v0, Lcom/miui/systemui/notification/model/NotificationContainerBounds;\n\n"
-                r"    iget v0, v0, Lcom/miui/systemui/notification/model/NotificationContainerBounds;->top:F\n\n"
-                r"    const/4 v1, 0x0\n\n"
-                r"    cmpl-float v1, v0, v1\n\n"
-                r"    if-lez v1, :cond_clock_orig\n\n"
-                r"    return v0\n\n"
-                r"    :cond_clock_orig\n"
-            )
-            content = p_pos.sub(hook, content, count=1)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
-
-    return patched_any
-
-
 def patch_notification_ungroup(file_path: Path) -> bool:
-    """5. NotificationGroupDisable: Disable notification grouping without hiding any notifications."""
+    """4. NotificationGroupDisable: Disable notification grouping without hiding any notifications."""
     content = file_path.read_text(encoding="utf-8")
     modified = False
 
@@ -298,43 +203,37 @@ def main() -> int:
     # 1. LockScreenNotificationKeep
     filter_ctrl = find_file(smali_dir, "NotificationFilterController.smali", FILTER_CONTROLLER_CLASS)
     if filter_ctrl and patch_filter_controller(filter_ctrl):
-        print("[HyperLight/SystemUI] [1/7] Patched LockScreenNotificationKeep (keep notifications after unlock).")
+        print("[HyperLight/SystemUI] [1/6] Patched LockScreenNotificationKeep (keep notifications after unlock).")
     else:
         print("[HyperLight/SystemUI] Notice: NotificationFilterController bypass skipped or not applicable.")
 
     # 2. LockScreenNotificationShowAll
     expanded_notif = find_file(smali_dir, "ExpandedNotification.smali", EXPANDED_NOTIF_CLASS)
     if expanded_notif and patch_expanded_notification(expanded_notif):
-        print("[HyperLight/SystemUI] [2/7] Patched LockScreenNotificationShowAll (canShowOnKeyguard -> true).")
+        print("[HyperLight/SystemUI] [2/6] Patched LockScreenNotificationShowAll (canShowOnKeyguard -> true).")
     else:
         print("[HyperLight/SystemUI] Error: ExpandedNotification.smali could not be patched", file=sys.stderr)
         return 1
 
     # 3. LockScreenStackSink (Must be kept as requested)
     if patch_stack_sink(smali_dir):
-        print("[HyperLight/SystemUI] [3/7] Patched LockScreenStackSink (GXZW_SENSOR constraint bypassed).")
+        print("[HyperLight/SystemUI] [3/6] Patched LockScreenStackSink (GXZW_SENSOR constraint bypassed).")
     else:
         print("[HyperLight/SystemUI] Notice: GXZW_SENSOR stack sink constraint not applicable on this build.")
 
-    # 4. LockScreenClockTop
-    if patch_clock_top(smali_dir):
-        print("[HyperLight/SystemUI] [4/7] Patched LockScreenClockTop (anchor notifications right under lock clock).")
-    else:
-        print("[HyperLight/SystemUI] Notice: LockScreenClockTop signatures not applicable on this build.")
-
-    # 5. NotificationGroupDisable (Thả từng thông báo riêng lẻ, không ẩn)
+    # 4. NotificationGroupDisable (Thả từng thông báo riêng lẻ, không ẩn)
     if expanded_notif and patch_notification_ungroup(expanded_notif):
-        print("[HyperLight/SystemUI] [5/7] Patched NotificationGroupDisable (standalone unhidden notifications).")
+        print("[HyperLight/SystemUI] [4/6] Patched NotificationGroupDisable (standalone unhidden notifications).")
     else:
         print("[HyperLight/SystemUI] Notice: ExpandedNotification ungroup could not be applied.")
 
-    # 6. NotificationGroupStack
+    # 5. NotificationGroupStack
     if patch_group_stack(smali_dir):
-        print("[HyperLight/SystemUI] [6/7] Patched NotificationGroupStack (collapsed child limit -> 8).")
+        print("[HyperLight/SystemUI] [5/6] Patched NotificationGroupStack (collapsed child limit -> 8).")
 
-    # 7. LockScreenDepthAvoid (SystemUI)
+    # 6. LockScreenDepthAvoid (SystemUI)
     if patch_depth_avoid_systemui(smali_dir):
-        print("[HyperLight/SystemUI] [7/7] Patched LockScreenDepthAvoid in SystemUI.")
+        print("[HyperLight/SystemUI] [6/6] Patched LockScreenDepthAvoid in SystemUI.")
 
     print("[HyperLight/SystemUI] SystemUI modification complete.")
     return 0
