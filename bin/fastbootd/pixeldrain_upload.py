@@ -342,7 +342,7 @@ def main() -> int:
             out.write("|---|---|---|---:|---|\n")
             for part in manifest["selected_partitions"]:
                 item = results_by_part[part]
-                direct_url = f"https://cdn32.pixeldrain.eu.cc/api/file/{quote(item['id'], safe='')}"
+                direct_url = f"https://pixeldrain.isuru.eu.org/{quote(item['id'], safe='')}"
                 out.write(f"| {part} | [Pixeldrain]({item['url']}) | "
                           f"[Bypass]({direct_url}) | {item['bytes']:,} | "
                           f"`{item['sha256']}` |\n")
