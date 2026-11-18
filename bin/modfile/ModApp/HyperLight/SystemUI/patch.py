@@ -10,9 +10,7 @@ Applies clean, verified smali modifications directly to MiuiSystemUI.apk:
 6. NotificationGroupStack: Raise visible child limit in NotificationChildrenContainer when collapsed.
 7. LockScreenDepthAvoid: Bypass lock screen depth avoid constraints in SystemUI (keep wallpaper depth with notifications).
 8. LockScreenPinKeyUnblur: Disable bouncer background blur/dimming on PIN pad (clear lockscreen wallpaper behind PIN).
-9. LockScreenPinKeyGlass: Apply real-time hardware blur (MiuiBlurUtils) to PIN pad number keys.
-10. LockScreenBlurButton: Enable glass blur background for lockscreen shortcut buttons (flashlight & camera).
-11. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen.
+9. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen.
 """
 from __future__ import annotations
 
@@ -308,63 +306,8 @@ def patch_pinkey_unblur(unpacked: Path) -> bool:
     return patched_any
 
 
-def patch_pinkey_glass(unpacked: Path) -> bool:
-    """8. LockScreenPinKeyGlass: Apply real-time hardware blur (MiuiBlurUtils) to PIN pad number keys."""
-    patched_any = False
-    for path in unpacked.rglob("NumPadKey*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_pin = re.compile(
-            r"(\binvoke-virtual \{p0, p1\}, Landroid/view/ViewGroup;->setBackground\(Landroid/graphics/drawable/Drawable;\)V\s*\n)(\s*return-void)"
-        )
-        if p_pin.search(content):
-            hook = (
-                r"\1\n"
-                r"    const/4 p1, 0x1\n\n"
-                r"    invoke-static {p1, p0}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurMode(ILandroid/view/View;)V\n\n"
-                r"    const/16 p1, 0x32\n\n"
-                r"    invoke-static {p1, p0}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurRadius(ILandroid/view/View;)V\n\n"
-                r"    const/4 p1, 0x1\n\n"
-                r"    invoke-static {p1, p0}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiViewBlurMode(ILandroid/view/View;)V\n"
-                r"\2"
-            )
-            content = p_pin.sub(hook, content, count=1)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
-    return patched_any
-
-
-def patch_blur_button(unpacked: Path) -> bool:
-    """9. LockScreenBlurButton: Enable glass blur background for lockscreen shortcut buttons."""
-    patched_any = False
-    for path in unpacked.rglob("DefaultShortcutsSection*.smali"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        p_sc = re.compile(r"(\binvoke-virtual \{v2, ([v\w]+)\}, Landroid/widget/ImageView;->setBackground\(Landroid/graphics/drawable/Drawable;\)V)")
-        if p_sc.search(content):
-            def replacer(match: re.Match[str]) -> str:
-                reg = match.group(2)
-                return (
-                    f"{match.group(1)}\n\n"
-                    f"    const/4 {reg}, 0x1\n\n"
-                    f"    invoke-static {{{reg}, v2}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurMode(ILandroid/view/View;)V\n\n"
-                    f"    const/16 {reg}, 0x32\n\n"
-                    f"    invoke-static {{{reg}, v2}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurRadius(ILandroid/view/View;)V\n\n"
-                    f"    const/4 {reg}, 0x1\n\n"
-                    f"    invoke-static {{{reg}, v2}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiViewBlurMode(ILandroid/view/View;)V"
-                )
-            content = p_sc.sub(replacer, content)
-            path.write_text(content, encoding="utf-8")
-            patched_any = True
-    return patched_any
-
-
 def patch_music_capsule(unpacked: Path) -> bool:
-    """11. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen."""
+    """9. LockScreenMusicCapsule: Allow media card focus presentation and swipe gestures on lock screen."""
     patched_any = False
     for path in unpacked.rglob("NotificationSettingsManager*.smali"):
         try:
@@ -431,27 +374,19 @@ def main() -> int:
 
     # 6. NotificationGroupStack
     if patch_group_stack(smali_dir):
-        print("[HyperLight/SystemUI] [6/11] Patched NotificationGroupStack (collapsed child limit -> 8).")
+        print("[HyperLight/SystemUI] [6/9] Patched NotificationGroupStack (collapsed child limit -> 8).")
 
     # 7. LockScreenDepthAvoid (SystemUI)
     if patch_depth_avoid_systemui(smali_dir):
-        print("[HyperLight/SystemUI] [7/11] Patched LockScreenDepthAvoid in SystemUI.")
+        print("[HyperLight/SystemUI] [7/9] Patched LockScreenDepthAvoid in SystemUI.")
 
     # 8. LockScreenPinKeyUnblur
     if patch_pinkey_unblur(smali_dir):
-        print("[HyperLight/SystemUI] [8/11] Patched LockScreenPinKeyUnblur (remove PIN pad blur/dimming).")
+        print("[HyperLight/SystemUI] [8/9] Patched LockScreenPinKeyUnblur (remove PIN pad blur/dimming).")
 
-    # 9. LockScreenPinKeyGlass
-    if patch_pinkey_glass(smali_dir):
-        print("[HyperLight/SystemUI] [9/11] Patched LockScreenPinKeyGlass (hardware blur for PIN keys).")
-
-    # 10. LockScreenBlurButton
-    if patch_blur_button(smali_dir):
-        print("[HyperLight/SystemUI] [10/11] Patched LockScreenBlurButton (glass blur for lockscreen shortcuts).")
-
-    # 11. LockScreenMusicCapsule
+    # 9. LockScreenMusicCapsule
     if patch_music_capsule(smali_dir):
-        print("[HyperLight/SystemUI] [11/11] Patched LockScreenMusicCapsule (unlock media focus capsule on keyguard).")
+        print("[HyperLight/SystemUI] [9/9] Patched LockScreenMusicCapsule (unlock media focus capsule on keyguard).")
 
     print("[HyperLight/SystemUI] SystemUI modification complete.")
     return 0

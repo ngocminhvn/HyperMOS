@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""HyperMOS Native Circle to Search (Omni) smali patcher for framework, services, and miui-services JARs.
+"""HyperMOS Circle to Search (MiCTS / Omni) smali patcher for framework and services JARs.
 
 Applies:
 - framework.jar: Spoofs Google App (com.google.android.googlequicksearchbox) to Pixel 9 Pro (caiman).
-- services.jar: Configures AOSP Contextual Search & VoiceInteraction to route omni.entry_point to Google App.
-- miui-services.jar: Routes Home key & gesture line long-press to Omni Assist Session without XiaoAI.
+- services.jar: Configures VoiceInteractionManagerServiceStub to route omni.entry_point to Google App (for MiCTS).
 """
 from __future__ import annotations
 
@@ -115,124 +114,12 @@ def patch_services(root: Path) -> bool:
             print(f"[CTS][Services] Patched {file}")
             patched_any = True
 
-    # 2. ContextualSearchManagerService
-    cs_services = locate_files(root, "com/android/server/contextualsearch/ContextualSearchManagerService.smali")
-    for file in cs_services:
-        cs_content = file.read_text(encoding="utf-8")
-        pkg_method_pattern = r'(?ms)^\.method [^\n]*\bgetContextualSearchPackageName\(\)Ljava/lang/String;[^\n]*\n.*?^\.end method[ \t]*$'
-        new_pkg_method = (
-            '.method private getContextualSearchPackageName()Ljava/lang/String;\n'
-            '    .registers 2\n\n'
-            '    const-string v0, "com.google.android.googlequicksearchbox"\n\n'
-            '    return-object v0\n'
-            '.end method'
-        )
-        patched_cs = re.sub(pkg_method_pattern, new_pkg_method, cs_content)
-        if patched_cs != cs_content:
-            file.write_text(patched_cs, encoding="utf-8")
-            print(f"[CTS][Services] Patched {file}")
-            patched_any = True
-
-    # 3. SystemServer: always start ContextualSearchManagerService even when OEM config string is empty
-    sys_servers = locate_files(root, "com/android/server/SystemServer.smali")
-    for file in sys_servers:
-        ss_content = file.read_text(encoding="utf-8")
-        ss_pattern = (
-            r'const v\d+, 0x[0-9a-fA-F]+\s+'
-            r'invoke-direct \{[^}]+\}, Lcom/android/server/SystemServer;->deviceHasConfigString\(Landroid/content/Context;I\)Z\s+'
-            r'move-result ([vp]\d+)\s+'
-            r'(if-eqz \1, :cond_\w+\s+(?:\.line \d+\s+)?const-string [vp]\d+, "StartContextualSearchService")'
-        )
-        patched_ss = re.sub(ss_pattern, r'const/4 \1, 0x1\n\n    \2', ss_content, count=1)
-        if patched_ss != ss_content:
-            file.write_text(patched_ss, encoding="utf-8")
-            print(f"[CTS][Services] Patched {file} (force start ContextualSearchManagerService)")
-            patched_any = True
-
     return patched_any
 
 
 def patch_miui_services(root: Path) -> bool:
-    patched_any = False
-
-    # 1. ShortCutActionsUtils
-    sc_files = locate_files(root, "com/miui/server/input/util/ShortCutActionsUtils.smali")
-    for file in sc_files:
-        sc_content = file.read_text(encoding="utf-8")
-        anchor = 'invoke-direct {p0, p1, v0}, Lcom/miui/server/input/util/ShortCutActionsUtils;->setGoogleSearchInvocationTypeKey(Ljava/lang/String;Landroid/os/Bundle;)V'
-        if anchor in sc_content and 'const-string v1, "omni.entry_point"' not in sc_content:
-            injected = (
-                anchor + '\n\n'
-                '    # HyperMOS Native Circle to Search args\n'
-                '    const-string v1, "omni.entry_point"\n\n'
-                '    const/4 v2, 0x1\n\n'
-                '    invoke-virtual {v0, v1, v2}, Landroid/os/Bundle;->putBoolean(Ljava/lang/String;Z)V\n'
-            )
-            sc_content = sc_content.replace(anchor, injected, 1)
-            file.write_text(sc_content, encoding="utf-8")
-            print(f"[CTS][MiuiServices] Patched {file}")
-            patched_any = True
-
-    # 2. HomeKeyRule
-    hk_files = locate_files(root, "com/android/server/input/shortcut/singlekeyrule/HomeKeyRule.smali")
-    for file in hk_files:
-        hk_content = file.read_text(encoding="utf-8")
-        long_press_pattern = r'(?ms)^\.method protected onMiuiLongPress\(Ljava/lang/Object;J\)V[^\n]*\n.*?^\.end method[ \t]*$'
-        new_long_press = (
-            '.method protected onMiuiLongPress(Ljava/lang/Object;J)V\n'
-            '    .registers 8\n'
-            '    .param p1, "singleKeyGestureEvent"    # Ljava/lang/Object;\n'
-            '    .param p2, "eventTime"    # J\n\n'
-            '    # HyperMOS Native Circle to Search: Route Home long press to Google Assist Session\n'
-            '    const-string/jumbo v0, "long_press_home_key"\n\n'
-            '    const-string/jumbo v2, "launch_google_search"\n\n'
-            '    const/4 v1, 0x0\n\n'
-            '    const/4 v3, 0x1\n\n'
-            '    invoke-virtual {p0, v0, v2, v1, v3}, Lcom/android/server/input/shortcut/singlekeyrule/HomeKeyRule;->postTriggerFunction(Ljava/lang/String;Ljava/lang/String;Landroid/os/Bundle;Z)Z\n\n'
-            '    return-void\n'
-            '.end method'
-        )
-        patched_hk = re.sub(long_press_pattern, new_long_press, hk_content)
-
-        # Also initialize search_all_entrypoints_enabled and long_press_home_key_no_ui in init()
-        init_anchor = 'invoke-super {p0}, Lcom/android/server/policy/MiuiSingleKeyRule;->init()V'
-        if init_anchor in patched_hk and 'long_press_home_key_no_ui' not in patched_hk[:patched_hk.find('registerShortcutListener')]:
-            init_inject = (
-                init_anchor + '\n\n'
-                '    # HyperMOS Native Circle to Search: Enable bottom gesture navigation search entrypoints\n'
-                '    :try_start_cts_init\n'
-                '    iget-object v0, p0, Lcom/android/server/input/shortcut/singlekeyrule/HomeKeyRule;->mContentResolver:Landroid/content/ContentResolver;\n'
-                '    if-eqz v0, :cond_cts_init_skip\n'
-                '    const-string/jumbo v1, "search_all_entrypoints_enabled"\n'
-                '    const-string v2, "1"\n'
-                '    iget v3, p0, Lcom/android/server/input/shortcut/singlekeyrule/HomeKeyRule;->mCurrentUserId:I\n'
-                '    invoke-static {v0, v1, v2, v3}, Landroid/provider/Settings$Secure;->putStringForUser(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;I)Z\n'
-                '    iget-object v0, p0, Lcom/android/server/input/shortcut/singlekeyrule/HomeKeyRule;->mContentResolver:Landroid/content/ContentResolver;\n'
-                '    const-string/jumbo v1, "long_press_home_key_no_ui"\n'
-                '    const-string/jumbo v2, "launch_google_search"\n'
-                '    iget v3, p0, Lcom/android/server/input/shortcut/singlekeyrule/HomeKeyRule;->mCurrentUserId:I\n'
-                '    invoke-static {v0, v1, v2, v3}, Landroid/provider/Settings$System;->putStringForUser(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;I)Z\n'
-                '    :cond_cts_init_skip\n'
-                '    :try_end_cts_init\n'
-                '    .catchall {:try_start_cts_init .. :try_end_cts_init} :catchall_cts_init\n'
-                '    goto :goto_cts_init_end\n'
-                '    :catchall_cts_init\n'
-                '    move-exception v0\n'
-                '    :goto_cts_init_end\n'
-            )
-            # Adjust locals in init() if needed
-            init_pattern = r'(\.method public init\(\)V[ \t]*\n)(\s*\.(?:registers|locals)\s+\d+[ \t]*\n)'
-            m_init = re.search(init_pattern, patched_hk)
-            if m_init:
-                patched_hk = patched_hk[:m_init.start()] + m_init.group(1) + '    .locals 4\n' + patched_hk[m_init.end():]
-            patched_hk = patched_hk.replace(init_anchor, init_inject, 1)
-
-        if patched_hk != hk_content:
-            file.write_text(patched_hk, encoding="utf-8")
-            print(f"[CTS][MiuiServices] Patched {file}")
-            patched_any = True
-
-    return patched_any
+    """Gesture triggers for Circle to Search are intentionally omitted; MiCTS runs via VIMS."""
+    return False
 
 
 def main():
