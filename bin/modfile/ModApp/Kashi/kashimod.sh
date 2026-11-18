@@ -254,16 +254,13 @@ fi
 # 7. HyperOS 4 AOD (OS4 only)
 if [[ "$(is_mod_enabled "aod")" == "1" ]]; then
     aod_zip="$(get_mod_zip "aod")"
-    modscenter_apply_native_module \
+    modscenter_apply_fixed_archive_apk \
         "HyperOS 4 AOD ($rom_os)" \
         "Mods-Center/HyperOS-AOD" \
+        "files/MIUIAod.apk" \
         "com.miui.aod" \
-        "*MIUIAod*.apk" \
         "product/priv-app/MIUIAod" \
-        "$aod_zip" \
-        "MIUIAod" \
-        "MiuiAod" \
-        "Aod" || exit 1
+        "$aod_zip" || exit 1
 
     modscenter_os4_stage_aod_extras "$aod_zip" || exit 1
 else

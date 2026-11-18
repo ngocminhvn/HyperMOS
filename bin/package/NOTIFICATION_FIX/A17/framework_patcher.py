@@ -11,6 +11,22 @@ import re
 from pathlib import Path
 
 POLICY_CONFIG = "com/miui/server/greeze/PolicyManagerConfig.smali"
+ACTIVITY_STARTER_IMPL = "com/android/server/wm/ActivityStarterImpl.smali"
+
+BUBBLE_BYPASS_MARKER = ":cond_allow_bubble_skip"
+BUBBLE_BYPASS_HOOK = (
+    r"\1\n"
+    r"    const/16 v10, 0x3e8\n\n"
+    r"    if-ne v3, v10, :cond_allow_bubble_skip\n\n"
+    r"    if-eqz v1, :cond_allow_bubble_skip\n\n"
+    r"    invoke-virtual {v1}, Landroid/content/Intent;->getFlags()I\n\n"
+    r"    move-result v10\n\n"
+    r"    const/high16 v11, 0x8080000\n\n"
+    r"    and-int/2addr v10, v11\n\n"
+    r"    if-ne v10, v11, :cond_allow_bubble_skip\n\n"
+    r"    return v9\n\n"
+    r"    :cond_allow_bubble_skip\n"
+)
 
 
 def locate(root: Path, relative: str):
@@ -65,6 +81,25 @@ def patch(root: Path):
     if changed:
         cfg_file.write_text(source, encoding="utf-8")
 
+    # 3. Allow SystemUI (uid=1000) Bubble launches (NEW_DOCUMENT | MULTIPLE_TASK) without MIUIOP(10021)
+    bubble_bypass_applied = False
+    starter_file = locate(root, ACTIVITY_STARTER_IMPL)
+    starter_src = starter_file.read_text(encoding="utf-8")
+    if BUBBLE_BYPASS_MARKER not in starter_src:
+        bubble_anchor = re.compile(
+            r'(\.method public isAllowedStartActivity\(Landroid/content/Intent;IILjava/lang/String;IILandroid/content/pm/ActivityInfo;Lcom/android/server/wm/BackgroundActivityStartController\$BalVerdict;Lcom/android/server/wm/ActivityRecord;\)Z'
+            r'.*?move/from16 v3, p5\s*\n'
+            r'.*?const/4 v9, 0x1\s*\n)'
+            , re.DOTALL
+        )
+        new_starter_src, n_subs = bubble_anchor.subn(BUBBLE_BYPASS_HOOK, starter_src, count=1)
+        if n_subs == 1:
+            starter_file.write_text(new_starter_src, encoding="utf-8")
+            changed = True
+            bubble_bypass_applied = True
+    else:
+        bubble_bypass_applied = True
+
     report = {
         "status": "success",
         "changed": changed,
@@ -72,6 +107,7 @@ def patch(root: Path):
         "policy": "pure_global_eea",
         "is_cn_model_forced_false": True,
         "s_cn_model_forced_false": True,
+        "bubble_start_bypass": bubble_bypass_applied,
     }
     return report
 
