@@ -9,6 +9,9 @@ Applies patches directly to MiuiAod.apk:
    - Forces WallpaperInfo.getSupportSubject -> true
    - Forces WallpaperController.needResetMagicType -> false
    - Raises DepthAvoidEvaluator$Threshold overlap ceiling from 0.2 (20%) to 1.0 (100%)
+2. LockScreenBlurButton:
+   Enables blur/glass background for lockscreen shortcut icons (camera & flashlight)
+   when managed by AOD ShortcutViewLayoutController.
 """
 from __future__ import annotations
 
@@ -94,6 +97,43 @@ def patch_depth_avoid_aod(smali_dir: Path) -> bool:
     return patched_any
 
 
+def patch_blur_buttons_aod(smali_dir: Path) -> bool:
+    """LockScreenBlurButton: apply hardware blur to AOD ShortcutViewLayoutController shortcut views."""
+    has_blur_utils = any(smali_dir.rglob("MiuiBlurUtils.smali"))
+    if not has_blur_utils:
+        return False
+
+    patched_any = False
+    p_bg = re.compile(
+        r"(\binvoke-virtual \{([vp]\d+), ([vp]\d+)\}, Landroid/(?:widget/ImageView|view/View);->setBackground\(Landroid/graphics/drawable/Drawable;\)V)"
+    )
+    for path in smali_dir.rglob("ShortcutViewLayoutController*.smali"):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if "setMiBackgroundBlurMode" in content or not p_bg.search(content):
+            continue
+
+        def _repl(match: re.Match[str]) -> str:
+            view_reg, tmp_reg = match.group(2), match.group(3)
+            return (
+                f"{match.group(1)}\n\n"
+                f"    const/4 {tmp_reg}, 0x1\n\n"
+                f"    invoke-static {{{tmp_reg}, {view_reg}}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurMode(ILandroid/view/View;)V\n\n"
+                f"    const/16 {tmp_reg}, 0x32\n\n"
+                f"    invoke-static {{{tmp_reg}, {view_reg}}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiBackgroundBlurRadius(ILandroid/view/View;)V\n\n"
+                f"    const/4 {tmp_reg}, 0x1\n\n"
+                f"    invoke-static {{{tmp_reg}, {view_reg}}}, Lcom/miui/clock/utils/MiuiBlurUtils;->setMiViewBlurMode(ILandroid/view/View;)V"
+            )
+
+        new_content = p_bg.sub(_repl, content)
+        if new_content != content:
+            path.write_text(new_content, encoding="utf-8")
+            patched_any = True
+    return patched_any
+
+
 def main() -> int:
     cli = argparse.ArgumentParser(description="Patch MiuiAod with HyperLight mods")
     cli.add_argument("--unpacked", type=Path, required=True, help="Path to unpacked AOD APK directory")
@@ -105,9 +145,14 @@ def main() -> int:
         return 1
 
     if patch_depth_avoid_aod(smali_dir):
-        print("[HyperLight/AOD] [1/1] Successfully patched LockScreenDepthAvoid (100% threshold + hierarchy force enable).")
+        print("[HyperLight/AOD] [1/2] Successfully patched LockScreenDepthAvoid (100% threshold + hierarchy force enable).")
     else:
         print("[HyperLight/AOD] Notice: Depth avoid signatures not found or not applicable on this AOD build.")
+
+    if patch_blur_buttons_aod(smali_dir):
+        print("[HyperLight/AOD] [2/2] Patched LockScreenBlurButton in AOD ShortcutViewLayoutController.")
+    else:
+        print("[HyperLight/AOD] Notice: ShortcutViewLayoutController blur hook skipped or not applicable.")
 
     print("[HyperLight/AOD] AOD modification complete.")
     return 0
