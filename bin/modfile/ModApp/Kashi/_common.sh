@@ -39,6 +39,7 @@ modscenter_fixed_prefix() {
         "Mods-Center/HyperOS-Rust-Launcher-Mod") printf '%s\n' "HyperOS4_RustLauncherMod_" ;;
         "Mods-Center/HyperOS-Security-Center") printf '%s\n' "HyperOS_Security" ;;
         "Mods-Center/HyperOS-Theme-Manager") printf '%s\n' "HyperOS_ThemeManager" ;;
+        "Mods-Center/HyperOS-AOD") printf '%s\n' "HyperOS4_AOD_" ;;
         *) return 1 ;;
     esac
 }
@@ -567,5 +568,150 @@ PY
         install -m 0644 "$tmp" "$out" || { rm -f "$tmp"; return 1; }
         rm -f "$tmp"
         mods "$label: installed verified upstream whitelist -> $out"
+    fi
+}
+
+modscenter_os4_stage_aod_extras() {
+    local label="HyperOS 4 AOD extras"
+    local explicit_zip="${1:-}"
+    local perm_member="system/product/etc/permissions/privapp_whitelist_com.miui.aod.xml"
+    local perm_dir="$OS3_IMAGES/product/etc/permissions"
+    local perm_out="$perm_dir/privapp_whitelist_com.miui.aod.xml"
+    local tmp_xml df_dir df_file key aod_device=0
+    local editor="$work_dir/bin/apktool/apke.jar"
+    local overlay_apk="$OS3_IMAGES/product/overlay/DevicesAndroidOverlay.apk"
+
+    modscenter_prepare_fixed "$label" "Mods-Center/HyperOS-AOD" "$explicit_zip" || return 1
+
+    # 1. Stage privapp whitelist if missing in stock
+    if unzip -Z1 "$MODSCENTER_ARCHIVE" 2>/dev/null | grep -Fxq "$perm_member"; then
+        mkdir -p "$perm_dir"
+        if [[ -e "$perm_out" ]]; then
+            mods "$label: keep existing stock whitelist -> $perm_out"
+        else
+            tmp_xml="$(mktemp)"
+            if unzip -p "$MODSCENTER_ARCHIVE" "$perm_member" >"$tmp_xml" && [[ -s "$tmp_xml" ]] && python3 - "$tmp_xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+assert any(
+    node.tag.rsplit("}", 1)[-1] == "privapp-permissions"
+    and node.attrib.get("package") == "com.miui.aod"
+    for node in root.iter()
+)
+PY
+            then
+                install -m 0644 "$tmp_xml" "$perm_out" || { rm -f "$tmp_xml"; return 1; }
+                mods "$label: installed privapp whitelist -> $perm_out"
+            else
+                rm -f "$tmp_xml"
+                error "$label: invalid privapp_whitelist_com.miui.aod.xml"
+                return 1
+            fi
+            rm -f "$tmp_xml"
+        fi
+    fi
+
+    # 2. Enable AOD device_features (without support_aod_fullscreen to avoid OS4 bootloop)
+    df_dir="$OS3_IMAGES/product/etc/device_features"
+    if [[ -d "$df_dir" ]]; then
+        for df_file in "$df_dir"/*.xml; do
+            [[ -f "$df_file" ]] || continue
+            grep -q 'name="support_aod">true' "$df_file" && aod_device=1
+            grep -q '</features>' "$df_file" || continue
+            for key in support_aod support_aod_notification_animate aod_support_keycode_goto_dismiss \
+                       support_screen_color_persist doze_display_state_supported doze_proximity_check_before_pulse_intent; do
+                sed -i "/<bool name=\"$key\">/d" "$df_file"
+                sed -i "/<\/features>/ i\\    <bool name=\"$key\">true</bool>" "$df_file"
+            done
+            mods "$label: updated device_features -> $(basename "$df_file")"
+        done
+    fi
+
+    # 3. For devices without stock AOD, enable AOD in DevicesAndroidOverlay (fallback: ElderlyNavigationBarOverlay)
+    if [[ "$aod_device" == "0" ]]; then
+        local ov_patched=0
+        if [[ -s "$overlay_apk" && -s "$editor" ]]; then
+            local ov_tmp
+            ov_tmp="$(mktemp -d)"
+            if java -jar "$editor" d -f -i "$overlay_apk" -o "$ov_tmp/dec" >"$ov_tmp/dec.log" 2>&1; then
+                local vd
+                vd="$(find "$ov_tmp/dec" -type d -path '*/res/values' | head -n 1)"
+                if [[ -n "$vd" ]] && python3 - "$vd" <<'PY'
+import re, sys
+from pathlib import Path
+
+vd = Path(sys.argv[1])
+pub = vd / "public.xml"
+if not pub.is_file():
+    raise SystemExit(1)
+
+entries = [
+    ("bool", "config_dozeAlwaysOnDisplayAvailable", "true"),
+    ("bool", "config_dozeSupportsAodWallpaper", "true"),
+    ("bool", "config_displayBlanksAfterDoze", "false"),
+    ("string", "config_dozeComponent", "com.android.systemui/com.android.keyguard.doze.MiuiDozeService"),
+]
+
+def alloc_public_id(pub_text: str, rtype: str) -> str:
+    max_ty = 0
+    max_e = -1
+    type_id = None
+    for m in re.finditer(r'<public\b[^>]*type="([^"]+)"[^>]*id="(0x[0-9a-fA-F]+)"', pub_text):
+        t, h = m.group(1), int(m.group(2), 16)
+        ty, e = (h >> 16) & 0xFF, h & 0xFFFF
+        if ty > max_ty:
+            max_ty = ty
+        if t == rtype:
+            type_id = ty
+            if e > max_e:
+                max_e = e
+    if type_id is not None:
+        return f"0x7f{type_id:02x}{max_e + 1:04x}"
+    return f"0x7f{max_ty + 1:02x}0000"
+
+pub_text = pub.read_text(encoding="utf-8")
+for rtype, name, val in entries:
+    pat = re.compile(rf'(<{rtype}\s+name="{re.escape(name)}"[^>]*>)[^<]*(</{rtype}>)')
+    replaced = False
+    for xf in sorted(vd.glob("*.xml")):
+        if xf.name == "public.xml":
+            continue
+        txt = xf.read_text(encoding="utf-8")
+        new_txt, n = pat.subn(rf'\g<1>{val}\g<2>', txt)
+        if n:
+            xf.write_text(new_txt, encoding="utf-8")
+            replaced = True
+            break
+    if not replaced:
+        target_xml = vd / f"{rtype}s.xml"
+        if not target_xml.is_file():
+            target_xml.write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n', encoding="utf-8")
+        txt = target_xml.read_text(encoding="utf-8")
+        txt = txt.replace("</resources>", f'  <{rtype} name="{name}">{val}</{rtype}>\n</resources>')
+        target_xml.write_text(txt, encoding="utf-8")
+        if f'name="{name}"' not in pub_text:
+            new_id = alloc_public_id(pub_text, rtype)
+            pub_text = pub_text.replace("</resources>", f'  <public id="{new_id}" type="{rtype}" name="{name}" />\n</resources>')
+
+pub.write_text(pub_text, encoding="utf-8")
+PY
+                then
+                    if java -jar "$editor" b -f -i "$ov_tmp/dec" -o "$ov_tmp/out.apk" >"$ov_tmp/bld.log" 2>&1 \
+                       && unzip -l "$ov_tmp/out.apk" resources.arsc >/dev/null 2>&1; then
+                        install -m 0644 "$ov_tmp/out.apk" "$overlay_apk"
+                        mods "$label: patched DevicesAndroidOverlay.apk (AOD enabled)"
+                        ov_patched=1
+                    fi
+                fi
+            fi
+            rm -rf "$ov_tmp"
+        fi
+        if [[ "$ov_patched" == "0" ]] && unzip -Z1 "$MODSCENTER_ARCHIVE" 2>/dev/null | grep -Fxq "files/ElderlyNavigationBarOverlay.apk"; then
+            mkdir -p "$OS3_IMAGES/product/overlay"
+            unzip -p "$MODSCENTER_ARCHIVE" "files/ElderlyNavigationBarOverlay.apk" > "$OS3_IMAGES/product/overlay/ElderlyNavigationBarOverlay.apk"
+            chmod 0644 "$OS3_IMAGES/product/overlay/ElderlyNavigationBarOverlay.apk"
+            mods "$label: installed fallback ElderlyNavigationBarOverlay.apk"
+        fi
     fi
 }

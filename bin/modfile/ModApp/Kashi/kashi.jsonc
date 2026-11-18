@@ -50,6 +50,14 @@
       "os3": false,
       "os4": false,
       "selected_zip": "HyperOS_SecurityV8@kashis_cringey_stuffs.zip"
+    },
+
+    // 7. HyperOS 4 AOD (MIUIAod - chi bat cho OS4)
+    "aod": {
+      "name": "HyperOS 4 AOD",
+      "os3": false,
+      "os4": true,
+      "selected_zip": "HyperOS4_AOD_v4.0@kashis_cringey_stuffs.zip"
     }
   }
 }

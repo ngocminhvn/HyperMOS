@@ -11,9 +11,6 @@ bin/modfile/ModApp/HyperLight/
 ├── SystemUI/               # Các bản vá nhắm vào MiuiSystemUI.apk
 │   ├── update.sh
 │   └── patch.py
-└── AOD/                    # Các bản vá nhắm vào MiuiAod.apk
-    ├── update.sh
-    └── patch.py
 ```
 
 ## Chi tiết các bản vá theo thành phần
@@ -30,10 +27,6 @@ bin/modfile/ModApp/HyperLight/
 - **`LockScreenPinKeyGlass`**: Áp dụng hiệu ứng kính mờ phần cứng (`MiViewBlurMode`) trực tiếp lên từng phím số `NumPadKey`.
 - **`LockScreenBlurButton`**: Áp dụng hiệu ứng kính mờ phần cứng (`MiViewBlurMode`) cho 2 nút tròn phím tắt (đèn pin & camera) trên màn hình khóa trong `DefaultShortcutsSection`.
 - **`LockScreenMusicCapsule`**: Cho phép hiển thị thẻ nhạc Focus Media Capsule (`canShowFocusMediaState -> 1` trong `NotificationSettingsManager`) và thao tác vuốt thẻ media trên màn hình khóa.
-
-### 2. `AOD/` (`MiuiAod.apk`)
-- **`LockScreenDepthAvoid (AOD)`**: Gỡ bỏ giới hạn chiều sâu hình nền khóa. Nâng ngưỡng tỉ lệ che đồng hồ từ `0.2` (20%) lên `1.0` (100%) trong `Threshold`, ép `HierarchyImageAvoidController.isHierarchyEnable -> true`, `WallpaperInfo.getSupportSubject -> true` để bất kỳ hình nền nào cũng kích hoạt được hiệu ứng Depth 3D.
-- **`LockScreenBlurButton (AOD)`**: Fallback hỗ trợ hiệu ứng kính mờ cho 2 nút phím tắt trong `ShortcutViewLayoutController` nếu có trên các bản AOD đặc thù.
 
 ## Nguyên tắc an toàn
 - Sử dụng `apke.jar` đóng gói theo chế độ raw DEX/Smali.

@@ -14,8 +14,3 @@ hl_dir="$work_dir/bin/modfile/ModApp/HyperLight"
 if [[ -f "$hl_dir/SystemUI/update.sh" ]]; then
     bash "$hl_dir/SystemUI/update.sh" || exit 1
 fi
-
-# 2. AOD Patches (LockScreenDepthAvoid, LockScreenBlurButton)
-if [[ -f "$hl_dir/AOD/update.sh" ]]; then
-    bash "$hl_dir/AOD/update.sh" || exit 1
-fi

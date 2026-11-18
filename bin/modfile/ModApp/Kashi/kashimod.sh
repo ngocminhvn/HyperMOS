@@ -251,4 +251,23 @@ if [[ "$(is_mod_enabled "security_center")" == "1" ]]; then
         "SecurityCenter" || exit 1
 fi
 
+# 7. HyperOS 4 AOD (OS4 only)
+if [[ "$(is_mod_enabled "aod")" == "1" ]]; then
+    aod_zip="$(get_mod_zip "aod")"
+    modscenter_apply_native_module \
+        "HyperOS 4 AOD ($rom_os)" \
+        "Mods-Center/HyperOS-AOD" \
+        "com.miui.aod" \
+        "*MIUIAod*.apk" \
+        "product/priv-app/MIUIAod" \
+        "$aod_zip" \
+        "MIUIAod" \
+        "MiuiAod" \
+        "Aod" || exit 1
+
+    modscenter_os4_stage_aod_extras "$aod_zip" || exit 1
+else
+    mods "HyperOS 4 AOD: disabled in kashi.jsonc"
+fi
+
 mods "Kashi mods integration for $rom_os -> Complete"
