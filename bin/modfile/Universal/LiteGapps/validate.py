@@ -34,7 +34,6 @@ REQUIRED = {
         "product/priv-app/GmsCore/GmsCore.apk",
         "product/priv-app/Phonesky/Phonesky.apk",
         "product/priv-app/Velvet/Velvet.apk",
-        "product/priv-app/GoogleDialer/GoogleDialer.apk",
         "system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk",
         "maps/com.google.android.maps.jar",
     ),
