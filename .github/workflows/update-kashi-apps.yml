@@ -1,13 +1,6 @@
 name: Update Kashi Apps
 
 on:
-  # Bootstrap the new Rust launcher ZIP on main without creating any new workflow.
-  # Follow-up snapshots are updated with the existing manual dispatch.
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/update-kashi-apps.yml'
-      - 'bin/modfile/ModApp/Kashi/kashimod.sh'
   workflow_dispatch:
     inputs:
       dry_run:
