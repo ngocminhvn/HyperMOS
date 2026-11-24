@@ -5,7 +5,7 @@ MAINF="$WDIR/build/baserom/images"
 deviceTYPE=$(cat "$WDIR/bin/ddevice/device_type.txt")
 
 INSTALLER_DIR="$WDIR/bin/modfile/Universal/packageinstaller"
-WHITELIST="$INSTALLER_DIR/privapp_whitelist_kashi.pkginstaller.xml"
+WHITELIST="$INSTALLER_DIR/installerX.xml"
 
 CONFIG_ENV="$WDIR/config.env"
 dirtyflash="${dirtyflash:-off}"
