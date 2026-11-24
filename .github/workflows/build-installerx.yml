@@ -90,6 +90,14 @@ jobs:
           path: out/MIUIPackageInstaller.apk
           if-no-files-found: error
           retention-days: 3
+      - name: Preserve compiled APK if verification fails
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: installerx-unpublished-diagnostic
+          path: installerx/app/build/outputs/apk/**/*.apk
+          if-no-files-found: ignore
+          retention-days: 3
 
   publish:
     needs: build

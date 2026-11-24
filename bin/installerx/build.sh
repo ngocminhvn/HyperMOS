@@ -110,15 +110,18 @@ echo "[InstallerX] Selected APK: $APK"
 # Verify that Gradle signed the APK with the fixed HyperMOS certificate.
 EXPECTED_CERT="$(openssl x509 -in "$SIGN_CERT" -outform DER | sha256sum | awk '{print tolower($1)}')"
 SIGNATURE_INFO="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
-ACTUAL_CERT="$(printf '%s\n' "$SIGNATURE_INFO" | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {gsub(/:/, "", $2); print tolower($2); exit}')"
+ACTUAL_CERT="$(printf '%s\n' "$SIGNATURE_INFO" | awk '/^(Signer #[0-9]+ certificate SHA-256 digest:|V[0-9]+(\.[0-9]+)? Signer( #[0-9]+)?: certificate SHA-256 digest:)/ {v=$NF; gsub(/:/,"",v); print tolower(v)}' | sort -u)"
 
 [[ -n "$ACTUAL_CERT" && "$ACTUAL_CERT" == "$EXPECTED_CERT" ]] || {
     echo "::error::InstallerX signing certificate does not match the HyperMOS testkey"
+    printf 'Expected SHA-256: %s\nActual SHA-256: %s\n' "$EXPECTED_CERT" "$ACTUAL_CERT"
     printf '%s\n' "$SIGNATURE_INFO"
     exit 1
 }
 
-"$ZIPALIGN" -c -v 4 "$APK" >/dev/null
+echo "[InstallerX] Signing certificate verified: $ACTUAL_CERT"
+"$ZIPALIGN" -c -v 4 "$APK"
+unzip -tq "$APK"
 
 VERSION_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" )"
 VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" )"
