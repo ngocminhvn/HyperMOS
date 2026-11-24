@@ -1,0 +1,76 @@
+name: Build InstallerX Dev APK
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build latest InstallerX dev for HyperMOS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout HyperMOS build scripts
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: hypermos
+          lfs: false
+
+      - name: Checkout latest InstallerX dev source
+        uses: actions/checkout@v7
+        with:
+          repository: wxxsfxyzm/InstallerX-Revived
+          ref: dev
+          path: installerx
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '25'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 37 toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;37.0.0"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          build-scan-terms-of-use-url: "https://gradle.com/help/legal-terms-of-use"
+          build-scan-terms-of-use-agree: "yes"
+          build-scan-publish: false
+
+      - name: Build, sign and verify InstallerX
+        shell: bash
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x installerx/gradlew
+          bash hypermos/bin/installerx/build.sh "$GITHUB_WORKSPACE/installerx" "$GITHUB_WORKSPACE/out/installerx"
+
+      - name: Upload HyperMOS PackageInstaller APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: installerx-packageinstaller
+          path: out/installerx/MIUIPackageInstaller.apk
+          if-no-files-found: error
+          retention-days: 7
