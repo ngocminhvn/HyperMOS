@@ -2,6 +2,11 @@ name: Build and publish InstallerX Dev APK
 on:
   workflow_call:
   workflow_dispatch:
+  push:
+    branches: [build/installerx-dev]
+    paths:
+      - 'bin/installerx/build.sh'
+      - '.github/workflows/build-installerx.yml'
 
 permissions:
   contents: write

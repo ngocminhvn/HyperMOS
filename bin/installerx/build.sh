@@ -11,7 +11,7 @@ SIGN_CERT="$ROOT/bin/package/DISABLE_AVB/HMATools/aosp/security/testkey.x509.pem
 
 SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 BUILD_TOOLS="$SDK_ROOT/build-tools/37.0.0"
-AAPT="$BUILD_TOOLS/aapt"
+AAPT="$BUILD_TOOLS/aapt2"
 APKSIGNER="$BUILD_TOOLS/apksigner"
 ZIPALIGN="$BUILD_TOOLS/zipalign"
 
@@ -76,24 +76,36 @@ MAPPING_FILE="$(find "$SOURCE_DIR/app/build/outputs/mapping" -type f -name mappi
 }
 echo "[InstallerX] R8 mapping: $MAPPING_FILE"
 
-# Select the single Unstable Release APK whose merged manifest has our package ID.
+# The only assembled variant in this clean checkout is UnstableRelease.
+# AGP preserves flavor case in output directories; do not assume a path layout.
 APK=""
-while IFS= read -r candidate; do
-    [[ -n "$candidate" ]] || continue
-    package="$("$AAPT" dump badging "$candidate" 2>/dev/null | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+APK_ROOT="$SOURCE_DIR/app/build/outputs/apk"
+[[ -d "$APK_ROOT" ]] || { echo "::error::APK output directory missing: $APK_ROOT"; exit 1; }
+mapfile -d '' -t candidates < <(find "$APK_ROOT" -type f -iname '*.apk' -print0)
+echo "[InstallerX] Found ${#candidates[@]} APK candidate(s)"
+for candidate in "${candidates[@]}"; do
+    echo "[InstallerX] Candidate: $candidate"
+    if ! candidate_badging="$("$AAPT" dump badging "$candidate")"; then
+        echo "::warning::Cannot read APK metadata: $candidate"
+        continue
+    fi
+    package="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$candidate_badging")"
+    echo "[InstallerX] Candidate package: ${package:-unknown}"
     if [[ "$package" == "$TARGET_PACKAGE" ]]; then
         if [[ -n "$APK" ]]; then
-            echo "::error::More than one InstallerX APK matches $TARGET_PACKAGE"
+            echo "::error::More than one APK matches $TARGET_PACKAGE"
             exit 1
         fi
         APK="$candidate"
+        BADGING="$candidate_badging"
     fi
-done < <(find "$SOURCE_DIR/app/build/outputs/apk" -type f -name '*.apk' -path '*/unstable/release/*' -print | sort)
+done
 
 [[ -n "$APK" && -s "$APK" ]] || {
-    echo "::error::No Unstable Release APK found with package $TARGET_PACKAGE"
+    echo "::error::No built APK with package $TARGET_PACKAGE"
     exit 1
 }
+echo "[InstallerX] Selected APK: $APK"
 
 # Verify that Gradle signed the APK with the fixed HyperMOS certificate.
 EXPECTED_CERT="$(openssl x509 -in "$SIGN_CERT" -outform DER | sha256sum | awk '{print tolower($1)}')"
@@ -108,9 +120,8 @@ ACTUAL_CERT="$(printf '%s\n' "$SIGNATURE_INFO" | awk -F': ' '/Signer #1 certific
 
 "$ZIPALIGN" -c -v 4 "$APK" >/dev/null
 
-BADGING="$("$AAPT" dump badging "$APK")"
-VERSION_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
-VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+VERSION_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" )"
+VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" )"
 
 mkdir -p "$OUTPUT_DIR"
 cp -f "$APK" "$OUTPUT_DIR/MIUIPackageInstaller.apk"
