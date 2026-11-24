@@ -45,9 +45,20 @@ jobs:
         with:
           distribution: zulu
           java-version: '25'
-      - uses: android-actions/setup-android@v3
-      - name: Install SDK 37
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+      - name: Install SDK 37 using runner Android tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$manager" || { echo "::error::Runner sdkmanager missing: $manager"; exit 1; }
+          # Use the current runner SDK manager; do not install the obsolete tools package.
+          "$manager" --sdk_root="$sdk" --licenses < <(yes) >/dev/null
+          "$manager" --sdk_root="$sdk" "platforms;android-37" "build-tools;37.0.0"
+          test -s "$sdk/platforms/android-37/android.jar"
+          test -x "$sdk/build-tools/37.0.0/apksigner"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-disabled: true
