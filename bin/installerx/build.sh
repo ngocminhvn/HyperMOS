@@ -115,7 +115,8 @@ VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionCode='\([
 mkdir -p "$OUTPUT_DIR"
 cp -f "$APK" "$OUTPUT_DIR/MIUIPackageInstaller.apk"
 
-if unzip -Z1 "$OUTPUT_DIR/MIUIPackageInstaller.apk" | grep -qx 'assets/dexopt/baseline.prof'; then
+APK_ENTRIES="$(unzip -Z1 "$OUTPUT_DIR/MIUIPackageInstaller.apk")"
+if grep -qx 'assets/dexopt/baseline.prof' <<< "$APK_ENTRIES"; then
     PROFILE_STATUS="present"
     echo "[InstallerX] Baseline Profile: present"
 else

@@ -1,76 +1,121 @@
-name: Build InstallerX Dev APK
-
+name: Build and publish InstallerX Dev APK
 on:
   workflow_call:
-  workflow_dispatch:
 
 permissions:
   contents: read
+  packages: read
+
+concurrency:
+  group: installerx-publish-main
+  cancel-in-progress: false
 
 jobs:
   build:
-    name: Build latest InstallerX dev for HyperMOS
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
       packages: read
-
+    outputs:
+      source_sha: ${{ steps.upstream.outputs.sha }}
     steps:
-      - name: Checkout HyperMOS build scripts
+      - name: Checkout APK builder
         uses: actions/checkout@v7
         with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.sha }}
+          ref: build/installerx-dev
           path: hypermos
-          lfs: false
-
-      - name: Checkout latest InstallerX dev source
+          persist-credentials: false
+          sparse-checkout: |
+            bin/installerx
+            bin/package/DISABLE_AVB/HMATools/aosp/security
+      - name: Checkout latest upstream dev
         uses: actions/checkout@v7
         with:
           repository: wxxsfxyzm/InstallerX-Revived
           ref: dev
           path: installerx
           fetch-depth: 0
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v6
+          persist-credentials: false
+      - name: Record upstream commit
+        id: upstream
+        working-directory: installerx
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v6
         with:
           distribution: zulu
           java-version: '25'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 37 toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;37.0.0"
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK 37
+        run: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v6
         with:
-          build-scan-terms-of-use-url: "https://gradle.com/help/legal-terms-of-use"
-          build-scan-terms-of-use-agree: "yes"
-          build-scan-publish: false
-
-      - name: Build, sign and verify InstallerX
-        shell: bash
+          cache-disabled: true
+      - name: Compile and verify APK
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
           chmod +x installerx/gradlew
-          bash hypermos/bin/installerx/build.sh "$GITHUB_WORKSPACE/installerx" "$GITHUB_WORKSPACE/out/installerx"
-
-      - name: Upload HyperMOS PackageInstaller APK
-        uses: actions/upload-artifact@v4
+          bash hypermos/bin/installerx/build.sh "$GITHUB_WORKSPACE/installerx" "$GITHUB_WORKSPACE/out"
+      - uses: actions/upload-artifact@v4
         with:
-          name: installerx-packageinstaller
-          path: out/installerx/MIUIPackageInstaller.apk
+          name: installerx-signed-apk
+          path: out/MIUIPackageInstaller.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout publishing script
+        uses: actions/checkout@v7
+        with:
+          ref: build/installerx-dev
+          path: builder
+          persist-credentials: false
+          sparse-checkout: bin/installerx
+      - name: Checkout ROM main branch
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          path: rom
+          sparse-checkout: bin/modfile/Universal/packageinstaller
+      - uses: actions/download-artifact@v4
+        with:
+          name: installerx-signed-apk
+          path: out
+      - name: Replace APK in main
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$GITHUB_WORKSPACE/out/MIUIPackageInstaller.apk"
+          test -s "$apk"
+          unzip -tq "$apk"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          cd rom
+          dest=bin/modfile/Universal/packageinstaller
+          # First successful publish migrates update.sh and removes the old APK
+          # in the same commit. Never overwrite unrelated edits to update.sh.
+          if ! grep -Fq "# InstallerX is compiled and signed by the independent APK publishing workflow." "$dest/update.sh"; then
+            [[ "$(git hash-object "$dest/update.sh")" == "681bae0be32a46bb45ab77213864c2e8b868d8c1" ]] || { echo "::error::ROM installer script has changed; refusing migration"; exit 1; }
+            cp "$GITHUB_WORKSPACE/builder/bin/installerx/install-rom.sh" "$dest/update.sh"
+            bash -n "$dest/update.sh"
+          fi
+          cp "$apk" "$dest/MIUIPackageInstaller.apk"
+          git add -- "$dest/MIUIPackageInstaller.apk" "$dest/update.sh"
+          git rm --ignore-unmatch -- "$dest/InstallerX-Revived-online-26.09.apk"
+          if git diff --cached --quiet; then
+            echo "APK unchanged; no commit needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update InstallerX dev ${SOURCE_SHA:0:12}"
+          git push origin HEAD:main
+          echo "Published InstallerX $SOURCE_SHA to main." >> "$GITHUB_STEP_SUMMARY"

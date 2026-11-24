@@ -51,19 +51,9 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
-  build-installerx:
-    if: ${{ !contains(inputs.input_url, 'xiaomi.eu') }}
-    uses: ./.github/workflows/build-installerx.yml
-    permissions:
-      contents: read
-      packages: read
-
   build:
-    needs: build-installerx
-    if: ${{ always() && (needs.build-installerx.result == 'success' || needs.build-installerx.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
@@ -105,13 +95,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-
-      - name: Download InstallerX dev APK
-        if: ${{ needs.build-installerx.result == 'success' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: installerx-packageinstaller
-          path: bin/modfile/Universal/packageinstaller/prebuilt
 
       - name: Validate Pixeldrain upload credentials
         shell: bash
