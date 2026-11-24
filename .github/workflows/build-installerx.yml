@@ -1,9 +1,13 @@
 name: Build and publish InstallerX Dev APK
 on:
   workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [build/installerx-dev]
+    paths: ['.github/workflows/build-installerx.yml']
 
 permissions:
-  contents: read
+  contents: write
   packages: read
 
 concurrency:
@@ -12,7 +16,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    if: ${{ github.event_name != 'push' || contains(github.event.head_commit.message, '[installerx-test]') }}
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     permissions:
       contents: read
@@ -45,17 +50,26 @@ jobs:
         with:
           distribution: zulu
           java-version: '25'
-      - name: Install SDK 37 using runner Android tools
+      - name: Verify upstream Android SDK toolchain
         shell: bash
         run: |
           set -euo pipefail
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$manager" || { echo "::error::Runner sdkmanager missing: $manager"; exit 1; }
-          # Use the current runner SDK manager; do not install the obsolete tools package.
-          "$manager" --sdk_root="$sdk" --licenses < <(yes) >/dev/null
-          "$manager" --sdk_root="$sdk" "platforms;android-37" "build-tools;37.0.0"
-          test -s "$sdk/platforms/android-37/android.jar"
+          cfg=installerx/build-plugins/src/main/kotlin/BuildConfig.kt
+          major=$(sed -nE 's/^[[:space:]]*const val COMPILE_SDK = ([0-9]+).*/\1/p' "$cfg")
+          minor=$(sed -nE 's/^[[:space:]]*const val COMPILE_SDK_MINOR = ([0-9]+).*/\1/p' "$cfg")
+          [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || { echo "::error::Cannot read upstream compile SDK"; exit 1; }
+          platform="android-$major.$minor"
+          echo "Upstream compile SDK: $platform"
+          echo "Installed SDK platforms:"
+          ls -1 "$sdk/platforms"
+          if [[ ! -s "$sdk/platforms/$platform/android.jar" || ! -x "$sdk/build-tools/37.0.0/apksigner" ]]; then
+            manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+            test -x "$manager"
+            "$manager" --sdk_root="$sdk" --licenses < <(yes) >/dev/null
+            "$manager" --sdk_root="$sdk" "platforms;$platform" "build-tools;37.0.0"
+          fi
+          test -s "$sdk/platforms/$platform/android.jar"
           test -x "$sdk/build-tools/37.0.0/apksigner"
           echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
